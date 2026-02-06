@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { apiGet, apiPost, clearSession, getCompanyId } from "@/lib/api";
+import { apiGet } from "@/lib/api";
+import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -41,8 +41,6 @@ export default function DashboardPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [status, setStatus] = useState<string>("");
 
-  const companyId = getCompanyId();
-
   useEffect(() => {
     async function run() {
       setStatus("Loading...");
@@ -58,39 +56,14 @@ export default function DashboardPage() {
     run();
   }, []);
 
-  async function logout() {
-    try {
-      await apiPost("/auth/logout", {});
-    } catch {
-      // ignore
-    } finally {
-      clearSession();
-      router.push("/login");
-    }
-  }
-
   return (
-    <main className="min-h-screen bg-slate-50 px-6 py-8">
+    <AppShell title="Dashboard">
       <div className="mx-auto max-w-5xl space-y-6">
-        <header className="flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-semibold">Dashboard</h1>
-            <p className="text-sm text-slate-600">
-              Company: <code className="text-xs">{companyId || "unset"}</code>{" "}
-              <Link href="/company/select" className="underline">
-                change
-              </Link>
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => router.refresh()}>
-              Refresh
-            </Button>
-            <Button variant="secondary" onClick={logout}>
-              Logout
-            </Button>
-          </div>
-        </header>
+        <div className="flex items-center justify-end">
+          <Button variant="outline" onClick={() => router.refresh()}>
+            Refresh
+          </Button>
+        </div>
 
         {status ? (
           <Card>
@@ -203,7 +176,6 @@ export default function DashboardPage() {
           </section>
         ) : null}
       </div>
-    </main>
+    </AppShell>
   );
 }
-
