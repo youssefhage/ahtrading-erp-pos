@@ -30,6 +30,10 @@ Required fields:
   - amount_lbp
 - loyalty_points (optional)
 
+Notes:
+- For v1 dual-currency bookkeeping, `*_usd` and `*_lbp` represent the same value expressed in two currencies using the event's `exchange_rate`.
+- Clients SHOULD send both USD and LBP amounts for totals, tax, and payments. If a client only sends one currency amount, the server will derive the other using `exchange_rate` (best effort).
+
 ## sale.returned
 Required fields:
 - invoice_id (uuid, optional)

@@ -17,6 +17,10 @@ services:
     environment:
       APP_ENV: local
       DATABASE_URL: postgresql://ahtrading:ahtrading@db:5432/ahtrading
+      BOOTSTRAP_ADMIN: "1"
+      # Optional:
+      # BOOTSTRAP_ADMIN_EMAIL: admin@ahtrading.local
+      # BOOTSTRAP_ADMIN_PASSWORD: set-a-strong-password
     depends_on:
       - db
     ports:

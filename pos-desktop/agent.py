@@ -236,8 +236,8 @@ def mark_outbox_sent(event_ids):
 
 def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_id, payment_method, shift_id):
     lines = []
-    total_usd = 0
-    total_lbp = 0
+    base_usd = 0
+    base_lbp = 0
     for item in cart:
         qty = item['qty']
         unit_price_usd = item.get('price_usd', 0)
@@ -246,8 +246,10 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
         line_total_lbp = unit_price_lbp * qty
         if line_total_lbp == 0 and exchange_rate:
             line_total_lbp = line_total_usd * exchange_rate
-        total_usd += line_total_usd
-        total_lbp += line_total_lbp
+        if line_total_usd == 0 and exchange_rate:
+            line_total_usd = line_total_lbp / exchange_rate
+        base_usd += line_total_usd
+        base_lbp += line_total_lbp
         lines.append({
             'item_id': item['id'],
             'qty': qty,
@@ -259,30 +261,34 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
             'unit_cost_lbp': 0
         })
 
-    payments = []
-    if payment_method == 'credit':
-        payments.append({'method': 'credit', 'amount_usd': 0, 'amount_lbp': 0})
-    else:
-        if pricing_currency == 'USD':
-            payments.append({'method': payment_method or 'cash', 'amount_usd': total_usd, 'amount_lbp': 0})
-        else:
-            payments.append({'method': payment_method or 'cash', 'amount_usd': 0, 'amount_lbp': total_lbp})
-
     tax_block = None
+    tax_usd = 0
+    tax_lbp = 0
     if config.get('tax_code_id') and config.get('vat_rate'):
-        base_lbp = total_lbp
         tax_lbp = base_lbp * float(config.get('vat_rate'))
+        if exchange_rate:
+            tax_usd = tax_lbp / exchange_rate
         tax_block = {
             'tax_code_id': config.get('tax_code_id'),
-            'base_usd': total_usd,
+            'base_usd': base_usd,
             'base_lbp': base_lbp,
-            'tax_usd': 0,
+            'tax_usd': tax_usd,
             'tax_lbp': tax_lbp,
             'tax_date': datetime.utcnow().date().isoformat()
         }
 
+    total_usd = base_usd + tax_usd
+    total_lbp = base_lbp + tax_lbp
+
+    payments = []
+    if payment_method == 'credit':
+        payments.append({'method': 'credit', 'amount_usd': 0, 'amount_lbp': 0})
+    else:
+        # Store both USD + LBP equivalents for dual-ledger balancing.
+        payments.append({'method': payment_method or 'cash', 'amount_usd': total_usd, 'amount_lbp': total_lbp})
+
     loyalty_rate = float(config.get('loyalty_rate') or 0)
-    loyalty_points = total_usd * loyalty_rate if loyalty_rate > 0 else 0
+    loyalty_points = base_usd * loyalty_rate if loyalty_rate > 0 else 0
 
     return {
         'invoice_no': None,
@@ -384,6 +390,15 @@ class Handler(BaseHTTPRequestHandler):
                 headers = device_headers(cfg)
                 catalog = fetch_json(f"{base}/pos/catalog?company_id={company_id}", headers=headers)
                 upsert_catalog(catalog.get('items', []))
+                # Pull device-scoped config (warehouse, VAT settings) to reduce manual setup.
+                pos_cfg = fetch_json(f"{base}/pos/config", headers=headers)
+                if pos_cfg.get('default_warehouse_id'):
+                    cfg['warehouse_id'] = pos_cfg['default_warehouse_id']
+                vat = pos_cfg.get('vat') or {}
+                if vat.get('id'):
+                    cfg['tax_code_id'] = vat['id']
+                if vat.get('rate') is not None:
+                    cfg['vat_rate'] = float(vat['rate'])
                 rate = fetch_json(f"{base}/pos/exchange-rate", headers=headers)
                 if rate.get('rate'):
                     cfg['exchange_rate'] = rate['rate']['usd_to_lbp']

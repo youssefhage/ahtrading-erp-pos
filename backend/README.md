@@ -16,12 +16,24 @@ Initial backend foundation for AH Trading ERP/POS, focused on the database schem
    - `seed_account_roles.sql`
    - `seed_companies.sql`
    - `seed_company_coa.sql`
+   - `seed_bootstrap_master_data.sql`
 
 ## Initialize DB (scripted)
 ```bash
 DATABASE_URL=postgresql://localhost/ahtrading \\
   backend/scripts/init_db.sh
 ```
+
+## Bootstrap Admin (first login)
+The DB contains no users by default. For a dev/local environment you can enable the bootstrap admin creator:
+```bash
+BOOTSTRAP_ADMIN=1 \\
+BOOTSTRAP_ADMIN_EMAIL=admin@ahtrading.local \\
+BOOTSTRAP_ADMIN_PASSWORD='change-me' \\
+DATABASE_URL=postgresql://localhost/ahtrading \\
+  backend/scripts/init_db.sh
+```
+If `BOOTSTRAP_ADMIN_PASSWORD` is omitted, a random password is generated and printed to stdout.
 
 ## Notes
 - All tables include `company_id` where applicable.

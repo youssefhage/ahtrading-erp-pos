@@ -37,6 +37,11 @@ Device auth:
 - Pull catalog: POST /api/sync/pull
 - Push sales: POST /api/sync/push
 
+During pull, the agent also fetches `/pos/config` from the backend to populate:
+- `warehouse_id`
+- `tax_code_id`
+- `vat_rate`
+
 ## Local API
 - GET /api/health
 - GET /api/config

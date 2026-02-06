@@ -75,6 +75,18 @@ def get_avg_cost(cur, company_id: str, item_id: str, warehouse_id: str):
         return Decimal("0"), Decimal("0")
     return Decimal(str(row["avg_cost_usd"] or 0)), Decimal(str(row["avg_cost_lbp"] or 0))
 
+def normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
+    """
+    Best-effort backward compatibility for clients that only send one currency.
+    For v1 we treat USD/LBP columns as dual-ledger amounts for the same value.
+    """
+    if exchange_rate and exchange_rate != 0:
+        if usd == 0 and lbp != 0:
+            usd = lbp / exchange_rate
+        elif lbp == 0 and usd != 0:
+            lbp = usd * exchange_rate
+    return usd, lbp
+
 
 def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: str):
     # Idempotency: skip if invoice already created for this event
@@ -100,14 +112,14 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     if not lines:
         raise ValueError("sale event has no lines")
 
-    total_usd = Decimal("0")
-    total_lbp = Decimal("0")
+    base_usd = Decimal("0")
+    base_lbp = Decimal("0")
     total_cost_usd = Decimal("0")
     total_cost_lbp = Decimal("0")
 
     for l in lines:
-        total_usd += Decimal(str(l.get("line_total_usd", 0)))
-        total_lbp += Decimal(str(l.get("line_total_lbp", 0)))
+        base_usd += Decimal(str(l.get("line_total_usd", 0)))
+        base_lbp += Decimal(str(l.get("line_total_lbp", 0)))
         qty = Decimal(str(l.get("qty", 0)))
         unit_cost_usd = Decimal(str(l.get("unit_cost_usd", 0) or 0))
         unit_cost_lbp = Decimal(str(l.get("unit_cost_lbp", 0) or 0))
@@ -120,6 +132,14 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         l["_resolved_unit_cost_lbp"] = str(unit_cost_lbp)
         total_cost_usd += qty * unit_cost_usd
         total_cost_lbp += qty * unit_cost_lbp
+
+    tax = payload.get("tax") or None
+    tax_usd = Decimal(str(tax.get("tax_usd", 0))) if tax else Decimal("0")
+    tax_lbp = Decimal(str(tax.get("tax_lbp", 0))) if tax else Decimal("0")
+    tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
+
+    total_usd = base_usd + tax_usd
+    total_lbp = base_lbp + tax_lbp
 
     shift_id = payload.get("shift_id")
     if not shift_id:
@@ -181,7 +201,6 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         )
 
     # Tax line (VAT)
-    tax = payload.get("tax")
     if tax:
         cur.execute(
             """
@@ -195,17 +214,23 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 company_id,
                 invoice_id,
                 tax.get("tax_code_id"),
-                Decimal(str(tax.get("base_usd", 0))),
-                Decimal(str(tax.get("base_lbp", 0))),
-                Decimal(str(tax.get("tax_usd", 0))),
-                Decimal(str(tax.get("tax_lbp", 0))),
+                Decimal(str(tax.get("base_usd", base_usd))),
+                Decimal(str(tax.get("base_lbp", base_lbp))),
+                tax_usd,
+                tax_lbp,
                 tax.get("tax_date"),
             ),
         )
 
-    # Payments
-    payments = payload.get("payments", []) or []
-    for p in payments:
+    # Payments (normalize to dual-ledger amounts so GL always balances per currency).
+    raw_payments = payload.get("payments", []) or []
+    payments = []
+    for p in raw_payments:
+        method = (p.get("method") or "cash").strip().lower()
+        amount_usd = Decimal(str(p.get("amount_usd", 0)))
+        amount_lbp = Decimal(str(p.get("amount_lbp", 0)))
+        amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
+        payments.append({"method": method, "amount_usd": amount_usd, "amount_lbp": amount_lbp})
         cur.execute(
             """
             INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp)
@@ -213,9 +238,9 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             """,
             (
                 invoice_id,
-                p.get("method", "cash"),
-                Decimal(str(p.get("amount_usd", 0))),
-                Decimal(str(p.get("amount_lbp", 0))),
+                method,
+                amount_usd,
+                amount_lbp,
             ),
         )
 
@@ -341,7 +366,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
         VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Sales revenue')
         """,
-        (journal_id, sales, total_usd, total_lbp),
+        (journal_id, sales, base_usd, base_lbp),
     )
 
     # Credit VAT payable if present
@@ -349,9 +374,9 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         cur.execute(
             """
             INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-            VALUES (gen_random_uuid(), %s, %s, 0, 0, 0, %s, 'VAT payable')
+            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'VAT payable')
             """,
-            (journal_id, vat_payable, Decimal(str(tax.get("tax_lbp", 0)))),
+            (journal_id, vat_payable, tax_usd, tax_lbp),
         )
 
     # Customer credit + loyalty
@@ -434,14 +459,22 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
     if not lines:
         raise ValueError("sales return has no lines")
 
-    total_usd = Decimal("0")
-    total_lbp = Decimal("0")
+    base_usd = Decimal("0")
+    base_lbp = Decimal("0")
     total_cost_usd = Decimal("0")
     total_cost_lbp = Decimal("0")
 
     for l in lines:
-        total_usd += Decimal(str(l.get("line_total_usd", 0)))
-        total_lbp += Decimal(str(l.get("line_total_lbp", 0)))
+        base_usd += Decimal(str(l.get("line_total_usd", 0)))
+        base_lbp += Decimal(str(l.get("line_total_lbp", 0)))
+
+    tax = payload.get("tax") or None
+    tax_usd = Decimal(str(tax.get("tax_usd", 0))) if tax else Decimal("0")
+    tax_lbp = Decimal(str(tax.get("tax_lbp", 0))) if tax else Decimal("0")
+    tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
+
+    total_usd = base_usd + tax_usd
+    total_lbp = base_lbp + tax_lbp
 
     cur.execute(
         """
@@ -520,7 +553,6 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
         total_cost_lbp += qty * unit_cost_lbp
 
     # Tax line for reporting (negative amounts reduce VAT)
-    tax = payload.get("tax")
     if tax:
         cur.execute(
             """
@@ -534,10 +566,10 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
                 company_id,
                 return_id,
                 tax.get("tax_code_id"),
-                -Decimal(str(tax.get("base_usd", 0))),
-                -Decimal(str(tax.get("base_lbp", 0))),
-                -Decimal(str(tax.get("tax_usd", 0))),
-                -Decimal(str(tax.get("tax_lbp", 0))),
+                -Decimal(str(tax.get("base_usd", base_usd))),
+                -Decimal(str(tax.get("base_lbp", base_lbp))),
+                -tax_usd,
+                -tax_lbp,
                 tax.get("tax_date"),
             ),
         )
@@ -573,7 +605,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
         VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales return')
         """,
-        (journal_id, sales_returns, total_usd, total_lbp),
+        (journal_id, sales_returns, base_usd, base_lbp),
     )
 
     # Credit receivable/cash
@@ -590,9 +622,9 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
         cur.execute(
             """
             INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-            VALUES (gen_random_uuid(), %s, %s, 0, 0, %s, 0, 'VAT payable reduction')
+            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'VAT payable reduction')
             """,
-            (journal_id, vat_payable, Decimal(str(tax.get("tax_lbp", 0)))),
+            (journal_id, vat_payable, tax_usd, tax_lbp),
         )
 
     # Inventory / COGS reversal
@@ -745,11 +777,19 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     if not lines:
         raise ValueError("purchase invoice has no lines")
 
-    total_usd = Decimal("0")
-    total_lbp = Decimal("0")
+    base_usd = Decimal("0")
+    base_lbp = Decimal("0")
     for l in lines:
-        total_usd += Decimal(str(l.get("line_total_usd", 0)))
-        total_lbp += Decimal(str(l.get("line_total_lbp", 0)))
+        base_usd += Decimal(str(l.get("line_total_usd", 0)))
+        base_lbp += Decimal(str(l.get("line_total_lbp", 0)))
+
+    tax = payload.get("tax") or None
+    tax_usd = Decimal(str(tax.get("tax_usd", 0))) if tax else Decimal("0")
+    tax_lbp = Decimal(str(tax.get("tax_lbp", 0))) if tax else Decimal("0")
+    tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, Decimal(str(payload.get("exchange_rate", 0))))
+
+    total_usd = base_usd + tax_usd
+    total_lbp = base_lbp + tax_lbp
 
     invoice_no = payload.get("invoice_no")
     if not invoice_no:
@@ -776,7 +816,6 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     inv_id = cur.fetchone()["id"]
 
     # Tax line (VAT recoverable)
-    tax = payload.get("tax")
     if tax:
         cur.execute(
             """
@@ -790,10 +829,10 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
                 company_id,
                 inv_id,
                 tax.get("tax_code_id"),
-                Decimal(str(tax.get("base_usd", 0))),
-                Decimal(str(tax.get("base_lbp", 0))),
-                Decimal(str(tax.get("tax_usd", 0))),
-                Decimal(str(tax.get("tax_lbp", 0))),
+                Decimal(str(tax.get("base_usd", base_usd))),
+                Decimal(str(tax.get("base_lbp", base_lbp))),
+                tax_usd,
+                tax_lbp,
                 tax.get("tax_date"),
             ),
         )
@@ -833,13 +872,13 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     )
     journal_id = cur.fetchone()["id"]
 
-    # Debit inventory
+    # Debit inventory (net)
     cur.execute(
         """
         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
         VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Purchase inventory')
         """,
-        (journal_id, inventory, total_usd, total_lbp),
+        (journal_id, inventory, base_usd, base_lbp),
     )
 
     # Debit VAT recoverable
@@ -847,12 +886,12 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
         cur.execute(
             """
             INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-            VALUES (gen_random_uuid(), %s, %s, 0, 0, %s, 0, 'VAT recoverable')
+            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'VAT recoverable')
             """,
-            (journal_id, vat_rec, Decimal(str(tax.get("tax_lbp", 0)))),
+            (journal_id, vat_rec, tax_usd, tax_lbp),
         )
 
-    # Credit AP
+    # Credit AP (gross)
     cur.execute(
         """
         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)

@@ -150,5 +150,10 @@ run_migration "seed_coa_lebanon" "backend/db/seeds/seed_coa_lebanon.sql"
 run_migration "seed_account_roles" "backend/db/seeds/seed_account_roles.sql"
 run_migration "seed_companies" "backend/db/seeds/seed_companies.sql"
 run_migration "seed_company_coa" "backend/db/seeds/seed_company_coa.sql"
+run_migration "seed_bootstrap_master_data" "backend/db/seeds/seed_bootstrap_master_data.sql"
+
+if [[ "${BOOTSTRAP_ADMIN:-}" == "1" ]]; then
+  python3 backend/scripts/bootstrap_admin.py
+fi
 
 echo "Database initialized."

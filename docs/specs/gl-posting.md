@@ -2,7 +2,7 @@
 
 ## Principles
 - Every operational document posts a journal in both USD and LBP.
-- VAT is posted in LBP (USD optional for analytics only).
+- VAT is posted in LBP for statutory reporting; for v1 we also post/store VAT in USD (derived from the document exchange rate) to keep journals balanced in both currencies.
 - Exchange rate is locked at document creation time.
 - Journals are immutable once posted; corrections use reversing entries.
 - Posting uses account role mappings; see `docs/specs/account-defaults.md`.
@@ -11,14 +11,14 @@
 ### Accounts (example mapping)
 - Debit: Accounts Receivable / Cash (USD + LBP)
 - Credit: Sales Revenue (USD + LBP)
-- Credit: VAT Payable (LBP)
+- Credit: VAT Payable (USD + LBP)
 
 ### Posting Logic
 1) Calculate line totals in USD and LBP.
 2) Compute VAT base and VAT amount in LBP.
 3) Post receivable in both currencies.
 4) Post sales revenue in both currencies.
-5) Post VAT payable in LBP (USD optional = 0).
+5) Post VAT payable in LBP and in USD (`vat_usd = vat_lbp / exchange_rate`).
 
 ## Sales Return
 - Reverse sales invoice entries
