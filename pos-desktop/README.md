@@ -48,6 +48,7 @@ During pull, the agent also fetches `/pos/config` from the backend to populate:
 - POST /api/config
 - GET /api/items
 - POST /api/sale
+- POST /api/return
 - GET /api/outbox
 - POST /api/sync/pull
 - POST /api/sync/push

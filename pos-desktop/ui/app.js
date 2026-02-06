@@ -230,6 +230,38 @@ async function completeSale() {
   }
 }
 
+async function completeReturn() {
+  if (!state.cart.length) return;
+  if (!state.shiftId) {
+    el('saleStatus').textContent = 'Open a shift before returns';
+    return;
+  }
+  const payload = {
+    cart: state.cart.map(i => ({
+      id: i.id,
+      qty: i.qty,
+      price_usd: i.price_usd || 0,
+      price_lbp: i.price_lbp || 0
+    })),
+    exchange_rate: Number(el('rate').value || 0),
+    pricing_currency: el('currency').value,
+    invoice_id: null,
+    refund_method: el('paymentMethod').value || 'cash',
+    shift_id: state.shiftId
+  };
+  const status = el('saleStatus');
+  status.textContent = 'Saving return...';
+  try {
+    const res = await api.post('/return', payload);
+    status.textContent = `Return saved offline: ${res.event_id}`;
+    state.cart = [];
+    renderCart();
+    updateTotals();
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+  }
+}
+
 function bind() {
   el('search').addEventListener('input', filterItems);
   el('syncPull').addEventListener('click', syncPull);
@@ -242,6 +274,7 @@ function bind() {
     updateTotals();
   });
   el('complete').addEventListener('click', completeSale);
+  el('return').addEventListener('click', completeReturn);
 
   document.addEventListener('keydown', (event) => {
     const now = Date.now();

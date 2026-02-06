@@ -39,6 +39,7 @@ Required fields:
 - invoice_id (uuid, optional)
 - exchange_rate (number)
 - warehouse_id (uuid)
+- shift_id (uuid, optional)
 - lines[]
   - item_id (uuid)
   - qty (number)
@@ -46,6 +47,8 @@ Required fields:
   - unit_cost_lbp (optional)
   - line_total_usd
   - line_total_lbp
+- refund_method (optional)
+  - cash|card|transfer|credit|other
 - tax (optional)
   - tax_code_id (uuid)
   - base_usd

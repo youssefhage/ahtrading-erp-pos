@@ -105,6 +105,18 @@ bootstrap_existing_versions() {
   if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='items' AND column_name='updated_at' LIMIT 1;")" ]]; then
     mark_version "022_catalog_timestamps"
   fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='sales_return_lines' LIMIT 1;")" ]]; then
+    mark_version "023_sales_return_lines"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='goods_receipt_lines' LIMIT 1;")" ]]; then
+    mark_version "024_goods_receipt_lines"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='supplier_invoice_lines' LIMIT 1;")" ]]; then
+    mark_version "025_supplier_invoice_lines"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sales_returns' AND column_name='return_no' LIMIT 1;")" ]]; then
+    mark_version "026_doc_metadata"
+  fi
 
   if [[ -n "$(psql_value -c "SELECT 1 FROM coa_templates WHERE code='LB_COA_2025' LIMIT 1;")" ]]; then
     mark_version "seed_coa_lebanon"
@@ -145,6 +157,10 @@ run_migration "019_document_sequences" "backend/db/migrations/019_document_seque
 run_migration "020_pos_cash_movements" "backend/db/migrations/020_pos_cash_movements.sql"
 run_migration "021_item_costing" "backend/db/migrations/021_item_costing.sql"
 run_migration "022_catalog_timestamps" "backend/db/migrations/022_catalog_timestamps.sql"
+run_migration "023_sales_return_lines" "backend/db/migrations/023_sales_return_lines.sql"
+run_migration "024_goods_receipt_lines" "backend/db/migrations/024_goods_receipt_lines.sql"
+run_migration "025_supplier_invoice_lines" "backend/db/migrations/025_supplier_invoice_lines.sql"
+run_migration "026_doc_metadata" "backend/db/migrations/026_doc_metadata.sql"
 
 run_migration "seed_coa_lebanon" "backend/db/seeds/seed_coa_lebanon.sql"
 run_migration "seed_account_roles" "backend/db/seeds/seed_account_roles.sql"

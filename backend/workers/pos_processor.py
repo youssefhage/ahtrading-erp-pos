@@ -443,7 +443,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     return "processed"
 
 
-def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
+def process_sale_return(cur, company_id: str, event_id: str, payload: dict, device_id: str):
     cur.execute(
         """
         SELECT id FROM sales_returns
@@ -458,6 +458,10 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
     lines = payload.get("lines", [])
     if not lines:
         raise ValueError("sales return has no lines")
+
+    return_no = payload.get("return_no")
+    if not return_no:
+        return_no = next_doc_no(cur, company_id, "SR")
 
     base_usd = Decimal("0")
     base_lbp = Decimal("0")
@@ -476,20 +480,29 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
 
+    shift_id = payload.get("shift_id") or None
+    refund_method = (payload.get("refund_method") or "").strip().lower() or None
+
     cur.execute(
         """
         INSERT INTO sales_returns
-          (id, company_id, invoice_id, status, total_usd, total_lbp, exchange_rate, source_event_id)
+          (id, company_id, return_no, invoice_id, status, total_usd, total_lbp, exchange_rate,
+           warehouse_id, device_id, shift_id, refund_method, source_event_id)
         VALUES
-          (gen_random_uuid(), %s, %s, 'posted', %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
             company_id,
+            return_no,
             payload.get("invoice_id"),
             total_usd,
             total_lbp,
             exchange_rate,
+            payload.get("warehouse_id"),
+            device_id,
+            shift_id,
+            refund_method,
             event_id,
         ),
     )
@@ -552,6 +565,36 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
         total_cost_usd += qty * unit_cost_usd
         total_cost_lbp += qty * unit_cost_lbp
 
+        # Persist return line items for operational UI.
+        qty = Decimal(str(l.get("qty", 0)))
+        unit_price_usd = Decimal("0")
+        unit_price_lbp = Decimal("0")
+        if qty:
+            unit_price_usd = Decimal(str(l.get("line_total_usd", 0))) / qty
+            unit_price_lbp = Decimal(str(l.get("line_total_lbp", 0))) / qty
+        cur.execute(
+            """
+            INSERT INTO sales_return_lines
+              (id, company_id, sales_return_id, item_id, qty,
+               unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp,
+               unit_cost_usd, unit_cost_lbp)
+            VALUES
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                company_id,
+                return_id,
+                l.get("item_id"),
+                qty,
+                unit_price_usd,
+                unit_price_lbp,
+                Decimal(str(l.get("line_total_usd", 0))),
+                Decimal(str(l.get("line_total_lbp", 0))),
+                unit_cost_usd,
+                unit_cost_lbp,
+            ),
+        )
+
     # Tax line for reporting (negative amounts reduce VAT)
     if tax:
         cur.execute(
@@ -597,7 +640,83 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
     )
     journal_id = cur.fetchone()["id"]
 
-    receivable_account = cash or ar
+    # Refund account selection:
+    # - If invoice is a credit sale (unpaid), default to AR (credit note).
+    # - Otherwise use refund_method mapping (cash/card/transfer/etc).
+    invoice_id = payload.get("invoice_id")
+    invoice_customer_id = None
+    is_credit_sale = False
+    primary_method = None
+    if invoice_id:
+        cur.execute(
+            """
+            SELECT customer_id, total_usd, total_lbp
+            FROM sales_invoices
+            WHERE company_id = %s AND id = %s
+            """,
+            (company_id, invoice_id),
+        )
+        inv = cur.fetchone()
+        if inv:
+            invoice_customer_id = inv["customer_id"]
+            cur.execute(
+                """
+                SELECT method,
+                       COALESCE(SUM(amount_usd), 0) AS usd,
+                       COALESCE(SUM(amount_lbp), 0) AS lbp
+                FROM sales_payments
+                WHERE invoice_id = %s
+                GROUP BY method
+                """,
+                (invoice_id,),
+            )
+            rows = cur.fetchall()
+            total_paid_usd = Decimal("0")
+            total_paid_lbp = Decimal("0")
+            best_method = None
+            best_amount = Decimal("-1")
+            for r in rows:
+                m = (r["method"] or "").strip().lower()
+                if m == "credit":
+                    continue
+                amt_usd = Decimal(str(r["usd"] or 0))
+                amt_lbp = Decimal(str(r["lbp"] or 0))
+                amt_usd, amt_lbp = normalize_dual_amounts(amt_usd, amt_lbp, exchange_rate)
+                total_paid_usd += amt_usd
+                total_paid_lbp += amt_lbp
+                score = amt_usd + (amt_lbp / exchange_rate if exchange_rate else Decimal("0"))
+                if score > best_amount:
+                    best_amount = score
+                    best_method = m
+            primary_method = best_method
+            inv_total_usd = Decimal(str(inv["total_usd"] or 0))
+            inv_total_lbp = Decimal(str(inv["total_lbp"] or 0))
+            is_credit_sale = total_paid_usd < inv_total_usd or total_paid_lbp < inv_total_lbp
+
+    payment_accounts = fetch_payment_method_accounts(cur, company_id)
+
+    receivable_account = None
+    if refund_method:
+        if refund_method == "credit":
+            receivable_account = ar
+        else:
+            receivable_account = payment_accounts.get(refund_method)
+            if not receivable_account:
+                raise ValueError(f"Missing payment method mapping for {refund_method}")
+        if is_credit_sale and refund_method != "credit":
+            raise ValueError("Cannot refund cash/bank for an unpaid credit sale; use refund_method=credit")
+    else:
+        if is_credit_sale:
+            receivable_account = ar
+        elif primary_method:
+            receivable_account = payment_accounts.get(primary_method)
+            if not receivable_account:
+                raise ValueError(f"Missing payment method mapping for {primary_method}")
+        else:
+            receivable_account = cash or ar
+
+    if not receivable_account:
+        raise ValueError("Missing refund account mapping (AR/CASH/BANK)")
 
     # Debit sales returns
     cur.execute(
@@ -644,13 +763,25 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict):
             (journal_id, cogs, total_cost_usd, total_cost_lbp),
         )
 
+    # Reduce customer receivable balance when this return reduces AR.
+    if invoice_customer_id and receivable_account == ar:
+        cur.execute(
+            """
+            UPDATE customers
+            SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
+                credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0)
+            WHERE company_id = %s AND id = %s
+            """,
+            (total_usd, total_lbp, company_id, invoice_customer_id),
+        )
+
     emit_event(
         cur,
         company_id,
         "sales.returned",
         "sales_return",
         return_id,
-        {"return_id": str(return_id), "total_usd": str(total_usd), "total_lbp": str(total_lbp)},
+        {"return_id": str(return_id), "return_no": str(return_no), "total_usd": str(total_usd), "total_lbp": str(total_lbp)},
     )
 
     return "processed"
@@ -671,6 +802,10 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
     if not lines:
         raise ValueError("goods receipt has no lines")
 
+    receipt_no = payload.get("receipt_no")
+    if not receipt_no:
+        receipt_no = next_doc_no(cur, company_id, "GR")
+
     total_usd = Decimal("0")
     total_lbp = Decimal("0")
 
@@ -681,17 +816,19 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
     cur.execute(
         """
         INSERT INTO goods_receipts
-          (id, company_id, supplier_id, status, total_usd, total_lbp, exchange_rate, source_event_id)
+          (id, company_id, receipt_no, supplier_id, status, total_usd, total_lbp, exchange_rate, warehouse_id, source_event_id)
         VALUES
-          (gen_random_uuid(), %s, %s, 'posted', %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
             company_id,
+            receipt_no,
             payload.get("supplier_id"),
             total_usd,
             total_lbp,
             Decimal(str(payload.get("exchange_rate", 0))),
+            payload.get("warehouse_id"),
             event_id,
         ),
     )
@@ -701,6 +838,25 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
     for l in lines:
         if not l.get("item_id") or not warehouse_id:
             continue
+        cur.execute(
+            """
+            INSERT INTO goods_receipt_lines
+              (id, company_id, goods_receipt_id, item_id, qty,
+               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+            VALUES
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                company_id,
+                gr_id,
+                l.get("item_id"),
+                Decimal(str(l.get("qty", 0))),
+                Decimal(str(l.get("unit_cost_usd", 0))),
+                Decimal(str(l.get("unit_cost_lbp", 0))),
+                Decimal(str(l.get("line_total_usd", 0))),
+                Decimal(str(l.get("line_total_lbp", 0))),
+            ),
+        )
         cur.execute(
             """
             INSERT INTO stock_moves
@@ -756,7 +912,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
         "purchase.received",
         "goods_receipt",
         gr_id,
-        {"goods_receipt_id": str(gr_id), "total_usd": str(total_usd), "total_lbp": str(total_lbp)},
+        {"goods_receipt_id": str(gr_id), "receipt_no": str(receipt_no), "total_usd": str(total_usd), "total_lbp": str(total_lbp)},
     )
 
     return "processed"
@@ -815,6 +971,27 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     )
     inv_id = cur.fetchone()["id"]
 
+    for l in lines:
+        cur.execute(
+            """
+            INSERT INTO supplier_invoice_lines
+              (id, company_id, supplier_invoice_id, item_id, qty,
+               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+            VALUES
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                company_id,
+                inv_id,
+                l.get("item_id"),
+                Decimal(str(l.get("qty", 0))),
+                Decimal(str(l.get("unit_cost_usd", 0))),
+                Decimal(str(l.get("unit_cost_lbp", 0))),
+                Decimal(str(l.get("line_total_usd", 0))),
+                Decimal(str(l.get("line_total_lbp", 0))),
+            ),
+        )
+
     # Tax line (VAT recoverable)
     if tax:
         cur.execute(
@@ -855,11 +1032,11 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     # GL posting
     account_defaults = fetch_account_defaults(cur, company_id)
     ap = account_defaults.get("AP")
-    inventory = account_defaults.get("INVENTORY")
+    grni = account_defaults.get("GRNI")
     vat_rec = account_defaults.get("VAT_RECOVERABLE")
 
-    if not (ap and inventory):
-        raise ValueError("Missing account defaults for purchase posting")
+    if not (ap and grni):
+        raise ValueError("Missing account defaults for purchase posting (AP/GRNI)")
 
     journal_no = f"GL-{invoice_no}"
     cur.execute(
@@ -872,13 +1049,13 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     )
     journal_id = cur.fetchone()["id"]
 
-    # Debit inventory (net)
+    # Debit GRNI (net) to clear receipts; inventory is recognized at goods receipt.
     cur.execute(
         """
         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Purchase inventory')
+        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'GRNI clearing')
         """,
-        (journal_id, inventory, base_usd, base_lbp),
+        (journal_id, grni, base_usd, base_lbp),
     )
 
     # Debit VAT recoverable
@@ -949,7 +1126,7 @@ def _process_one(conn, company_id: str, max_attempts: int) -> bool:
                 if event_type == "sale.completed":
                     process_sale(cur, company_id, event_id, payload, e["device_id"])
                 elif event_type == "sale.returned":
-                    process_sale_return(cur, company_id, event_id, payload)
+                    process_sale_return(cur, company_id, event_id, payload, e["device_id"])
                 elif event_type == "purchase.received":
                     process_goods_receipt(cur, company_id, event_id, payload)
                 elif event_type == "purchase.invoice":

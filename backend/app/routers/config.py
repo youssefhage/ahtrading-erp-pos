@@ -30,6 +30,21 @@ class PaymentMethodMappingIn(BaseModel):
     method: str
     role_code: str
 
+@router.get("/account-roles", dependencies=[Depends(require_permission("config:read"))])
+def list_account_roles(company_id: str = Depends(get_company_id)):
+    # Account roles are global, but we still require an authenticated company context.
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT code, description
+                FROM account_roles
+                ORDER BY code
+                """
+            )
+            return {"roles": cur.fetchall()}
+
 @router.get("/tax-codes", dependencies=[Depends(require_permission("config:read"))])
 def list_tax_codes(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:

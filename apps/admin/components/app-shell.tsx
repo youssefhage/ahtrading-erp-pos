@@ -15,11 +15,19 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard" },
+  { label: "Suppliers", href: "/partners/suppliers" },
+  { label: "Customers", href: "/partners/customers" },
   { label: "Items", href: "/catalog/items" },
   { label: "Stock", href: "/inventory/stock" },
+  { label: "Purchase Orders", href: "/purchasing/purchase-orders" },
+  { label: "Goods Receipts", href: "/purchasing/goods-receipts" },
+  { label: "Supplier Invoices", href: "/purchasing/supplier-invoices" },
   { label: "VAT Report", href: "/accounting/reports/vat" },
   { label: "Trial Balance", href: "/accounting/reports/trial-balance" },
-  { label: "POS Devices", href: "/system/pos-devices" }
+  { label: "Config", href: "/system/config" },
+  { label: "POS Devices", href: "/system/pos-devices" },
+  { label: "Outbox", href: "/system/outbox" },
+  { label: "AI Hub", href: "/automation/ai-hub" }
 ];
 
 export function AppShell(props: { title: string; children: React.ReactNode }) {
@@ -160,4 +168,3 @@ export function AppShell(props: { title: string; children: React.ReactNode }) {
     </div>
   );
 }
-

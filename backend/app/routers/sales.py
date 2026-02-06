@@ -54,6 +54,8 @@ class SalesReturnIn(BaseModel):
     invoice_id: Optional[str] = None
     exchange_rate: Decimal
     warehouse_id: Optional[str] = None
+    shift_id: Optional[str] = None
+    refund_method: Optional[str] = None
     lines: List[SaleLine]
     tax: Optional[TaxBlock] = None
 
@@ -88,7 +90,8 @@ def list_sales_returns(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, invoice_id, status, total_usd, total_lbp, created_at
+                SELECT id, return_no, invoice_id, warehouse_id, device_id, shift_id, refund_method,
+                       status, total_usd, total_lbp, created_at
                 FROM sales_returns
                 WHERE company_id = %s
                 ORDER BY created_at DESC
@@ -96,6 +99,48 @@ def list_sales_returns(company_id: str = Depends(get_company_id)):
                 (company_id,),
             )
             return {"returns": cur.fetchall()}
+
+
+@router.get("/returns/{return_id}", dependencies=[Depends(require_permission("sales:read"))])
+def get_sales_return(return_id: str, company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, return_no, invoice_id, warehouse_id, device_id, shift_id, refund_method,
+                       status, total_usd, total_lbp, exchange_rate, created_at
+                FROM sales_returns
+                WHERE company_id = %s AND id = %s
+                """,
+                (company_id, return_id),
+            )
+            ret = cur.fetchone()
+            if not ret:
+                raise HTTPException(status_code=404, detail="return not found")
+            cur.execute(
+                """
+                SELECT id, item_id, qty,
+                       unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp,
+                       unit_cost_usd, unit_cost_lbp
+                FROM sales_return_lines
+                WHERE company_id = %s AND sales_return_id = %s
+                ORDER BY id
+                """,
+                (company_id, return_id),
+            )
+            lines = cur.fetchall()
+            cur.execute(
+                """
+                SELECT id, tax_code_id, base_usd, base_lbp, tax_usd, tax_lbp, tax_date, created_at
+                FROM tax_lines
+                WHERE company_id = %s AND source_type = 'sales_return' AND source_id = %s
+                ORDER BY created_at ASC
+                """,
+                (company_id, return_id),
+            )
+            tax_lines = cur.fetchall()
+            return {"return": ret, "lines": lines, "tax_lines": tax_lines}
 
 
 @router.post("/payments", dependencies=[Depends(require_permission("sales:write"))])

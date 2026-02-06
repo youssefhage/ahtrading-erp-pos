@@ -304,6 +304,62 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
         'loyalty_points': loyalty_points
     }
 
+def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_id, refund_method, shift_id):
+    lines = []
+    base_usd = 0
+    base_lbp = 0
+    for item in cart:
+        qty = item['qty']
+        unit_price_usd = item.get('price_usd', 0)
+        unit_price_lbp = item.get('price_lbp', 0)
+        line_total_usd = unit_price_usd * qty
+        line_total_lbp = unit_price_lbp * qty
+        if line_total_lbp == 0 and exchange_rate:
+            line_total_lbp = line_total_usd * exchange_rate
+        if line_total_usd == 0 and exchange_rate:
+            line_total_usd = line_total_lbp / exchange_rate
+        base_usd += line_total_usd
+        base_lbp += line_total_lbp
+        lines.append({
+            'item_id': item['id'],
+            'qty': qty,
+            'unit_price_usd': unit_price_usd,
+            'unit_price_lbp': unit_price_lbp,
+            'line_total_usd': line_total_usd,
+            'line_total_lbp': line_total_lbp,
+            'unit_cost_usd': 0,
+            'unit_cost_lbp': 0
+        })
+
+    tax_block = None
+    tax_usd = 0
+    tax_lbp = 0
+    if config.get('tax_code_id') and config.get('vat_rate'):
+        tax_lbp = base_lbp * float(config.get('vat_rate'))
+        if exchange_rate:
+            tax_usd = tax_lbp / exchange_rate
+        tax_block = {
+            'tax_code_id': config.get('tax_code_id'),
+            'base_usd': base_usd,
+            'base_lbp': base_lbp,
+            'tax_usd': tax_usd,
+            'tax_lbp': tax_lbp,
+            'tax_date': datetime.utcnow().date().isoformat()
+        }
+
+    return {
+        'return_no': None,
+        'invoice_id': invoice_id,
+        'exchange_rate': exchange_rate,
+        'pricing_currency': pricing_currency,
+        'settlement_currency': pricing_currency,
+        'warehouse_id': config.get('warehouse_id'),
+        'shift_id': shift_id,
+        'refund_method': refund_method or 'cash',
+        'lines': lines,
+        'tax': tax_block
+    }
+
 
 class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
@@ -376,6 +432,23 @@ class Handler(BaseHTTPRequestHandler):
             shift_id = data.get('shift_id') or cfg.get('shift_id') or None
             payload = build_sale_payload(cart, cfg, pricing_currency, float(exchange_rate), customer_id, payment_method, shift_id)
             event_id = add_outbox_event('sale.completed', payload)
+            json_response(self, {'event_id': event_id})
+            return
+
+        if parsed.path == '/api/return':
+            data = self.read_json()
+            cfg = load_config()
+            cart = data.get('cart', [])
+            if not cart:
+                json_response(self, {'error': 'empty cart'}, status=400)
+                return
+            exchange_rate = data.get('exchange_rate') or cfg.get('exchange_rate') or 0
+            pricing_currency = data.get('pricing_currency') or cfg.get('pricing_currency') or 'USD'
+            invoice_id = data.get('invoice_id') or None
+            refund_method = data.get('refund_method') or data.get('payment_method') or 'cash'
+            shift_id = data.get('shift_id') or cfg.get('shift_id') or None
+            payload = build_return_payload(cart, cfg, pricing_currency, float(exchange_rate), invoice_id, refund_method, shift_id)
+            event_id = add_outbox_event('sale.returned', payload)
             json_response(self, {'event_id': event_id})
             return
 
