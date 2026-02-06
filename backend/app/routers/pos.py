@@ -106,6 +106,72 @@ def list_devices(
             )
             return {"devices": cur.fetchall()}
 
+@router.get("/outbox", dependencies=[Depends(require_permission("pos:manage"))])
+def list_outbox_events(
+    status: Optional[str] = None,
+    device_id: Optional[uuid.UUID] = None,
+    limit: int = 200,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+):
+    if status and status not in {"pending", "processed", "failed", "dead"}:
+        raise HTTPException(status_code=400, detail="invalid status")
+    if limit <= 0 or limit > 1000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            sql = """
+                SELECT o.id, o.device_id, d.device_code, o.event_type, o.created_at,
+                       o.status, o.attempt_count, o.error_message, o.processed_at
+                FROM pos_events_outbox o
+                JOIN pos_devices d ON d.id = o.device_id
+                WHERE d.company_id = %s
+            """
+            params = [company_id]
+            if status:
+                sql += " AND o.status = %s"
+                params.append(status)
+            if device_id:
+                sql += " AND o.device_id = %s"
+                params.append(device_id)
+            sql += " ORDER BY o.created_at DESC LIMIT %s"
+            params.append(limit)
+            cur.execute(sql, params)
+            return {"events": cur.fetchall()}
+
+
+@router.post("/outbox/{event_id}/requeue", dependencies=[Depends(require_permission("pos:manage"))])
+def requeue_outbox_event(
+    event_id: str,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE pos_events_outbox o
+                SET status = 'pending',
+                    attempt_count = 0,
+                    error_message = NULL,
+                    processed_at = NULL
+                FROM pos_devices d
+                WHERE o.id = %s
+                  AND d.id = o.device_id
+                  AND d.company_id = %s
+                  AND o.status IN ('failed', 'dead')
+                RETURNING o.id, o.status
+                """,
+                (event_id, company_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="event not found or not requeueable")
+            return {"event": row}
+
 
 @router.post("/devices/{device_id}/reset-token", dependencies=[Depends(require_permission("pos:manage"))])
 def reset_device_token(
