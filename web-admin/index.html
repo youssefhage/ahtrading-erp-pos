@@ -1,0 +1,911 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>AH Trading Admin</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand__logo">AH</div>
+          <div class="brand__meta">
+            <h1>AH Trading</h1>
+            <span>ERP · POS · FMCG</span>
+          </div>
+        </div>
+        <div class="sidebar__section">
+          <div class="nav__group">Overview</div>
+          <button class="nav__item active" data-section="dashboard">Dashboard</button>
+        </div>
+        <div class="sidebar__section">
+          <div class="nav__group">Catalog</div>
+          <button class="nav__item" data-section="items">Items</button>
+          <button class="nav__item" data-section="inventory">Inventory</button>
+        </div>
+        <div class="sidebar__section">
+          <div class="nav__group">Sales</div>
+          <button class="nav__item" data-section="customers">Customers</button>
+          <button class="nav__item" data-section="sales">Sales</button>
+        </div>
+        <div class="sidebar__section">
+          <div class="nav__group">Purchasing</div>
+          <button class="nav__item" data-section="suppliers">Suppliers</button>
+          <button class="nav__item" data-section="purchases">Purchases</button>
+        </div>
+        <div class="sidebar__section">
+          <div class="nav__group">Operations</div>
+          <button class="nav__item" data-section="intercompany">Intercompany</button>
+        </div>
+        <div class="sidebar__section">
+          <div class="nav__group">Accounting</div>
+          <button class="nav__item" data-section="accounting">Accounting</button>
+          <button class="nav__item" data-section="coa">Chart of Accounts</button>
+          <button class="nav__item" data-section="reports">Reports</button>
+        </div>
+        <div class="sidebar__section">
+          <div class="nav__group">Automation</div>
+          <button class="nav__item" data-section="ai">AI Hub</button>
+          <button class="nav__item" data-section="ai-settings">AI Settings</button>
+        </div>
+        <div class="sidebar__section">
+          <div class="nav__group">System</div>
+          <button class="nav__item" data-section="config">Configuration</button>
+          <button class="nav__item" data-section="devices">POS Devices</button>
+          <button class="nav__item" data-section="users">Users & Roles</button>
+          <button class="nav__item" data-section="auth">Authentication</button>
+        </div>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar__title">
+            <div>
+              <p class="eyebrow">AH Trading Admin</p>
+              <h2 id="pageTitle">Dashboard</h2>
+              <p class="muted">USD + LBP dual ledger · Offline-first POS · Wholesale + retail</p>
+            </div>
+          </div>
+          <div class="topbar__actions">
+            <div class="search">
+              <input placeholder="Search items, invoices, customers" />
+            </div>
+            <button class="primary" data-open="items">New Item</button>
+            <button class="ghost" data-open="purchases">New PO</button>
+          </div>
+          <div class="topbar__meta">
+            <div class="meta-card">
+              <div class="meta-row">
+                <label>API Base URL<input id="apiBase" placeholder="http://localhost:8000" /></label>
+                <label>Company ID<input id="companyId" placeholder="00000000-0000-0000-0000-000000000001" /></label>
+              </div>
+              <div class="meta-actions">
+                <button id="saveConn">Save</button>
+                <button id="testConn" class="ghost">Test</button>
+                <span id="connStatus" class="status-pill">Disconnected</span>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <section class="section active" data-section="dashboard">
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-label">Today Sales</div>
+              <div id="metricSalesUsd" class="stat-value">$0</div>
+              <div id="metricSalesLbp" class="stat-sub">LBP 0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Today Purchases</div>
+              <div id="metricPurchasesUsd" class="stat-value">$0</div>
+              <div id="metricPurchasesLbp" class="stat-sub">LBP 0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Accounts Receivable</div>
+              <div id="metricArUsd" class="stat-value">$0</div>
+              <div id="metricArLbp" class="stat-sub">LBP 0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Accounts Payable</div>
+              <div id="metricApUsd" class="stat-value">$0</div>
+              <div id="metricApLbp" class="stat-sub">LBP 0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Stock Value</div>
+              <div id="metricStockUsd" class="stat-value">$0</div>
+              <div id="metricStockLbp" class="stat-sub">LBP 0</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Low Stock SKUs</div>
+              <div id="metricLowStock" class="stat-value">0</div>
+              <div class="stat-sub">Reorder queue</div>
+            </div>
+          </div>
+
+          <div class="grid two">
+            <div class="card">
+              <div class="card__header">
+                <div>
+                  <h3>Quick Actions</h3>
+                  <p class="muted">Core workflows for the warehouse and front desk.</p>
+                </div>
+              </div>
+              <div class="quick-grid">
+                <button class="ghost" data-open="items">Add Items</button>
+                <button class="ghost" data-open="inventory">Adjust Stock</button>
+                <button class="ghost" data-open="sales">Post Payment</button>
+                <button class="ghost" data-open="reports">VAT Report</button>
+                <button class="ghost" data-open="intercompany">Intercompany Issue</button>
+                <button class="ghost" data-open="ai-settings">AI Auto Rules</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card__header">
+                <div>
+                  <h3>Company Snapshot</h3>
+                  <p class="muted">Quick counts across your catalog and partners.</p>
+                </div>
+              </div>
+              <div class="snapshot">
+                <div>
+                  <span class="muted">Items</span>
+                  <strong id="metricItems">0</strong>
+                </div>
+                <div>
+                  <span class="muted">Customers</span>
+                  <strong id="metricCustomers">0</strong>
+                </div>
+                <div>
+                  <span class="muted">Suppliers</span>
+                  <strong id="metricSuppliers">0</strong>
+                </div>
+                <div>
+                  <span class="muted">Status</span>
+                  <strong id="statusBlock">Ready</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" data-section="items">
+          <div class="section-header">
+            <div>
+              <h3>Items & Pricing</h3>
+              <p class="muted">Create SKUs, manage barcodes, and publish dual-currency pricing.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>Add Item</h4>
+              <div class="grid two">
+                <label>SKU<input id="itemSku" /></label>
+                <label>Name<input id="itemName" /></label>
+              </div>
+              <div class="grid two">
+                <label>UoM<input id="itemUom" placeholder="pcs" /></label>
+                <label>Barcode<input id="itemBarcode" /></label>
+              </div>
+              <div class="grid two">
+                <label>Reorder Point<input id="itemReorderPoint" type="number" step="0.01" /></label>
+                <label>Reorder Qty<input id="itemReorderQty" type="number" step="0.01" /></label>
+              </div>
+              <div class="actions">
+                <button id="addItem">Add Item</button>
+              </div>
+            </div>
+            <div class="card">
+              <h4>Add Price</h4>
+              <div class="grid two">
+                <label>Item ID<input id="priceItemId" /></label>
+                <label>USD Price<input id="priceUsd" type="number" step="0.01" /></label>
+              </div>
+              <div class="grid two">
+                <label>LBP Price<input id="priceLbp" type="number" step="0.01" /></label>
+                <label>Effective From<input id="priceFrom" type="date" /></label>
+              </div>
+              <div class="actions">
+                <button id="addPrice">Add Price</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card__header">
+              <h4>Items List</h4>
+              <button class="ghost" id="loadItems">Refresh</button>
+            </div>
+            <div id="itemsList" class="table"></div>
+          </div>
+        </section>
+
+        <section class="section" data-section="customers">
+          <div class="section-header">
+            <div>
+              <h3>Customers</h3>
+              <p class="muted">Manage loyalty, credit limits, and contact details.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>Add Customer</h4>
+              <div class="grid two">
+                <label>Name<input id="customerName" /></label>
+                <label>Phone<input id="customerPhone" /></label>
+              </div>
+              <div class="grid two">
+                <label>Email<input id="customerEmail" /></label>
+                <label>Credit Limit USD<input id="customerLimitUsd" type="number" step="0.01" /></label>
+              </div>
+              <div class="grid two">
+                <label>Credit Limit LBP<input id="customerLimitLbp" type="number" step="0.01" /></label>
+              </div>
+              <div class="actions">
+                <button id="addCustomer">Add Customer</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card__header">
+                <h4>Customers List</h4>
+                <button class="ghost" id="loadCustomers">Refresh</button>
+              </div>
+              <div id="customersList" class="table"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" data-section="suppliers">
+          <div class="section-header">
+            <div>
+              <h3>Suppliers</h3>
+              <p class="muted">Track vendor details and item sourcing profiles.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>Add Supplier</h4>
+              <div class="grid two">
+                <label>Name<input id="supplierName" /></label>
+                <label>Phone<input id="supplierPhone" /></label>
+              </div>
+              <div class="grid two">
+                <label>Email<input id="supplierEmail" /></label>
+              </div>
+              <div class="actions">
+                <button id="addSupplier">Add Supplier</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card__header">
+                <h4>Suppliers List</h4>
+                <button class="ghost" id="loadSuppliers">Refresh</button>
+              </div>
+              <div id="suppliersList" class="table"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card__header">
+              <h4>Map Item to Supplier</h4>
+              <p class="muted">Primary sourcing, lead times, and last cost.</p>
+            </div>
+            <div class="grid three">
+              <label>Supplier ID<input id="mapSupplierId" /></label>
+              <label>Item ID<input id="mapItemId" /></label>
+              <label>Primary
+                <select id="mapPrimary">
+                  <option value="false">No</option>
+                  <option value="true">Yes</option>
+                </select>
+              </label>
+            </div>
+            <div class="grid three">
+              <label>Lead Time Days<input id="mapLead" type="number" step="1" /></label>
+              <label>Min Order Qty<input id="mapMinQty" type="number" step="0.01" /></label>
+              <label>Last Cost USD<input id="mapCostUsd" type="number" step="0.01" /></label>
+            </div>
+            <div class="grid three">
+              <label>Last Cost LBP<input id="mapCostLbp" type="number" step="0.01" /></label>
+            </div>
+            <div class="actions">
+              <button id="mapSupplierItem">Save Mapping</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" data-section="inventory">
+          <div class="section-header">
+            <div>
+              <h3>Inventory</h3>
+              <p class="muted">Stock positions, valuation, and manual adjustments.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>Stock Summary</h4>
+              <div class="grid two">
+                <label>Item ID<input id="stockItemId" /></label>
+                <label>Warehouse ID<input id="stockWarehouseId" /></label>
+              </div>
+              <div class="actions">
+                <button id="loadStock">Load Stock</button>
+              </div>
+              <div id="stockList" class="table"></div>
+            </div>
+            <div class="card">
+              <h4>Inventory Adjustment</h4>
+              <div class="grid two">
+                <label>Item ID<input id="adjItemId" /></label>
+                <label>Warehouse ID<input id="adjWarehouseId" /></label>
+              </div>
+              <div class="grid two">
+                <label>Qty In<input id="adjQtyIn" type="number" step="0.01" /></label>
+                <label>Qty Out<input id="adjQtyOut" type="number" step="0.01" /></label>
+              </div>
+              <div class="grid two">
+                <label>Unit Cost USD<input id="adjCostUsd" type="number" step="0.01" /></label>
+                <label>Unit Cost LBP<input id="adjCostLbp" type="number" step="0.01" /></label>
+              </div>
+              <div class="actions">
+                <button id="adjustStock">Post Adjustment</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" data-section="sales">
+          <div class="section-header">
+            <div>
+              <h3>Sales</h3>
+              <p class="muted">Invoices, returns, and payment settlement.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <div class="card__header">
+                <h4>Sales Invoices</h4>
+                <button id="loadSales" class="ghost">Load</button>
+              </div>
+              <div id="salesList" class="table"></div>
+            </div>
+            <div class="card">
+              <div class="card__header">
+                <h4>Sales Returns</h4>
+                <button id="loadReturns" class="ghost">Load</button>
+              </div>
+              <div id="returnsList" class="table"></div>
+            </div>
+          </div>
+          <div class="card">
+            <h4>Post Sales Payment</h4>
+            <div class="grid two">
+              <label>Invoice ID<input id="payInvoiceId" /></label>
+              <label>Method
+                <select id="payMethod">
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                  <option value="transfer">Transfer</option>
+                  <option value="credit">Credit</option>
+                </select>
+              </label>
+            </div>
+            <div class="grid two">
+              <label>Amount USD<input id="payUsd" type="number" step="0.01" /></label>
+              <label>Amount LBP<input id="payLbp" type="number" step="0.01" /></label>
+            </div>
+            <div class="actions">
+              <button id="postPayment">Post Payment</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" data-section="purchases">
+          <div class="section-header">
+            <div>
+              <h3>Purchasing</h3>
+              <p class="muted">Purchase orders, goods receipts, and supplier invoices.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <div class="card__header">
+                <h4>Purchase Orders</h4>
+                <button id="loadOrders" class="ghost">Load</button>
+              </div>
+              <div id="ordersList" class="table"></div>
+            </div>
+            <div class="card">
+              <div class="card__header">
+                <h4>Receipts & Invoices</h4>
+                <div class="card__actions">
+                  <button id="loadReceipts" class="ghost">Receipts</button>
+                  <button id="loadSupplierInvoices" class="ghost">Invoices</button>
+                </div>
+              </div>
+              <div id="receiptsList" class="table"></div>
+              <div id="supplierInvoicesList" class="table"></div>
+            </div>
+          </div>
+          <div class="card">
+            <h4>Create Purchase Order</h4>
+            <div class="grid two">
+              <label>Supplier ID<input id="poSupplierId" /></label>
+              <label>Exchange Rate<input id="poRate" type="number" step="0.01" /></label>
+            </div>
+            <div class="grid two">
+              <label>Item ID<input id="poItemId" /></label>
+              <label>Qty<input id="poQty" type="number" step="0.01" /></label>
+            </div>
+            <div class="grid two">
+              <label>Unit Cost USD<input id="poCostUsd" type="number" step="0.01" /></label>
+              <label>Unit Cost LBP<input id="poCostLbp" type="number" step="0.01" /></label>
+            </div>
+            <div class="actions">
+              <button id="createPO">Create PO</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" data-section="intercompany">
+          <div class="section-header">
+            <div>
+              <h3>Intercompany</h3>
+              <p class="muted">Issue inventory between entities and settle balances.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>Intercompany Issue</h4>
+              <div class="grid two">
+                <label>Source Company ID<input id="icSourceCompany" /></label>
+                <label>Issue Company ID<input id="icIssueCompany" /></label>
+              </div>
+              <div class="grid two">
+                <label>Sell Company ID<input id="icSellCompany" /></label>
+                <label>Source Invoice ID<input id="icInvoice" /></label>
+              </div>
+              <div class="grid two">
+                <label>Warehouse ID<input id="icWarehouse" /></label>
+                <label>Item ID<input id="icItem" /></label>
+              </div>
+              <div class="grid two">
+                <label>Qty<input id="icQty" type="number" step="0.01" /></label>
+                <label>Unit Cost USD<input id="icCostUsd" type="number" step="0.01" /></label>
+              </div>
+              <div class="grid two">
+                <label>Unit Cost LBP<input id="icCostLbp" type="number" step="0.01" /></label>
+              </div>
+              <div class="actions">
+                <button id="issueIntercompany">Issue</button>
+              </div>
+            </div>
+            <div class="card">
+              <h4>Intercompany Settlement</h4>
+              <div class="grid two">
+                <label>From Company ID<input id="icFromCompany" /></label>
+                <label>To Company ID<input id="icToCompany" /></label>
+              </div>
+              <div class="grid two">
+                <label>Amount USD<input id="icAmountUsd" type="number" step="0.01" /></label>
+                <label>Amount LBP<input id="icAmountLbp" type="number" step="0.01" /></label>
+              </div>
+              <div class="grid two">
+                <label>Exchange Rate<input id="icRate" type="number" step="0.01" /></label>
+                <label>Method
+                  <select id="icMethod">
+                    <option value="bank">Bank</option>
+                    <option value="cash">Cash</option>
+                  </select>
+                </label>
+              </div>
+              <div class="actions">
+                <button id="settleIntercompany">Settle</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" data-section="accounting">
+          <div class="section-header">
+            <div>
+              <h3>Accounting</h3>
+              <p class="muted">Trial balance and account defaults for posting.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <div class="card__header">
+                <h4>Trial Balance</h4>
+                <button id="loadTrial" class="ghost">Load</button>
+              </div>
+              <div id="trialBalance" class="table"></div>
+            </div>
+            <div class="card">
+              <div class="card__header">
+                <h4>Account Defaults</h4>
+                <div class="card__actions">
+                  <button id="saveDefaults">Save</button>
+                  <button id="loadDefaults" class="ghost">Reload</button>
+                </div>
+              </div>
+              <div class="grid two">
+                <label>Role Code<input id="defRole" placeholder="AR" /></label>
+                <label>Account Code<input id="defAccount" placeholder="1100" /></label>
+              </div>
+              <div id="defaultsList" class="table"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" data-section="reports">
+          <div class="section-header">
+            <div>
+              <h3>Reports</h3>
+              <p class="muted">VAT, GL, and inventory valuation exports.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>VAT Report</h4>
+              <div class="grid two">
+                <label>Period<input id="vatPeriod" type="date" /></label>
+                <label>Format
+                  <select id="vatFormat">
+                    <option value="">JSON</option>
+                    <option value="csv">CSV</option>
+                  </select>
+                </label>
+              </div>
+              <div class="actions">
+                <button id="loadVat">Load VAT</button>
+              </div>
+              <div id="vatOutput" class="table"></div>
+            </div>
+            <div class="card">
+              <h4>General Ledger</h4>
+              <div class="grid two">
+                <label>Start Date<input id="glStart" type="date" /></label>
+                <label>End Date<input id="glEnd" type="date" /></label>
+              </div>
+              <div class="grid two">
+                <label>Format
+                  <select id="glFormat">
+                    <option value="">JSON</option>
+                    <option value="csv">CSV</option>
+                  </select>
+                </label>
+              </div>
+              <div class="actions">
+                <button id="loadGL">Load GL</button>
+              </div>
+              <div id="glOutput" class="table"></div>
+            </div>
+          </div>
+          <div class="card">
+            <h4>Inventory Valuation</h4>
+            <div class="grid two">
+              <label>Format
+                <select id="invFormat">
+                  <option value="">JSON</option>
+                  <option value="csv">CSV</option>
+                </select>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="loadInv">Load Inventory</button>
+            </div>
+            <div id="invOutput" class="table"></div>
+          </div>
+        </section>
+
+        <section class="section" data-section="ai">
+          <div class="section-header">
+            <div>
+              <h3>AI Hub</h3>
+              <p class="muted">Recommendations for purchase, replenishment, and CRM.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card__header">
+              <h4>AI Recommendations</h4>
+              <button id="loadAI" class="ghost">Load</button>
+            </div>
+            <div id="aiList" class="table"></div>
+          </div>
+        </section>
+
+        <section class="section" data-section="ai-settings">
+          <div class="section-header">
+            <div>
+              <h3>AI Settings</h3>
+              <p class="muted">Auto-execution rules for AI agents.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="grid two">
+              <label>Agent Code<input id="aiAgentCode" placeholder="AI_PURCHASE" /></label>
+              <label>Auto Execute
+                <select id="aiAuto">
+                  <option value="false">No</option>
+                  <option value="true">Yes</option>
+                </select>
+              </label>
+            </div>
+            <div class="grid two">
+              <label>Max Amount USD<input id="aiMaxAmount" type="number" step="0.01" /></label>
+              <label>Max Actions / Day<input id="aiMaxActions" type="number" step="1" /></label>
+            </div>
+            <div class="actions">
+              <button id="saveAI">Save Settings</button>
+              <button id="loadAISettings" class="ghost">Reload</button>
+            </div>
+            <div id="aiSettingsList" class="table"></div>
+          </div>
+        </section>
+
+        <section class="section" data-section="config">
+          <div class="section-header">
+            <div>
+              <h3>Configuration</h3>
+              <p class="muted">Exchange rates, tax codes, and account defaults.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>Exchange Rates</h4>
+              <div class="grid two">
+                <label>Rate Date<input id="rateDate" type="date" /></label>
+                <label>Rate Type<input id="rateType" placeholder="market" /></label>
+              </div>
+              <div class="grid two">
+                <label>USD to LBP<input id="usdToLbp" type="number" step="0.01" /></label>
+              </div>
+              <div class="actions">
+                <button id="addRate">Add Rate</button>
+              </div>
+              <div id="ratesList" class="table"></div>
+            </div>
+            <div class="card">
+              <h4>Tax Codes</h4>
+              <div class="grid two">
+                <label>Name<input id="taxName" /></label>
+                <label>Rate<input id="taxRate" type="number" step="0.01" /></label>
+              </div>
+              <div class="actions">
+                <button id="addTax">Add Tax</button>
+              </div>
+              <div id="taxList" class="table"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card__header">
+              <h4>Payment Method Mapping</h4>
+              <button id="loadPaymentMethods" class="ghost">Refresh</button>
+            </div>
+            <div class="grid two">
+              <label>Method<input id="payMethod" placeholder="cash/card/bank/transfer" /></label>
+              <label>Role Code<input id="payRoleCode" placeholder="CASH/BANK/AR" /></label>
+            </div>
+            <div class="actions">
+              <button id="savePaymentMethod">Save Mapping</button>
+            </div>
+            <div id="paymentMethodsList" class="table"></div>
+          </div>
+        </section>
+
+        <section class="section" data-section="devices">
+          <div class="section-header">
+            <div>
+              <h3>POS Devices</h3>
+              <p class="muted">Register devices and rotate tokens. Tokens are shown once.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>Register Device</h4>
+              <div class="grid two">
+                <label>Device Code<input id="deviceCode" placeholder="POS-01" /></label>
+                <label>Branch ID<input id="deviceBranchId" placeholder="optional" /></label>
+              </div>
+              <div class="actions">
+                <button id="registerDevice">Register</button>
+              </div>
+              <div id="deviceRegisterOutput" class="table"></div>
+            </div>
+            <div class="card">
+              <h4>Reset Token</h4>
+              <div class="grid two">
+                <label>Device ID<input id="deviceResetId" /></label>
+              </div>
+              <div class="actions">
+                <button id="resetDeviceToken">Reset Token</button>
+              </div>
+              <div id="deviceResetOutput" class="table"></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card__header">
+              <h4>Device List</h4>
+              <button id="loadDevices" class="ghost">Refresh</button>
+            </div>
+            <div id="devicesList" class="table"></div>
+          </div>
+        </section>
+
+        <section class="section" data-section="users">
+          <div class="section-header">
+            <div>
+              <h3>Users & Roles</h3>
+              <p class="muted">Provision access and assign company roles.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>Create User</h4>
+              <div class="grid two">
+                <label>Email<input id="userEmail" /></label>
+                <label>Password<input id="userPassword" type="password" /></label>
+              </div>
+              <div class="actions">
+                <button id="createUser">Create User</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card__header">
+                <h4>Users</h4>
+                <button id="loadUsers" class="ghost">Load Users</button>
+              </div>
+              <div id="usersList" class="table"></div>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>Create Role</h4>
+              <div class="grid two">
+                <label>Role Name<input id="roleName" /></label>
+              </div>
+              <div class="actions">
+                <button id="createRole">Create Role</button>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card__header">
+                <h4>Roles</h4>
+                <button id="loadRoles" class="ghost">Load Roles</button>
+              </div>
+              <div id="rolesList" class="table"></div>
+            </div>
+          </div>
+          <div class="card">
+            <h4>Assign Role</h4>
+            <div class="grid two">
+              <label>User ID<input id="assignUserId" /></label>
+              <label>Role ID<input id="assignRoleId" /></label>
+            </div>
+            <div class="actions">
+              <button id="assignRole">Assign Role</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card__header">
+              <h4>Role Permissions</h4>
+              <button id="loadPermissions" class="ghost">Load Permissions</button>
+            </div>
+            <div class="grid two">
+              <label>Role ID<input id="permRoleId" /></label>
+              <label>Permission Code<input id="permCode" placeholder="items:read" /></label>
+            </div>
+            <div class="actions">
+              <button id="assignPermission">Assign Permission</button>
+              <button id="loadRolePermissions" class="ghost">Load Role Permissions</button>
+            </div>
+            <div id="permissionsList" class="table"></div>
+            <div id="rolePermissionsList" class="table"></div>
+          </div>
+        </section>
+
+        <section class="section" data-section="coa">
+          <div class="section-header">
+            <div>
+              <h3>Chart of Accounts</h3>
+              <p class="muted">Templates, company COA versions, and mappings.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <div class="card__header">
+                <h4>COA Templates</h4>
+                <button id="loadTemplates" class="ghost">Load</button>
+              </div>
+              <div id="templatesList" class="table"></div>
+            </div>
+            <div class="card">
+              <h4>Clone Template</h4>
+              <div class="grid two">
+                <label>Template Code<input id="cloneTemplateCode" placeholder="LB_COA_2025" /></label>
+                <label>Effective From<input id="cloneEffectiveFrom" type="date" /></label>
+              </div>
+              <div class="actions">
+                <button id="cloneTemplate">Clone</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card__header">
+              <h4>COA Accounts</h4>
+              <button id="loadAccounts" class="ghost">Load</button>
+            </div>
+            <div id="accountsList" class="table"></div>
+          </div>
+          <div class="card">
+            <h4>Update Account</h4>
+            <div class="grid three">
+              <label>Account ID<input id="accountId" /></label>
+              <label>Name EN<input id="accountNameEn" /></label>
+              <label>Postable
+                <select id="accountPostable">
+                  <option value="">No Change</option>
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </select>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="updateAccount">Update Account</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card__header">
+              <h4>COA Mappings</h4>
+              <div class="card__actions">
+                <button id="createMapping">Create Mapping</button>
+                <button id="loadMappings" class="ghost">Load</button>
+              </div>
+            </div>
+            <div class="grid three">
+              <label>Source Account ID<input id="mapSourceAccount" /></label>
+              <label>Target Template Account ID<input id="mapTargetAccount" /></label>
+              <label>Effective From<input id="mapEffectiveFrom" type="date" /></label>
+            </div>
+            <div id="mappingsList" class="table"></div>
+          </div>
+        </section>
+
+        <section class="section" data-section="auth">
+          <div class="section-header">
+            <div>
+              <h3>Authentication</h3>
+              <p class="muted">Login and switch company context.</p>
+            </div>
+          </div>
+          <div class="grid two">
+            <div class="card">
+              <h4>Login</h4>
+              <div class="grid two">
+                <label>Email<input id="loginEmail" /></label>
+                <label>Password<input id="loginPassword" type="password" /></label>
+              </div>
+              <div class="actions">
+                <button id="login">Login</button>
+                <button id="logout" class="ghost">Logout</button>
+              </div>
+              <div id="loginStatus" class="status"></div>
+            </div>
+            <div class="card">
+              <h4>Session</h4>
+              <div id="sessionInfo" class="table"></div>
+              <div class="grid two">
+                <label>Company ID<input id="sessionCompany" /></label>
+              </div>
+              <div class="actions">
+                <button id="setCompany">Set Company</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

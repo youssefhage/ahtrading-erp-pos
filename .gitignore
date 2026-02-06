@@ -1,0 +1,24 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+
+# Local databases / runtime state
+pos-desktop/pos.sqlite
+pos-desktop/config.json
+backend/.env
+
+# Node (admin app to be added)
+node_modules/
+.next/
+dist/
+.turbo/
+

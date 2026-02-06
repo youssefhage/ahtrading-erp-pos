@@ -1,0 +1,3661 @@
+{
+  "template_code": "LB_COA_2025",
+  "template_name": "Lebanese COA (Imported)",
+  "default_language": "fr",
+  "accounts": [
+    {
+      "account_code": "1010",
+      "name_fr": "CAPITAL SOCIAL OU PERSONNEL",
+      "name_en": "CAPITAL",
+      "name_ar": "رأس المال (للشركة أو للشخص)",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1011",
+      "name_fr": "Capital Souscrit, Non Appelé",
+      "name_en": "Subscribed Un-Called Capital",
+      "name_ar": "رأس المال المكتتب وغيرالمستدعى",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1012",
+      "name_fr": "Capital Souscrit, Appelé, Non Versé",
+      "name_en": "Subscribed Called and Unpaid Capital",
+      "name_ar": "رأس المال المكتتب، المستدعى  وغيرالمدفوع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1013",
+      "name_fr": "Capital Souscrit, Appelé, Versé",
+      "name_en": "Subscribed Called and Paid-Up Capital",
+      "name_ar": "رأس المال المكتتب، المستدعى  والمدفوع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1020",
+      "name_fr": "PRIMES LIEES AU CAPITAL SOCIAL",
+      "name_en": "CAPITAL PREMIUMS",
+      "name_ar": "علاوات الإصدار والإندماج والمقدّمات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1021",
+      "name_fr": "Primes d'Émission",
+      "name_en": "Issuance Premiums",
+      "name_ar": "علاوات الإصدار",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1022",
+      "name_fr": "Primes de Fusion",
+      "name_en": "Merger Premiums",
+      "name_ar": "علاوات الإندماج",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1023",
+      "name_fr": "Primes d'Apport",
+      "name_en": "Contributions Premiums",
+      "name_ar": "علاوات المقدّمات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1024",
+      "name_fr": "Primes de Conversion d'Obligations en Actions",
+      "name_en": "Conversion Premium of Bonds to Shares",
+      "name_ar": "علاوات تحويل السندات إلى أسهم",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1030",
+      "name_fr": "ECARTS DE RÉÉVALUATION",
+      "name_en": "REVALUATION VARIANCES",
+      "name_ar": "فروقات إعادة التخمين والتقييم",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1031",
+      "name_fr": "Ecarts Réevalut.-Immob. Non Amortissables",
+      "name_en": "Non-Amortizable Assets Reval. Variances",
+      "name_ar": "فروقات إعادة تخمين أصول غير قابلة للإستهلاك",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1035",
+      "name_fr": "Ecarts Réevalut.-Immob. Amortissables",
+      "name_en": "Amortizable Assets Reval. Variances",
+      "name_ar": "فروقات إعادة تخمين أصول قابلة للإستهلاك",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1090",
+      "name_fr": "COMPTE DE L'EXPLOITANT INDIVIDUEL",
+      "name_en": "OWNER'S CURRENT ACCOUNT",
+      "name_ar": "الحساب الشخصي لصاحب المؤسّسة",
+      "normal_balance_raw": "C/D"
+    },
+    {
+      "account_code": "1110",
+      "name_fr": "RÉSERVE LÉGALE",
+      "name_en": "LEGAL RESERVE",
+      "name_ar": "إحتياطي قانوني",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1120",
+      "name_fr": "RÉSERVES STATUTAIRES OU CONTRACTUELLES",
+      "name_en": "STATUTORY AND CONTRACTUAL RESERVES",
+      "name_ar": "إحتياطيات نظامية وتعاقدية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1190",
+      "name_fr": "AUTRES RÉSERVES",
+      "name_en": "OTHER RESERVES",
+      "name_ar": "إحتياطيات أخرى",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1210",
+      "name_fr": "REPORT À NOUVEAU CRÉDIT. - PROFITS",
+      "name_en": "BROUGHT FORWARD RESULTS - PROFITS",
+      "name_ar": "نتائج سابقة مدوّرة دائنة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1250",
+      "name_fr": "REPORT À NOUVEAU DÉBIT. - PERTES",
+      "name_en": "BROUGHT FORWARD RESULTS - LOSSES",
+      "name_ar": "نتائج سابقة مدوّرة مدينة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "1300",
+      "name_fr": "Résultat de l'Exercice - Profit / (Perte)",
+      "name_en": "Current Period Net Result - Profit / (Loss)",
+      "name_ar": "النتيجة الصافية للدورة المالية (ربح أو خسارة)",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "1380",
+      "name_fr": "RÉSULTAT DE L'EXERCICE - BÉNÉFICE",
+      "name_en": "CURRENT YEAR RESULT - PROFITS",
+      "name_ar": "نتيجة الدورة - أرباح",
+      "normal_balance_raw": "C=D"
+    },
+    {
+      "account_code": "1390",
+      "name_fr": "RÉSULTAT DE L'EXERCICE - PERTE",
+      "name_en": "CURRENT YEAR RESULT - LOSSES",
+      "name_ar": "نتيجة الدورة - خسائر",
+      "normal_balance_raw": "C=D"
+    },
+    {
+      "account_code": "1410",
+      "name_fr": "SUBVENTION d'INVESTISSEMENT REÇUES",
+      "name_en": "INVESTMENT SUBSIDIES RECEIVED",
+      "name_ar": "إعانات للتوظيفات مقبوضة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1450",
+      "name_fr": "SUBV. d'INVEST.RAPPORTÉES AUX RÉSULTATS",
+      "name_en": "INVEST. SUBSIDIES TRANSFERED TO RESULTS",
+      "name_ar": "إعانات للتوظيفات محوّلة للنتائج",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1510",
+      "name_fr": "Provisions pour Risques",
+      "name_en": "Provisions for Risks",
+      "name_ar": "مؤونات لمواجهة أخطار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "1511",
+      "name_fr": "Prov. pour Litiges et Éventualités Diverses",
+      "name_en": "Provisions for Litigations & Alike",
+      "name_ar": "مؤونات أخطار المنازعات والإحتمالات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1512",
+      "name_fr": "Prov. pour Garanties Données Aux Clients",
+      "name_en": "Provisions against Guarantees Given",
+      "name_ar": "مؤونات لقاء الضمانات المعطات للزبائن",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1513",
+      "name_fr": "Provisions pour Pertes de Changes",
+      "name_en": "Provisions for Losses on Exchange",
+      "name_ar": "مؤونات مواجهة خسائر سعر الصرف",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1514",
+      "name_fr": "Prov. pour Pertes sur Marchés à Terme",
+      "name_en": "Provis. for Losses on Term Contracts",
+      "name_ar": "مؤونات مواجهة  خسائر على عقود لأجل",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1515",
+      "name_fr": "Provisions pour Amendes Et Pénalités",
+      "name_en": "Provisions for Fines & Penalties",
+      "name_ar": "مؤونات مواجهة الغرامات والجزاءات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1516",
+      "name_fr": "Provisions pour Risques Financiers",
+      "name_en": "Provisions for Financial Risks",
+      "name_ar": "مؤونات مواجهة المخاطر والأعباء المالية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1517",
+      "name_fr": "Provisions pour Chutes des Prix Extraord.",
+      "name_en": "Provisions for Extraordinary Prices Fall",
+      "name_ar": "مؤونات مواجهة  هبوط  أسعار إستثنائي",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1518",
+      "name_fr": "Prov. pr Risques et Charges Hors Exploitation",
+      "name_en": "Provisions for Non-Oper. Risks & Charges",
+      "name_ar": "مؤونات مواجهة أخطار وأعباء خارج الإستثمار",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1550",
+      "name_fr": "Provisions pour Charges",
+      "name_en": "Provisions for Charges",
+      "name_ar": "مؤونات لمواجهة أعباء",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "1551",
+      "name_fr": "Prov. pr Charges à Répartir sur Pls Exercices",
+      "name_en": "Provisions for Deferred Charges",
+      "name_ar": "مؤونات الأعباء الواجب توزيعها على عدة دورات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1552",
+      "name_fr": "Prov. pour Indemnités de Fin de Service",
+      "name_en": "Prov. for End of Service Indemnity",
+      "name_ar": "مؤونات تسوية تعويضات نهاية الخدمة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1552",
+      "name_fr": "Provisions  pour Pensions de Retraite",
+      "name_en": "Prov. for End of Service Pensions",
+      "name_ar": "مؤونات دفع معاشات التقاعد",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1552",
+      "name_fr": "Prove. pour Accidents de Travail",
+      "name_en": "Prove. for Workmen's Compensations",
+      "name_ar": "مؤونات لتعويضات طوارئ العمل",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1553",
+      "name_fr": "Provisions pour Impôts (non sur/Revenu)",
+      "name_en": "Provision for Taxes (Other than Income Tax)",
+      "name_ar": "مؤونات للضرائب (غير ضريبة الأرباح)",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1610",
+      "name_fr": "EMPRUNTS OBLIGATAIRES",
+      "name_en": "LONG TERM LOANS AGAINST BONDS",
+      "name_ar": "قروض لقاء سندات دين",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1620",
+      "name_fr": "EMPRUNTS AUPRÈS D'ETABLIS. DE CRÉDIT",
+      "name_en": "LONG TERM LOANS FROM BANKS",
+      "name_ar": "قروض من مؤسّسات التسليف",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1680",
+      "name_fr": "EMPRUNTS ET DETTES DIVERS",
+      "name_en": "SUNDRY LONG & MED. TERM LOANS",
+      "name_ar": "قروض وديون مختلفة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "1810",
+      "name_fr": "COMPTES DE LIAISON DES ETABLIS.,SUCCURSALES..",
+      "name_en": "INTERCOMPANIES & INTERBRANCHES ACCOUNTS",
+      "name_ar": "حسابات إرتباط المؤسّسات والفروع وشركات المشاركة",
+      "normal_balance_raw": "C=D"
+    },
+    {
+      "account_code": "1860",
+      "name_fr": "Echanges entre Branches - Charges",
+      "name_en": "Interbranches Exchanges - Charges",
+      "name_ar": "الأموال والخدمات المتبادلة بين الفروع (أعباء)",
+      "normal_balance_raw": "C=D"
+    },
+    {
+      "account_code": "1870",
+      "name_fr": "Echanges entre Branches - Revenus",
+      "name_en": "Interbranches Exchanges - Revenues",
+      "name_ar": "الأموال والخدمات المتبادلة بين الفروع (إيرادات)",
+      "normal_balance_raw": "C=D"
+    },
+    {
+      "account_code": "2110",
+      "name_fr": "FONDS DE COMMERCE",
+      "name_en": "BUSINESS CONCERN",
+      "name_ar": "المؤسّسة التجارية (الخلو، الشهرة، الزبائن..)",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2120",
+      "name_fr": "FRAIS d'ETABLISSEMENT",
+      "name_en": "FORMATION EXPENSES",
+      "name_ar": "مصاريف التأسيس",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2130",
+      "name_fr": "FRAIS DE RECHERCHE ET DE DÉVELOPPEMENT",
+      "name_en": "RESEARCH & DEVELOPMENT EXPENSES",
+      "name_ar": "مصاريف البحوث والتطوير",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2140",
+      "name_fr": "BREVETS, LICENCES, MARQUES ET VALEURS SIMILAIRES",
+      "name_en": "PATENTS, LICENSES, TRADE MARKS & ALIKE",
+      "name_ar": "براءات الإختراع، الإجازات، العلامات والقيم المماثلة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2190",
+      "name_fr": "AUTRES IMMOBILISATIONS INCORPORELLES",
+      "name_en": "OTHER INTANGIBLE FIXED ASSETS",
+      "name_ar": "أصول ثابتة غير مادية أخرى",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2210",
+      "name_fr": "TERRAINS",
+      "name_en": "LANDS",
+      "name_ar": "الأراضي",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2211",
+      "name_fr": "Terrains Nus",
+      "name_en": "Virgin Lands - Basic Cost",
+      "name_ar": "الأراضي الفراغ - القيمة الأساسية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2212",
+      "name_fr": "Terrains Bâtis (Ensembles Immobiliers)",
+      "name_en": "Built-on Properties - Basic Cost",
+      "name_ar": "الأراضي المبنية - القيمة الأساسية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2213",
+      "name_fr": "Terrains d'Exploitation (Carrières, Gisements)",
+      "name_en": "Extractive Lands - Basic Cost",
+      "name_ar": "أراضي الإستثمار الجوفي - القيمة الأساسية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2214",
+      "name_fr": "Agencements et Aménagements de Terrains",
+      "name_en": "Landscaping Cost",
+      "name_ar": "تكاليف إستصلاح  وتنظيم الأراضي",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2230",
+      "name_fr": "CONSTRUCTIONS ET BÂTIMENTS",
+      "name_en": "BUILDINGS & CONSTRUCTIONS",
+      "name_ar": "الأبنية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2231",
+      "name_fr": "Bâtiments  (Ensembles Immobiliers)",
+      "name_en": "Buildings - Basic Cost",
+      "name_ar": "الأبنية - القيمة الأساسية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2231",
+      "name_fr": "Batis en Betons pr Commerce, Tourisme, Services",
+      "name_en": "Concrete Buildings for Trade, Tourism & Services",
+      "name_ar": "الأبنية المشادة بالباطون والمستعملة لغايات تجارية وسياحية وخدماتية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2231",
+      "name_fr": "Batis en Betons pr Manufactures ou Industries",
+      "name_en": "Concrete Buildings for Industry",
+      "name_ar": "الأبنية المشادة بالباطون والمستعملة لغايات حرفية وصناعية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2231",
+      "name_fr": "Batis Métalliques pr Commerce ou Industries",
+      "name_en": "Metalllic Buildings for Trade or Industry",
+      "name_ar": "أبنية وإنشاءآت معدنية لغايات تجارية أو صناعية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2232",
+      "name_fr": "Installations & Aménag. des Constructions",
+      "name_en": "Building Installations & Improvem'ts",
+      "name_ar": "تجهيزات الأبنية وإستصلاحها",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2233",
+      "name_fr": "Ouvrages d'Infra-structures",
+      "name_en": "Infra-structure Constructions",
+      "name_ar": "إنشاءات البنى التحتية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2234",
+      "name_fr": "Constructions sur Terrains d'Autrui",
+      "name_en": "Constructions on Other Owners' Lands",
+      "name_ar": "إنشاءات على أراضي الغير",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2240",
+      "name_fr": "INSTALL.TECHN., MATÉRIELS ET OUTIL.INDUSTRIELS",
+      "name_en": "TECH. INSTALL., MACHINERY & EQUIPMENT",
+      "name_ar": "التجهيزات الفنية والآلات الصناعية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2241",
+      "name_fr": "Install. Techniques Complexes Spécialisées",
+      "name_en": "Specialized Technical Installations",
+      "name_ar": "تجهيزات فنّية متخصّصة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2242",
+      "name_fr": "Install. Techniques à Caractère Spécifique",
+      "name_en": "Specific Technical Installations",
+      "name_ar": "تجهيزات فنّية ذات طبيعة خاصة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2243",
+      "name_fr": "Matériels Industriels",
+      "name_en": "Industrial Machinery & Equipment",
+      "name_ar": "الآلات والمعدّات الصناعية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2244",
+      "name_fr": "Outillages Industriels",
+      "name_en": "Industrial Tools",
+      "name_ar": "الأدوات الصناعية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2245",
+      "name_fr": "Articles & Equipements pour Hotels et Restos",
+      "name_en": "Hotels & Retaurants Appliances",
+      "name_ar": "الأواني الزجاجية والأدوات الفضيّة في الفنادق والمطاعم ..",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2250",
+      "name_fr": "VEHICULES ET MATERIEL DE TRANSPORT",
+      "name_en": "VEHICLES AND HANDLING EQUIPMENT",
+      "name_ar": "آليات النقل",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2251",
+      "name_fr": "Voitures de Passagers",
+      "name_en": "Passenger Vehicles",
+      "name_ar": "سيارات سياحية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2252",
+      "name_fr": "Vehicules et Matériel de Transport",
+      "name_en": "Transport Vehicles & Handling Equipment",
+      "name_ar": "شاحنات وآليات نقل",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2253",
+      "name_fr": "Moyens de Transport Maritime",
+      "name_en": "Maritime Tranport Means",
+      "name_ar": "وسائل النقل البحري",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2254",
+      "name_fr": "Moyens de Transport Aérien",
+      "name_en": "Air Transport Means",
+      "name_ar": "وسائل النقل الجوّي",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2260",
+      "name_fr": "AUTRES IMMOBILISATIONS CORPORELLES",
+      "name_en": "OTHER TANGIBLE FIXED ASSETS",
+      "name_ar": "أصول ثابتة مادية أخرى",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2261",
+      "name_fr": "Install.Internes, Décor & Aménag. Divers",
+      "name_en": "Internal Install. Decor & Improvements",
+      "name_ar": "تجهيزات داخلية، ديكور وتحسينات مختلفة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2262",
+      "name_fr": "Matériel de Bureau et Informatique",
+      "name_en": "Office & Computer Equipment",
+      "name_ar": "ادوات مكتبية ومعلوماتية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2262",
+      "name_fr": "Matériel de Bureau",
+      "name_en": "Office Equipment",
+      "name_ar": "ادوات مكتبية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2262",
+      "name_fr": "Matériel Informatique",
+      "name_en": "Computer Equipment",
+      "name_ar": "ادوات معلوماتية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2263",
+      "name_fr": "Mobilier et Accessoires",
+      "name_en": "Furnitures, Fixtures & Accessories",
+      "name_ar": "أثاث ومفروشات وتوابعها",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2263",
+      "name_fr": "Mobilier",
+      "name_en": "Furnitures & Fixtures",
+      "name_ar": "أثاث ومفروشات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2263",
+      "name_fr": "Linges des Services Hoteliers",
+      "name_en": "Hospitality Linen",
+      "name_ar": "البياضات والشراشف والمناشف",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2264",
+      "name_fr": "Cheptel - Installations Agricoles",
+      "name_en": "Agricultural Installations",
+      "name_ar": "إستثمارات زراعية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2265",
+      "name_fr": "Emballages Réutilisables",
+      "name_en": "Re-usable Containers",
+      "name_ar": "عبوات قابلة لإعادة الإستعمال",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2265",
+      "name_fr": "Emballages Réutilis. - Barils, Bouteilles et Caisses",
+      "name_en": "Re-usable Containers - Barils, Bottles & Boxes",
+      "name_ar": "عبوات قابلة لإعادة الإستعمال - البراميل والقناني والصناديق المرتجعة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2265",
+      "name_fr": "Emballages Réutilis. - Bonbonnes de Gaz",
+      "name_en": "Re-usable Containers - Gaz Containers",
+      "name_ar": "عبوات قابلة لإعادة الإستعمال - قوارير الغـاز",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2270",
+      "name_fr": "IMMOBILISATIONS CORPORELLES EN COURS",
+      "name_en": "TANGIBLE FIXED ASSETS IN PROGRESS",
+      "name_ar": "أصول ثابتة مادية قيد الصنع",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2271",
+      "name_fr": "Terrains en Cours d'Acquisition",
+      "name_en": "Lands under Acquisition",
+      "name_ar": "أراض قيد الإمتلاك",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2273",
+      "name_fr": "Constructions en Cours",
+      "name_en": "Buildings under Construction",
+      "name_ar": "أبنية قيد الإنشاء",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2274",
+      "name_fr": "Install.Tech., Matériels & Outillages en Cours",
+      "name_en": "Industrial Equipment under Installation",
+      "name_ar": "تجهيزات ومعدّات صناعية قيد التركيب",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2276",
+      "name_fr": "Autres Immobilisations Corporelles en Cours",
+      "name_en": "Other Tangible Fixed Assets in Progress",
+      "name_ar": "أصول ثابتة مادية  أخرى قيد الإنجاز",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2280",
+      "name_fr": "Avances Et Acomptes S/Immob. Corporelles",
+      "name_en": "Advances/Purchase Of Fixed Assets",
+      "name_ar": "سلفات ودفعات على حساب شراء أصول ثابتة مادية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2510",
+      "name_fr": "Titres De Participation",
+      "name_en": "Equity Participations",
+      "name_ar": "سندات مشاركة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2520",
+      "name_fr": "Créances Rattachées À Des Participations",
+      "name_en": "Receivables Related To Participations",
+      "name_ar": "ذمم مدينة مرتبطة بمشاركات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2530",
+      "name_fr": "AUTRES TITRES IMMOBILISES",
+      "name_en": "OTHER SECURITIES & FINANCIAL ASSETS",
+      "name_ar": "سندات أخرى مجمّدة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2531",
+      "name_fr": "Droit de Propriété (Actions, Parts Sociales)",
+      "name_en": "Ownership Deeds (Shares & Parts)",
+      "name_ar": "سندات ملكية  (أسهم، حصص شراكة)",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2535",
+      "name_fr": "Droit de Créance (Obligations, Bons)",
+      "name_en": "Credit Deeds (Bonds & Coupons)",
+      "name_ar": "سندات ديـن",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2550",
+      "name_fr": "PRETS A LONG ET MOYEN TERME",
+      "name_en": "LONG AND MEDIUM TERM GRANTED LOANS",
+      "name_ar": "قروض طويلة ومتوسّطة الأجل",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2551",
+      "name_fr": "Prêts Aux Associés",
+      "name_en": "Loans to Partners/Affiliates - Non-Current Part",
+      "name_ar": "قروض آجلة للشركاء",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2552",
+      "name_fr": "Prêts Au Personnel",
+      "name_en": "Loans to Employees - Non-Current Part",
+      "name_ar": "قروض آجلة للمستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2558",
+      "name_fr": "Autres Prêts",
+      "name_en": "Other Long & Medium Term Loans",
+      "name_ar": "قروض أخرى طويلة أو متوسّطة الأجل",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2590",
+      "name_fr": "Autres Créances Immobilisées",
+      "name_en": "Other Long & Med.Term Receivables",
+      "name_ar": "ذمم مدينة أخرى مجمّدة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2700",
+      "name_fr": "ECART DE REEVAL.NON-AMORTIS. DES IMMOB.",
+      "name_en": "FIXED ASSETS NON-AMORT. REVAL. VARIANCES",
+      "name_ar": "فروقات إعادة التخمين",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2701",
+      "name_fr": "Ecart de Réev.Non-Amort. des Immob. Incorp.",
+      "name_en": "Intang. Fixed Assets Non-Amort. Reval. Variances",
+      "name_ar": "فروقات إعادة تخمين أصول غير مادية غير قابلة للإستهلاك",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2702",
+      "name_fr": "Ecart de Réev.Non-Amort. des Immob. Corp.",
+      "name_en": "Tangib. Fixed Assets Non-Amort. Reval. Variances",
+      "name_ar": "فروقات إعادة تخمين أصول مادية غير قابلة للإستهلاك",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2705",
+      "name_fr": "Ecart de Réev.Non-Amort. des Immob. Finan.",
+      "name_en": "Financ. Fixed Assets Non-Amort. Reval. Variances",
+      "name_ar": "فروقات إعادة تخمين أصول مالية غير قابلة للإستهلاك",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "2800",
+      "name_fr": "Amortissement du Fond de Commerce",
+      "name_en": "Amortization of Business Concern",
+      "name_ar": "إستهلاكات المؤسّسة التجارية (الشهرة)",
+      "normal_balance_raw": "N.A"
+    },
+    {
+      "account_code": "2810",
+      "name_fr": "Amortissement d'Immobilisations Incorporelles",
+      "name_en": "Intangible Assets Amortizations",
+      "name_ar": "إستهلاكات الأصول الثابتة غير المادية الأخرى",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2811",
+      "name_fr": "Amort. des Frais d'Établissement",
+      "name_en": "Amortiz.of Formation Expenses",
+      "name_ar": "إستهلاكات مصاريف التأسيس",
+      "normal_balance_raw": "N.A"
+    },
+    {
+      "account_code": "2812",
+      "name_fr": "Amort. des Frais de Recherche et de Développement",
+      "name_en": "Amortiz.of Research & Develop. Expenses",
+      "name_ar": "إستهلاكات مصاريف البحوث والتطوير",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2813",
+      "name_fr": "Amort. des Brevets, Licences et Autres..",
+      "name_en": "Amortiz.of Patents, Licenses, Trade Marks, etc..",
+      "name_ar": "إستهلاكات براءات الإختراع والإجازات وخلافها",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2819",
+      "name_fr": "Amort. des Autres Immobilisations Incorporelles",
+      "name_en": "Amortiz.of Other Intang. Fixed Assets",
+      "name_ar": "إستهلاكات أصول ثابتة غير مادية أخرى",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2820",
+      "name_fr": "Amortissement d'Immobilisations Corporelles",
+      "name_en": "Tangible Assets Depreciations",
+      "name_ar": "إستهلاكات الأصول الثابتة المادية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2821",
+      "name_fr": "Amort. des Terrains d'Exploita. et Réaménag.",
+      "name_en": "Deprec.of Extractive Lands & Landscaping",
+      "name_ar": "إستهلاكات الأراضي - إستثمار جوفي وإستصلاح",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2823",
+      "name_fr": "Amort. des Constructions & Equipements",
+      "name_en": "Deprec. of Buildings & Equipments",
+      "name_ar": "إستهلاكات الأبنية وتجهيزاتها",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2823",
+      "name_fr": "Amort. Batis Beton pr Commerce, Tourisme et Services",
+      "name_en": "Deprec. Concrete Buildings for Trade, Tourism & Services",
+      "name_ar": "إستهلاكات الأبنية المشادة بالباطون والمستعملة لغايات تجارية وسياحية وخدماتية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2823",
+      "name_fr": "Amort. Batis Beton pr Manufatures et Industries",
+      "name_en": "Deprec. Concrete Buildings for Industry",
+      "name_ar": "إستهلاكات الأبنية المشادة بالباطون والمستعملة لغايات حرفية وصناعية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2823",
+      "name_fr": "Amort. Batis Métalliques prCommerce et Industries",
+      "name_en": "Deprec. Metalllic Buildings for Trade or Industry",
+      "name_ar": "إستهلاكات أبنية وإنشاءآت معدنية لغايات تجارية أو صناعية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2823",
+      "name_fr": "Amort. Installations et Aménagement des Constructions",
+      "name_en": "Deprec. Building Installations & Improvem'ts",
+      "name_ar": "إستهلاكات تجهيزات الأبنية وإستصلاحها",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2823",
+      "name_fr": "Amort. des Infrastructures",
+      "name_en": "Deprec. Infrastructures",
+      "name_ar": "إستهلاكات إنشاءات البنى التحتية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2823",
+      "name_fr": "Amort. Constructions sur Terrains d'Autrui",
+      "name_en": "Deprec. Constructions on Unowned Lands",
+      "name_ar": "إستهلاكات إنشاءات على أراضي الغير",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2824",
+      "name_fr": "Amort. des Instal.Tech. et Outillage Industriels",
+      "name_en": "Deprec. Machinery & Equipment",
+      "name_ar": "إستهلاكات التجهيزات الفنية والآلات الصناعية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2824",
+      "name_fr": "Amort. Install. Techniques Complexes Spécialisées",
+      "name_en": "Depr. Specialized Technical Installations",
+      "name_ar": "إستهلاكات تجهيزات فنّية متخصّصة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2824",
+      "name_fr": "Amort. Install. Techniques à Caractère Spécifique",
+      "name_en": "Depr. Specific Technical Installations",
+      "name_ar": "إستهلاكات تجهيزات فنّية ذات طبيعة خاصة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2824",
+      "name_fr": "Amort. Matériels Industriels",
+      "name_en": "Depr. Industrial Machinery & Equipment",
+      "name_ar": "إستهلاكات الآلات والمعدّات الصناعية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2824",
+      "name_fr": "Amort. Outillages Industriels",
+      "name_en": "Depr. Industrial Tools",
+      "name_ar": "إستهلاكات الأدوات الصناعية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2824",
+      "name_fr": "Amort. Articles & Equipements pour Hotels et Restos",
+      "name_en": "Depr. Hotels & Retaurants Appliances",
+      "name_ar": "إهتلاك الأواني الزجاجية والأدوات الفضيّة في الفنادق والمطاعم ..",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2825",
+      "name_fr": "Amort. des Véhicules et Matériel de Transport",
+      "name_en": "Deprec.of Passenger & Transport Vehicles",
+      "name_ar": "إستهلاكات المركبات وآليات النقل",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2825",
+      "name_fr": "Amort. Voitures de Passagers",
+      "name_en": "Depr. Passenger Vehicles",
+      "name_ar": "إستهلاكات سيارات سياحية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2825",
+      "name_fr": "Amort. Vehicules et Matériel de Transport",
+      "name_en": "Depr. Transport Vehicles & Handling Equipment",
+      "name_ar": "إستهلاكات شاحنات وآليات نقل",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2825",
+      "name_fr": "Amort. Moyens de Transport Maritime",
+      "name_en": "Depr. Maritime Tranport Means",
+      "name_ar": "إستهلاكات وسائل النقل البحري",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2825",
+      "name_fr": "Amort. Moyens de Transport Aérien",
+      "name_en": "Depr. Air Transport Means",
+      "name_ar": "إستهلاكات وسائل النقل الجوّي",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2826",
+      "name_fr": "Amort. d'Autres Immobilisations Corporelles",
+      "name_en": "Deprec.of Other Tangible Fixed Assets",
+      "name_ar": "إستهلاكات الأصول الثابتة المادية الأخرى",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2826",
+      "name_fr": "Amort. Install.Internes, Décor & Aménag. Divers",
+      "name_en": "Depr. Internal Install. Decor & Improvements",
+      "name_ar": "إستهلاكات تجهيزات داخلية، ديكور وتحسينات مختلفة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2826",
+      "name_fr": "Amort. Matériel de Bureau",
+      "name_en": "Depr. Office Equipment",
+      "name_ar": "إستهلاكات ادوات مكتبية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2826",
+      "name_fr": "Amort. Matériel Informatique",
+      "name_en": "Depr. Computer Equipment",
+      "name_ar": "إستهلاكات ادوات معلوماتية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2826",
+      "name_fr": "Amort. Mobilier",
+      "name_en": "Depr. Furnitures & Fixtures",
+      "name_ar": "إستهلاكات أثاث ومفروشات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2826",
+      "name_fr": "Amort. Linges des Services Hoteliers",
+      "name_en": "Depr. Hospitality Linen",
+      "name_ar": "إستهلاكات البياضات والشراشف والمناشف",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2826",
+      "name_fr": "Amort. Emballages Réutilis. - Barils, Bouteilles et Caisses",
+      "name_en": "Depr. Re-usable Barils, Bottels & Boxes",
+      "name_ar": "إستهلاكات عبوات قابلة لإعادة الإستعمال - البراميل والقناني والصناديق المرتجعة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2826",
+      "name_fr": "Amort. Emballages Réutilis. - Bonbonnes de Gaz",
+      "name_en": "Depr. Re-usable Containers - Gaz Containers",
+      "name_ar": "إستهلاكات عبوات قابلة لإعادة الإستعمال - قوارير الغـاز",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2900",
+      "name_fr": "Prov. pour Dépr. du Fond de Commerce",
+      "name_en": "Devaluation Prov. of Business Concern",
+      "name_ar": "مؤونات هبوط قيمة المؤسّسة التجارية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2910",
+      "name_fr": "Prov. Pour Dévaluations d'Immob. Incorporelles",
+      "name_en": "Devaluation Prov. of Intangible Fixed Assets",
+      "name_ar": "مؤونات هبوط قيم الأصول الثابتة غير المادية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2911",
+      "name_fr": "Prov. pr Dépr. des Marques et Valeurs Similaires",
+      "name_en": "Deval. Prov. for Patents, Trade Marks & Alike",
+      "name_ar": "مؤونات هبوط قيمة براءات وإجازات وعلامات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2919",
+      "name_fr": "Prov. pr Dépr. d'Autres Immob. Incorporelles",
+      "name_en": "Deval. Prov. for Other Intang. Fixed Assets",
+      "name_ar": "مؤونات هبوط قيمة أصول غير مادية أخرى",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2920",
+      "name_fr": "Prov. Pour Dévaluations d'Immob. Corporelles",
+      "name_en": "Devaluation Prov. of Tangible Fixed Assets",
+      "name_ar": "مؤونات هبوط أسعار الأصول الثابتة المادية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2921",
+      "name_fr": "Prov. pour Dépr. des Terrains Nus",
+      "name_en": "Virgin Land Devaluation Provision",
+      "name_ar": "مؤونات هبوط قيمة الأراضي الفراغ",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2923",
+      "name_fr": "Prov. pour Dépr. des Bâtiments",
+      "name_en": "Buildings Devaluation Provision",
+      "name_ar": "مؤونات هبوط قيمة الأبنية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2926",
+      "name_fr": "Prov. pour Dépr. d'Autres Immob.Corporelles",
+      "name_en": "Deval. Prov. for Other Tangib. F. Assets",
+      "name_ar": "مؤونات هبوط أصول ثابتة مادية أخرى",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2950",
+      "name_fr": "Prov. Pour Dévaluations d'Immob. Financières",
+      "name_en": "Devaluation Prov. of Financial Fixed Assets",
+      "name_ar": "مؤونات هبوط أسعار الأصول الثابتة المالية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "2951",
+      "name_fr": "Prov.pour Dépr. des Titres de Participation",
+      "name_en": "Deval. Prov. for Equity Participations",
+      "name_ar": "مؤونات هبوط سندات مشاركة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2952",
+      "name_fr": "Prov.pour Dépr. des Créances Rattachées à des Participations",
+      "name_en": "Deval. Prov. for  Participations' Receiv.",
+      "name_ar": "مؤونات هبوط ذمم مدينة مرتبطة بمشاركات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2953",
+      "name_fr": "Prov.pour Dépr. d'Autres Titres Immobilises",
+      "name_en": "Deval. Prov. for Other Securities & Fin. Assets",
+      "name_ar": "مؤونات هبوط سندات أخرى مجمّدة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2955",
+      "name_fr": "Prov.pour Dépr. des Prêts à Long et Moyen Terme",
+      "name_en": "Deval. Prov. for Long & Medium Term Loan",
+      "name_ar": "مؤونات هبوط قروض طويلة ومتوسطة الأجل",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "2959",
+      "name_fr": "Prov.pour Dépr. d'Autres Créances Immobilisées",
+      "name_en": "Deval. Prov. for Other Blocked Fin. Assets",
+      "name_ar": "مؤونات هبوط ذمم أخرى مجمّدة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "3110",
+      "name_fr": "STOCKS - APPROVISIONNEMENTS",
+      "name_en": "STOCK OF RAW MATERIALS & CONSUMABLES",
+      "name_ar": "مخزون مواد أولية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "3150",
+      "name_fr": "Stock Autres Matières et Consommables",
+      "name_en": "Inventory - Other Cons. Materials & Supplies",
+      "name_ar": "مخزون مواد ولوازم إستهلاكية أخرى",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "3310",
+      "name_fr": "STOCKS - EN-COURS DE PRODUCTION",
+      "name_en": "STOCK OF GOODS, WORKS & SERV. IN PROGRESS",
+      "name_ar": "مخزون منتجات قيد الصنع",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "3320",
+      "name_fr": "Stock Travaux en Cours",
+      "name_en": "Inventory - Work in Progress",
+      "name_ar": "مخزون أشغال قيد التنفيذ",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "3350",
+      "name_fr": "Stock Etudes en Cours",
+      "name_en": "Inventory - Studies in Progress",
+      "name_ar": "مخزون دراسات قيد الإعداد",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "3360",
+      "name_fr": "Stock Services à Fournir",
+      "name_en": "Inventory - Services to Provide",
+      "name_ar": "مخزون خدمات قيد التقديم",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "3510",
+      "name_fr": "STOCKS - PRODUITS",
+      "name_en": "STOCK OF MANUFACTURED PRODUCTS",
+      "name_ar": "مخزون منتجات وسيطة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "3550",
+      "name_fr": "Stock Produits Finis",
+      "name_en": "Inventory - Finished Products",
+      "name_ar": "مخزون منتجات تامة الصنع",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "3580",
+      "name_fr": "Stock Déchets de Production",
+      "name_en": "Inventory - Production Waste",
+      "name_ar": "مخزون فضلات انتاج",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "3700",
+      "name_fr": "STOCKS - MARCHANDISES",
+      "name_en": "STOCK OF GOODS FOR SALE",
+      "name_ar": "مخزون البضاعة المعدة للبيع",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "3910",
+      "name_fr": "PROV. POUR DÉPR. DES APPROVISIONNEMENTS",
+      "name_en": "DEVAL.PROV. FOR RAW & OTHER MAT. STOCK",
+      "name_ar": "مؤونات هبوط أسعار مخزون المواد الأولية والإستهلاكية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "3930",
+      "name_fr": "PROV. POUR DÉPR. DES EN-COURS DE PRODUCTION",
+      "name_en": "DEVAL.PROV. FOR PRODUCTS IN PROCESS",
+      "name_ar": "مؤونات هبوط أسعار الإنتاج قيد الصنع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "3950",
+      "name_fr": "PROV. POUR DÉPR. DES PRODUITS",
+      "name_en": "DEVAL.PROV. FOR PRODUCTS STOCK",
+      "name_ar": "مؤونات هبوط أسعار الإنتاج المخزون",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "3970",
+      "name_fr": "PROV. POUR DÉPR. DES MARCHANDISES",
+      "name_en": "DEVAL.PROV. FOR GOODS FOR SALE STOCK",
+      "name_ar": "مؤونات هبوط أسعار البضاعة المخزونة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4010",
+      "name_fr": "Fournisseurs - Comptes Créditeurs",
+      "name_en": "Suppliers - Creditor Accounts",
+      "name_ar": "ذمم دائنة - مورّدو الإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4011",
+      "name_fr": "Factures Fournisseurs d'Exploitation",
+      "name_en": "Suppliers - Invoices Payable",
+      "name_ar": "موردو الاستثمار - فواتير برسم الدفع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4015",
+      "name_fr": "Fournisseurs d'Exploitation - Effets à Payer",
+      "name_en": "Suppliers - Notes Payable",
+      "name_ar": "موردو الاستثمار - اوراق دفع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4018",
+      "name_fr": "Fourniss. d'Exploitation - Factures À Recevoir",
+      "name_en": "Suppliers - Invoices Not Received",
+      "name_ar": "موردو الاستثمار - فواتير غير مستلمة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4019",
+      "name_fr": "Fourniss. d'Exploitation - Rabais & Remises à Obtenir",
+      "name_en": "Discounts Obtained from Suppliers",
+      "name_ar": "حسومات مكتسبة من موردي الاستثمار",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4030",
+      "name_fr": "Fournisseurs d'Immobiliasations",
+      "name_en": "Fixed Assets Suppliers",
+      "name_ar": "مورّدو الأصول الثابتة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4031",
+      "name_fr": "Factures Fournisseurs d'Immobilisations",
+      "name_en": "Fixed Assets Suppliers - Invoices Payable",
+      "name_ar": "موردو الأصول الثابتة - فواتير برسم الدفع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4035",
+      "name_fr": "Fournisseurs d'Immobil. - Effets à Payer",
+      "name_en": "Fixed Assets Suppliers - Notes Payable",
+      "name_ar": "موردو الأصول الثابتة - اوراق دفع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4038",
+      "name_fr": "Fourniss. d'Immobil. - Factures À Recevoir",
+      "name_en": "F.Assets Suppliers - Invoices Not Received",
+      "name_ar": "موردو الأصول الثابتة - فواتير غير مستلمة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4039",
+      "name_fr": "Fourniss. d'Immobil. - Rabais & Remises à Obtenir",
+      "name_en": "Discounts Obtained from F.A. Suppliers",
+      "name_ar": "حسومات مكتسبة من موردي الأصول الثابتة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4090",
+      "name_fr": "Avances aux Fournisseurs",
+      "name_en": "Advances to Suppliers",
+      "name_ar": "سلفات ودفعات على حساب طلبيات للإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4091",
+      "name_fr": "Avances Versées sur Commandes d'Achats",
+      "name_en": "Advance Payments on Purchases",
+      "name_ar": "سلفات مدفوعة على طلبيات الاستثمار",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4092",
+      "name_fr": "Fournisseurs d'Exploitation Accident.Débiteurs",
+      "name_en": "Materials Suppliers Accidentally Debtors",
+      "name_ar": "موردو الإستثمار مدينون عرضا",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4093",
+      "name_fr": "Fournisseurs d'Immobilis. Accident.Débiteurs",
+      "name_en": "Fixed Assets Suppliers Accidentally Debtors",
+      "name_ar": "موردو الأصول الثابتة مدينون عرضا",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4110",
+      "name_fr": "Clients - Comptes Débiteurs",
+      "name_en": "Customers - Debtors Accounts",
+      "name_ar": "ذمم مدينة - زبائن",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4111",
+      "name_fr": "Clients Débiteurs",
+      "name_en": "Customers Receivables - Invoices",
+      "name_ar": "زبائن مدينون-  فواتير برسم التحصيل",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4115",
+      "name_fr": "Clients Douteux",
+      "name_en": "Doubtful Customers",
+      "name_ar": "زبائن مشكوك بتحصيل ديونهم",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4119",
+      "name_fr": "Clients - Rabais, Remises à Accorder",
+      "name_en": "Discounts Granted to Customers",
+      "name_ar": "حسومات ممنوحة إلى الزبائن",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4130",
+      "name_fr": "CLIENTS - EFFETS À RECEVOIR",
+      "name_en": "CUSTOMERS RECEIVABLES - BILLS",
+      "name_ar": "أوراق قبض - زبائن",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4150",
+      "name_fr": "CRÉANCES SUR TRAVAUX NON ENCORE FACTURABLES",
+      "name_en": "DUES FROM CUSTOMERS ON WORKS IN PROCESS",
+      "name_ar": "ذمم مدينة على أشغال لم تبلغ مرحلة تحرير فواتير بها",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4180",
+      "name_fr": "FACTURES À ETABLIR",
+      "name_en": "DUES FROM CUSTOMERS ON INVOICES IN PROCESS",
+      "name_ar": "فواتير قيد الإعداد",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4190",
+      "name_fr": "Avances Recues s/Commandes Clients",
+      "name_en": "Advances Received on Sales Orders",
+      "name_ar": "سلفات ومقبوضات على حساب طلبيات قيد التنفيذ",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4191",
+      "name_fr": "Acomptes Reçus sur Commandes de Ventes",
+      "name_en": "Advances Received on Sales Orders",
+      "name_ar": "سلفات مقبوضة من الزبائن على طلبيات للتنفيذ",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4192",
+      "name_fr": "Clients Accidentellement Créditeurs",
+      "name_en": "Customers Accidentally Creditors",
+      "name_ar": "حسابات زبائن أرصدتها دائنة عرضا",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4210",
+      "name_fr": "RÉNUMÉRATIONS DUES AU PERSONNEL",
+      "name_en": "PERSONNEL ACCOUNTS PAYABLE",
+      "name_ar": "مدفوعات متوجّبة للمستخدمين",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4211",
+      "name_fr": "Salaires dus au Personnel",
+      "name_en": "Salaries and Wages due to Personnel",
+      "name_ar": "مستحقات رواتب وأجور للمستخدمين والعمّال",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4219",
+      "name_fr": "Autres Rémunérations dues au Personnel",
+      "name_en": "Other dues to Personnel",
+      "name_ar": "مستحقات أخرى متوجّبة للمستخدمين والعمّال",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4280",
+      "name_fr": "PERSONNEL-COMPTES DÉBITEURS",
+      "name_en": "PERSONNEL ACCOUNTS RECEIVABLE",
+      "name_ar": "حسابات المستخدمين المدينة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4281",
+      "name_fr": "Prêts Accordés au Personnel",
+      "name_en": "Loans to Personnel",
+      "name_ar": "سلفات مدفوعة للمستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4282",
+      "name_fr": "Oppositions sur Rémunérations du Personnel",
+      "name_en": "Garnishments on Personnel Dues",
+      "name_ar": "حجوزات على المستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4289",
+      "name_fr": "Autres Créances au Personnel",
+      "name_en": "Other Receivales from Personnel",
+      "name_ar": "ذمم أخرى مستحقّة على المستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4310",
+      "name_fr": "Sécurité Sociale - Comptes Créditeurs",
+      "name_en": "Social Security Fund - Creditor Accounts",
+      "name_ar": "ذمم دائنة تجاه مؤسّسات الضمان الاجتماعي",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4311",
+      "name_fr": "Sécurité Sociale - Cotisations à Payer",
+      "name_en": "Social Security - Payable Dues",
+      "name_ar": "الضمان الاجتماعي - اشتراكات متوجبة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4315",
+      "name_fr": "Sécurité Sociale - Effets à Payer",
+      "name_en": "Social Security - Notes Payable",
+      "name_ar": "الضمان الاجتماعي - اوراق دفع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4318",
+      "name_fr": "Sécurité Sociale - Charges à Constater",
+      "name_en": "Social Security - Charges to be Accounted for",
+      "name_ar": "الضمان الاجتماعي - أعباء يجب لحظها",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4380",
+      "name_fr": "CREANCES SUR SECURITE SOCIALE",
+      "name_en": "SOCIAL SECURITY RECEIVABLES",
+      "name_ar": "ذمم مدينة تجاه مؤسّسات الضمان الاجتماعي",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4410",
+      "name_fr": "Impôts Dus s/l'Exploitation",
+      "name_en": "Taxes Due on Operations",
+      "name_ar": "ضرائب متوجّبة على الإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4411",
+      "name_fr": "Impôts et Taxes - (Impôt s/Revenu Exclu)",
+      "name_en": "Taxes & Duties (Except Income Tax)",
+      "name_ar": "ضرائب ورسوم متوجبة  (ما عدا ضريبة الأرباح)",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4415",
+      "name_fr": "Impôts et Taxes - Effets à Payer",
+      "name_en": "Taxes & Duties - Notes Payable",
+      "name_ar": "ضرائب ورسوم متوجبة - أوراق دفع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4418",
+      "name_fr": "Impôts et Taxes - Charges à Constater",
+      "name_en": "Taxes & Duties - Charges to be Accounted for",
+      "name_ar": "ضرائب ورسوم متوجبة - أعباء يجب لحظها",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4420",
+      "name_fr": "Taxe sur la Valeur Ajoutée - TVA",
+      "name_en": "Value Added Tax Accounts",
+      "name_ar": "الدولة والمؤسّسات العامّة - الضريبة على القيمة المضافة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4425",
+      "name_fr": "TVA - Solde Débiteurs ou Créditeur",
+      "name_en": "Value Added Tax - Debtor / Creditor Balance",
+      "name_ar": "ضريبة القيمة المضافة - رصيد مدين أو دائن",
+      "normal_balance_raw": "C/D"
+    },
+    {
+      "account_code": "4426",
+      "name_fr": "TVA - sur Achats d'Immobilisations",
+      "name_en": "Value Added Tax - On Fixed Assets Purchases",
+      "name_ar": "ضريبة القيمة المضافة - مدفوعة عن اًصول ثابتة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4426",
+      "name_fr": "TVA - sur Achats & Charges",
+      "name_en": "Value Added Tax - On Purchases & Charges",
+      "name_ar": "ضريبة القيمة المضافة - مدفوعة عن مشتريات او مصاريف",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4427",
+      "name_fr": "TVA - Percue sur Produits",
+      "name_en": "Value Added Tax - Collected on Revenues",
+      "name_ar": "ضريبة القيمة المضافة - محصّلة من الإيرادات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4429",
+      "name_fr": "TVA - à Recupérer",
+      "name_en": "Value Added Tax - Due for Refund",
+      "name_ar": "ضريبة القيمة المضافة - متوجّبة الإسترداد",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4430",
+      "name_fr": "Impôts Hors Exploitation",
+      "name_en": "Non-Operational Tax",
+      "name_ar": "ضرائب متوجّبة خارج الإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4431",
+      "name_fr": "Impôts sur Les Bénéfices",
+      "name_en": "Income Tax on Net Operating Profits",
+      "name_ar": "الضريبة على أرباح الإستثمار",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4432",
+      "name_fr": "Impôts sur Cessions et Révaloris. d'Immob.",
+      "name_en": "Tax on F.Assets Disposal or Revaluation Profits",
+      "name_ar": "الضريبة على أرباح التحسين والتفرّغ عن أصول",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4435",
+      "name_fr": "Impôts sur les Sociétés Holding ou Off-Shore",
+      "name_en": "Taxes on Holding or Off-Shore Companies",
+      "name_ar": "الضرائب على شركات الهولدنغ",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4450",
+      "name_fr": "Autres Dettes envers L'Etat et Les Collectivités Publiques",
+      "name_en": "Government & Public Services - Credit Acc.",
+      "name_ar": "الدولة والمؤسّسات العامة - ذمم دائنة أخرى",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4490",
+      "name_fr": "Créances sur L'Etat et Les Collectivités Publiques",
+      "name_en": "Government & Public Services - Debit Acc.",
+      "name_ar": "الدولة والمؤسّسات العامة - ذمم مدينة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4511",
+      "name_fr": "Société Apparentés - Comptes Débiteurs",
+      "name_en": "Related Companies Debtor Accounts",
+      "name_ar": "حسابات الشركاء الجارية المدينة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4511",
+      "name_fr": "Société Mère - Compte Débiteur",
+      "name_en": "Mother Company Debtor Account",
+      "name_ar": "حساب مدين للشركة الأم",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4511",
+      "name_fr": "Société Dépendantes - Comptes Débiteurs",
+      "name_en": "Affiliated Companies Debtor Accounts",
+      "name_ar": "حساب مدين للشركات التابعة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4511",
+      "name_fr": "Sociétés Associés - Comptes Débiteurs",
+      "name_en": "Associated Companies Debtor Accounts",
+      "name_ar": "حساب مدين للشركات المشاركة - شركات شقيقة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4511",
+      "name_fr": "Sociétés Multigroupes - Comptes Débiteurs",
+      "name_en": "Cies Affilialed to Differ. Holdings - Deb. Acc",
+      "name_ar": "حساب مدين للشركات الداخلة في عدة مجموعات - مترابطة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4512",
+      "name_fr": "Société Apparentés - Comptes Créditeurs",
+      "name_en": "Related Companies Creditor Accounts",
+      "name_ar": "حسابات الشركاء الجارية الدائنة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4512",
+      "name_fr": "Société Mère - Compte Créditeur",
+      "name_en": "Mother Company Creditor Account",
+      "name_ar": "حساب دائن للشركة الأم",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4512",
+      "name_fr": "Société Dépendantes - Comptes Créditeurs",
+      "name_en": "Affiliated Companies Creditor Accounts",
+      "name_ar": "حساب دائن للشركات التابعة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4512",
+      "name_fr": "Sociétés Associés - Comptes Créditeurs",
+      "name_en": "Associated Companies Creditor Accounts",
+      "name_ar": "حساب دائن للشركات المشاركة - شركات شقيقة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4512",
+      "name_fr": "Sociétés Multigroupes - Comptes Créditeurs",
+      "name_en": "Cies Affilialed to Differ. Holdings - Crd. Acc",
+      "name_ar": "حساب دائن للشركات الداخلة في عدة مجموعات - مترابطة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4515",
+      "name_fr": "Associés - Comptes Courants Débiteurs",
+      "name_en": "Partners & Other Related Cies - Deb. Accounts",
+      "name_ar": "شركاء - حسابات جارية ذات أرصدة مدينة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4515",
+      "name_fr": "Associés - Comptes Courants Créditeurs",
+      "name_en": "Partners & Other Related Cies - Credit Accounts",
+      "name_ar": "شركاء - حسابات جارية ذات أرصدة دائنة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4518",
+      "name_fr": "Opérations en Commun - Solde Débiteur",
+      "name_en": "Joint Ventures - Debtor Balances",
+      "name_ar": "عمليات مشتركة - ذات أرصدة مدينة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4518",
+      "name_fr": "Opérations en Commun - Solde Créditeur",
+      "name_en": "Joint Ventures - Creditor Balances",
+      "name_ar": "عمليات مشتركة - ذات أرصدة دائنة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4530",
+      "name_fr": "DIVIDENDES  À PAYER",
+      "name_en": "DIVIDENDS PAYABLE",
+      "name_ar": "أنصبة ارباح برسم الدفع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4550",
+      "name_fr": "ACTIONNAIRES/ASSOCIES - CPTES CREDITEURS",
+      "name_en": "SHAREHOLDERS/PARTNERS PAYABLES ON CAPITAL",
+      "name_ar": "ذمم دائنة أخرى للشركاء",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4551",
+      "name_fr": "Actionnaires/Associés - Cptes d'Apport en Société",
+      "name_en": "Shareholders/Partners - Contributions to the Capital",
+      "name_ar": "مساهمون/شركاء - حسابات المقدمات للشركة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4552",
+      "name_fr": "Actionnaires/Associés - Capital à Rembourser",
+      "name_en": "Shareholders/Partners - Re-imbursment of the Capital",
+      "name_ar": "مساهمون/شركاء - حسابات إسترداد رأس المال",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4557",
+      "name_fr": "Actionnaires/Associés - Autres Dus s/Capital",
+      "name_en": "Shareholders/Partners - Other Payables on Capital",
+      "name_ar": "مساهمون/شركاء - ذمم أخرى دائنة على رأس المال",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4590",
+      "name_fr": "CRÉANCES SUR ACTIONNAIRES/ASSOCIÉS",
+      "name_en": "SHAREHOLDERS/PARTNERS RECEIVABLES ON CAPITAL",
+      "name_ar": "ذمم الشركاء المدينة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4591",
+      "name_fr": "Actionnaires - Capital Souscrit Non Appelé",
+      "name_en": "Shareholders - Subscribed/Un-Called Capital",
+      "name_ar": "مساهمون - المكتتب غير المستدعى من رأس المال",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4592",
+      "name_fr": "Actionnaires - Capital Souscrit Appelé Non Versé",
+      "name_en": "Shareholders - Subsc./Called/Unpaid Capital",
+      "name_ar": "مساهمون - المكتتب المستدعى وغير المدفوع من رأس المال",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4597",
+      "name_fr": "Actionnaires/Associés - Autres Créances s/Capital",
+      "name_en": "Shareholders/Partners - Other Receivables on Capital",
+      "name_ar": "مساهمون/شركاء - ذمم أخرى مدينة على رأس المال",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4610",
+      "name_fr": "Autres Créditeurs - Exploitation",
+      "name_en": "Other Operating Creditors",
+      "name_ar": "ذمم الإستثمار الدائنة الأخرى",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4611",
+      "name_fr": "Dettes pour Emballages et Matériels Consignés",
+      "name_en": "Payables on Consignments",
+      "name_ar": "ذمم دائنة متعلّقة بالعبوات والمعدّات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4619",
+      "name_fr": "Comptes Créditeurs Divers - Exploitation",
+      "name_en": "Other Operating Creditor Accounts",
+      "name_ar": "حسابات دائنة مختلفة - إستثمار",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4630",
+      "name_fr": "Versements Restant à Effectuer s/Immob.Financ.",
+      "name_en": "Payables on Financial Fixed Assets",
+      "name_ar": "أقساط برسم الدفع على أصول ثابتة مالية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4650",
+      "name_fr": "Autres Créditeurs Divers - Hors Exploitation",
+      "name_en": "Sundry Non-Operating Accounts Payable",
+      "name_ar": "دائنون مختلفون خارج الإستثمار",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4680",
+      "name_fr": "Débiteurs Divers - Exploitation",
+      "name_en": "Sundry Operating Debtors",
+      "name_ar": "مدينون مختلفون للإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4681",
+      "name_fr": "Créances pour Emballages et Matériels à Rendre",
+      "name_en": "Receivables on Consignments",
+      "name_ar": "ذمم مدينة متعلّقة بالعبوات والمعدّات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4689",
+      "name_fr": "Autres Comptes Débiteurs Divers - Exploitation",
+      "name_en": "Other Operating Debtor Accounts",
+      "name_ar": "حسابات مدينة مختلفة - إستثمار",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4690",
+      "name_fr": "Débiteurs Divers - Hors Exploitation",
+      "name_en": "Sundry Non-Operating Debtors",
+      "name_ar": "مدينون مختلفون خارج الإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4691",
+      "name_fr": "Créances sur Cession d'Immob. & Valeurs Mob. de Placement",
+      "name_en": "Receivables on Disposals of F. Assets & Finan.Deeds",
+      "name_ar": "ذمم مدينة على بيع اصول ثابتة وسندات توظيف",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4699",
+      "name_fr": "Autres Comptes Débiteurs Divers-Hors Exploitation",
+      "name_en": "Other Non-Operating Debtor Accounts",
+      "name_ar": "مدينون مختلفون  - خارج الإستثمار",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4710",
+      "name_fr": "Charges à Repartir sur Exercices Futurs",
+      "name_en": "Charges Differred over Futur Periods",
+      "name_ar": "الأعباء الواجب توزيعها على عدّة دورات",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4711",
+      "name_fr": "Frais de Pré-Exploitation",
+      "name_en": "Pre-Operating Expenses",
+      "name_ar": "أعباء ما قبل الإستثمار",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4712",
+      "name_fr": "Grosses Réparations à Amortir",
+      "name_en": "Major Repairs to be Amortized",
+      "name_ar": "التصليحات الكبيرة الواجب إستهلاكها",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4713",
+      "name_fr": "Primes de Remboursement des Obligations",
+      "name_en": "Bonds Settlement Premium",
+      "name_ar": "علاوات تسديد السندات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4719",
+      "name_fr": "Autres Charges à Répartir sur Plusieurs Exercices",
+      "name_en": "Other Deferred Charges",
+      "name_ar": "اعباء أخرى واجب توزيعها على عدة دورات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4720",
+      "name_fr": "Charges Constatées d'Avance",
+      "name_en": "Prepaid Charges",
+      "name_ar": "اعباء محتسبة مسبقا",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "4730",
+      "name_fr": "Produits Constatés d'Avance",
+      "name_en": "Accrued Income",
+      "name_ar": "ايرادات محتسبة مسبقا",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4740",
+      "name_fr": "Frais à Payer",
+      "name_en": "Accrued Unpaid Charges",
+      "name_ar": "اعباء مستحقة برسم الدفع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4750",
+      "name_fr": "Ecarts de Conversion - Passif",
+      "name_en": "Exchange Difference - Liability",
+      "name_ar": "فروقات صرف - خصوم",
+      "normal_balance_raw": "N.A"
+    },
+    {
+      "account_code": "4760",
+      "name_fr": "Ecarts de Conversion - Actif",
+      "name_en": "Exchange Difference - Asset",
+      "name_ar": "فروقات صرف - أصـول",
+      "normal_balance_raw": "N.A"
+    },
+    {
+      "account_code": "4810",
+      "name_fr": "Comptes d'Attente et à Régulariser",
+      "name_en": "Pending & Regularization Accounts",
+      "name_ar": "حسابات التوزيع الدوري للأعباء",
+      "normal_balance_raw": "C=D"
+    },
+    {
+      "account_code": "4820",
+      "name_fr": "Distribution Périodique des Revenues",
+      "name_en": "Periodic Distribution of Revenues",
+      "name_ar": "حسابات التوزيع الدوري للإيرادات",
+      "normal_balance_raw": "C=D"
+    },
+    {
+      "account_code": "4910",
+      "name_fr": "Prov. pr Dépréciation des Créances Clients",
+      "name_en": "Provisions for Customers Bad Debts",
+      "name_ar": "مؤونات هبوط قيم الذمم المدينة - الزبائن",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4950",
+      "name_fr": "Prov. pr Dépréciation des Comptes Associés",
+      "name_en": "Prov. for Shareholders/Partners Bad Debts",
+      "name_ar": "مؤونات هبوط قيم حسابات الشركاء",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4960",
+      "name_fr": "Prov. pour Dévaluation de Créances Diverses",
+      "name_en": "Sundry Debtors Devaluation Provisions",
+      "name_ar": "موؤونات هبوط قيم حسابات الذمم المدينة المختلفة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4968",
+      "name_fr": "Prov. pr Débiteurs Divers - Exploitation",
+      "name_en": "Prov. for Other Operating Bad Debts",
+      "name_ar": "مؤونات هبوط قيم ذمم إستثمار مدينة متفرّقة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4969",
+      "name_fr": "Prov. pr Débiteurs Divers - Hors Exploitation",
+      "name_en": "Prov. for Other Non-Operating Bad Debts",
+      "name_ar": "مؤونات هبوط قيم ذمم مدينة - خارج الإستثمار",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4980",
+      "name_fr": "Prov. pour Crénances Déchues par Faillite",
+      "name_en": "Bad Debts due to Bankrupcy",
+      "name_ar": "مؤونات خسائر ديون عند إعلان الإفلاس",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "4981",
+      "name_fr": "Prov. pr Pertes s/Clients en Faillite",
+      "name_en": "Prov. for Losses on Bankrupt Clients Accounts",
+      "name_ar": "مؤونات خسائر ديون زبائن عند إعلان الإفلاس",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4985",
+      "name_fr": "Prov. pr Pertes s/Associés en Faillite",
+      "name_en": "Prov. for Losses on Bankrupt Partners Accounts",
+      "name_ar": "مؤونات خسائر ديون  شركاء عند إعلان الإفلاس",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4986",
+      "name_fr": "Prov. pr Débiteurs Div. en Faillite - Exploit.",
+      "name_en": "Prov. for losses on Oper. Bankrupt Detbtors",
+      "name_ar": "مؤونات خسائر ديون  إستثمار متفرّقة - (إفلاس)",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "4986",
+      "name_fr": "Prov. pr Débiteurs Div. En Faillite - H. Exploit.",
+      "name_en": "Prov. for losses on Non-Oper. Bankrupt Detbtors",
+      "name_ar": "مؤونات خسائر ديون خارج الإستثمار - (إفلاس)",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "5010",
+      "name_fr": "Valeurs Mobilières de Placement",
+      "name_en": "Transferable Participation Deeds",
+      "name_ar": "أسهم صادرة عن الشركة ومعاد شراؤها من قبلها",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "5020",
+      "name_fr": "Bons avec Droit d'Acquisition d'Actions",
+      "name_en": "Bonds with Shares Acquisition Rights",
+      "name_ar": "سندات تمنح حامليها حق الملكية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "5050",
+      "name_fr": "Bons & Coupons Emis par la Socièté",
+      "name_en": "Bond and Coupons Issued by the Company",
+      "name_ar": "سندات دين وقسائم صادرة عن الشركة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "5060",
+      "name_fr": "Bons avec Droit de Créditeurs",
+      "name_en": "Bonds with Creditors Rights",
+      "name_ar": "سندات تمنح حامليها حقوق الدائنين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "5110",
+      "name_fr": "Chèques et Coupons à Encaisser",
+      "name_en": "Cheques & Coupons under Collection",
+      "name_ar": "شيكات وقسائم برسم القبض",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "5120",
+      "name_fr": "Banques",
+      "name_en": "Banks",
+      "name_ar": "بـنـوك",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "5121",
+      "name_fr": "Banques - Comptes Courants Débiteurs",
+      "name_en": "Banks - Current Debtor Accounts",
+      "name_ar": "مصارف - حسابات جارية مدينة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "5122",
+      "name_fr": "Banques - Soldes Facilités Accident. Débiteurs",
+      "name_en": "Banks - Facilities Accidentally Debtor",
+      "name_ar": "حسابات تسهيلات مصرفية أرصدتها مدينة عرضا",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "5123",
+      "name_fr": "Banques - Dépôts à Terme",
+      "name_en": "Banks - Term Deposits Accounts",
+      "name_ar": "مصارف - حسابات مدينة  لأجل",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "5190",
+      "name_fr": "Etablissements de Crédit",
+      "name_en": "Credit Establisments",
+      "name_ar": "مؤسّسات التمويل",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "5191",
+      "name_fr": "Banques & Ets Financiers - Comptes Facilités",
+      "name_en": "Banks & Financial Establishments Facilities",
+      "name_ar": "مصارف - تسهيلات وحسابات مكشوفة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "5192",
+      "name_fr": "Banques - Cptes Courants Accident. Créditeurs",
+      "name_en": "Banks Current Accounts Accidentally Creditor",
+      "name_ar": "حسابات مصرفية جارية أرصدتها دائنة عرضا",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "5300",
+      "name_fr": "CAISSE",
+      "name_en": "CASH ON HAND",
+      "name_ar": "الصندوق",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "5800",
+      "name_fr": "VIREMENTS INTERNES",
+      "name_en": "INTERNAL TRANSFERS",
+      "name_ar": "التحويلات الداخلية",
+      "normal_balance_raw": "C=D"
+    },
+    {
+      "account_code": "5900",
+      "name_fr": "Prov. pr Dépr.des Valeurs Mobil. de Placement",
+      "name_en": "Prov. for Devaluation of Participation Deeds",
+      "name_ar": "مؤونات هبوط أسعار سندات التوظيف",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "6010",
+      "name_fr": "Achats de Marchandises",
+      "name_en": "Purchase of Goods",
+      "name_ar": "مشتريات البضاعة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6011",
+      "name_fr": "Achats de Marchandises",
+      "name_en": "Purchase of Goods",
+      "name_ar": "شراء بضـاعة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6012",
+      "name_fr": "Achats d'Emballages pour Marchandises",
+      "name_en": "Purchase of  Packing Materials for Goods",
+      "name_ar": "شراء عبوات للبضاعة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6018",
+      "name_fr": "Frais Access. s/Achats de March. et Emballages",
+      "name_en": "Charges & Expenses on Goods Purchasing",
+      "name_ar": "نفقات إضافية على شراء بضاعة وعبوات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6019",
+      "name_fr": "Rabais, Remises et Ristournes s/Marchandises",
+      "name_en": "Discounts Obtained on Purchased Goods",
+      "name_ar": "حسومات مكتسبة على شراء بضاعة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "6050",
+      "name_fr": "VARIATION DES STOCKS DE MARCHANDISES",
+      "name_en": "GOODS INVENTORY VARIANCE",
+      "name_ar": "قيمة التغيير في مخزون البضاعة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6051",
+      "name_fr": "Stock Marchandises - Début de Période",
+      "name_en": "Stock of Goods - Beg. of Period",
+      "name_ar": "مخزون البضاعة - أول المدّة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6052",
+      "name_fr": "Stock Marchandises - Fin de Période",
+      "name_en": "Stock of Goods - End of Period",
+      "name_ar": "مخزون البضاعة - آخر المدّة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "6110",
+      "name_fr": "Achats de Matières Premières & Consommables",
+      "name_en": "Purchases of Raw Materials & Consumables",
+      "name_ar": "مشتريات المواد الأولية والإستهلاكية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6111",
+      "name_fr": "Achats de Matières Premières",
+      "name_en": "Purchase of Raw Materials",
+      "name_ar": "شراء مواد أولية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6112",
+      "name_fr": "Achats de Matières et Fournitures Consommables",
+      "name_en": "Purchase of Manufacturing Consumables",
+      "name_ar": "شراء مواد ولوازم استهلاكية للإنتاج",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6113",
+      "name_fr": "Achats d'Emballages pour Produits",
+      "name_en": "Purchase of  Packing Materials for Products",
+      "name_ar": "شراء عـبوات للمنتجات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6118",
+      "name_fr": "Frais Accessoires sur Achats d'Approvisionnements",
+      "name_en": "Chgs & Exp. on R.M & Consum. Purchasing",
+      "name_ar": "نفقات إضافية على شراء مواد أولية واستهلاكية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6119",
+      "name_fr": "Rabais, Remises et Ristournes s/Approvision.",
+      "name_en": "Disc. Obtained on Purchased R.M & Consum.",
+      "name_ar": "حسومات مكتسبة على شراء مواد أولية وإستهلاكية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "6150",
+      "name_fr": "VARIATION DES STOCKS D'APPROVISIONNEMENTS",
+      "name_en": "RAW MAT. & CONSUM. INVENTORY VARIANCE",
+      "name_ar": "قيمة التغيير في مخزون المواد الاولية والاستهلاكية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6151",
+      "name_fr": "Stock Approvisionnements - Début de Période",
+      "name_en": "Stock of Raw & Other Mat. - Beg. of Period",
+      "name_ar": "مخزون المواد الاولية والاستهلاكية - أول المدّة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6152",
+      "name_fr": "Stock Approvisionnements - Fin de Période",
+      "name_en": "Stock of Raw & Other Mat. - End of Period",
+      "name_ar": "مخزون المواد الاولية والاستهلاكية - آخر المدّة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "6210",
+      "name_fr": "Achats des Sous-Traitants",
+      "name_en": "Purchases from Sub-Contractors",
+      "name_ar": "مشتريات من ملتزمين ثانويين",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6211",
+      "name_fr": "Sous-Traitance - Travaux",
+      "name_en": "Purchase of Works from Sub-Contractors",
+      "name_ar": "مشتريات أشغال / كلفة أشغال مباعة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6212",
+      "name_fr": "Sous-Traitance - Services",
+      "name_en": "Purchase of Services from Sub-Contractors",
+      "name_ar": "مشتريات خدمات / كلفة خدمات مباعة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6219",
+      "name_fr": "Rabais et Remises Obtenus s/Travaux",
+      "name_en": "Disc. Obtained on Purchased Works",
+      "name_ar": "حسومات مكتسبة على مشتريات أشغال",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "6219",
+      "name_fr": "Rabais et Remises Obtenus s/Services",
+      "name_en": "Disc. Obtained on Purchased Services",
+      "name_ar": "حسومات مكتسبة على مشتريات خدمات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "6250",
+      "name_fr": "Redevances",
+      "name_en": "Leasing, Patent Fees & Royalties",
+      "name_ar": "الأتــاوى",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6260",
+      "name_fr": "Services Extérieurs",
+      "name_en": "External Servises",
+      "name_ar": "الخدمات الخارجية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6261",
+      "name_fr": "Frais de Transport de Biens",
+      "name_en": "Assets & Goods Transportation Charges",
+      "name_ar": "نفقات نقل موجودات وبضائع",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6261",
+      "name_fr": "Frais de Transport Collectif du Personnel",
+      "name_en": "Personnel Transportation Charges",
+      "name_ar": "نفقات نقل المستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6261",
+      "name_fr": "Frais de Postes et Télécommunications",
+      "name_en": "Post & Telecommunication Charges",
+      "name_ar": "نفقات البريد والإتّصالات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6262",
+      "name_fr": "Entretien et Réparation",
+      "name_en": "Equip. Maintenance & Repair",
+      "name_ar": "صيانة وتصليح التجهيزات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6263",
+      "name_fr": "Loyers",
+      "name_en": "Rental Fees",
+      "name_ar": "بدلات الإيجار",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6263",
+      "name_fr": "Charges Locatives",
+      "name_en": "Rental Charges (Condominium Charges)",
+      "name_ar": "أعباء تأجيرية (أعباء الأقسام المشتركة)",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6263",
+      "name_fr": "Eau",
+      "name_en": "Drinking Water Expenses",
+      "name_ar": "مصاريف مياه الشفة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6263",
+      "name_fr": "Electricité",
+      "name_en": "Lighting Expenses",
+      "name_ar": "مصاريف كهرباء الإنارة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6263",
+      "name_fr": "Entretien des Bâtiments",
+      "name_en": "Building Maintenance Expenses",
+      "name_ar": "مصاريف صيانة الأبنية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6263",
+      "name_fr": "Charges Diverses sur Bâtiments",
+      "name_en": "Miscllaneous Expense on Buildings",
+      "name_ar": "مصاريف متفرّقة على الأبنية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6264",
+      "name_fr": "Réceptions",
+      "name_en": "Entertainment Expenses",
+      "name_ar": "مصاريف تشريفات وضيافة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6264",
+      "name_fr": "Déplacements, Voyages et Logements",
+      "name_en": "Travel & Accomodation Expenses",
+      "name_ar": "مصاريف إنتقال وسفر وإقامة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6264",
+      "name_fr": "Restauration Du Personnel",
+      "name_en": "Personnel Meals Expenses",
+      "name_ar": "مصاريف إطعام المستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6264",
+      "name_fr": "Frais de Représentation",
+      "name_en": "Representation Fees",
+      "name_ar": "مصاريف تمثيل",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6265",
+      "name_fr": "Personnel Intérimaire",
+      "name_en": "Interim Staff & Manpower Fees",
+      "name_ar": "أتعاب مستخدمين موّقتين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6265",
+      "name_fr": "Rénumérations d'Intermédiaires",
+      "name_en": "Commissions Paid to Agents",
+      "name_ar": "عمولات مدفوعة للوسطاء",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6265",
+      "name_fr": "Honoraires Avocats, Consultants, Experts",
+      "name_en": "Lawyers, Consultants & Experts Fees",
+      "name_ar": "أتعاب محامين ومستشارين وخبراء",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6265",
+      "name_fr": "Frais Services de Recrutement",
+      "name_en": "Recrutement Fees",
+      "name_ar": "أتعاب خدمات التوظيف",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6266",
+      "name_fr": "Frais et Honoraires de Formation",
+      "name_en": "Training Seminars Fees & Charges",
+      "name_ar": "أعباء وأتعاب إعداد وتدريب",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6266",
+      "name_fr": "Documentation",
+      "name_en": "Documentation & Subscriptions",
+      "name_ar": "مصاريف توثيق وإشتراكات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6267",
+      "name_fr": "Etudes et Recherches",
+      "name_en": "RESEARCH & STUDIES FEES",
+      "name_ar": "مصاريف دراسات وبحوث",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6268",
+      "name_fr": "Primes d'Assurances",
+      "name_en": "Insurance Premium",
+      "name_ar": "أقساط تأمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6269",
+      "name_fr": "Services de Santé",
+      "name_en": "Medical Care",
+      "name_ar": "خدمات عناية صحية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6269",
+      "name_fr": "Frais Financiers (s/ Effets ou Autres)",
+      "name_en": "Financial Charges (on Bills and other)",
+      "name_ar": "أعباء مالية (على سندات وخلافه)",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6269",
+      "name_fr": "Frais Publicité",
+      "name_en": "Advertising & Publicity",
+      "name_ar": "مصاريف دعاية وإعلان",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6269",
+      "name_fr": "Fournitures de Bureau",
+      "name_en": "Stationary & Office Supplies",
+      "name_ar": "مصاريف قرطاسية ولوازم مكتبية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6269",
+      "name_fr": "Autres Services Extérieurs",
+      "name_en": "Other Miscellaneous External Services",
+      "name_ar": "خدمات خارجية  أخرى متفرّقة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6310",
+      "name_fr": "Salaires & Appointements",
+      "name_en": "Salaries and Wages",
+      "name_ar": "رواتب وأجور المستخدمين",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6311",
+      "name_fr": "Salaires des Cadres",
+      "name_en": "Staff Salaries",
+      "name_ar": "رواتب المستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6312",
+      "name_fr": "Appointements des Ouvriers",
+      "name_en": "Manpower Wages",
+      "name_ar": "أجور العمّال",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6314",
+      "name_fr": "Commissions au Personnel",
+      "name_en": "Commissions Paid to Personnel",
+      "name_ar": "عمولات مدفوعة للمستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6316",
+      "name_fr": "Rénumération des Gérants Majoritaires",
+      "name_en": "Partners/Managers Remunerations",
+      "name_ar": "بدلات مدفوعة لمديرين ذوي أغلبية في المؤسّسة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6317",
+      "name_fr": "Rénumération des Administrateurs",
+      "name_en": "Directors Remunerations",
+      "name_ar": "بدلات مدفوعة لأعضاء مجلس الإدارة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6319",
+      "name_fr": "Allocations de Transport",
+      "name_en": "Personnel Transport Allowances",
+      "name_ar": "بدلات نقل وإنتقال للمستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6319",
+      "name_fr": "Allocations de Restauration",
+      "name_en": "Personnel Meal Allowances",
+      "name_ar": "بدلات طعام للمستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6319",
+      "name_fr": "Allocations de Formation",
+      "name_en": "Personnel Training Allowances",
+      "name_ar": "بدلات إعداد وتدريب للمستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6319",
+      "name_fr": "Allocations Medicales",
+      "name_en": "Personnel Medical & Other Insurance",
+      "name_ar": "تأمينات صحية وخلافها للمستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6319",
+      "name_fr": "Allocations Scolaires",
+      "name_en": "Scholarships to the Personnel & their Child.",
+      "name_ar": "منح تعليم للمستخدمين وأولادهم",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6319",
+      "name_fr": "Allocations Diverses",
+      "name_en": "Other Sundry Personnel Allowances",
+      "name_ar": "بدلات أخرى متفرّقة للمستخدمين",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6350",
+      "name_fr": "Charges Sociales (Sécurité Sociale ….)",
+      "name_en": "Social Charges (Social Security & Alike..)",
+      "name_ar": "أعباء إجتماعية (ضمان إجتماعي...)",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6351",
+      "name_fr": "Cotisations à la C.N.S.S",
+      "name_en": "Social Security FundContributions",
+      "name_ar": "إشتراكات فروع الضمان الإجتماعي",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6355",
+      "name_fr": "Prov. pour Indemnités de Fin de Service",
+      "name_en": "End of Service Indemnities Provisions",
+      "name_ar": "فروقات تعويضات نهاية الخدمة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6410",
+      "name_fr": "Impôts sur Salaires & Rénumérations",
+      "name_en": "Income Tax On Salaries & Wages",
+      "name_ar": "ضرائب على الرواتب والأجور وبدلات الأتعاب",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6420",
+      "name_fr": "Impôts et Taxes Municipaux",
+      "name_en": "Municipal Taxes & Duties",
+      "name_ar": "ضرائب ورسوم للبلديات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6430",
+      "name_fr": "Taxes sur Le Chiffre D'Affaires Non Récupérables",
+      "name_en": "Excise Tax",
+      "name_ar": "ضرائب على المبيعات غير قابلة للإسترداد",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6440",
+      "name_fr": "Droits d'Enregistrement et de Notaire",
+      "name_en": "Registration & Notary Fees",
+      "name_ar": "رسوم تسجيل",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6450",
+      "name_fr": "Impôts,Taxes et Charges Assimilées, y Compris la Taxe de l'Article 51 Loi 479/2003",
+      "name_en": "Taxes, Dues & Alike, Including the Tax of Article 51 of law 497/2003",
+      "name_ar": "ضرائب ورسوم ومدفوعات مماثلة أخرى، بما فيها ضريبة المادة /51/ من القانون 2003/497",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6451",
+      "name_fr": "Taxe de l'Article 51 Loi 479/2003",
+      "name_en": "Tax of Article 51 of law 497/2003",
+      "name_ar": "ضريبة المادة /51/ من القانون 2003/497",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6452",
+      "name_fr": "Impôts s/Profits de Cession ou Réeval.des Immobilisations",
+      "name_en": "Tax on Profits from F. Assets Disposal or Revaluation",
+      "name_ar": "الضريبة على أرباح التفرّغ أو إعادة تخمين أصول",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6455",
+      "name_fr": "Taxes des Holdings - sur Capital & Services",
+      "name_en": "Holding Taxes - on Capital and Services",
+      "name_ar": "ضرائب شركات الهولدنغ - رأس مال وإيرادات خدمات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6458",
+      "name_fr": "Amendes Fiscales",
+      "name_en": "Fiscal Fines",
+      "name_ar": "غرامات ضريبية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6459",
+      "name_fr": "Autres Impôts, Taxes et Versements Assimilés",
+      "name_en": "Other Taxes & Duties",
+      "name_ar": "ضرائب ورسوم أخرى",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6510",
+      "name_fr": "Dotations aux Amortissements & Depreciations",
+      "name_en": "Amortization & Depreciations Allocations",
+      "name_ar": "مخصّصات الإستهلاكات",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6511",
+      "name_fr": "Dotat. Amort. - Fond de Commerce",
+      "name_en": "Amortiz.Alloc.of Business Concern",
+      "name_ar": "مخصصات إستهلاك  المؤسّسة التجارية",
+      "normal_balance_raw": "N.A"
+    },
+    {
+      "account_code": "6511",
+      "name_fr": "Dotat. Amort. - Frais - Établissement",
+      "name_en": "Amortiz.Alloc.of Formation Expenses",
+      "name_ar": "مخصصات إستهلاك  مصاريف التأسيس",
+      "normal_balance_raw": "N.A"
+    },
+    {
+      "account_code": "6511",
+      "name_fr": "Dotat. Amort. - Frais de Recherche et de Développement",
+      "name_en": "Amortiz.Alloc.of Research & Develop. Expenses",
+      "name_ar": "مخصصات إستهلاك  مصاريف البحوث والتطوير",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6511",
+      "name_fr": "Dotat. Amort. - Brevets, Licences et Autres..",
+      "name_en": "Amortiz.Alloc.of Patents & Trade Marks",
+      "name_ar": "مخصصات إستهلاك  براءات الإختراع، الإجازات، العلامات،...",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6511",
+      "name_fr": "Dotat. Amort. - Autres Immobilisations Incorporelles",
+      "name_en": "Amortiz.Alloc.of Other Intang. Fixed Assets",
+      "name_ar": "مخصصات إستهلاك  أصول ثابتة غير مادية أخرى",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. - Terrains - Exploita. et Réaménag.",
+      "name_en": "Deprec.Alloc.of Lands",
+      "name_ar": "مخصصات إستهلاك الأراضي - إستثمار جوفي وإستصلاح",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. - Constructions",
+      "name_en": "Deprec.Alloc.of Buildings & Constructions",
+      "name_ar": "مخصصات إستهلاك الأبنية والمنشآت",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Batis en Betons pr Commerce, Tourisme, Services",
+      "name_en": "Depr.Alloc. - Concrete Buildings for Trade, Tourism & Services",
+      "name_ar": "مخصصات إستهلاك الأبنية المشادة بالباطون والمستعملة لغايات تجارية وسياحية وخدماتية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Batis en Betons pr Manufactures ou Industries",
+      "name_en": "Depr.Alloc. - Concrete Buildings for Industry",
+      "name_ar": "مخصصات إستهلاك الأبنية المشادة بالباطون والمستعملة لغايات حرفية وصناعية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Batis Métalliques pr Commerce ou Industries",
+      "name_en": "Depr.Alloc. - Metalllic Buildings for Trade or Industry",
+      "name_ar": "مخصصات إستهلاك أبنية وإنشاءآت معدنية لغايات تجارية أو صناعية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Installations & Aménag. des Constructions",
+      "name_en": "Depr.Alloc. - Building Installations & Improvem'ts",
+      "name_ar": "مخصصات إستهلاك تجهيزات الأبنية وإستصلاحها",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. des Infrasructures",
+      "name_en": "Depr.Alloc. - of Infrastructures",
+      "name_ar": "مخصصات إستهلاك إنشاءات البنى التحتية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Constructions sur Terrains d'Autrui",
+      "name_en": "Depr.Alloc. - Constructions on Unowned Lands",
+      "name_ar": "مخصصات إستهلاك إنشاءات على أراضي الغير",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. - Instal.Tech., Matériels et Outillage In-striels",
+      "name_en": "Deprec.Alloc.of Machinery & Equipment",
+      "name_ar": "مخصصات إستهلاك التجهيزات الفنية والآلات الصناعية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Install. Techniques Complexes Spécialisées",
+      "name_en": "Depr.Alloc. - Specialized Technical Installations",
+      "name_ar": "مخصصات إستهلاك تجهيزات فنّية متخصّصة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Install. Techniques à Caractère Spécifique",
+      "name_en": "Depr.Alloc. - Specific Technical Installations",
+      "name_ar": "مخصصات إستهلاك تجهيزات فنّية ذات طبيعة خاصة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Matériels Industriels",
+      "name_en": "Depr.Alloc. - Industrial Machinery & Equipment",
+      "name_ar": "مخصصات إستهلاك الآلات والمعدّات الصناعية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Outillages Industriels",
+      "name_en": "Depr.Alloc. - Industrial Tools",
+      "name_ar": "مخصصات إستهلاك الأدوات الصناعية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Articles & Equipements pour Hotels et Restos",
+      "name_en": "Depr.Alloc. - Hotels & Retaurants Appliances",
+      "name_ar": "مخصّص اهتلاك الأواني الزجاجية والأدوات الفضيّة في الفنادق والمطاعم ..",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. - Véhicules et Matériel de Transport",
+      "name_en": "Deprec.Alloc.of Vehicles",
+      "name_ar": "مخصصات إستهلاك المركبات وآليات النقل",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Voitures de Passagers",
+      "name_en": "Depr.Alloc. - Passenger Vehicles",
+      "name_ar": "مخصصات إستهلاك سيارات سياحية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Vehicules et Matériel de Transport",
+      "name_en": "Depr.Alloc. - Transport Vehicles & Handling Equipment",
+      "name_ar": "مخصصات إستهلاك شاحنات وآليات نقل",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Moyens de Transport Maritime",
+      "name_en": "Depr.Alloc. - Maritime Tranport Means",
+      "name_ar": "مخصصات إستهلاك وسائل النقل البحري",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Moyens de Transport Aérien",
+      "name_en": "Depr.Alloc. - Air Transport Means",
+      "name_ar": "مخصصات إستهلاك وسائل النقل الجوّي",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. - Autres Immobilisations Corporelles",
+      "name_en": "Deprec.Alloc.of Other Tangible Fixed Assets",
+      "name_ar": "مخصصات إستهلاك أصول ثابتة مادية أخرى",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Install.Internes, Décor & Aménag. Divers",
+      "name_en": "Depr.Alloc. - Internal Install. Decor & Improvements",
+      "name_ar": "مخصصات إستهلاك تجهيزات داخلية، ديكور وتحسينات مختلفة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Matériel de Bureau",
+      "name_en": "Depr.Alloc. - Office Equipment",
+      "name_ar": "مخصصات إستهلاك ادوات مكتبية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Matériel Informatique",
+      "name_en": "Depr.Alloc. - Computer Equipment",
+      "name_ar": "مخصصات إستهلاك ادوات معلوماتية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Mobilier",
+      "name_en": "Depr.Alloc. - Furnitures & Fixtures",
+      "name_ar": "مخصصات إستهلاك أثاث ومفروشات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Linges des Services Hoteliers",
+      "name_en": "Depr.Alloc. - Hospitality Linen",
+      "name_ar": "مخصصات إستهلاك البياضات والشراشف والمناشف",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Emballages Réutilis. - Barils, Bouteilles et Caisses",
+      "name_en": "Depr.Alloc. - Re-usable - Barils, Bottles & Boxes",
+      "name_ar": "مخصصات إستهلاك عبوات قابلة لإعادة الإستعمال - البراميل والقناني والصناديق المرتجعة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6512",
+      "name_fr": "Dotat. Amort. Emballages Réutilis. - Bonbonnes de Gaz",
+      "name_en": "Depr.Alloc. - Re-usable Containers - Gaz Containers",
+      "name_ar": "مخصصات إستهلاك عبوات قابلة لإعادة الإستعمال - قوارير الغـاز",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6515",
+      "name_fr": "Dotat. Amort. - Charges à Répartir",
+      "name_en": "Deprec.Alloc.of Deferred Charges",
+      "name_ar": "مخصصات إستهلاك الأعباء الموزّعة على دورات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6550",
+      "name_fr": "Dotations  Provisions",
+      "name_en": "Provisions Allocations",
+      "name_ar": "مخصّصات المؤونات",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6551",
+      "name_fr": "Dotat. Prov. pr Déprec. - Immob. Incorporelles",
+      "name_en": "Prov.Alloc. for Deval. of Intangible F.Assets",
+      "name_ar": "مخصّصات مؤونات تدنّي  قيم أصول ثابتة غير مادية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6552",
+      "name_fr": "Dotat. Prov. pr Déprec. - Immob. Corporelles",
+      "name_en": "Prov.Alloc. for Deval. of Tangible Fixed Assets",
+      "name_ar": "مخصّصات مؤونات تدنّي قيم أصول ثابتة مادية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6553",
+      "name_fr": "Dotat. Prov. pr Déprec. - Stocks et en Cours",
+      "name_en": "Prov.Alloc. for Deval. of Stocks & In-Process",
+      "name_ar": "مخصصات مؤونات تدني قيمة المخزون وقيد الصنع",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6554",
+      "name_fr": "Dotat. Prov. pr Déprec. - Créances Douteuses",
+      "name_en": "Prov.Alloc. for Bad & Doubtful Receivables",
+      "name_ar": "مخصصات مؤونات تدني قيم ذمم مدينة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6554",
+      "name_fr": "Dotat. Prov. pr Pertes - Créanciers en Faillite",
+      "name_en": "Prov.Alloc. for Bankrupt Debtors Accounts",
+      "name_ar": "مخصصات خسائر ديون -  عند إعلان الإفلاس",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6555",
+      "name_fr": "Dotat. Prov. pr Risques d'Exploitation",
+      "name_en": "Prov.Alloc. for Operating Risks (Conflicts & alike)",
+      "name_ar": "مخصّصات مؤونات مواجهة أخطار عائدة للإستثمار",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6555",
+      "name_fr": "Dotat. Prov. pr Charges à Répartir",
+      "name_en": "Prov.Alloc.of Deferred Charges",
+      "name_ar": "مخصّصات مؤونات الأعباء الواجب توزيعها على دورات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6555",
+      "name_fr": "Dotat. Prov. pr Fin de Service & Accidents",
+      "name_en": "Prov.Alloc.of End of Service & Wrkmn Compensation",
+      "name_ar": "مخصّصات مؤونات تسوية نهاية الخدمة وطوارئ العمل",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6555",
+      "name_fr": "Dotat. Prov. pr Impôts et Taxes",
+      "name_en": "Prov.Alloc.of Taxes (Other than Income Tax)",
+      "name_ar": "مخصّصات مؤونات الضرائب (غير ضريبة الأرباح)",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6610",
+      "name_fr": "Autre Charges Administratives Ordinaires",
+      "name_en": "Other Administratives Ordinary Charges",
+      "name_ar": "أعباء إدارية عادية أخرى",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6611",
+      "name_fr": "Jetons de Présence",
+      "name_en": "Directors Attendance Fees - Out of Profits",
+      "name_ar": "بدلات حضور اعضاء مجلس الادارة - من الأرباح",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6612",
+      "name_fr": "Pertes sur Créances d'Exploitation Irrécovables",
+      "name_en": "Losses on Bad Debts",
+      "name_ar": "خسارة على ذمم الإستثمار المدينة التي ثبت هلاكها",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6650",
+      "name_fr": "Quotes-Parts de Pertes s/Opérations en Commun",
+      "name_en": "Company Part in Losses on Joint Ventures",
+      "name_ar": "حصة المؤسسة من الخسائر على عمليات مشتركة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6730",
+      "name_fr": "Intérêts et Charges Assimilés",
+      "name_en": "Interests and Similar Charges",
+      "name_ar": "فوائد وأعباء مشابهة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6731",
+      "name_fr": "Intérêts des Emprunts et des Dettes",
+      "name_en": "Interest Due on Payables and Loans",
+      "name_ar": "فوائد مدينة على الذمم والقروض",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6736",
+      "name_fr": "Intérêts Bancaires et s/Opérations de Financement",
+      "name_en": "Interest Due to Banks & Financial Estab.",
+      "name_ar": "فوائد مدينة  للمصارف والمؤسّسات المالية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6739",
+      "name_fr": "Commissions et Frais Bancaires",
+      "name_en": "Bank Commissions & Other Charges",
+      "name_ar": "عمولات وأعباء مصرفية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6750",
+      "name_fr": "Différences de Change Négatives",
+      "name_en": "Difference of Exchange - Negative",
+      "name_ar": "فروقات صرف سلبية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6751",
+      "name_fr": "Pertes de Conversion s/Opérations Courantes",
+      "name_en": "Exchange Losses on Current Operations",
+      "name_ar": "فروقات صرف سلبية على عمليات جارية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6752",
+      "name_fr": "Pertes de Conversion s/Opérations en Capital",
+      "name_en": "Exchange Losses on Capital Expenditures",
+      "name_ar": "فروقات صرف سلبية على عمليات رأسمالية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6760",
+      "name_fr": "Charges Nettes/Cession de Valeurs Mobil. de Placement",
+      "name_en": "Net Charges on Disposal of Securities",
+      "name_ar": "أعباء صافية على عمليات التفرّغ عن سندات توظيف",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6790",
+      "name_fr": "Dotat. Amort. et  Prov.- Charges Financières",
+      "name_en": "Provisions For Deval. Of Financial Assets",
+      "name_ar": "مخصّصات الإستهلاكات والمؤونات المالية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6791",
+      "name_fr": "Dotat. Amort. - Primes de Remboursement",
+      "name_en": "Amortiz.Alloc. of Reimbursement Premiums",
+      "name_ar": "مخصّصات إستهلاك علاوات التسديد",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6792",
+      "name_fr": "Dotat. Prov. pr Déprec. - Immob. Financières",
+      "name_en": "Prov.Alloc.for Financial Assets Devaluation",
+      "name_ar": "مخصّصات مؤونات تدنّي قيم الأصول المالية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6794",
+      "name_fr": "Dotat. Prov. pr Déprec. - Valeurs de Placement",
+      "name_en": "Prov.Alloc.for Devaluation of Participations",
+      "name_ar": "مخصّصات مؤونات هبوط أسعار سندات التوظيف",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6795",
+      "name_fr": "Dotat. Prov. pr Risques & Charges Financiers",
+      "name_en": "Prov.Alloc.for Financial Risks & Charges",
+      "name_ar": "مخصّصات مؤونات مواجهة مخاطر وأعباء مالية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6810",
+      "name_fr": "Valeur Nette des Immobilisations Cédées",
+      "name_en": "Net Book Value of Disposed Fixed Assets",
+      "name_ar": "القيمة الدفترية للأصول الثابتة المتفرّغ عنها",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6811",
+      "name_fr": "Valeur Comptable des Immobilis. Incorporelles",
+      "name_en": "Book Value of Intang. Assets Disposed of",
+      "name_ar": "القيمة الدفترية لأصول ثابتة غير مادية متفرّغ عنها",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6812",
+      "name_fr": "Valeur Comptable des Immobilis. Corporelles",
+      "name_en": "Book Value of Tangible Assets Disposed of",
+      "name_ar": "القيمة الدفترية لأصول ثابتة مادية متفرّغ عنها",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6815",
+      "name_fr": "Valeur Comptable des Immobilis. Financières",
+      "name_en": "Book Value of Financial Assets Disposed of",
+      "name_ar": "القيمة الدفترية لأصول ثابتة مالية متفرّغ عنها",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6850",
+      "name_fr": "Autres Charges - Hors Exploitation",
+      "name_en": "Other Non-Operating Charges",
+      "name_ar": "أعباء أخرى خارج الإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6851",
+      "name_fr": "Cade Et Donations",
+      "name_en": "Gifts & Donations",
+      "name_ar": "هبات وتبرعات وهدايا",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6851",
+      "name_fr": "Amendes Fiscales et Pénales",
+      "name_en": "Fiscal & Penal Fines",
+      "name_ar": "غرامات ضريبية وجزائية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6851",
+      "name_fr": "Créances Devenues Irrécouvrables",
+      "name_en": "Uncollectable Receivables",
+      "name_ar": "ذمـم مدينة أصبحت هالكة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6851",
+      "name_fr": "Autres Opérations de Gestion",
+      "name_en": "Other Administrative Operations",
+      "name_ar": "أعباء عمليات إدارية أخرى خارج الإستثمار",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6855",
+      "name_fr": "Charges sur Opérations en Capital",
+      "name_en": "Charges on CapitalOperations",
+      "name_ar": "أعباء على عمليات رأسمالية",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6880",
+      "name_fr": "Charges sur Evénnements Extra-Ordinaires",
+      "name_en": "Charges On Extra-Ordinary Events",
+      "name_ar": "خسائرأحداث إستثنائية",
+      "normal_balance_raw": "N.A"
+    },
+    {
+      "account_code": "6890",
+      "name_fr": "Dotat. Amort. et  Prov.- Hors Exploitation",
+      "name_en": "Non Oper'tg Depreciations & Provisions",
+      "name_ar": "مخصّصات الإستهلاكات والمؤونات خارج الإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6891",
+      "name_fr": "Dotat.  Amort. Exceptionnels sur Immobilisations",
+      "name_en": "Alloc. for Extra-ordinary Deprec.of F.Assets",
+      "name_ar": "مخصّصات إستهلاكات إستثنائية على أصول ثابتة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6892",
+      "name_fr": "Dotat. Prov. pr Dépreciations Exceptionnelles",
+      "name_en": "Prov.Alloc. for Exceptional Depreciations",
+      "name_ar": "مخصّصات مؤونات هبوط أسعار إستثنائي",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6895",
+      "name_fr": "Dotat. Prov. pr Risques & Charges H. Exploitation",
+      "name_en": "Prov.Alloc. for Non-Operat'g Risks & Charges",
+      "name_ar": "مخصّصات مؤونات مخاطر وأعباء خارج الإستثمار",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "6900",
+      "name_fr": "Impôts sur Profits",
+      "name_en": "Taxes on Profits",
+      "name_ar": "الضرائب على الأرباح",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "6901",
+      "name_fr": "Impôts sur les Bénéfices d'Exploitation",
+      "name_en": "Income Tax on Net Operating Profits",
+      "name_ar": "الضريبة على أرباح الإستثمار",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "7010",
+      "name_fr": "Ventes de Marchandises",
+      "name_en": "Sales of Goods",
+      "name_ar": "مبيعات البضاعة - فواتير",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7090",
+      "name_fr": "Rabais, Remises et Ristournes Accordés",
+      "name_en": "Discounts/Allowances/Returned Goods",
+      "name_ar": "حسومات ممنوحة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "7110",
+      "name_fr": "Ventes de Produits",
+      "name_en": "Sales of Products",
+      "name_ar": "مبيـعــات منتجات",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7111",
+      "name_fr": "Ventes de Produits Finis",
+      "name_en": "Sales of Finished Products",
+      "name_ar": "مبيعات المنتجات التامة الصنع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7112",
+      "name_fr": "Ventes de Produits Intermédiaires",
+      "name_en": "Sales of Semi-Finished Products",
+      "name_ar": "مبيعات المنتجات الوسيطة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7113",
+      "name_fr": "Ventes de Produits Résiduels",
+      "name_en": "Sales of Production Scrap",
+      "name_ar": "مبيعات فضلات الإنتاج",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7120",
+      "name_fr": "Ventes de Travaux",
+      "name_en": "Sales of Works",
+      "name_ar": "مبيعات أشغال",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7130",
+      "name_fr": "Prestations de Services",
+      "name_en": "Sales of Services",
+      "name_ar": "مبيعات خدمات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7170",
+      "name_fr": "Revenus des Activités Subsidiaires",
+      "name_en": "Revenues of Subsidiary Activities",
+      "name_ar": "إيرادات النشاطات الفرعية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7171",
+      "name_fr": "Rev. des Activités Sub. - Produits",
+      "name_en": "Revenues of Sub. Activities - Products",
+      "name_ar": "إيرادات النشاط الفرعي - مبيع منتجات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7172",
+      "name_fr": "Rev. des Activités Sub. - Travaux",
+      "name_en": "Revenues of Sub. Activities - Works",
+      "name_ar": "إيرادات النشاط الفرعي - مبيع أشغال",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7173",
+      "name_fr": "Rev. des Activités Sub. - Services",
+      "name_en": "Revenues of Sub. Activities - Services",
+      "name_ar": "إيرادات النشاط الفرعي - مبيع خدمات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7190",
+      "name_fr": "Remises Offertes",
+      "name_en": "Discounts Granted",
+      "name_ar": "حسومات ممنوحة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7191",
+      "name_fr": "Rabais et Remises sur Ventes de Produits",
+      "name_en": "Discounts Granted on Sales of Products",
+      "name_ar": "حسومات ممنوحة على مبيعات المنتجات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "7192",
+      "name_fr": "Rabais et Remises sur Ventes de Travaux",
+      "name_en": "Discounts Granted on Sales of Works",
+      "name_ar": "حسومات ممنوحة على مبيعات الأشغال",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "7193",
+      "name_fr": "Rabais et Remises  sur Prestation de Services",
+      "name_en": "Discounts Granted on Sales of Services",
+      "name_ar": "حسومات ممنوحة على مبيعات الخدمات",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "7210",
+      "name_fr": "Variation du Stock des Produits & Travaux en Cours",
+      "name_en": "Stock Variation of Products & Works in Progress",
+      "name_ar": "قيمة التغيير في مخزون منتجات وأشغال قيد الصنع",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7211",
+      "name_fr": "Variation Stock - Produits En Cours",
+      "name_en": "Stock Variation of Products in Process",
+      "name_ar": "قيمة التغيير في مخزون المنتجات قيد الصنع",
+      "normal_balance_raw": "C/D"
+    },
+    {
+      "account_code": "7212",
+      "name_fr": "Variation des Travaux en Cours d'Exécution",
+      "name_en": "Stock Variation of Works in Progress",
+      "name_ar": "قيمة التغيير في الأشغال قيد التنفيذ",
+      "normal_balance_raw": "C/D"
+    },
+    {
+      "account_code": "7220",
+      "name_fr": "Variation du Stock des Etudes & Services en Cours",
+      "name_en": "Stock Variation of Studies & Services in Progress",
+      "name_ar": "قيمة التغيير في مخزون دراسات وخدمات قيد التنفيذ",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7225",
+      "name_fr": "Variation des Etudes en Cours d'Exécution",
+      "name_en": "Stock Variation of Studies in Progress",
+      "name_ar": "قيمة التغيير في الدراسات قيد الإعداد",
+      "normal_balance_raw": "C/D"
+    },
+    {
+      "account_code": "7226",
+      "name_fr": "Variation des Services en Cours de Prestation",
+      "name_en": "Stock Variation of Services in Progress",
+      "name_ar": "قيمة التغيير في الخدمات قيد التنفيذ",
+      "normal_balance_raw": "C/D"
+    },
+    {
+      "account_code": "7250",
+      "name_fr": "Variation du Stock des Produits Finis, Semi Finis & Déchets",
+      "name_en": "Stock Variation of Finished, Semi Finised & Scrap",
+      "name_ar": "قيمة التغيير في مخزون منتجات وسيطة وتامة الصنع وفضلات",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7251",
+      "name_fr": "Variation Stock - Produits Intermédiaires",
+      "name_en": "Stock Variation of Semi-Finished Products",
+      "name_ar": "قيمة التغيير في مخزون المنتجات الوسيطة",
+      "normal_balance_raw": "C/D"
+    },
+    {
+      "account_code": "7255",
+      "name_fr": "Variation Stock - Produits Finis",
+      "name_en": "Stock Variation of Finished Products",
+      "name_ar": "قيمة التغيير في مخزون المنتجات التامة الصنع",
+      "normal_balance_raw": "C/D"
+    },
+    {
+      "account_code": "7258",
+      "name_fr": "Variation Stock - Produits Résiduels",
+      "name_en": "Stock Variation of Production Scrap",
+      "name_ar": "قيمة التغيير في مخزون فضلات الإنتاج",
+      "normal_balance_raw": "C/D"
+    },
+    {
+      "account_code": "7310",
+      "name_fr": "Production d'Immobilisations Incorporelles",
+      "name_en": "Production of Intangible Fixed Assets",
+      "name_ar": "منتجات لها طابع الإصول الثابتة غير المادية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7320",
+      "name_fr": "Production d'Immobilisations Corporelles",
+      "name_en": "Production of Tangible Fixed Assets",
+      "name_ar": "منتجات لها طابع الإصول الثابتة المادية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7410",
+      "name_fr": "Subventions Relatives aux Marchandises",
+      "name_en": "Operating Subsidies for Goods",
+      "name_ar": "إعانات للإستثمار - للبضائع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7420",
+      "name_fr": "Subventions Relatives à La Production",
+      "name_en": "Operating Subsidies for Production",
+      "name_ar": "إعانات للإستثمار - للإنتاج",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7520",
+      "name_fr": "Reprise sur Prov. de Deval. des Immobilisations",
+      "name_en": "Reversal of Fixed Assets Devaluation Provisions",
+      "name_ar": "استردادات من مؤونات هبوط أسعار الأصول الثابتة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7521",
+      "name_fr": "Reprises s/Prov.pr Déprec.- Immob.Incorporelles",
+      "name_en": "Reversal of Deval.Prov. of Intang.Fixed Assets",
+      "name_ar": "إستردادات مؤونات هبوط قيم أصول ثابتة غير مادية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7522",
+      "name_fr": "Reprises s/Prov.pr Déprec.- Immob.Corporelles",
+      "name_en": "Reversal of Deval.Prov. of Tang.Fixed Assets",
+      "name_ar": "إستردادات مؤونات هبوط قيم أصول ثابتة مادية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7530",
+      "name_fr": "REPRISES S/PROV. PR DÉPRÉC. DES ACTIFS CIRCULANTS",
+      "name_en": "REVERSAL OF DEVAL.PROV. OF CURRENT ASSETS",
+      "name_ar": "إستردادات من مؤونات هبوط أسعار الأصول المتداولة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7533",
+      "name_fr": "Reprises s/Prov.pr Déprec.- Stock et en Cours",
+      "name_en": "Reversal of Deval.Prov. of Stocks",
+      "name_ar": "إستردادات مؤونات هبوط قيم المخزون وقيد الصنع",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7534",
+      "name_fr": "Reprises s/Prov.Non-Déductibles s/ Créances Douteuses",
+      "name_en": "Reversal of Non-Deduct.Deval.Prov. of Debts",
+      "name_ar": "إستردادات مؤونات غير مقبولة التنزيل لتدنّي قيم الذمم",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7534",
+      "name_fr": "Reprises s/Prov.des Pertes s/Créanciers en Faillite",
+      "name_en": "Reversal of Deval.Prov. of Losses on Debts Losses",
+      "name_ar": "إستردادات مؤونات مقبولة التنزيل لخسائر ديون",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7550",
+      "name_fr": "Reprise sur Provisions de Risques & Charges",
+      "name_en": "Reversal of Risks & Charges Provisions",
+      "name_ar": "استردادات من مؤونات مخاطر وأعباء الإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7551",
+      "name_fr": "Reprises s/Prov. pr Risques d'Exploitation",
+      "name_en": "Reversal of Deval.Prov. for Risks (Conflicts & alike)",
+      "name_ar": "إستردادات مؤونات أخطار عائدة للإستثمار",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7552",
+      "name_fr": "Reprises s/Prov. pr Charges à Répartir",
+      "name_en": "Reversal of Prov. for Deferred Charges",
+      "name_ar": "إستردادات مؤونات الأعباء الواجب توزيعها",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7552",
+      "name_fr": "Reprises s/Prov. pr Fin de Service & Accidents",
+      "name_en": "Reversal of Prov. for End of Service Dues",
+      "name_ar": "إستردادات مؤونات تسوية نهاية الخدمة وطوارئ العمل",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7552",
+      "name_fr": "Reprises s/Prov. pr Impôts et Taxes",
+      "name_en": "Reversal of Prov. for Taxes (Other than Income Tax)",
+      "name_ar": "إستردادات مؤونات الضرائب (غير ضريبة الأرباح)",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7610",
+      "name_fr": "Autres Revenues Ordinaires d'Exploitation",
+      "name_en": "Other Operating Ordinary Revenues",
+      "name_ar": "إيرادات عادية أخرى ناتجة عن الإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7611",
+      "name_fr": "Redevances des Concessions",
+      "name_en": "Patents Royalties Income",
+      "name_ar": "إيرادات أتاوى الإمتيازات والبراءات وخلافها",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7612",
+      "name_fr": "Revenus des Immeubles Non Affectés aux Activités Professionnelles",
+      "name_en": "Rental of Buildings not used by  the Business",
+      "name_ar": "إيجارات الأبنية غير المخصّصة للنشاط المهني",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7613",
+      "name_fr": "Jetons de Présence et Rénumérations de Gestion",
+      "name_en": "Board Meetings Attendance Fees Received",
+      "name_ar": "إيرادات بدلات حضور مجالس أدارة وجمعيات",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7615",
+      "name_fr": "Autres Produits d'Exploitation",
+      "name_en": "Other Sundry Operating Income",
+      "name_ar": "إيرادات متفرّقة ناتجة عن الإستثمار",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7619",
+      "name_fr": "Transferts de Charges d'Exploitation",
+      "name_en": "Operating Charges Transferred to Other Accounts",
+      "name_ar": "أعباء إستثمار محوّلة إلى حسابات أخرى",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7650",
+      "name_fr": "Parts aux Profits des Activités Communes",
+      "name_en": "Parts in Profits of Joint Activities",
+      "name_ar": "حصص أرباح العمليات المشتركة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7651",
+      "name_fr": "Quotes-Parts de Charge Nette Transférées (Cpté. Du Gérant)",
+      "name_en": "Net Transfers of Allocated Charges",
+      "name_ar": "حصص أعباء إدارة عمليات مشتركة جرى تحويلها",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7655",
+      "name_fr": "Quotes-Parts de Produit Net Attribuées (Cpté. Du Gérant)",
+      "name_en": "Net Attributions of Income",
+      "name_ar": "حصص إيرادات ناتجة عن إدارة عمليات مشتركة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7710",
+      "name_fr": "Produits des Participations",
+      "name_en": "Revenues of Equity Participations",
+      "name_ar": "إيرادات سندات المشاركة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7720",
+      "name_fr": "Revenus des Autres Valeurs  Mobilières",
+      "name_en": "Revenues of Securities and Receivables",
+      "name_ar": "إيردات القيم المنقولة الأخرى",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7730",
+      "name_fr": "Intérêts et Produits Assimilés",
+      "name_en": "Interests and Similar Revenues Earned",
+      "name_ar": "فوائد وايرادات مشابهة",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7750",
+      "name_fr": "Différences de Change Positives",
+      "name_en": "Difference of Exchange - Positive",
+      "name_ar": "فروقات صرف إيجابية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7751",
+      "name_fr": "Diff.Positive de Change S/Opérations Courantes",
+      "name_en": "Exchange Profits on Current Operations",
+      "name_ar": "فروقات صرف إيجابية على عمليات جارية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7755",
+      "name_fr": "Diff.Positive de Change S/Opérations en Capital",
+      "name_en": "Exchange Profits on Capital Transactions",
+      "name_ar": "فروقات صرف إيجابية على عمليات راسمالية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7780",
+      "name_fr": "Autres Revenus Financiers",
+      "name_en": "Other Financial Revenues",
+      "name_ar": "إيرادات مالية أخرى",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7781",
+      "name_fr": "Produits Nets s/Cessions de Valeurs Mobil.de Placement",
+      "name_en": "Net Income on Disposal of Participation Deeds",
+      "name_ar": "إيرادات صافية على بيع سندات التوظيف",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7789",
+      "name_fr": "Transferts de Charges Financières",
+      "name_en": "Financial Charges Transferred to Other Accounts",
+      "name_ar": "أعباء مالية محوّلة إلى حسابات أخرى",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7790",
+      "name_fr": "Reprise sur Provisions Financières",
+      "name_en": "Reversal of Financial Provisions",
+      "name_ar": "استردادات من المؤونات المالية",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7793",
+      "name_fr": "Reprises s/Prov.pr Déprec.- Immob.Financières",
+      "name_en": "Reversal of Deval.Prov. Of Finan. F. Assets",
+      "name_ar": "إستردادات من مؤونات تدنّي قيم أصول مالية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7794",
+      "name_fr": "Reprises s/Prov.pr Déprec. - Valeurs Mobil.de Placement",
+      "name_en": "Reversal of Deval.Prov. Of Participations Deeds",
+      "name_ar": "إستردادات من مؤونات هبوط أسعار سندات التوظيف",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7795",
+      "name_fr": "Reprises s/Prov.pr Risques et Charges Financiers",
+      "name_en": "Reversal of Prov. for Financial Risks",
+      "name_ar": "إستردادات من مؤونات مخاطر وأعباء مالية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7810",
+      "name_fr": "Revenues sur Cessions d'Actif Immobilisé",
+      "name_en": "Revenues of Fixed Assets Disposals",
+      "name_ar": "إيرادات التفرّغ عن أصول ثابتة",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7811",
+      "name_fr": "Produits s/Cession d'Immobilis. Incorporelles",
+      "name_en": "Income from Disposal of Intang. F. Assets",
+      "name_ar": "ايرادات التفرغ عن أصول ثابتة غير مادية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7812",
+      "name_fr": "Produits s/Cession d'Immobilis. Corporelles",
+      "name_en": "Income from Disposal of Tang. F. Assets",
+      "name_ar": "ايرادات التفرغ عن أصول ثابتة مادية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7815",
+      "name_fr": "Produits s/Cession d'Immobilis. Financières",
+      "name_en": "Income from Disposal of Financ. F. Assets",
+      "name_ar": "ايرادات التفرغ عن أصول ثابتة مالية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7819",
+      "name_fr": "Charges sur Cessions d'Immobilisations",
+      "name_en": "Fixed Assets Disposal Charges",
+      "name_ar": "مصاريف التفرّغ عن أصول ثابتة",
+      "normal_balance_raw": "D"
+    },
+    {
+      "account_code": "7820",
+      "name_fr": "Subventions d'Invest. Virées au Résultat de L'Exercice",
+      "name_en": "Investment Subsidies Transferred to Results",
+      "name_ar": "إعانات للتوظيفات محوّلة إلى نتيجة الدورة المالية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7880",
+      "name_fr": "Autres Revenues Hors Exploitation",
+      "name_en": "Other Non-Operating Revenues",
+      "name_ar": "إيرادات أخرى خارج الإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7881",
+      "name_fr": "Produits Exceptionnels sur Opérations de Gestion",
+      "name_en": "Extra-ordinary Operating Revenues",
+      "name_ar": "إيرادات إستثنائية على عمليات جارية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7888",
+      "name_fr": "Autres Produits s/Opér. Exception. en Capital",
+      "name_en": "Other Income on Extar-ordinary Transactions",
+      "name_ar": "إيرادات أخرى على عمليات رأسمالية إستثنائية",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7889",
+      "name_fr": "Transferts de Charges Exceptionnelles",
+      "name_en": "Sundry Extra-ordinary Charges Transferred",
+      "name_ar": "أعباء إستثنائية محوّلة إلى حسابات أخرى",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7890",
+      "name_fr": "Reprise sur Provisions Hors Exploitation",
+      "name_en": "Reversal of Non-Operating Provisions",
+      "name_ar": "استردادات من مؤونات خارج الإستثمار",
+      "normal_balance_raw": "HD"
+    },
+    {
+      "account_code": "7891",
+      "name_fr": "Reprises s/Prov.pr Dépreciations - H.Exploitation",
+      "name_en": "Reversal of Prov. for Non-Oper. Depreciations",
+      "name_ar": "استردادات من مؤونات هبوط أسعار",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "7895",
+      "name_fr": "Reprises s/Prov.pr Risques & Charges - H.Exploitation",
+      "name_en": "Reversal of Prov. for Non-Oper. Risks & ChargesPrices Fall",
+      "name_ar": "استردادات من مؤونات مخاطر وأعباء خارج الإستثمار",
+      "normal_balance_raw": "C"
+    },
+    {
+      "account_code": "8000",
+      "name_fr": "Comptes des Engagements Hors Bilan",
+      "name_en": "Extra-Balance Sheet Contingency Accounts",
+      "name_ar": "حسابات الإلتزامات خارج الميزانية",
+      "normal_balance_raw": "N.A"
+    }
+  ]
+}

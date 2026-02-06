@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>AH Trading POS</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">AH</div>
+        <div>
+          <h1>AH Trading POS</h1>
+          <p>Offline-first · USD/LBP</p>
+        </div>
+      </div>
+      <div class="status">
+        <span id="syncStatus">Idle</span>
+        <button id="syncPull">Pull Catalog</button>
+        <button id="syncPush" class="ghost">Sync Sales</button>
+      </div>
+    </header>
+
+    <section class="controls">
+      <label>Search
+        <input id="search" placeholder="Search by SKU, barcode, name" />
+      </label>
+      <label>Customer ID
+        <input id="customerId" placeholder="Optional customer UUID" />
+      </label>
+      <label>Payment
+        <select id="paymentMethod">
+          <option value="cash">Cash</option>
+          <option value="card">Card</option>
+          <option value="transfer">Transfer</option>
+          <option value="credit">Credit</option>
+        </select>
+      </label>
+      <label>Currency
+        <select id="currency">
+          <option value="USD">USD</option>
+          <option value="LBP">LBP</option>
+        </select>
+      </label>
+      <label>Rate (USD→LBP)
+        <input id="rate" type="number" step="0.01" />
+      </label>
+    </section>
+
+    <section class="shift-bar">
+      <div class="shift-card">
+        <div class="shift-meta">
+          <h3>Shift</h3>
+          <p id="shiftStatus">No open shift</p>
+        </div>
+        <div class="shift-fields">
+          <label>Open USD<input id="shiftOpenUsd" type="number" step="0.01" /></label>
+          <label>Open LBP<input id="shiftOpenLbp" type="number" step="1" /></label>
+          <label>Close USD<input id="shiftCloseUsd" type="number" step="0.01" /></label>
+          <label>Close LBP<input id="shiftCloseLbp" type="number" step="1" /></label>
+        </div>
+        <div class="shift-actions">
+          <button id="openShift">Open Shift</button>
+          <button id="closeShift" class="ghost">Close Shift</button>
+        </div>
+      </div>
+    </section>
+
+    <main class="layout">
+      <section class="panel items">
+        <h2>Items</h2>
+        <div id="items" class="items-grid"></div>
+      </section>
+      <section class="panel cart">
+        <h2>Cart</h2>
+        <div id="cart" class="cart-list"></div>
+        <div class="totals">
+          <div><span>Total USD</span><strong id="totalUsd">0.00</strong></div>
+          <div><span>Total LBP</span><strong id="totalLbp">0</strong></div>
+          <div><span>Loyalty Points</span><strong id="loyaltyPoints">0</strong></div>
+        </div>
+        <div class="actions">
+          <button id="clear">Clear</button>
+          <button id="complete" class="primary">Complete Sale</button>
+        </div>
+        <div id="saleStatus" class="status"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

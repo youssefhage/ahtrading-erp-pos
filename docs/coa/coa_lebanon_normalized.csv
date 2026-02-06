@@ -1,0 +1,523 @@
+account_code,name_fr,name_en,name_ar,normal_balance_raw
+1010,CAPITAL SOCIAL OU PERSONNEL,CAPITAL,رأس المال (للشركة أو للشخص),C
+1011,"Capital Souscrit, Non Appelé",Subscribed Un-Called Capital,رأس المال المكتتب وغيرالمستدعى,C
+1012,"Capital Souscrit, Appelé, Non Versé",Subscribed Called and Unpaid Capital,رأس المال المكتتب، المستدعى  وغيرالمدفوع,C
+1013,"Capital Souscrit, Appelé, Versé",Subscribed Called and Paid-Up Capital,رأس المال المكتتب، المستدعى  والمدفوع,C
+1020,PRIMES LIEES AU CAPITAL SOCIAL,CAPITAL PREMIUMS,علاوات الإصدار والإندماج والمقدّمات,C
+1021,Primes d'Émission,Issuance Premiums,علاوات الإصدار,C
+1022,Primes de Fusion,Merger Premiums,علاوات الإندماج,C
+1023,Primes d'Apport,Contributions Premiums,علاوات المقدّمات,C
+1024,Primes de Conversion d'Obligations en Actions,Conversion Premium of Bonds to Shares,علاوات تحويل السندات إلى أسهم,C
+1030,ECARTS DE RÉÉVALUATION,REVALUATION VARIANCES,فروقات إعادة التخمين والتقييم,C
+1031,Ecarts Réevalut.-Immob. Non Amortissables,Non-Amortizable Assets Reval. Variances,فروقات إعادة تخمين أصول غير قابلة للإستهلاك,C
+1035,Ecarts Réevalut.-Immob. Amortissables,Amortizable Assets Reval. Variances,فروقات إعادة تخمين أصول قابلة للإستهلاك,C
+1090,COMPTE DE L'EXPLOITANT INDIVIDUEL,OWNER'S CURRENT ACCOUNT,الحساب الشخصي لصاحب المؤسّسة,C/D
+1110,RÉSERVE LÉGALE,LEGAL RESERVE,إحتياطي قانوني,C
+1120,RÉSERVES STATUTAIRES OU CONTRACTUELLES,STATUTORY AND CONTRACTUAL RESERVES,إحتياطيات نظامية وتعاقدية,C
+1190,AUTRES RÉSERVES,OTHER RESERVES,إحتياطيات أخرى,C
+1210,REPORT À NOUVEAU CRÉDIT. - PROFITS,BROUGHT FORWARD RESULTS - PROFITS,نتائج سابقة مدوّرة دائنة,C
+1250,REPORT À NOUVEAU DÉBIT. - PERTES,BROUGHT FORWARD RESULTS - LOSSES,نتائج سابقة مدوّرة مدينة,D
+1300,Résultat de l'Exercice - Profit / (Perte),Current Period Net Result - Profit / (Loss),النتيجة الصافية للدورة المالية (ربح أو خسارة),HD
+1380,RÉSULTAT DE L'EXERCICE - BÉNÉFICE,CURRENT YEAR RESULT - PROFITS,نتيجة الدورة - أرباح,C=D
+1390,RÉSULTAT DE L'EXERCICE - PERTE,CURRENT YEAR RESULT - LOSSES,نتيجة الدورة - خسائر,C=D
+1410,SUBVENTION d'INVESTISSEMENT REÇUES,INVESTMENT SUBSIDIES RECEIVED,إعانات للتوظيفات مقبوضة,C
+1450,SUBV. d'INVEST.RAPPORTÉES AUX RÉSULTATS,INVEST. SUBSIDIES TRANSFERED TO RESULTS,إعانات للتوظيفات محوّلة للنتائج,C
+1510,Provisions pour Risques,Provisions for Risks,مؤونات لمواجهة أخطار,HD
+1511,Prov. pour Litiges et Éventualités Diverses,Provisions for Litigations & Alike,مؤونات أخطار المنازعات والإحتمالات,C
+1512,Prov. pour Garanties Données Aux Clients,Provisions against Guarantees Given,مؤونات لقاء الضمانات المعطات للزبائن,C
+1513,Provisions pour Pertes de Changes,Provisions for Losses on Exchange,مؤونات مواجهة خسائر سعر الصرف,C
+1514,Prov. pour Pertes sur Marchés à Terme,Provis. for Losses on Term Contracts,مؤونات مواجهة  خسائر على عقود لأجل,C
+1515,Provisions pour Amendes Et Pénalités,Provisions for Fines & Penalties,مؤونات مواجهة الغرامات والجزاءات,C
+1516,Provisions pour Risques Financiers,Provisions for Financial Risks,مؤونات مواجهة المخاطر والأعباء المالية,C
+1517,Provisions pour Chutes des Prix Extraord.,Provisions for Extraordinary Prices Fall,مؤونات مواجهة  هبوط  أسعار إستثنائي,C
+1518,Prov. pr Risques et Charges Hors Exploitation,Provisions for Non-Oper. Risks & Charges,مؤونات مواجهة أخطار وأعباء خارج الإستثمار,C
+1550,Provisions pour Charges,Provisions for Charges,مؤونات لمواجهة أعباء,HD
+1551,Prov. pr Charges à Répartir sur Pls Exercices,Provisions for Deferred Charges,مؤونات الأعباء الواجب توزيعها على عدة دورات,C
+1552,Prov. pour Indemnités de Fin de Service,Prov. for End of Service Indemnity,مؤونات تسوية تعويضات نهاية الخدمة,C
+1552,Provisions  pour Pensions de Retraite,Prov. for End of Service Pensions,مؤونات دفع معاشات التقاعد,C
+1552,Prove. pour Accidents de Travail,Prove. for Workmen's Compensations,مؤونات لتعويضات طوارئ العمل,C
+1553,Provisions pour Impôts (non sur/Revenu),Provision for Taxes (Other than Income Tax),مؤونات للضرائب (غير ضريبة الأرباح),C
+1610,EMPRUNTS OBLIGATAIRES,LONG TERM LOANS AGAINST BONDS,قروض لقاء سندات دين,C
+1620,EMPRUNTS AUPRÈS D'ETABLIS. DE CRÉDIT,LONG TERM LOANS FROM BANKS,قروض من مؤسّسات التسليف,C
+1680,EMPRUNTS ET DETTES DIVERS,SUNDRY LONG & MED. TERM LOANS,قروض وديون مختلفة,C
+1810,"COMPTES DE LIAISON DES ETABLIS.,SUCCURSALES..",INTERCOMPANIES & INTERBRANCHES ACCOUNTS,حسابات إرتباط المؤسّسات والفروع وشركات المشاركة,C=D
+1860,Echanges entre Branches - Charges,Interbranches Exchanges - Charges,الأموال والخدمات المتبادلة بين الفروع (أعباء),C=D
+1870,Echanges entre Branches - Revenus,Interbranches Exchanges - Revenues,الأموال والخدمات المتبادلة بين الفروع (إيرادات),C=D
+2110,FONDS DE COMMERCE,BUSINESS CONCERN,المؤسّسة التجارية (الخلو، الشهرة، الزبائن..),D
+2120,FRAIS d'ETABLISSEMENT,FORMATION EXPENSES,مصاريف التأسيس,D
+2130,FRAIS DE RECHERCHE ET DE DÉVELOPPEMENT,RESEARCH & DEVELOPMENT EXPENSES,مصاريف البحوث والتطوير,D
+2140,"BREVETS, LICENCES, MARQUES ET VALEURS SIMILAIRES","PATENTS, LICENSES, TRADE MARKS & ALIKE",براءات الإختراع، الإجازات، العلامات والقيم المماثلة,D
+2190,AUTRES IMMOBILISATIONS INCORPORELLES,OTHER INTANGIBLE FIXED ASSETS,أصول ثابتة غير مادية أخرى,D
+2210,TERRAINS,LANDS,الأراضي,HD
+2211,Terrains Nus,Virgin Lands - Basic Cost,الأراضي الفراغ - القيمة الأساسية,D
+2212,Terrains Bâtis (Ensembles Immobiliers),Built-on Properties - Basic Cost,الأراضي المبنية - القيمة الأساسية,D
+2213,"Terrains d'Exploitation (Carrières, Gisements)",Extractive Lands - Basic Cost,أراضي الإستثمار الجوفي - القيمة الأساسية,D
+2214,Agencements et Aménagements de Terrains,Landscaping Cost,تكاليف إستصلاح  وتنظيم الأراضي,D
+2230,CONSTRUCTIONS ET BÂTIMENTS,BUILDINGS & CONSTRUCTIONS,الأبنية,HD
+2231,Bâtiments  (Ensembles Immobiliers),Buildings - Basic Cost,الأبنية - القيمة الأساسية,HD
+2231,"Batis en Betons pr Commerce, Tourisme, Services","Concrete Buildings for Trade, Tourism & Services",الأبنية المشادة بالباطون والمستعملة لغايات تجارية وسياحية وخدماتية,D
+2231,Batis en Betons pr Manufactures ou Industries,Concrete Buildings for Industry,الأبنية المشادة بالباطون والمستعملة لغايات حرفية وصناعية,D
+2231,Batis Métalliques pr Commerce ou Industries,Metalllic Buildings for Trade or Industry,أبنية وإنشاءآت معدنية لغايات تجارية أو صناعية,D
+2232,Installations & Aménag. des Constructions,Building Installations & Improvem'ts,تجهيزات الأبنية وإستصلاحها,D
+2233,Ouvrages d'Infra-structures,Infra-structure Constructions,إنشاءات البنى التحتية,D
+2234,Constructions sur Terrains d'Autrui,Constructions on Other Owners' Lands,إنشاءات على أراضي الغير,D
+2240,"INSTALL.TECHN., MATÉRIELS ET OUTIL.INDUSTRIELS","TECH. INSTALL., MACHINERY & EQUIPMENT",التجهيزات الفنية والآلات الصناعية,HD
+2241,Install. Techniques Complexes Spécialisées,Specialized Technical Installations,تجهيزات فنّية متخصّصة,D
+2242,Install. Techniques à Caractère Spécifique,Specific Technical Installations,تجهيزات فنّية ذات طبيعة خاصة,D
+2243,Matériels Industriels,Industrial Machinery & Equipment,الآلات والمعدّات الصناعية,D
+2244,Outillages Industriels,Industrial Tools,الأدوات الصناعية,D
+2245,Articles & Equipements pour Hotels et Restos,Hotels & Retaurants Appliances,الأواني الزجاجية والأدوات الفضيّة في الفنادق والمطاعم ..,D
+2250,VEHICULES ET MATERIEL DE TRANSPORT,VEHICLES AND HANDLING EQUIPMENT,آليات النقل,HD
+2251,Voitures de Passagers,Passenger Vehicles,سيارات سياحية,D
+2252,Vehicules et Matériel de Transport,Transport Vehicles & Handling Equipment,شاحنات وآليات نقل,D
+2253,Moyens de Transport Maritime,Maritime Tranport Means,وسائل النقل البحري,D
+2254,Moyens de Transport Aérien,Air Transport Means,وسائل النقل الجوّي,D
+2260,AUTRES IMMOBILISATIONS CORPORELLES,OTHER TANGIBLE FIXED ASSETS,أصول ثابتة مادية أخرى,HD
+2261,"Install.Internes, Décor & Aménag. Divers",Internal Install. Decor & Improvements,تجهيزات داخلية، ديكور وتحسينات مختلفة,D
+2262,Matériel de Bureau et Informatique,Office & Computer Equipment,ادوات مكتبية ومعلوماتية,HD
+2262,Matériel de Bureau,Office Equipment,ادوات مكتبية,D
+2262,Matériel Informatique,Computer Equipment,ادوات معلوماتية,D
+2263,Mobilier et Accessoires,"Furnitures, Fixtures & Accessories",أثاث ومفروشات وتوابعها,HD
+2263,Mobilier,Furnitures & Fixtures,أثاث ومفروشات,D
+2263,Linges des Services Hoteliers,Hospitality Linen,البياضات والشراشف والمناشف,D
+2264,Cheptel - Installations Agricoles,Agricultural Installations,إستثمارات زراعية,D
+2265,Emballages Réutilisables,Re-usable Containers,عبوات قابلة لإعادة الإستعمال,HD
+2265,"Emballages Réutilis. - Barils, Bouteilles et Caisses","Re-usable Containers - Barils, Bottles & Boxes",عبوات قابلة لإعادة الإستعمال - البراميل والقناني والصناديق المرتجعة,D
+2265,Emballages Réutilis. - Bonbonnes de Gaz,Re-usable Containers - Gaz Containers,عبوات قابلة لإعادة الإستعمال - قوارير الغـاز,D
+2270,IMMOBILISATIONS CORPORELLES EN COURS,TANGIBLE FIXED ASSETS IN PROGRESS,أصول ثابتة مادية قيد الصنع,HD
+2271,Terrains en Cours d'Acquisition,Lands under Acquisition,أراض قيد الإمتلاك,D
+2273,Constructions en Cours,Buildings under Construction,أبنية قيد الإنشاء,D
+2274,"Install.Tech., Matériels & Outillages en Cours",Industrial Equipment under Installation,تجهيزات ومعدّات صناعية قيد التركيب,D
+2276,Autres Immobilisations Corporelles en Cours,Other Tangible Fixed Assets in Progress,أصول ثابتة مادية  أخرى قيد الإنجاز,D
+2280,Avances Et Acomptes S/Immob. Corporelles,Advances/Purchase Of Fixed Assets,سلفات ودفعات على حساب شراء أصول ثابتة مادية,D
+2510,Titres De Participation,Equity Participations,سندات مشاركة,D
+2520,Créances Rattachées À Des Participations,Receivables Related To Participations,ذمم مدينة مرتبطة بمشاركات,D
+2530,AUTRES TITRES IMMOBILISES,OTHER SECURITIES & FINANCIAL ASSETS,سندات أخرى مجمّدة,HD
+2531,"Droit de Propriété (Actions, Parts Sociales)",Ownership Deeds (Shares & Parts),سندات ملكية  (أسهم، حصص شراكة),D
+2535,"Droit de Créance (Obligations, Bons)",Credit Deeds (Bonds & Coupons),سندات ديـن,D
+2550,PRETS A LONG ET MOYEN TERME,LONG AND MEDIUM TERM GRANTED LOANS,قروض طويلة ومتوسّطة الأجل,HD
+2551,Prêts Aux Associés,Loans to Partners/Affiliates - Non-Current Part,قروض آجلة للشركاء,D
+2552,Prêts Au Personnel,Loans to Employees - Non-Current Part,قروض آجلة للمستخدمين,D
+2558,Autres Prêts,Other Long & Medium Term Loans,قروض أخرى طويلة أو متوسّطة الأجل,D
+2590,Autres Créances Immobilisées,Other Long & Med.Term Receivables,ذمم مدينة أخرى مجمّدة,D
+2700,ECART DE REEVAL.NON-AMORTIS. DES IMMOB.,FIXED ASSETS NON-AMORT. REVAL. VARIANCES,فروقات إعادة التخمين,HD
+2701,Ecart de Réev.Non-Amort. des Immob. Incorp.,Intang. Fixed Assets Non-Amort. Reval. Variances,فروقات إعادة تخمين أصول غير مادية غير قابلة للإستهلاك,D
+2702,Ecart de Réev.Non-Amort. des Immob. Corp.,Tangib. Fixed Assets Non-Amort. Reval. Variances,فروقات إعادة تخمين أصول مادية غير قابلة للإستهلاك,D
+2705,Ecart de Réev.Non-Amort. des Immob. Finan.,Financ. Fixed Assets Non-Amort. Reval. Variances,فروقات إعادة تخمين أصول مالية غير قابلة للإستهلاك,D
+2800,Amortissement du Fond de Commerce,Amortization of Business Concern,إستهلاكات المؤسّسة التجارية (الشهرة),N.A
+2810,Amortissement d'Immobilisations Incorporelles,Intangible Assets Amortizations,إستهلاكات الأصول الثابتة غير المادية الأخرى,HD
+2811,Amort. des Frais d'Établissement,Amortiz.of Formation Expenses,إستهلاكات مصاريف التأسيس,N.A
+2812,Amort. des Frais de Recherche et de Développement,Amortiz.of Research & Develop. Expenses,إستهلاكات مصاريف البحوث والتطوير,C
+2813,"Amort. des Brevets, Licences et Autres..","Amortiz.of Patents, Licenses, Trade Marks, etc..",إستهلاكات براءات الإختراع والإجازات وخلافها,C
+2819,Amort. des Autres Immobilisations Incorporelles,Amortiz.of Other Intang. Fixed Assets,إستهلاكات أصول ثابتة غير مادية أخرى,C
+2820,Amortissement d'Immobilisations Corporelles,Tangible Assets Depreciations,إستهلاكات الأصول الثابتة المادية,HD
+2821,Amort. des Terrains d'Exploita. et Réaménag.,Deprec.of Extractive Lands & Landscaping,إستهلاكات الأراضي - إستثمار جوفي وإستصلاح,HD
+2823,Amort. des Constructions & Equipements,Deprec. of Buildings & Equipments,إستهلاكات الأبنية وتجهيزاتها,HD
+2823,"Amort. Batis Beton pr Commerce, Tourisme et Services","Deprec. Concrete Buildings for Trade, Tourism & Services",إستهلاكات الأبنية المشادة بالباطون والمستعملة لغايات تجارية وسياحية وخدماتية,C
+2823,Amort. Batis Beton pr Manufatures et Industries,Deprec. Concrete Buildings for Industry,إستهلاكات الأبنية المشادة بالباطون والمستعملة لغايات حرفية وصناعية,C
+2823,Amort. Batis Métalliques prCommerce et Industries,Deprec. Metalllic Buildings for Trade or Industry,إستهلاكات أبنية وإنشاءآت معدنية لغايات تجارية أو صناعية,C
+2823,Amort. Installations et Aménagement des Constructions,Deprec. Building Installations & Improvem'ts,إستهلاكات تجهيزات الأبنية وإستصلاحها,C
+2823,Amort. des Infrastructures,Deprec. Infrastructures,إستهلاكات إنشاءات البنى التحتية,C
+2823,Amort. Constructions sur Terrains d'Autrui,Deprec. Constructions on Unowned Lands,إستهلاكات إنشاءات على أراضي الغير,C
+2824,Amort. des Instal.Tech. et Outillage Industriels,Deprec. Machinery & Equipment,إستهلاكات التجهيزات الفنية والآلات الصناعية,HD
+2824,Amort. Install. Techniques Complexes Spécialisées,Depr. Specialized Technical Installations,إستهلاكات تجهيزات فنّية متخصّصة,C
+2824,Amort. Install. Techniques à Caractère Spécifique,Depr. Specific Technical Installations,إستهلاكات تجهيزات فنّية ذات طبيعة خاصة,C
+2824,Amort. Matériels Industriels,Depr. Industrial Machinery & Equipment,إستهلاكات الآلات والمعدّات الصناعية,C
+2824,Amort. Outillages Industriels,Depr. Industrial Tools,إستهلاكات الأدوات الصناعية,C
+2824,Amort. Articles & Equipements pour Hotels et Restos,Depr. Hotels & Retaurants Appliances,إهتلاك الأواني الزجاجية والأدوات الفضيّة في الفنادق والمطاعم ..,C
+2825,Amort. des Véhicules et Matériel de Transport,Deprec.of Passenger & Transport Vehicles,إستهلاكات المركبات وآليات النقل,HD
+2825,Amort. Voitures de Passagers,Depr. Passenger Vehicles,إستهلاكات سيارات سياحية,C
+2825,Amort. Vehicules et Matériel de Transport,Depr. Transport Vehicles & Handling Equipment,إستهلاكات شاحنات وآليات نقل,C
+2825,Amort. Moyens de Transport Maritime,Depr. Maritime Tranport Means,إستهلاكات وسائل النقل البحري,C
+2825,Amort. Moyens de Transport Aérien,Depr. Air Transport Means,إستهلاكات وسائل النقل الجوّي,C
+2826,Amort. d'Autres Immobilisations Corporelles,Deprec.of Other Tangible Fixed Assets,إستهلاكات الأصول الثابتة المادية الأخرى,HD
+2826,"Amort. Install.Internes, Décor & Aménag. Divers",Depr. Internal Install. Decor & Improvements,إستهلاكات تجهيزات داخلية، ديكور وتحسينات مختلفة,C
+2826,Amort. Matériel de Bureau,Depr. Office Equipment,إستهلاكات ادوات مكتبية,C
+2826,Amort. Matériel Informatique,Depr. Computer Equipment,إستهلاكات ادوات معلوماتية,C
+2826,Amort. Mobilier,Depr. Furnitures & Fixtures,إستهلاكات أثاث ومفروشات,C
+2826,Amort. Linges des Services Hoteliers,Depr. Hospitality Linen,إستهلاكات البياضات والشراشف والمناشف,C
+2826,"Amort. Emballages Réutilis. - Barils, Bouteilles et Caisses","Depr. Re-usable Barils, Bottels & Boxes",إستهلاكات عبوات قابلة لإعادة الإستعمال - البراميل والقناني والصناديق المرتجعة,C
+2826,Amort. Emballages Réutilis. - Bonbonnes de Gaz,Depr. Re-usable Containers - Gaz Containers,إستهلاكات عبوات قابلة لإعادة الإستعمال - قوارير الغـاز,C
+2900,Prov. pour Dépr. du Fond de Commerce,Devaluation Prov. of Business Concern,مؤونات هبوط قيمة المؤسّسة التجارية,C
+2910,Prov. Pour Dévaluations d'Immob. Incorporelles,Devaluation Prov. of Intangible Fixed Assets,مؤونات هبوط قيم الأصول الثابتة غير المادية,HD
+2911,Prov. pr Dépr. des Marques et Valeurs Similaires,"Deval. Prov. for Patents, Trade Marks & Alike",مؤونات هبوط قيمة براءات وإجازات وعلامات,C
+2919,Prov. pr Dépr. d'Autres Immob. Incorporelles,Deval. Prov. for Other Intang. Fixed Assets,مؤونات هبوط قيمة أصول غير مادية أخرى,C
+2920,Prov. Pour Dévaluations d'Immob. Corporelles,Devaluation Prov. of Tangible Fixed Assets,مؤونات هبوط أسعار الأصول الثابتة المادية,HD
+2921,Prov. pour Dépr. des Terrains Nus,Virgin Land Devaluation Provision,مؤونات هبوط قيمة الأراضي الفراغ,C
+2923,Prov. pour Dépr. des Bâtiments,Buildings Devaluation Provision,مؤونات هبوط قيمة الأبنية,C
+2926,Prov. pour Dépr. d'Autres Immob.Corporelles,Deval. Prov. for Other Tangib. F. Assets,مؤونات هبوط أصول ثابتة مادية أخرى,C
+2950,Prov. Pour Dévaluations d'Immob. Financières,Devaluation Prov. of Financial Fixed Assets,مؤونات هبوط أسعار الأصول الثابتة المالية,HD
+2951,Prov.pour Dépr. des Titres de Participation,Deval. Prov. for Equity Participations,مؤونات هبوط سندات مشاركة,C
+2952,Prov.pour Dépr. des Créances Rattachées à des Participations,Deval. Prov. for  Participations' Receiv.,مؤونات هبوط ذمم مدينة مرتبطة بمشاركات,C
+2953,Prov.pour Dépr. d'Autres Titres Immobilises,Deval. Prov. for Other Securities & Fin. Assets,مؤونات هبوط سندات أخرى مجمّدة,C
+2955,Prov.pour Dépr. des Prêts à Long et Moyen Terme,Deval. Prov. for Long & Medium Term Loan,مؤونات هبوط قروض طويلة ومتوسطة الأجل,C
+2959,Prov.pour Dépr. d'Autres Créances Immobilisées,Deval. Prov. for Other Blocked Fin. Assets,مؤونات هبوط ذمم أخرى مجمّدة,C
+3110,STOCKS - APPROVISIONNEMENTS,STOCK OF RAW MATERIALS & CONSUMABLES,مخزون مواد أولية,D
+3150,Stock Autres Matières et Consommables,Inventory - Other Cons. Materials & Supplies,مخزون مواد ولوازم إستهلاكية أخرى,D
+3310,STOCKS - EN-COURS DE PRODUCTION,"STOCK OF GOODS, WORKS & SERV. IN PROGRESS",مخزون منتجات قيد الصنع,D
+3320,Stock Travaux en Cours,Inventory - Work in Progress,مخزون أشغال قيد التنفيذ,D
+3350,Stock Etudes en Cours,Inventory - Studies in Progress,مخزون دراسات قيد الإعداد,D
+3360,Stock Services à Fournir,Inventory - Services to Provide,مخزون خدمات قيد التقديم,D
+3510,STOCKS - PRODUITS,STOCK OF MANUFACTURED PRODUCTS,مخزون منتجات وسيطة,D
+3550,Stock Produits Finis,Inventory - Finished Products,مخزون منتجات تامة الصنع,D
+3580,Stock Déchets de Production,Inventory - Production Waste,مخزون فضلات انتاج,D
+3700,STOCKS - MARCHANDISES,STOCK OF GOODS FOR SALE,مخزون البضاعة المعدة للبيع,D
+3910,PROV. POUR DÉPR. DES APPROVISIONNEMENTS,DEVAL.PROV. FOR RAW & OTHER MAT. STOCK,مؤونات هبوط أسعار مخزون المواد الأولية والإستهلاكية,C
+3930,PROV. POUR DÉPR. DES EN-COURS DE PRODUCTION,DEVAL.PROV. FOR PRODUCTS IN PROCESS,مؤونات هبوط أسعار الإنتاج قيد الصنع,C
+3950,PROV. POUR DÉPR. DES PRODUITS,DEVAL.PROV. FOR PRODUCTS STOCK,مؤونات هبوط أسعار الإنتاج المخزون,C
+3970,PROV. POUR DÉPR. DES MARCHANDISES,DEVAL.PROV. FOR GOODS FOR SALE STOCK,مؤونات هبوط أسعار البضاعة المخزونة,C
+4010,Fournisseurs - Comptes Créditeurs,Suppliers - Creditor Accounts,ذمم دائنة - مورّدو الإستثمار,HD
+4011,Factures Fournisseurs d'Exploitation,Suppliers - Invoices Payable,موردو الاستثمار - فواتير برسم الدفع,C
+4015,Fournisseurs d'Exploitation - Effets à Payer,Suppliers - Notes Payable,موردو الاستثمار - اوراق دفع,C
+4018,Fourniss. d'Exploitation - Factures À Recevoir,Suppliers - Invoices Not Received,موردو الاستثمار - فواتير غير مستلمة,C
+4019,Fourniss. d'Exploitation - Rabais & Remises à Obtenir,Discounts Obtained from Suppliers,حسومات مكتسبة من موردي الاستثمار,D
+4030,Fournisseurs d'Immobiliasations,Fixed Assets Suppliers,مورّدو الأصول الثابتة,HD
+4031,Factures Fournisseurs d'Immobilisations,Fixed Assets Suppliers - Invoices Payable,موردو الأصول الثابتة - فواتير برسم الدفع,C
+4035,Fournisseurs d'Immobil. - Effets à Payer,Fixed Assets Suppliers - Notes Payable,موردو الأصول الثابتة - اوراق دفع,C
+4038,Fourniss. d'Immobil. - Factures À Recevoir,F.Assets Suppliers - Invoices Not Received,موردو الأصول الثابتة - فواتير غير مستلمة,C
+4039,Fourniss. d'Immobil. - Rabais & Remises à Obtenir,Discounts Obtained from F.A. Suppliers,حسومات مكتسبة من موردي الأصول الثابتة,D
+4090,Avances aux Fournisseurs,Advances to Suppliers,سلفات ودفعات على حساب طلبيات للإستثمار,HD
+4091,Avances Versées sur Commandes d'Achats,Advance Payments on Purchases,سلفات مدفوعة على طلبيات الاستثمار,D
+4092,Fournisseurs d'Exploitation Accident.Débiteurs,Materials Suppliers Accidentally Debtors,موردو الإستثمار مدينون عرضا,D
+4093,Fournisseurs d'Immobilis. Accident.Débiteurs,Fixed Assets Suppliers Accidentally Debtors,موردو الأصول الثابتة مدينون عرضا,D
+4110,Clients - Comptes Débiteurs,Customers - Debtors Accounts,ذمم مدينة - زبائن,HD
+4111,Clients Débiteurs,Customers Receivables - Invoices,زبائن مدينون-  فواتير برسم التحصيل,D
+4115,Clients Douteux,Doubtful Customers,زبائن مشكوك بتحصيل ديونهم,D
+4119,"Clients - Rabais, Remises à Accorder",Discounts Granted to Customers,حسومات ممنوحة إلى الزبائن,C
+4130,CLIENTS - EFFETS À RECEVOIR,CUSTOMERS RECEIVABLES - BILLS,أوراق قبض - زبائن,D
+4150,CRÉANCES SUR TRAVAUX NON ENCORE FACTURABLES,DUES FROM CUSTOMERS ON WORKS IN PROCESS,ذمم مدينة على أشغال لم تبلغ مرحلة تحرير فواتير بها,D
+4180,FACTURES À ETABLIR,DUES FROM CUSTOMERS ON INVOICES IN PROCESS,فواتير قيد الإعداد,D
+4190,Avances Recues s/Commandes Clients,Advances Received on Sales Orders,سلفات ومقبوضات على حساب طلبيات قيد التنفيذ,HD
+4191,Acomptes Reçus sur Commandes de Ventes,Advances Received on Sales Orders,سلفات مقبوضة من الزبائن على طلبيات للتنفيذ,C
+4192,Clients Accidentellement Créditeurs,Customers Accidentally Creditors,حسابات زبائن أرصدتها دائنة عرضا,C
+4210,RÉNUMÉRATIONS DUES AU PERSONNEL,PERSONNEL ACCOUNTS PAYABLE,مدفوعات متوجّبة للمستخدمين,HD
+4211,Salaires dus au Personnel,Salaries and Wages due to Personnel,مستحقات رواتب وأجور للمستخدمين والعمّال,C
+4219,Autres Rémunérations dues au Personnel,Other dues to Personnel,مستحقات أخرى متوجّبة للمستخدمين والعمّال,C
+4280,PERSONNEL-COMPTES DÉBITEURS,PERSONNEL ACCOUNTS RECEIVABLE,حسابات المستخدمين المدينة,HD
+4281,Prêts Accordés au Personnel,Loans to Personnel,سلفات مدفوعة للمستخدمين,D
+4282,Oppositions sur Rémunérations du Personnel,Garnishments on Personnel Dues,حجوزات على المستخدمين,D
+4289,Autres Créances au Personnel,Other Receivales from Personnel,ذمم أخرى مستحقّة على المستخدمين,D
+4310,Sécurité Sociale - Comptes Créditeurs,Social Security Fund - Creditor Accounts,ذمم دائنة تجاه مؤسّسات الضمان الاجتماعي,HD
+4311,Sécurité Sociale - Cotisations à Payer,Social Security - Payable Dues,الضمان الاجتماعي - اشتراكات متوجبة,C
+4315,Sécurité Sociale - Effets à Payer,Social Security - Notes Payable,الضمان الاجتماعي - اوراق دفع,C
+4318,Sécurité Sociale - Charges à Constater,Social Security - Charges to be Accounted for,الضمان الاجتماعي - أعباء يجب لحظها,C
+4380,CREANCES SUR SECURITE SOCIALE,SOCIAL SECURITY RECEIVABLES,ذمم مدينة تجاه مؤسّسات الضمان الاجتماعي,D
+4410,Impôts Dus s/l'Exploitation,Taxes Due on Operations,ضرائب متوجّبة على الإستثمار,HD
+4411,Impôts et Taxes - (Impôt s/Revenu Exclu),Taxes & Duties (Except Income Tax),ضرائب ورسوم متوجبة  (ما عدا ضريبة الأرباح),C
+4415,Impôts et Taxes - Effets à Payer,Taxes & Duties - Notes Payable,ضرائب ورسوم متوجبة - أوراق دفع,C
+4418,Impôts et Taxes - Charges à Constater,Taxes & Duties - Charges to be Accounted for,ضرائب ورسوم متوجبة - أعباء يجب لحظها,C
+4420,Taxe sur la Valeur Ajoutée - TVA,Value Added Tax Accounts,الدولة والمؤسّسات العامّة - الضريبة على القيمة المضافة,HD
+4425,TVA - Solde Débiteurs ou Créditeur,Value Added Tax - Debtor / Creditor Balance,ضريبة القيمة المضافة - رصيد مدين أو دائن,C/D
+4426,TVA - sur Achats d'Immobilisations,Value Added Tax - On Fixed Assets Purchases,ضريبة القيمة المضافة - مدفوعة عن اًصول ثابتة,D
+4426,TVA - sur Achats & Charges,Value Added Tax - On Purchases & Charges,ضريبة القيمة المضافة - مدفوعة عن مشتريات او مصاريف,D
+4427,TVA - Percue sur Produits,Value Added Tax - Collected on Revenues,ضريبة القيمة المضافة - محصّلة من الإيرادات,C
+4429,TVA - à Recupérer,Value Added Tax - Due for Refund,ضريبة القيمة المضافة - متوجّبة الإسترداد,C
+4430,Impôts Hors Exploitation,Non-Operational Tax,ضرائب متوجّبة خارج الإستثمار,HD
+4431,Impôts sur Les Bénéfices,Income Tax on Net Operating Profits,الضريبة على أرباح الإستثمار,C
+4432,Impôts sur Cessions et Révaloris. d'Immob.,Tax on F.Assets Disposal or Revaluation Profits,الضريبة على أرباح التحسين والتفرّغ عن أصول,C
+4435,Impôts sur les Sociétés Holding ou Off-Shore,Taxes on Holding or Off-Shore Companies,الضرائب على شركات الهولدنغ,C
+4450,Autres Dettes envers L'Etat et Les Collectivités Publiques,Government & Public Services - Credit Acc.,الدولة والمؤسّسات العامة - ذمم دائنة أخرى,C
+4490,Créances sur L'Etat et Les Collectivités Publiques,Government & Public Services - Debit Acc.,الدولة والمؤسّسات العامة - ذمم مدينة,D
+4511,Société Apparentés - Comptes Débiteurs,Related Companies Debtor Accounts,حسابات الشركاء الجارية المدينة,D
+4511,Société Mère - Compte Débiteur,Mother Company Debtor Account,حساب مدين للشركة الأم,D
+4511,Société Dépendantes - Comptes Débiteurs,Affiliated Companies Debtor Accounts,حساب مدين للشركات التابعة,D
+4511,Sociétés Associés - Comptes Débiteurs,Associated Companies Debtor Accounts,حساب مدين للشركات المشاركة - شركات شقيقة,D
+4511,Sociétés Multigroupes - Comptes Débiteurs,Cies Affilialed to Differ. Holdings - Deb. Acc,حساب مدين للشركات الداخلة في عدة مجموعات - مترابطة,D
+4512,Société Apparentés - Comptes Créditeurs,Related Companies Creditor Accounts,حسابات الشركاء الجارية الدائنة,C
+4512,Société Mère - Compte Créditeur,Mother Company Creditor Account,حساب دائن للشركة الأم,C
+4512,Société Dépendantes - Comptes Créditeurs,Affiliated Companies Creditor Accounts,حساب دائن للشركات التابعة,C
+4512,Sociétés Associés - Comptes Créditeurs,Associated Companies Creditor Accounts,حساب دائن للشركات المشاركة - شركات شقيقة,C
+4512,Sociétés Multigroupes - Comptes Créditeurs,Cies Affilialed to Differ. Holdings - Crd. Acc,حساب دائن للشركات الداخلة في عدة مجموعات - مترابطة,C
+4515,Associés - Comptes Courants Débiteurs,Partners & Other Related Cies - Deb. Accounts,شركاء - حسابات جارية ذات أرصدة مدينة,D
+4515,Associés - Comptes Courants Créditeurs,Partners & Other Related Cies - Credit Accounts,شركاء - حسابات جارية ذات أرصدة دائنة,C
+4518,Opérations en Commun - Solde Débiteur,Joint Ventures - Debtor Balances,عمليات مشتركة - ذات أرصدة مدينة,D
+4518,Opérations en Commun - Solde Créditeur,Joint Ventures - Creditor Balances,عمليات مشتركة - ذات أرصدة دائنة,C
+4530,DIVIDENDES  À PAYER,DIVIDENDS PAYABLE,أنصبة ارباح برسم الدفع,C
+4550,ACTIONNAIRES/ASSOCIES - CPTES CREDITEURS,SHAREHOLDERS/PARTNERS PAYABLES ON CAPITAL,ذمم دائنة أخرى للشركاء,HD
+4551,Actionnaires/Associés - Cptes d'Apport en Société,Shareholders/Partners - Contributions to the Capital,مساهمون/شركاء - حسابات المقدمات للشركة,C
+4552,Actionnaires/Associés - Capital à Rembourser,Shareholders/Partners - Re-imbursment of the Capital,مساهمون/شركاء - حسابات إسترداد رأس المال,C
+4557,Actionnaires/Associés - Autres Dus s/Capital,Shareholders/Partners - Other Payables on Capital,مساهمون/شركاء - ذمم أخرى دائنة على رأس المال,C
+4590,CRÉANCES SUR ACTIONNAIRES/ASSOCIÉS,SHAREHOLDERS/PARTNERS RECEIVABLES ON CAPITAL,ذمم الشركاء المدينة,HD
+4591,Actionnaires - Capital Souscrit Non Appelé,Shareholders - Subscribed/Un-Called Capital,مساهمون - المكتتب غير المستدعى من رأس المال,D
+4592,Actionnaires - Capital Souscrit Appelé Non Versé,Shareholders - Subsc./Called/Unpaid Capital,مساهمون - المكتتب المستدعى وغير المدفوع من رأس المال,D
+4597,Actionnaires/Associés - Autres Créances s/Capital,Shareholders/Partners - Other Receivables on Capital,مساهمون/شركاء - ذمم أخرى مدينة على رأس المال,D
+4610,Autres Créditeurs - Exploitation,Other Operating Creditors,ذمم الإستثمار الدائنة الأخرى,HD
+4611,Dettes pour Emballages et Matériels Consignés,Payables on Consignments,ذمم دائنة متعلّقة بالعبوات والمعدّات,C
+4619,Comptes Créditeurs Divers - Exploitation,Other Operating Creditor Accounts,حسابات دائنة مختلفة - إستثمار,C
+4630,Versements Restant à Effectuer s/Immob.Financ.,Payables on Financial Fixed Assets,أقساط برسم الدفع على أصول ثابتة مالية,C
+4650,Autres Créditeurs Divers - Hors Exploitation,Sundry Non-Operating Accounts Payable,دائنون مختلفون خارج الإستثمار,C
+4680,Débiteurs Divers - Exploitation,Sundry Operating Debtors,مدينون مختلفون للإستثمار,HD
+4681,Créances pour Emballages et Matériels à Rendre,Receivables on Consignments,ذمم مدينة متعلّقة بالعبوات والمعدّات,D
+4689,Autres Comptes Débiteurs Divers - Exploitation,Other Operating Debtor Accounts,حسابات مدينة مختلفة - إستثمار,D
+4690,Débiteurs Divers - Hors Exploitation,Sundry Non-Operating Debtors,مدينون مختلفون خارج الإستثمار,HD
+4691,Créances sur Cession d'Immob. & Valeurs Mob. de Placement,Receivables on Disposals of F. Assets & Finan.Deeds,ذمم مدينة على بيع اصول ثابتة وسندات توظيف,D
+4699,Autres Comptes Débiteurs Divers-Hors Exploitation,Other Non-Operating Debtor Accounts,مدينون مختلفون  - خارج الإستثمار,D
+4710,Charges à Repartir sur Exercices Futurs,Charges Differred over Futur Periods,الأعباء الواجب توزيعها على عدّة دورات,HD
+4711,Frais de Pré-Exploitation,Pre-Operating Expenses,أعباء ما قبل الإستثمار,D
+4712,Grosses Réparations à Amortir,Major Repairs to be Amortized,التصليحات الكبيرة الواجب إستهلاكها,D
+4713,Primes de Remboursement des Obligations,Bonds Settlement Premium,علاوات تسديد السندات,D
+4719,Autres Charges à Répartir sur Plusieurs Exercices,Other Deferred Charges,اعباء أخرى واجب توزيعها على عدة دورات,D
+4720,Charges Constatées d'Avance,Prepaid Charges,اعباء محتسبة مسبقا,D
+4730,Produits Constatés d'Avance,Accrued Income,ايرادات محتسبة مسبقا,C
+4740,Frais à Payer,Accrued Unpaid Charges,اعباء مستحقة برسم الدفع,C
+4750,Ecarts de Conversion - Passif,Exchange Difference - Liability,فروقات صرف - خصوم,N.A
+4760,Ecarts de Conversion - Actif,Exchange Difference - Asset,فروقات صرف - أصـول,N.A
+4810,Comptes d'Attente et à Régulariser,Pending & Regularization Accounts,حسابات التوزيع الدوري للأعباء,C=D
+4820,Distribution Périodique des Revenues,Periodic Distribution of Revenues,حسابات التوزيع الدوري للإيرادات,C=D
+4910,Prov. pr Dépréciation des Créances Clients,Provisions for Customers Bad Debts,مؤونات هبوط قيم الذمم المدينة - الزبائن,C
+4950,Prov. pr Dépréciation des Comptes Associés,Prov. for Shareholders/Partners Bad Debts,مؤونات هبوط قيم حسابات الشركاء,C
+4960,Prov. pour Dévaluation de Créances Diverses,Sundry Debtors Devaluation Provisions,موؤونات هبوط قيم حسابات الذمم المدينة المختلفة,HD
+4968,Prov. pr Débiteurs Divers - Exploitation,Prov. for Other Operating Bad Debts,مؤونات هبوط قيم ذمم إستثمار مدينة متفرّقة,C
+4969,Prov. pr Débiteurs Divers - Hors Exploitation,Prov. for Other Non-Operating Bad Debts,مؤونات هبوط قيم ذمم مدينة - خارج الإستثمار,C
+4980,Prov. pour Crénances Déchues par Faillite,Bad Debts due to Bankrupcy,مؤونات خسائر ديون عند إعلان الإفلاس,HD
+4981,Prov. pr Pertes s/Clients en Faillite,Prov. for Losses on Bankrupt Clients Accounts,مؤونات خسائر ديون زبائن عند إعلان الإفلاس,C
+4985,Prov. pr Pertes s/Associés en Faillite,Prov. for Losses on Bankrupt Partners Accounts,مؤونات خسائر ديون  شركاء عند إعلان الإفلاس,C
+4986,Prov. pr Débiteurs Div. en Faillite - Exploit.,Prov. for losses on Oper. Bankrupt Detbtors,مؤونات خسائر ديون  إستثمار متفرّقة - (إفلاس),C
+4986,Prov. pr Débiteurs Div. En Faillite - H. Exploit.,Prov. for losses on Non-Oper. Bankrupt Detbtors,مؤونات خسائر ديون خارج الإستثمار - (إفلاس),C
+5010,Valeurs Mobilières de Placement,Transferable Participation Deeds,أسهم صادرة عن الشركة ومعاد شراؤها من قبلها,D
+5020,Bons avec Droit d'Acquisition d'Actions,Bonds with Shares Acquisition Rights,سندات تمنح حامليها حق الملكية,D
+5050,Bons & Coupons Emis par la Socièté,Bond and Coupons Issued by the Company,سندات دين وقسائم صادرة عن الشركة,D
+5060,Bons avec Droit de Créditeurs,Bonds with Creditors Rights,سندات تمنح حامليها حقوق الدائنين,D
+5110,Chèques et Coupons à Encaisser,Cheques & Coupons under Collection,شيكات وقسائم برسم القبض,D
+5120,Banques,Banks,بـنـوك,HD
+5121,Banques - Comptes Courants Débiteurs,Banks - Current Debtor Accounts,مصارف - حسابات جارية مدينة,D
+5122,Banques - Soldes Facilités Accident. Débiteurs,Banks - Facilities Accidentally Debtor,حسابات تسهيلات مصرفية أرصدتها مدينة عرضا,D
+5123,Banques - Dépôts à Terme,Banks - Term Deposits Accounts,مصارف - حسابات مدينة  لأجل,D
+5190,Etablissements de Crédit,Credit Establisments,مؤسّسات التمويل,HD
+5191,Banques & Ets Financiers - Comptes Facilités,Banks & Financial Establishments Facilities,مصارف - تسهيلات وحسابات مكشوفة,C
+5192,Banques - Cptes Courants Accident. Créditeurs,Banks Current Accounts Accidentally Creditor,حسابات مصرفية جارية أرصدتها دائنة عرضا,C
+5300,CAISSE,CASH ON HAND,الصندوق,D
+5800,VIREMENTS INTERNES,INTERNAL TRANSFERS,التحويلات الداخلية,C=D
+5900,Prov. pr Dépr.des Valeurs Mobil. de Placement,Prov. for Devaluation of Participation Deeds,مؤونات هبوط أسعار سندات التوظيف,C
+6010,Achats de Marchandises,Purchase of Goods,مشتريات البضاعة,HD
+6011,Achats de Marchandises,Purchase of Goods,شراء بضـاعة,D
+6012,Achats d'Emballages pour Marchandises,Purchase of  Packing Materials for Goods,شراء عبوات للبضاعة,D
+6018,Frais Access. s/Achats de March. et Emballages,Charges & Expenses on Goods Purchasing,نفقات إضافية على شراء بضاعة وعبوات,D
+6019,"Rabais, Remises et Ristournes s/Marchandises",Discounts Obtained on Purchased Goods,حسومات مكتسبة على شراء بضاعة,C
+6050,VARIATION DES STOCKS DE MARCHANDISES,GOODS INVENTORY VARIANCE,قيمة التغيير في مخزون البضاعة,HD
+6051,Stock Marchandises - Début de Période,Stock of Goods - Beg. of Period,مخزون البضاعة - أول المدّة,D
+6052,Stock Marchandises - Fin de Période,Stock of Goods - End of Period,مخزون البضاعة - آخر المدّة,C
+6110,Achats de Matières Premières & Consommables,Purchases of Raw Materials & Consumables,مشتريات المواد الأولية والإستهلاكية,HD
+6111,Achats de Matières Premières,Purchase of Raw Materials,شراء مواد أولية,D
+6112,Achats de Matières et Fournitures Consommables,Purchase of Manufacturing Consumables,شراء مواد ولوازم استهلاكية للإنتاج,D
+6113,Achats d'Emballages pour Produits,Purchase of  Packing Materials for Products,شراء عـبوات للمنتجات,D
+6118,Frais Accessoires sur Achats d'Approvisionnements,Chgs & Exp. on R.M & Consum. Purchasing,نفقات إضافية على شراء مواد أولية واستهلاكية,D
+6119,"Rabais, Remises et Ristournes s/Approvision.",Disc. Obtained on Purchased R.M & Consum.,حسومات مكتسبة على شراء مواد أولية وإستهلاكية,C
+6150,VARIATION DES STOCKS D'APPROVISIONNEMENTS,RAW MAT. & CONSUM. INVENTORY VARIANCE,قيمة التغيير في مخزون المواد الاولية والاستهلاكية,HD
+6151,Stock Approvisionnements - Début de Période,Stock of Raw & Other Mat. - Beg. of Period,مخزون المواد الاولية والاستهلاكية - أول المدّة,D
+6152,Stock Approvisionnements - Fin de Période,Stock of Raw & Other Mat. - End of Period,مخزون المواد الاولية والاستهلاكية - آخر المدّة,C
+6210,Achats des Sous-Traitants,Purchases from Sub-Contractors,مشتريات من ملتزمين ثانويين,HD
+6211,Sous-Traitance - Travaux,Purchase of Works from Sub-Contractors,مشتريات أشغال / كلفة أشغال مباعة,D
+6212,Sous-Traitance - Services,Purchase of Services from Sub-Contractors,مشتريات خدمات / كلفة خدمات مباعة,D
+6219,Rabais et Remises Obtenus s/Travaux,Disc. Obtained on Purchased Works,حسومات مكتسبة على مشتريات أشغال,C
+6219,Rabais et Remises Obtenus s/Services,Disc. Obtained on Purchased Services,حسومات مكتسبة على مشتريات خدمات,C
+6250,Redevances,"Leasing, Patent Fees & Royalties",الأتــاوى,D
+6260,Services Extérieurs,External Servises,الخدمات الخارجية,HD
+6261,Frais de Transport de Biens,Assets & Goods Transportation Charges,نفقات نقل موجودات وبضائع,D
+6261,Frais de Transport Collectif du Personnel,Personnel Transportation Charges,نفقات نقل المستخدمين,D
+6261,Frais de Postes et Télécommunications,Post & Telecommunication Charges,نفقات البريد والإتّصالات,D
+6262,Entretien et Réparation,Equip. Maintenance & Repair,صيانة وتصليح التجهيزات,D
+6263,Loyers,Rental Fees,بدلات الإيجار,D
+6263,Charges Locatives,Rental Charges (Condominium Charges),أعباء تأجيرية (أعباء الأقسام المشتركة),D
+6263,Eau,Drinking Water Expenses,مصاريف مياه الشفة,D
+6263,Electricité,Lighting Expenses,مصاريف كهرباء الإنارة,D
+6263,Entretien des Bâtiments,Building Maintenance Expenses,مصاريف صيانة الأبنية,D
+6263,Charges Diverses sur Bâtiments,Miscllaneous Expense on Buildings,مصاريف متفرّقة على الأبنية,D
+6264,Réceptions,Entertainment Expenses,مصاريف تشريفات وضيافة,D
+6264,"Déplacements, Voyages et Logements",Travel & Accomodation Expenses,مصاريف إنتقال وسفر وإقامة,D
+6264,Restauration Du Personnel,Personnel Meals Expenses,مصاريف إطعام المستخدمين,D
+6264,Frais de Représentation,Representation Fees,مصاريف تمثيل,D
+6265,Personnel Intérimaire,Interim Staff & Manpower Fees,أتعاب مستخدمين موّقتين,D
+6265,Rénumérations d'Intermédiaires,Commissions Paid to Agents,عمولات مدفوعة للوسطاء,D
+6265,"Honoraires Avocats, Consultants, Experts","Lawyers, Consultants & Experts Fees",أتعاب محامين ومستشارين وخبراء,D
+6265,Frais Services de Recrutement,Recrutement Fees,أتعاب خدمات التوظيف,D
+6266,Frais et Honoraires de Formation,Training Seminars Fees & Charges,أعباء وأتعاب إعداد وتدريب,D
+6266,Documentation,Documentation & Subscriptions,مصاريف توثيق وإشتراكات,D
+6267,Etudes et Recherches,RESEARCH & STUDIES FEES,مصاريف دراسات وبحوث,D
+6268,Primes d'Assurances,Insurance Premium,أقساط تأمين,D
+6269,Services de Santé,Medical Care,خدمات عناية صحية,D
+6269,Frais Financiers (s/ Effets ou Autres),Financial Charges (on Bills and other),أعباء مالية (على سندات وخلافه),D
+6269,Frais Publicité,Advertising & Publicity,مصاريف دعاية وإعلان,D
+6269,Fournitures de Bureau,Stationary & Office Supplies,مصاريف قرطاسية ولوازم مكتبية,D
+6269,Autres Services Extérieurs,Other Miscellaneous External Services,خدمات خارجية  أخرى متفرّقة,D
+6310,Salaires & Appointements,Salaries and Wages,رواتب وأجور المستخدمين,HD
+6311,Salaires des Cadres,Staff Salaries,رواتب المستخدمين,D
+6312,Appointements des Ouvriers,Manpower Wages,أجور العمّال,D
+6314,Commissions au Personnel,Commissions Paid to Personnel,عمولات مدفوعة للمستخدمين,D
+6316,Rénumération des Gérants Majoritaires,Partners/Managers Remunerations,بدلات مدفوعة لمديرين ذوي أغلبية في المؤسّسة,D
+6317,Rénumération des Administrateurs,Directors Remunerations,بدلات مدفوعة لأعضاء مجلس الإدارة,D
+6319,Allocations de Transport,Personnel Transport Allowances,بدلات نقل وإنتقال للمستخدمين,D
+6319,Allocations de Restauration,Personnel Meal Allowances,بدلات طعام للمستخدمين,D
+6319,Allocations de Formation,Personnel Training Allowances,بدلات إعداد وتدريب للمستخدمين,D
+6319,Allocations Medicales,Personnel Medical & Other Insurance,تأمينات صحية وخلافها للمستخدمين,D
+6319,Allocations Scolaires,Scholarships to the Personnel & their Child.,منح تعليم للمستخدمين وأولادهم,D
+6319,Allocations Diverses,Other Sundry Personnel Allowances,بدلات أخرى متفرّقة للمستخدمين,D
+6350,Charges Sociales (Sécurité Sociale ….),Social Charges (Social Security & Alike..),أعباء إجتماعية (ضمان إجتماعي...),HD
+6351,Cotisations à la C.N.S.S,Social Security FundContributions,إشتراكات فروع الضمان الإجتماعي,D
+6355,Prov. pour Indemnités de Fin de Service,End of Service Indemnities Provisions,فروقات تعويضات نهاية الخدمة,D
+6410,Impôts sur Salaires & Rénumérations,Income Tax On Salaries & Wages,ضرائب على الرواتب والأجور وبدلات الأتعاب,D
+6420,Impôts et Taxes Municipaux,Municipal Taxes & Duties,ضرائب ورسوم للبلديات,D
+6430,Taxes sur Le Chiffre D'Affaires Non Récupérables,Excise Tax,ضرائب على المبيعات غير قابلة للإسترداد,D
+6440,Droits d'Enregistrement et de Notaire,Registration & Notary Fees,رسوم تسجيل,D
+6450,"Impôts,Taxes et Charges Assimilées, y Compris la Taxe de l'Article 51 Loi 479/2003","Taxes, Dues & Alike, Including the Tax of Article 51 of law 497/2003",ضرائب ورسوم ومدفوعات مماثلة أخرى، بما فيها ضريبة المادة /51/ من القانون 2003/497,HD
+6451,Taxe de l'Article 51 Loi 479/2003,Tax of Article 51 of law 497/2003,ضريبة المادة /51/ من القانون 2003/497,D
+6452,Impôts s/Profits de Cession ou Réeval.des Immobilisations,Tax on Profits from F. Assets Disposal or Revaluation,الضريبة على أرباح التفرّغ أو إعادة تخمين أصول,D
+6455,Taxes des Holdings - sur Capital & Services,Holding Taxes - on Capital and Services,ضرائب شركات الهولدنغ - رأس مال وإيرادات خدمات,D
+6458,Amendes Fiscales,Fiscal Fines,غرامات ضريبية,D
+6459,"Autres Impôts, Taxes et Versements Assimilés",Other Taxes & Duties,ضرائب ورسوم أخرى,D
+6510,Dotations aux Amortissements & Depreciations,Amortization & Depreciations Allocations,مخصّصات الإستهلاكات,HD
+6511,Dotat. Amort. - Fond de Commerce,Amortiz.Alloc.of Business Concern,مخصصات إستهلاك  المؤسّسة التجارية,N.A
+6511,Dotat. Amort. - Frais - Établissement,Amortiz.Alloc.of Formation Expenses,مخصصات إستهلاك  مصاريف التأسيس,N.A
+6511,Dotat. Amort. - Frais de Recherche et de Développement,Amortiz.Alloc.of Research & Develop. Expenses,مخصصات إستهلاك  مصاريف البحوث والتطوير,D
+6511,"Dotat. Amort. - Brevets, Licences et Autres..",Amortiz.Alloc.of Patents & Trade Marks,مخصصات إستهلاك  براءات الإختراع، الإجازات، العلامات،...,D
+6511,Dotat. Amort. - Autres Immobilisations Incorporelles,Amortiz.Alloc.of Other Intang. Fixed Assets,مخصصات إستهلاك  أصول ثابتة غير مادية أخرى,D
+6512,Dotat. Amort. - Terrains - Exploita. et Réaménag.,Deprec.Alloc.of Lands,مخصصات إستهلاك الأراضي - إستثمار جوفي وإستصلاح,HD
+6512,Dotat. Amort. - Constructions,Deprec.Alloc.of Buildings & Constructions,مخصصات إستهلاك الأبنية والمنشآت,HD
+6512,"Dotat. Amort. Batis en Betons pr Commerce, Tourisme, Services","Depr.Alloc. - Concrete Buildings for Trade, Tourism & Services",مخصصات إستهلاك الأبنية المشادة بالباطون والمستعملة لغايات تجارية وسياحية وخدماتية,D
+6512,Dotat. Amort. Batis en Betons pr Manufactures ou Industries,Depr.Alloc. - Concrete Buildings for Industry,مخصصات إستهلاك الأبنية المشادة بالباطون والمستعملة لغايات حرفية وصناعية,D
+6512,Dotat. Amort. Batis Métalliques pr Commerce ou Industries,Depr.Alloc. - Metalllic Buildings for Trade or Industry,مخصصات إستهلاك أبنية وإنشاءآت معدنية لغايات تجارية أو صناعية,D
+6512,Dotat. Amort. Installations & Aménag. des Constructions,Depr.Alloc. - Building Installations & Improvem'ts,مخصصات إستهلاك تجهيزات الأبنية وإستصلاحها,D
+6512,Dotat. Amort. des Infrasructures,Depr.Alloc. - of Infrastructures,مخصصات إستهلاك إنشاءات البنى التحتية,D
+6512,Dotat. Amort. Constructions sur Terrains d'Autrui,Depr.Alloc. - Constructions on Unowned Lands,مخصصات إستهلاك إنشاءات على أراضي الغير,D
+6512,"Dotat. Amort. - Instal.Tech., Matériels et Outillage In-striels",Deprec.Alloc.of Machinery & Equipment,مخصصات إستهلاك التجهيزات الفنية والآلات الصناعية,HD
+6512,Dotat. Amort. Install. Techniques Complexes Spécialisées,Depr.Alloc. - Specialized Technical Installations,مخصصات إستهلاك تجهيزات فنّية متخصّصة,D
+6512,Dotat. Amort. Install. Techniques à Caractère Spécifique,Depr.Alloc. - Specific Technical Installations,مخصصات إستهلاك تجهيزات فنّية ذات طبيعة خاصة,D
+6512,Dotat. Amort. Matériels Industriels,Depr.Alloc. - Industrial Machinery & Equipment,مخصصات إستهلاك الآلات والمعدّات الصناعية,D
+6512,Dotat. Amort. Outillages Industriels,Depr.Alloc. - Industrial Tools,مخصصات إستهلاك الأدوات الصناعية,D
+6512,Dotat. Amort. Articles & Equipements pour Hotels et Restos,Depr.Alloc. - Hotels & Retaurants Appliances,مخصّص اهتلاك الأواني الزجاجية والأدوات الفضيّة في الفنادق والمطاعم ..,D
+6512,Dotat. Amort. - Véhicules et Matériel de Transport,Deprec.Alloc.of Vehicles,مخصصات إستهلاك المركبات وآليات النقل,HD
+6512,Dotat. Amort. Voitures de Passagers,Depr.Alloc. - Passenger Vehicles,مخصصات إستهلاك سيارات سياحية,D
+6512,Dotat. Amort. Vehicules et Matériel de Transport,Depr.Alloc. - Transport Vehicles & Handling Equipment,مخصصات إستهلاك شاحنات وآليات نقل,D
+6512,Dotat. Amort. Moyens de Transport Maritime,Depr.Alloc. - Maritime Tranport Means,مخصصات إستهلاك وسائل النقل البحري,D
+6512,Dotat. Amort. Moyens de Transport Aérien,Depr.Alloc. - Air Transport Means,مخصصات إستهلاك وسائل النقل الجوّي,D
+6512,Dotat. Amort. - Autres Immobilisations Corporelles,Deprec.Alloc.of Other Tangible Fixed Assets,مخصصات إستهلاك أصول ثابتة مادية أخرى,HD
+6512,"Dotat. Amort. Install.Internes, Décor & Aménag. Divers",Depr.Alloc. - Internal Install. Decor & Improvements,مخصصات إستهلاك تجهيزات داخلية، ديكور وتحسينات مختلفة,D
+6512,Dotat. Amort. Matériel de Bureau,Depr.Alloc. - Office Equipment,مخصصات إستهلاك ادوات مكتبية,D
+6512,Dotat. Amort. Matériel Informatique,Depr.Alloc. - Computer Equipment,مخصصات إستهلاك ادوات معلوماتية,D
+6512,Dotat. Amort. Mobilier,Depr.Alloc. - Furnitures & Fixtures,مخصصات إستهلاك أثاث ومفروشات,D
+6512,Dotat. Amort. Linges des Services Hoteliers,Depr.Alloc. - Hospitality Linen,مخصصات إستهلاك البياضات والشراشف والمناشف,D
+6512,"Dotat. Amort. Emballages Réutilis. - Barils, Bouteilles et Caisses","Depr.Alloc. - Re-usable - Barils, Bottles & Boxes",مخصصات إستهلاك عبوات قابلة لإعادة الإستعمال - البراميل والقناني والصناديق المرتجعة,D
+6512,Dotat. Amort. Emballages Réutilis. - Bonbonnes de Gaz,Depr.Alloc. - Re-usable Containers - Gaz Containers,مخصصات إستهلاك عبوات قابلة لإعادة الإستعمال - قوارير الغـاز,D
+6515,Dotat. Amort. - Charges à Répartir,Deprec.Alloc.of Deferred Charges,مخصصات إستهلاك الأعباء الموزّعة على دورات,D
+6550,Dotations  Provisions,Provisions Allocations,مخصّصات المؤونات,HD
+6551,Dotat. Prov. pr Déprec. - Immob. Incorporelles,Prov.Alloc. for Deval. of Intangible F.Assets,مخصّصات مؤونات تدنّي  قيم أصول ثابتة غير مادية,D
+6552,Dotat. Prov. pr Déprec. - Immob. Corporelles,Prov.Alloc. for Deval. of Tangible Fixed Assets,مخصّصات مؤونات تدنّي قيم أصول ثابتة مادية,D
+6553,Dotat. Prov. pr Déprec. - Stocks et en Cours,Prov.Alloc. for Deval. of Stocks & In-Process,مخصصات مؤونات تدني قيمة المخزون وقيد الصنع,D
+6554,Dotat. Prov. pr Déprec. - Créances Douteuses,Prov.Alloc. for Bad & Doubtful Receivables,مخصصات مؤونات تدني قيم ذمم مدينة,D
+6554,Dotat. Prov. pr Pertes - Créanciers en Faillite,Prov.Alloc. for Bankrupt Debtors Accounts,مخصصات خسائر ديون -  عند إعلان الإفلاس,D
+6555,Dotat. Prov. pr Risques d'Exploitation,Prov.Alloc. for Operating Risks (Conflicts & alike),مخصّصات مؤونات مواجهة أخطار عائدة للإستثمار,D
+6555,Dotat. Prov. pr Charges à Répartir,Prov.Alloc.of Deferred Charges,مخصّصات مؤونات الأعباء الواجب توزيعها على دورات,D
+6555,Dotat. Prov. pr Fin de Service & Accidents,Prov.Alloc.of End of Service & Wrkmn Compensation,مخصّصات مؤونات تسوية نهاية الخدمة وطوارئ العمل,D
+6555,Dotat. Prov. pr Impôts et Taxes,Prov.Alloc.of Taxes (Other than Income Tax),مخصّصات مؤونات الضرائب (غير ضريبة الأرباح),D
+6610,Autre Charges Administratives Ordinaires,Other Administratives Ordinary Charges,أعباء إدارية عادية أخرى,HD
+6611,Jetons de Présence,Directors Attendance Fees - Out of Profits,بدلات حضور اعضاء مجلس الادارة - من الأرباح,D
+6612,Pertes sur Créances d'Exploitation Irrécovables,Losses on Bad Debts,خسارة على ذمم الإستثمار المدينة التي ثبت هلاكها,D
+6650,Quotes-Parts de Pertes s/Opérations en Commun,Company Part in Losses on Joint Ventures,حصة المؤسسة من الخسائر على عمليات مشتركة,D
+6730,Intérêts et Charges Assimilés,Interests and Similar Charges,فوائد وأعباء مشابهة,HD
+6731,Intérêts des Emprunts et des Dettes,Interest Due on Payables and Loans,فوائد مدينة على الذمم والقروض,D
+6736,Intérêts Bancaires et s/Opérations de Financement,Interest Due to Banks & Financial Estab.,فوائد مدينة  للمصارف والمؤسّسات المالية,D
+6739,Commissions et Frais Bancaires,Bank Commissions & Other Charges,عمولات وأعباء مصرفية,D
+6750,Différences de Change Négatives,Difference of Exchange - Negative,فروقات صرف سلبية,HD
+6751,Pertes de Conversion s/Opérations Courantes,Exchange Losses on Current Operations,فروقات صرف سلبية على عمليات جارية,D
+6752,Pertes de Conversion s/Opérations en Capital,Exchange Losses on Capital Expenditures,فروقات صرف سلبية على عمليات رأسمالية,D
+6760,Charges Nettes/Cession de Valeurs Mobil. de Placement,Net Charges on Disposal of Securities,أعباء صافية على عمليات التفرّغ عن سندات توظيف,D
+6790,Dotat. Amort. et  Prov.- Charges Financières,Provisions For Deval. Of Financial Assets,مخصّصات الإستهلاكات والمؤونات المالية,HD
+6791,Dotat. Amort. - Primes de Remboursement,Amortiz.Alloc. of Reimbursement Premiums,مخصّصات إستهلاك علاوات التسديد,D
+6792,Dotat. Prov. pr Déprec. - Immob. Financières,Prov.Alloc.for Financial Assets Devaluation,مخصّصات مؤونات تدنّي قيم الأصول المالية,D
+6794,Dotat. Prov. pr Déprec. - Valeurs de Placement,Prov.Alloc.for Devaluation of Participations,مخصّصات مؤونات هبوط أسعار سندات التوظيف,D
+6795,Dotat. Prov. pr Risques & Charges Financiers,Prov.Alloc.for Financial Risks & Charges,مخصّصات مؤونات مواجهة مخاطر وأعباء مالية,D
+6810,Valeur Nette des Immobilisations Cédées,Net Book Value of Disposed Fixed Assets,القيمة الدفترية للأصول الثابتة المتفرّغ عنها,HD
+6811,Valeur Comptable des Immobilis. Incorporelles,Book Value of Intang. Assets Disposed of,القيمة الدفترية لأصول ثابتة غير مادية متفرّغ عنها,D
+6812,Valeur Comptable des Immobilis. Corporelles,Book Value of Tangible Assets Disposed of,القيمة الدفترية لأصول ثابتة مادية متفرّغ عنها,D
+6815,Valeur Comptable des Immobilis. Financières,Book Value of Financial Assets Disposed of,القيمة الدفترية لأصول ثابتة مالية متفرّغ عنها,D
+6850,Autres Charges - Hors Exploitation,Other Non-Operating Charges,أعباء أخرى خارج الإستثمار,HD
+6851,Cade Et Donations,Gifts & Donations,هبات وتبرعات وهدايا,D
+6851,Amendes Fiscales et Pénales,Fiscal & Penal Fines,غرامات ضريبية وجزائية,D
+6851,Créances Devenues Irrécouvrables,Uncollectable Receivables,ذمـم مدينة أصبحت هالكة,D
+6851,Autres Opérations de Gestion,Other Administrative Operations,أعباء عمليات إدارية أخرى خارج الإستثمار,D
+6855,Charges sur Opérations en Capital,Charges on CapitalOperations,أعباء على عمليات رأسمالية,D
+6880,Charges sur Evénnements Extra-Ordinaires,Charges On Extra-Ordinary Events,خسائرأحداث إستثنائية,N.A
+6890,Dotat. Amort. et  Prov.- Hors Exploitation,Non Oper'tg Depreciations & Provisions,مخصّصات الإستهلاكات والمؤونات خارج الإستثمار,HD
+6891,Dotat.  Amort. Exceptionnels sur Immobilisations,Alloc. for Extra-ordinary Deprec.of F.Assets,مخصّصات إستهلاكات إستثنائية على أصول ثابتة,D
+6892,Dotat. Prov. pr Dépreciations Exceptionnelles,Prov.Alloc. for Exceptional Depreciations,مخصّصات مؤونات هبوط أسعار إستثنائي,D
+6895,Dotat. Prov. pr Risques & Charges H. Exploitation,Prov.Alloc. for Non-Operat'g Risks & Charges,مخصّصات مؤونات مخاطر وأعباء خارج الإستثمار,D
+6900,Impôts sur Profits,Taxes on Profits,الضرائب على الأرباح,HD
+6901,Impôts sur les Bénéfices d'Exploitation,Income Tax on Net Operating Profits,الضريبة على أرباح الإستثمار,D
+7010,Ventes de Marchandises,Sales of Goods,مبيعات البضاعة - فواتير,C
+7090,"Rabais, Remises et Ristournes Accordés",Discounts/Allowances/Returned Goods,حسومات ممنوحة,D
+7110,Ventes de Produits,Sales of Products,مبيـعــات منتجات,HD
+7111,Ventes de Produits Finis,Sales of Finished Products,مبيعات المنتجات التامة الصنع,C
+7112,Ventes de Produits Intermédiaires,Sales of Semi-Finished Products,مبيعات المنتجات الوسيطة,C
+7113,Ventes de Produits Résiduels,Sales of Production Scrap,مبيعات فضلات الإنتاج,C
+7120,Ventes de Travaux,Sales of Works,مبيعات أشغال,C
+7130,Prestations de Services,Sales of Services,مبيعات خدمات,C
+7170,Revenus des Activités Subsidiaires,Revenues of Subsidiary Activities,إيرادات النشاطات الفرعية,HD
+7171,Rev. des Activités Sub. - Produits,Revenues of Sub. Activities - Products,إيرادات النشاط الفرعي - مبيع منتجات,C
+7172,Rev. des Activités Sub. - Travaux,Revenues of Sub. Activities - Works,إيرادات النشاط الفرعي - مبيع أشغال,C
+7173,Rev. des Activités Sub. - Services,Revenues of Sub. Activities - Services,إيرادات النشاط الفرعي - مبيع خدمات,C
+7190,Remises Offertes,Discounts Granted,حسومات ممنوحة,HD
+7191,Rabais et Remises sur Ventes de Produits,Discounts Granted on Sales of Products,حسومات ممنوحة على مبيعات المنتجات,D
+7192,Rabais et Remises sur Ventes de Travaux,Discounts Granted on Sales of Works,حسومات ممنوحة على مبيعات الأشغال,D
+7193,Rabais et Remises  sur Prestation de Services,Discounts Granted on Sales of Services,حسومات ممنوحة على مبيعات الخدمات,D
+7210,Variation du Stock des Produits & Travaux en Cours,Stock Variation of Products & Works in Progress,قيمة التغيير في مخزون منتجات وأشغال قيد الصنع,HD
+7211,Variation Stock - Produits En Cours,Stock Variation of Products in Process,قيمة التغيير في مخزون المنتجات قيد الصنع,C/D
+7212,Variation des Travaux en Cours d'Exécution,Stock Variation of Works in Progress,قيمة التغيير في الأشغال قيد التنفيذ,C/D
+7220,Variation du Stock des Etudes & Services en Cours,Stock Variation of Studies & Services in Progress,قيمة التغيير في مخزون دراسات وخدمات قيد التنفيذ,HD
+7225,Variation des Etudes en Cours d'Exécution,Stock Variation of Studies in Progress,قيمة التغيير في الدراسات قيد الإعداد,C/D
+7226,Variation des Services en Cours de Prestation,Stock Variation of Services in Progress,قيمة التغيير في الخدمات قيد التنفيذ,C/D
+7250,"Variation du Stock des Produits Finis, Semi Finis & Déchets","Stock Variation of Finished, Semi Finised & Scrap",قيمة التغيير في مخزون منتجات وسيطة وتامة الصنع وفضلات,HD
+7251,Variation Stock - Produits Intermédiaires,Stock Variation of Semi-Finished Products,قيمة التغيير في مخزون المنتجات الوسيطة,C/D
+7255,Variation Stock - Produits Finis,Stock Variation of Finished Products,قيمة التغيير في مخزون المنتجات التامة الصنع,C/D
+7258,Variation Stock - Produits Résiduels,Stock Variation of Production Scrap,قيمة التغيير في مخزون فضلات الإنتاج,C/D
+7310,Production d'Immobilisations Incorporelles,Production of Intangible Fixed Assets,منتجات لها طابع الإصول الثابتة غير المادية,C
+7320,Production d'Immobilisations Corporelles,Production of Tangible Fixed Assets,منتجات لها طابع الإصول الثابتة المادية,C
+7410,Subventions Relatives aux Marchandises,Operating Subsidies for Goods,إعانات للإستثمار - للبضائع,C
+7420,Subventions Relatives à La Production,Operating Subsidies for Production,إعانات للإستثمار - للإنتاج,C
+7520,Reprise sur Prov. de Deval. des Immobilisations,Reversal of Fixed Assets Devaluation Provisions,استردادات من مؤونات هبوط أسعار الأصول الثابتة,HD
+7521,Reprises s/Prov.pr Déprec.- Immob.Incorporelles,Reversal of Deval.Prov. of Intang.Fixed Assets,إستردادات مؤونات هبوط قيم أصول ثابتة غير مادية,C
+7522,Reprises s/Prov.pr Déprec.- Immob.Corporelles,Reversal of Deval.Prov. of Tang.Fixed Assets,إستردادات مؤونات هبوط قيم أصول ثابتة مادية,C
+7530,REPRISES S/PROV. PR DÉPRÉC. DES ACTIFS CIRCULANTS,REVERSAL OF DEVAL.PROV. OF CURRENT ASSETS,إستردادات من مؤونات هبوط أسعار الأصول المتداولة,HD
+7533,Reprises s/Prov.pr Déprec.- Stock et en Cours,Reversal of Deval.Prov. of Stocks,إستردادات مؤونات هبوط قيم المخزون وقيد الصنع,C
+7534,Reprises s/Prov.Non-Déductibles s/ Créances Douteuses,Reversal of Non-Deduct.Deval.Prov. of Debts,إستردادات مؤونات غير مقبولة التنزيل لتدنّي قيم الذمم,C
+7534,Reprises s/Prov.des Pertes s/Créanciers en Faillite,Reversal of Deval.Prov. of Losses on Debts Losses,إستردادات مؤونات مقبولة التنزيل لخسائر ديون,C
+7550,Reprise sur Provisions de Risques & Charges,Reversal of Risks & Charges Provisions,استردادات من مؤونات مخاطر وأعباء الإستثمار,HD
+7551,Reprises s/Prov. pr Risques d'Exploitation,Reversal of Deval.Prov. for Risks (Conflicts & alike),إستردادات مؤونات أخطار عائدة للإستثمار,C
+7552,Reprises s/Prov. pr Charges à Répartir,Reversal of Prov. for Deferred Charges,إستردادات مؤونات الأعباء الواجب توزيعها,C
+7552,Reprises s/Prov. pr Fin de Service & Accidents,Reversal of Prov. for End of Service Dues,إستردادات مؤونات تسوية نهاية الخدمة وطوارئ العمل,C
+7552,Reprises s/Prov. pr Impôts et Taxes,Reversal of Prov. for Taxes (Other than Income Tax),إستردادات مؤونات الضرائب (غير ضريبة الأرباح),C
+7610,Autres Revenues Ordinaires d'Exploitation,Other Operating Ordinary Revenues,إيرادات عادية أخرى ناتجة عن الإستثمار,HD
+7611,Redevances des Concessions,Patents Royalties Income,إيرادات أتاوى الإمتيازات والبراءات وخلافها,C
+7612,Revenus des Immeubles Non Affectés aux Activités Professionnelles,Rental of Buildings not used by  the Business,إيجارات الأبنية غير المخصّصة للنشاط المهني,C
+7613,Jetons de Présence et Rénumérations de Gestion,Board Meetings Attendance Fees Received,إيرادات بدلات حضور مجالس أدارة وجمعيات,C
+7615,Autres Produits d'Exploitation,Other Sundry Operating Income,إيرادات متفرّقة ناتجة عن الإستثمار,C
+7619,Transferts de Charges d'Exploitation,Operating Charges Transferred to Other Accounts,أعباء إستثمار محوّلة إلى حسابات أخرى,C
+7650,Parts aux Profits des Activités Communes,Parts in Profits of Joint Activities,حصص أرباح العمليات المشتركة,HD
+7651,Quotes-Parts de Charge Nette Transférées (Cpté. Du Gérant),Net Transfers of Allocated Charges,حصص أعباء إدارة عمليات مشتركة جرى تحويلها,C
+7655,Quotes-Parts de Produit Net Attribuées (Cpté. Du Gérant),Net Attributions of Income,حصص إيرادات ناتجة عن إدارة عمليات مشتركة,C
+7710,Produits des Participations,Revenues of Equity Participations,إيرادات سندات المشاركة,C
+7720,Revenus des Autres Valeurs  Mobilières,Revenues of Securities and Receivables,إيردات القيم المنقولة الأخرى,C
+7730,Intérêts et Produits Assimilés,Interests and Similar Revenues Earned,فوائد وايرادات مشابهة,C
+7750,Différences de Change Positives,Difference of Exchange - Positive,فروقات صرف إيجابية,HD
+7751,Diff.Positive de Change S/Opérations Courantes,Exchange Profits on Current Operations,فروقات صرف إيجابية على عمليات جارية,C
+7755,Diff.Positive de Change S/Opérations en Capital,Exchange Profits on Capital Transactions,فروقات صرف إيجابية على عمليات راسمالية,C
+7780,Autres Revenus Financiers,Other Financial Revenues,إيرادات مالية أخرى,HD
+7781,Produits Nets s/Cessions de Valeurs Mobil.de Placement,Net Income on Disposal of Participation Deeds,إيرادات صافية على بيع سندات التوظيف,C
+7789,Transferts de Charges Financières,Financial Charges Transferred to Other Accounts,أعباء مالية محوّلة إلى حسابات أخرى,C
+7790,Reprise sur Provisions Financières,Reversal of Financial Provisions,استردادات من المؤونات المالية,HD
+7793,Reprises s/Prov.pr Déprec.- Immob.Financières,Reversal of Deval.Prov. Of Finan. F. Assets,إستردادات من مؤونات تدنّي قيم أصول مالية,C
+7794,Reprises s/Prov.pr Déprec. - Valeurs Mobil.de Placement,Reversal of Deval.Prov. Of Participations Deeds,إستردادات من مؤونات هبوط أسعار سندات التوظيف,C
+7795,Reprises s/Prov.pr Risques et Charges Financiers,Reversal of Prov. for Financial Risks,إستردادات من مؤونات مخاطر وأعباء مالية,C
+7810,Revenues sur Cessions d'Actif Immobilisé,Revenues of Fixed Assets Disposals,إيرادات التفرّغ عن أصول ثابتة,HD
+7811,Produits s/Cession d'Immobilis. Incorporelles,Income from Disposal of Intang. F. Assets,ايرادات التفرغ عن أصول ثابتة غير مادية,C
+7812,Produits s/Cession d'Immobilis. Corporelles,Income from Disposal of Tang. F. Assets,ايرادات التفرغ عن أصول ثابتة مادية,C
+7815,Produits s/Cession d'Immobilis. Financières,Income from Disposal of Financ. F. Assets,ايرادات التفرغ عن أصول ثابتة مالية,C
+7819,Charges sur Cessions d'Immobilisations,Fixed Assets Disposal Charges,مصاريف التفرّغ عن أصول ثابتة,D
+7820,Subventions d'Invest. Virées au Résultat de L'Exercice,Investment Subsidies Transferred to Results,إعانات للتوظيفات محوّلة إلى نتيجة الدورة المالية,C
+7880,Autres Revenues Hors Exploitation,Other Non-Operating Revenues,إيرادات أخرى خارج الإستثمار,HD
+7881,Produits Exceptionnels sur Opérations de Gestion,Extra-ordinary Operating Revenues,إيرادات إستثنائية على عمليات جارية,C
+7888,Autres Produits s/Opér. Exception. en Capital,Other Income on Extar-ordinary Transactions,إيرادات أخرى على عمليات رأسمالية إستثنائية,C
+7889,Transferts de Charges Exceptionnelles,Sundry Extra-ordinary Charges Transferred,أعباء إستثنائية محوّلة إلى حسابات أخرى,C
+7890,Reprise sur Provisions Hors Exploitation,Reversal of Non-Operating Provisions,استردادات من مؤونات خارج الإستثمار,HD
+7891,Reprises s/Prov.pr Dépreciations - H.Exploitation,Reversal of Prov. for Non-Oper. Depreciations,استردادات من مؤونات هبوط أسعار,C
+7895,Reprises s/Prov.pr Risques & Charges - H.Exploitation,Reversal of Prov. for Non-Oper. Risks & ChargesPrices Fall,استردادات من مؤونات مخاطر وأعباء خارج الإستثمار,C
+8000,Comptes des Engagements Hors Bilan,Extra-Balance Sheet Contingency Accounts,حسابات الإلتزامات خارج الميزانية,N.A
