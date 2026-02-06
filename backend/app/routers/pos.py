@@ -695,6 +695,33 @@ def create_cash_movement(data: CashMovementIn, device=Depends(require_device)):
                 )
                 return {"id": cur.fetchone()["id"], "shift_id": shift["id"]}
 
+@router.get("/cash-movements/admin", dependencies=[Depends(require_permission("pos:manage"))])
+def list_cash_movements_admin(
+    shift_id: str,
+    limit: int = 200,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+):
+    if limit <= 0 or limit > 1000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT m.id, m.shift_id, m.device_id, d.device_code,
+                       m.movement_type, m.amount_usd, m.amount_lbp,
+                       m.notes, m.created_at
+                FROM pos_cash_movements m
+                JOIN pos_devices d ON d.id = m.device_id
+                WHERE m.company_id = %s AND m.shift_id = %s
+                ORDER BY m.created_at DESC
+                LIMIT %s
+                """,
+                (company_id, shift_id, limit),
+            )
+            return {"movements": cur.fetchall()}
+
 
 @router.get("/shifts", dependencies=[Depends(require_permission("pos:manage"))])
 def list_shifts(company_id: str = Depends(get_company_id), _auth=Depends(require_company_access)):

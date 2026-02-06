@@ -16,6 +16,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "POS Devices", href: "/system/pos-devices" },
+  { label: "POS Shifts", href: "/system/pos-shifts" },
   { label: "Outbox", href: "/system/outbox" },
   { label: "Sales Invoices", href: "/sales/invoices" },
   { label: "Sales Returns", href: "/sales/returns" },
