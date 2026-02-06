@@ -459,30 +459,32 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                 defaults = _fetch_account_defaults(cur, company_id)
                 inventory = defaults.get("INVENTORY")
                 grni = defaults.get("GRNI")
-                if inventory and grni:
-                    cur.execute(
-                        """
-                        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                        VALUES (gen_random_uuid(), %s, %s, 'goods_receipt', %s, CURRENT_DATE, 'market')
-                        RETURNING id
-                        """,
-                        (company_id, f"GR-{receipt_no}", receipt_id),
-                    )
-                    journal_id = cur.fetchone()["id"]
-                    cur.execute(
-                        """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory received')
-                        """,
-                        (journal_id, inventory, total_usd, total_lbp),
-                    )
-                    cur.execute(
-                        """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'GRNI')
-                        """,
-                        (journal_id, grni, total_usd, total_lbp),
-                    )
+                if not (inventory and grni):
+                    raise HTTPException(status_code=400, detail="Missing INVENTORY/GRNI account defaults")
+
+                cur.execute(
+                    """
+                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
+                    VALUES (gen_random_uuid(), %s, %s, 'goods_receipt', %s, CURRENT_DATE, 'market')
+                    RETURNING id
+                    """,
+                    (company_id, f"GR-{receipt_no}", receipt_id),
+                )
+                journal_id = cur.fetchone()["id"]
+                cur.execute(
+                    """
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                    VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory received')
+                    """,
+                    (journal_id, inventory, total_usd, total_lbp),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                    VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'GRNI')
+                    """,
+                    (journal_id, grni, total_usd, total_lbp),
+                )
 
                 cur.execute(
                     """
@@ -627,7 +629,9 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                     (journal_id, grni, base_usd, base_lbp),
                 )
 
-                if data.tax and vat_rec:
+                if data.tax and (tax_usd != 0 or tax_lbp != 0) and not vat_rec:
+                    raise HTTPException(status_code=400, detail="Missing VAT_RECOVERABLE account default")
+                if data.tax and (tax_usd != 0 or tax_lbp != 0):
                     cur.execute(
                         """
                         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)

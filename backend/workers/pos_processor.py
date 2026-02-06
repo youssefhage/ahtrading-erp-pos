@@ -880,31 +880,33 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
     account_defaults = fetch_account_defaults(cur, company_id)
     inventory = account_defaults.get("INVENTORY")
     grni = account_defaults.get("GRNI")
-    if inventory and grni:
-        journal_no = f"GR-{str(gr_id)[:8]}"
-        cur.execute(
-            """
-            INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-            VALUES (gen_random_uuid(), %s, %s, 'goods_receipt', %s, CURRENT_DATE, 'market')
-            RETURNING id
-            """,
-            (company_id, journal_no, gr_id),
-        )
-        journal_id = cur.fetchone()["id"]
-        cur.execute(
-            """
-            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory received')
-            """,
-            (journal_id, inventory, total_usd, total_lbp),
-        )
-        cur.execute(
-            """
-            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'GRNI')
-            """,
-            (journal_id, grni, total_usd, total_lbp),
-        )
+    if not (inventory and grni):
+        raise ValueError("Missing account defaults for purchase receipt posting (INVENTORY/GRNI)")
+
+    journal_no = f"GR-{str(gr_id)[:8]}"
+    cur.execute(
+        """
+        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
+        VALUES (gen_random_uuid(), %s, %s, 'goods_receipt', %s, CURRENT_DATE, 'market')
+        RETURNING id
+        """,
+        (company_id, journal_no, gr_id),
+    )
+    journal_id = cur.fetchone()["id"]
+    cur.execute(
+        """
+        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory received')
+        """,
+        (journal_id, inventory, total_usd, total_lbp),
+    )
+    cur.execute(
+        """
+        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'GRNI')
+        """,
+        (journal_id, grni, total_usd, total_lbp),
+    )
 
     emit_event(
         cur,
@@ -1059,7 +1061,9 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     )
 
     # Debit VAT recoverable
-    if tax and vat_rec:
+    if tax and (tax_usd != 0 or tax_lbp != 0) and not vat_rec:
+        raise ValueError("Missing account default for purchase VAT posting (VAT_RECOVERABLE)")
+    if tax and (tax_usd != 0 or tax_lbp != 0):
         cur.execute(
             """
             INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)

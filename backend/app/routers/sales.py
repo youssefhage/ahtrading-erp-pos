@@ -82,6 +82,63 @@ def list_sales_invoices(company_id: str = Depends(get_company_id)):
             )
             return {"invoices": cur.fetchall()}
 
+@router.get("/invoices/{invoice_id}", dependencies=[Depends(require_permission("sales:read"))])
+def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, invoice_no, customer_id, status,
+                       total_usd, total_lbp, exchange_rate,
+                       pricing_currency, settlement_currency,
+                       created_at
+                FROM sales_invoices
+                WHERE company_id = %s AND id = %s
+                """,
+                (company_id, invoice_id),
+            )
+            inv = cur.fetchone()
+            if not inv:
+                raise HTTPException(status_code=404, detail="invoice not found")
+
+            cur.execute(
+                """
+                SELECT id, item_id, qty,
+                       unit_price_usd, unit_price_lbp,
+                       line_total_usd, line_total_lbp
+                FROM sales_invoice_lines
+                WHERE invoice_id = %s
+                ORDER BY id
+                """,
+                (invoice_id,),
+            )
+            lines = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT id, method, amount_usd, amount_lbp, created_at
+                FROM sales_payments
+                WHERE invoice_id = %s
+                ORDER BY created_at ASC
+                """,
+                (invoice_id,),
+            )
+            payments = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT id, tax_code_id, base_usd, base_lbp, tax_usd, tax_lbp, tax_date, created_at
+                FROM tax_lines
+                WHERE company_id = %s AND source_type = 'sales_invoice' AND source_id = %s
+                ORDER BY created_at ASC
+                """,
+                (company_id, invoice_id),
+            )
+            tax_lines = cur.fetchall()
+
+            return {"invoice": inv, "lines": lines, "payments": payments, "tax_lines": tax_lines}
+
 
 @router.get("/returns", dependencies=[Depends(require_permission("sales:read"))])
 def list_sales_returns(company_id: str = Depends(get_company_id)):

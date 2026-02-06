@@ -15,18 +15,24 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/dashboard" },
+  { label: "POS Devices", href: "/system/pos-devices" },
+  { label: "Outbox", href: "/system/outbox" },
+  { label: "Sales Invoices", href: "/sales/invoices" },
+  { label: "Sales Returns", href: "/sales/returns" },
   { label: "Suppliers", href: "/partners/suppliers" },
   { label: "Customers", href: "/partners/customers" },
   { label: "Items", href: "/catalog/items" },
   { label: "Stock", href: "/inventory/stock" },
+  { label: "Movements", href: "/inventory/movements" },
+  { label: "Inventory Ops", href: "/inventory/ops" },
   { label: "Purchase Orders", href: "/purchasing/purchase-orders" },
   { label: "Goods Receipts", href: "/purchasing/goods-receipts" },
   { label: "Supplier Invoices", href: "/purchasing/supplier-invoices" },
   { label: "VAT Report", href: "/accounting/reports/vat" },
   { label: "Trial Balance", href: "/accounting/reports/trial-balance" },
   { label: "Config", href: "/system/config" },
-  { label: "POS Devices", href: "/system/pos-devices" },
-  { label: "Outbox", href: "/system/outbox" },
+  { label: "Branches", href: "/system/branches" },
+  { label: "Warehouses", href: "/system/warehouses" },
   { label: "AI Hub", href: "/automation/ai-hub" }
 ];
 

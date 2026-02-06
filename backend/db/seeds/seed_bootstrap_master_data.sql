@@ -95,6 +95,13 @@ FROM companies c
 JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6011'
 ON CONFLICT (company_id, role_code) DO NOTHING;
 
+-- Inventory adjustments (v1 default): map to purchase of goods (COGS). Change in Admin -> Config in production.
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'INV_ADJ', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6011'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
 -- GRNI (goods received, invoice pending)
 INSERT INTO company_account_defaults (company_id, role_code, account_id)
 SELECT c.id, 'GRNI', a.id
@@ -103,4 +110,3 @@ JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '4018'
 ON CONFLICT (company_id, role_code) DO NOTHING;
 
 COMMIT;
-
