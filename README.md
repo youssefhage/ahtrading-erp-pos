@@ -32,6 +32,13 @@ DB_PORT=5433 API_PORT=8001 ADMIN_PORT=3001 docker compose up --build
 - Direct: http://localhost:8000 (or `API_PORT`)
 - Via Admin proxy: http://localhost:3000/api/health
 
+## DB / RLS Notes
+- The stack creates a non-superuser app DB role (default: `ahapp`) so Postgres RLS policies are actually enforced.
+- Override via env vars (example):
+```bash
+APP_DB_USER=ahapp APP_DB_PASSWORD=change-me docker compose up --build
+```
+
 ## POS Device Setup (Dev)
 1) Login to get a bearer token: `POST /auth/login`
 2) Register a POS device: `POST /pos/devices/register`
