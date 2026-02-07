@@ -13,7 +13,7 @@ def get_conn(db_url):
 
 
 def set_company_context(cur, company_id: str):
-    cur.execute("SELECT set_config('app.current_company_id', %s, true)", (company_id,))
+    cur.execute("SELECT set_config('app.current_company_id', %s::text, true)", (company_id,))
 
 
 def run_crm_agent(db_url: str, company_id: str, inactive_days: int):

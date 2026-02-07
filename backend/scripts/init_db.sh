@@ -210,6 +210,7 @@ run_migration "seed_account_roles" "backend/db/seeds/seed_account_roles.sql"
 run_migration "seed_companies" "backend/db/seeds/seed_companies.sql"
 run_migration "seed_company_coa" "backend/db/seeds/seed_company_coa.sql"
 run_migration "seed_bootstrap_master_data" "backend/db/seeds/seed_bootstrap_master_data.sql"
+run_migration "seed_payment_method_mappings" "backend/db/seeds/seed_payment_method_mappings.sql"
 
 ensure_app_role
 

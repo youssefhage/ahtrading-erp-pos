@@ -72,9 +72,9 @@ def login(data: LoginIn):
                 {
                     # Keep returning the token for backwards compatibility (legacy admin/POS tools).
                     "token": token,
-                    "user_id": user["id"],
-                    "companies": companies,
-                    "active_company_id": active_company_id,
+                    "user_id": str(user["id"]),
+                    "companies": [str(c) for c in companies],
+                    "active_company_id": str(active_company_id) if active_company_id else None,
                 }
             )
             secure = settings.env not in {"local", "dev"}

@@ -17,4 +17,8 @@ def set_company_context(conn, company_id: str):
     with conn.cursor() as cur:
         # `SET ... = %s` is not valid when using the extended query protocol (psycopg sends $1).
         # Use set_config() to safely parameterize the value.
-        cur.execute("SELECT set_config('app.current_company_id', %s, true)", (company_id,))
+        # set_config(name text, value text, is_local boolean)
+        cur.execute(
+            "SELECT set_config('app.current_company_id', %s::text, true)",
+            (company_id,),
+        )

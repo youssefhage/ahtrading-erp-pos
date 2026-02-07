@@ -22,9 +22,12 @@ services:
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:-ahapp}
       APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:-ahapp}@db:5432/ahtrading
       BOOTSTRAP_ADMIN: "1"
-      # Optional:
-      # BOOTSTRAP_ADMIN_EMAIL: admin@ahtrading.local
-      # BOOTSTRAP_ADMIN_PASSWORD: set-a-strong-password
+      # Optional dev helpers (pass-through from your shell/.env):
+      # - If BOOTSTRAP_ADMIN_PASSWORD is empty/unset, a random password is generated and printed.
+      # - Set BOOTSTRAP_ADMIN_RESET_PASSWORD=1 to reset an existing user's password.
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@ahtrading.local}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_RESET_PASSWORD: ${BOOTSTRAP_ADMIN_RESET_PASSWORD:-0}
     depends_on:
       - db
     ports:
