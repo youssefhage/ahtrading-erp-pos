@@ -34,6 +34,8 @@ const navItems: NavItem[] = [
   { label: "Config", href: "/system/config" },
   { label: "Branches", href: "/system/branches" },
   { label: "Warehouses", href: "/system/warehouses" },
+  { label: "Users", href: "/system/users" },
+  { label: "Roles & Perms", href: "/system/roles-permissions" },
   { label: "AI Hub", href: "/automation/ai-hub" }
 ];
 
