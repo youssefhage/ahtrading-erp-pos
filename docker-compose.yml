@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: ahtrading
       POSTGRES_PASSWORD: ahtrading
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -45,7 +45,8 @@ services:
       - -lc
       - |
         backend/scripts/init_db.sh
-        exec python3 -m backend.workers.worker_service --db "$DATABASE_URL"
+        # Use $$ to avoid docker-compose host interpolation; expand inside the container.
+        exec python3 -m backend.workers.worker_service --db "$$DATABASE_URL"
 
   admin:
     build:
