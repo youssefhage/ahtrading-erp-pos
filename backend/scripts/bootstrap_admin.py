@@ -46,7 +46,26 @@ def main() -> int:
                 cur.execute("SELECT id FROM users WHERE email = %s", (email,))
                 row = cur.fetchone()
                 if row:
-                    # Idempotent: don't create duplicate users.
+                    # Idempotent: don't create duplicate users unless explicitly asked to
+                    # reset the password (useful for local dev / first-time setup).
+                    if _truthy(os.getenv("BOOTSTRAP_ADMIN_RESET_PASSWORD", "")):
+                        if generated_password:
+                            print(
+                                "bootstrap_admin: BOOTSTRAP_ADMIN_RESET_PASSWORD requires BOOTSTRAP_ADMIN_PASSWORD",
+                                file=sys.stderr,
+                            )
+                            return 2
+                        cur.execute(
+                            """
+                            UPDATE users
+                            SET hashed_password = %s
+                            WHERE id = %s
+                            """,
+                            (hash_password(password), row["id"]),
+                        )
+                        print("BOOTSTRAP_ADMIN_PASSWORD_RESET")
+                        print(f"email: {email}")
+                        print("password: (provided via BOOTSTRAP_ADMIN_PASSWORD)")
                     return 0
 
                 cur.execute(
@@ -122,4 +141,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

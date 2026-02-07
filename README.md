@@ -23,6 +23,10 @@ DB_PORT=5433 API_PORT=8001 ADMIN_PORT=3001 docker compose up --build
 3) Login:
 - The API container bootstraps an admin user on first run (see logs for `BOOTSTRAP_ADMIN_CREATED`).
 - Default email is `admin@ahtrading.local` and a random password is printed unless you set `BOOTSTRAP_ADMIN_PASSWORD`.
+- If you lost the initial password, you can reset it by setting:
+  - `BOOTSTRAP_ADMIN_PASSWORD=...`
+  - `BOOTSTRAP_ADMIN_RESET_PASSWORD=1`
+  then restarting the `api` container (the bootstrap script is idempotent unless reset is requested).
 
 4) Backend:
 - Direct: http://localhost:8000 (or `API_PORT`)

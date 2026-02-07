@@ -1,11 +1,15 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 import uuid
-from ..db import get_conn
+from ..config import settings
+from ..db import get_admin_conn, get_conn, set_company_context
+from ..deps import get_session, SESSION_COOKIE_NAME
 from ..security import hash_password, verify_password, needs_rehash
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+SESSION_DAYS = 7
 
 
 class LoginIn(BaseModel):
@@ -15,7 +19,8 @@ class LoginIn(BaseModel):
 
 @router.post("/login")
 def login(data: LoginIn):
-    with get_conn() as conn:
+    # Use the admin connection for auth because we need to query memberships across companies.
+    with get_admin_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -42,55 +47,61 @@ def login(data: LoginIn):
                 )
 
             token = str(uuid.uuid4())
-            expires = datetime.utcnow() + timedelta(days=7)
-            cur.execute(
-                """
-                INSERT INTO auth_sessions (id, user_id, token, expires_at)
-                VALUES (gen_random_uuid(), %s, %s, %s)
-                """,
-                (user["id"], token, expires),
-            )
-
+            expires = datetime.utcnow() + timedelta(days=SESSION_DAYS)
             cur.execute(
                 """
                 SELECT DISTINCT company_id
                 FROM user_roles
                 WHERE user_id = %s
+                ORDER BY company_id
                 """,
                 (user["id"],),
             )
             companies = [r["company_id"] for r in cur.fetchall()]
+            active_company_id = companies[0] if companies else None
 
-            return {"token": token, "user_id": user["id"], "companies": companies}
+            cur.execute(
+                """
+                INSERT INTO auth_sessions (id, user_id, token, expires_at, active_company_id)
+                VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                """,
+                (user["id"], token, expires, active_company_id),
+            )
+
+            resp = JSONResponse(
+                {
+                    # Keep returning the token for backwards compatibility (legacy admin/POS tools).
+                    "token": token,
+                    "user_id": user["id"],
+                    "companies": companies,
+                    "active_company_id": active_company_id,
+                }
+            )
+            secure = settings.env not in {"local", "dev"}
+            resp.set_cookie(
+                key=SESSION_COOKIE_NAME,
+                value=token,
+                httponly=True,
+                samesite="lax",
+                secure=secure,
+                max_age=SESSION_DAYS * 24 * 60 * 60,
+                path="/",
+            )
+            return resp
 
 
 @router.get("/me")
-def me(authorization: str = Header(None)):
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="missing token")
-    token = authorization.split(" ", 1)[1]
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT s.user_id, u.email, s.expires_at, s.is_active
-                FROM auth_sessions s
-                JOIN users u ON u.id = s.user_id
-                WHERE s.token = %s
-                """,
-                (token,),
-            )
-            row = cur.fetchone()
-            if not row or not row["is_active"] or row["expires_at"] < datetime.utcnow():
-                raise HTTPException(status_code=401, detail="invalid token")
-            return {"user_id": row["user_id"], "email": row["email"]}
+def me(session=Depends(get_session)):
+    return {
+        "user_id": session["user_id"],
+        "email": session["email"],
+        "active_company_id": session.get("active_company_id"),
+    }
 
 
 @router.post("/logout")
-def logout(authorization: str = Header(None)):
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="missing token")
-    token = authorization.split(" ", 1)[1]
+def logout(session=Depends(get_session)):
+    token = session["token"]
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -101,4 +112,42 @@ def logout(authorization: str = Header(None)):
                 """,
                 (token,),
             )
-            return {"ok": True}
+            resp = JSONResponse({"ok": True})
+            resp.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+            return resp
+
+
+class SelectCompanyIn(BaseModel):
+    company_id: uuid.UUID
+
+
+@router.post("/select-company")
+def select_company(data: SelectCompanyIn, session=Depends(get_session)):
+    # Verify the user has access in the target company, then persist it on the session
+    # so clients don't need to send X-Company-Id on every request.
+    with get_conn() as conn:
+        with conn.transaction():
+            set_company_context(conn, str(data.company_id))
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM user_roles
+                    WHERE user_id = %s AND company_id = %s
+                    LIMIT 1
+                    """,
+                    (session["user_id"], str(data.company_id)),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=403, detail="no company access")
+
+                cur.execute(
+                    """
+                    UPDATE auth_sessions
+                    SET active_company_id = %s
+                    WHERE id = %s
+                    """,
+                    (str(data.company_id), session["session_id"]),
+                )
+
+    return {"ok": True, "active_company_id": str(data.company_id)}

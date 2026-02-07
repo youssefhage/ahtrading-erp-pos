@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { apiBase, apiGet, getCompanyId, getToken } from "@/lib/api";
+import { apiBase, apiGet } from "@/lib/api";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,13 +42,8 @@ export default function VatReportPage() {
   async function downloadCsv() {
     setStatus("Downloading CSV...");
     try {
-      const token = getToken();
-      const companyId = getCompanyId();
       const res = await fetch(`${apiBase()}/reports/vat?format=csv`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "X-Company-Id": companyId
-        }
+        credentials: "include"
       });
       if (!res.ok) throw new Error(await res.text());
       const text = await res.text();
@@ -133,4 +128,3 @@ export default function VatReportPage() {
     </AppShell>
   );
 }
-

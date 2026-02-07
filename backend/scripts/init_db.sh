@@ -34,6 +34,45 @@ run_migration() {
   fi
 }
 
+ensure_app_role() {
+  local role="${APP_DB_USER:-ahapp}"
+  local pass="${APP_DB_PASSWORD:-ahapp}"
+  if [[ -z "$role" ]]; then
+    return
+  fi
+
+  if [[ ! "$role" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+    echo "Invalid APP_DB_USER '$role' (must match ^[a-zA-Z_][a-zA-Z0-9_]*$)" >&2
+    exit 2
+  fi
+
+  local pass_escaped="${pass//\'/\'\'}"
+  # Create the role if missing. This is safe to run concurrently (API + worker may start together).
+  psql_exec <<SQL
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${role}') THEN
+    CREATE ROLE "${role}" LOGIN PASSWORD '${pass_escaped}'
+      NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+  END IF;
+EXCEPTION
+  WHEN duplicate_object THEN
+    NULL;
+END
+\$\$;
+SQL
+
+  # Grant required privileges on existing and future objects in `public`.
+  psql_exec -c "GRANT USAGE ON SCHEMA public TO \"${role}\";"
+  psql_exec -c "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"${role}\";"
+  psql_exec -c "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"${role}\";"
+  psql_exec -c "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO \"${role}\";"
+
+  psql_exec -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"${role}\";"
+  psql_exec -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO \"${role}\";"
+  psql_exec -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO \"${role}\";"
+}
+
 bootstrap_existing_versions() {
   if [[ -n "$(psql_value -c "SELECT 1 FROM schema_migrations LIMIT 1;")" ]]; then
     return
@@ -80,6 +119,9 @@ bootstrap_existing_versions() {
   fi
   if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='auth_sessions' LIMIT 1;")" ]]; then
     mark_version "014_auth_sessions"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='auth_sessions' AND column_name='active_company_id' LIMIT 1;")" ]]; then
+    mark_version "027_auth_sessions_active_company"
   fi
   if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='pos_devices' AND column_name='device_token_hash' LIMIT 1;")" ]]; then
     mark_version "015_pos_device_tokens"
@@ -149,6 +191,7 @@ run_migration "011_customer_credit_loyalty" "backend/db/migrations/011_customer_
 run_migration "012_ai_settings" "backend/db/migrations/012_ai_settings.sql"
 run_migration "013_purchase_order_lines" "backend/db/migrations/013_purchase_order_lines.sql"
 run_migration "014_auth_sessions" "backend/db/migrations/014_auth_sessions.sql"
+run_migration "027_auth_sessions_active_company" "backend/db/migrations/027_auth_sessions_active_company.sql"
 run_migration "015_pos_device_tokens" "backend/db/migrations/015_pos_device_tokens.sql"
 run_migration "016_permissions" "backend/db/migrations/016_permissions.sql"
 run_migration "017_pos_shifts" "backend/db/migrations/017_pos_shifts.sql"
@@ -167,6 +210,8 @@ run_migration "seed_account_roles" "backend/db/seeds/seed_account_roles.sql"
 run_migration "seed_companies" "backend/db/seeds/seed_companies.sql"
 run_migration "seed_company_coa" "backend/db/seeds/seed_company_coa.sql"
 run_migration "seed_bootstrap_master_data" "backend/db/seeds/seed_bootstrap_master_data.sql"
+
+ensure_app_role
 
 if [[ "${BOOTSTRAP_ADMIN:-}" == "1" ]]; then
   # When running as a script, Python sets sys.path[0] to the script directory, which

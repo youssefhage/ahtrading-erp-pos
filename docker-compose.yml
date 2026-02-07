@@ -17,6 +17,10 @@ services:
     environment:
       APP_ENV: local
       DATABASE_URL: postgresql://ahtrading:ahtrading@db:5432/ahtrading
+      # Non-superuser app role used by API/worker so RLS is actually enforced.
+      APP_DB_USER: ${APP_DB_USER:-ahapp}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-ahapp}
+      APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:-ahapp}@db:5432/ahtrading
       BOOTSTRAP_ADMIN: "1"
       # Optional:
       # BOOTSTRAP_ADMIN_EMAIL: admin@ahtrading.local
@@ -48,6 +52,9 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql://ahtrading:ahtrading@db:5432/ahtrading
+      APP_DB_USER: ${APP_DB_USER:-ahapp}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-ahapp}
+      APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:-ahapp}@db:5432/ahtrading
     depends_on:
       - db
     command:
@@ -66,7 +73,7 @@ services:
           sleep 2
         done
         # Use $$ to avoid docker-compose host interpolation; expand inside the container.
-        exec python3 -m backend.workers.worker_service --db "$$DATABASE_URL"
+        exec python3 -m backend.workers.worker_service --db "$$APP_DATABASE_URL"
 
   admin:
     build:

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { apiPost, clearSession, getCompanyId, getToken } from "@/lib/api";
+import { apiGet, apiPost, clearSession, getCompanyId } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -44,8 +44,9 @@ export function AppShell(props: { title: string; children: React.ReactNode }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const token = getToken();
   const companyId = getCompanyId();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authOk, setAuthOk] = useState(false);
 
   const active = useMemo(() => {
     const item = navItems.find((i) => pathname === i.href);
@@ -53,15 +54,30 @@ export function AppShell(props: { title: string; children: React.ReactNode }) {
   }, [pathname]);
 
   useEffect(() => {
-    // Client-only auth guard (token lives in localStorage in dev).
-    if (!token) {
-      router.push("/login");
-      return;
-    }
-    if (!companyId) {
-      router.push("/company/select");
-    }
-  }, [token, companyId, router]);
+    let cancelled = false;
+    (async () => {
+      try {
+        await apiGet("/auth/me");
+        if (cancelled) return;
+        setAuthOk(true);
+      } catch {
+        if (cancelled) return;
+        clearSession();
+        router.push("/login");
+      } finally {
+        if (cancelled) return;
+        setAuthChecked(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (!authChecked || !authOk) return;
+    if (!companyId) router.push("/company/select");
+  }, [authChecked, authOk, companyId, router]);
 
   async function logout() {
     try {
@@ -73,6 +89,15 @@ export function AppShell(props: { title: string; children: React.ReactNode }) {
       router.push("/login");
     }
   }
+
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_20%_-10%,#dbeafe,transparent_50%),radial-gradient(1200px_circle_at_90%_10%,#fff7ed,transparent_45%),linear-gradient(to_bottom,#f8fafc,#ffffff)] px-6 py-10">
+        <p className="text-sm text-slate-700">Checking session...</p>
+      </div>
+    );
+  }
+  if (!authOk) return null;
 
   return (
     <div className="min-h-screen bg-[radial-gradient(1200px_circle_at_20%_-10%,#dbeafe,transparent_50%),radial-gradient(1200px_circle_at_90%_10%,#fff7ed,transparent_45%),linear-gradient(to_bottom,#f8fafc,#ffffff)]">

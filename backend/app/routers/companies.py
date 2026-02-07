@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from ..db import get_conn, set_company_context
+from ..db import get_conn, get_admin_conn, set_company_context
 from ..deps import get_current_user, require_company_access, get_company_id, require_permission
 
 router = APIRouter(prefix="/companies", tags=["companies"], dependencies=[Depends(get_current_user)])
@@ -21,7 +21,9 @@ class CompanyIn(BaseModel):
 def list_companies(user=Depends(get_current_user)):
     # Note: `companies` table is not RLS-restricted. We only return companies the user
     # has roles in.
-    with get_conn() as conn:
+    # Use the admin connection because `user_roles` is RLS-protected and this query
+    # spans multiple companies.
+    with get_admin_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -39,7 +41,9 @@ def list_companies(user=Depends(get_current_user)):
 
 @router.get("/{company_id}")
 def get_company(company_id: str, user=Depends(get_current_user)):
-    with get_conn() as conn:
+    # Use the admin connection because we need to check membership without relying
+    # on a pre-selected company context.
+    with get_admin_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -161,4 +165,3 @@ def create_company(
                 "default_branch_id": branch_id,
                 "default_warehouse_id": warehouse_id,
             }
-

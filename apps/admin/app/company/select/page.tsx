@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { getCompanies } from "@/lib/api";
+import { apiPost, getCompanies } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -15,8 +15,13 @@ export default function CompanySelectPage() {
     setCompanies(getCompanies());
   }, []);
 
-  function selectCompany(id: string) {
+  async function selectCompany(id: string) {
     window.localStorage.setItem("ahtrading.companyId", id);
+    try {
+      await apiPost("/auth/select-company", { company_id: id });
+    } catch {
+      // ignore
+    }
     router.push("/dashboard");
   }
 
@@ -51,4 +56,3 @@ export default function CompanySelectPage() {
     </main>
   );
 }
-

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { apiPost, setSession, type LoginResponse } from "@/lib/api";
+import { apiPost, getCompanyId, setSession, type LoginResponse } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,15 @@ export default function LoginPage() {
     try {
       const res = await apiPost<LoginResponse>("/auth/login", { email, password });
       setSession(res);
+      // Best-effort: persist the active company on the server-side session.
+      const companyId = getCompanyId();
+      if (companyId) {
+        try {
+          await apiPost("/auth/select-company", { company_id: companyId });
+        } catch {
+          // ignore
+        }
+      }
       setStatus("OK");
       router.push("/dashboard");
     } catch (err) {
@@ -63,4 +72,3 @@ export default function LoginPage() {
     </main>
   );
 }
-
