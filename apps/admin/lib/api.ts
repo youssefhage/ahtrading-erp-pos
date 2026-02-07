@@ -11,7 +11,9 @@ const storageKeys = {
 } as const;
 
 export function apiBase(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  // Prefer a same-origin proxy path so the browser never needs direct access
+  // to the backend container network hostname.
+  return process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 }
 
 export function getToken(): string {
