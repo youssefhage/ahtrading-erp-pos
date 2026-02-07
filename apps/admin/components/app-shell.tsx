@@ -31,6 +31,7 @@ const navItems: NavItem[] = [
   { label: "Supplier Invoices", href: "/purchasing/supplier-invoices" },
   { label: "VAT Report", href: "/accounting/reports/vat" },
   { label: "Trial Balance", href: "/accounting/reports/trial-balance" },
+  { label: "General Ledger", href: "/accounting/reports/general-ledger" },
   { label: "Config", href: "/system/config" },
   { label: "Branches", href: "/system/branches" },
   { label: "Warehouses", href: "/system/warehouses" },
