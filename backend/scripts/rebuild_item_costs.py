@@ -11,7 +11,7 @@ def get_conn(db_url):
 
 
 def set_company_context(cur, company_id: str):
-    cur.execute("SET app.current_company_id = %s", (company_id,))
+    cur.execute("SELECT set_config('app.current_company_id', %s, true)", (company_id,))
 
 
 def list_company_ids(cur):
@@ -70,4 +70,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
