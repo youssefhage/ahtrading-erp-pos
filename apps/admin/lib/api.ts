@@ -68,29 +68,27 @@ async function handle(res: Response) {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await handle(fetch(`${apiBase()}${path}`, { headers: headers() }));
+  const raw = await fetch(`${apiBase()}${path}`, { headers: headers() });
+  const res = await handle(raw);
   return (await res.json()) as T;
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await handle(
-    fetch(`${apiBase()}${path}`, {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify(body)
-    })
-  );
+  const raw = await fetch(`${apiBase()}${path}`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(body)
+  });
+  const res = await handle(raw);
   return (await res.json()) as T;
 }
 
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
-  const res = await handle(
-    fetch(`${apiBase()}${path}`, {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify(body)
-    })
-  );
+  const raw = await fetch(`${apiBase()}${path}`, {
+    method: "PATCH",
+    headers: headers(),
+    body: JSON.stringify(body)
+  });
+  const res = await handle(raw);
   return (await res.json()) as T;
 }
-
