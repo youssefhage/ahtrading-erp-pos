@@ -12,12 +12,21 @@ This repo is an offline-first POS + ERP foundation for AH Trading (Lebanon), bui
 docker compose up --build
 ```
 
+If you have port conflicts on your machine, override ports:
+```bash
+DB_PORT=5433 API_PORT=8001 ADMIN_PORT=3001 docker compose up --build
+```
+
 2) Open Admin:
-- http://localhost:3000
+- http://localhost:3000 (or `ADMIN_PORT`)
 
 3) Login:
 - The API container bootstraps an admin user on first run (see logs for `BOOTSTRAP_ADMIN_CREATED`).
 - Default email is `admin@ahtrading.local` and a random password is printed unless you set `BOOTSTRAP_ADMIN_PASSWORD`.
+
+4) Backend:
+- Direct: http://localhost:8000 (or `API_PORT`)
+- Via Admin proxy: http://localhost:3000/api/health
 
 ## POS Device Setup (Dev)
 1) Login to get a bearer token: `POST /auth/login`
@@ -33,4 +42,3 @@ Open: http://localhost:7070
 - Migrations + seeds are applied via `backend/scripts/init_db.sh`.
 - Master data is bootstrapped for usability (default warehouse, VAT code, account defaults).
 - For real deployments, review account defaults, exchange rate sources, and auth/session hardening.
-
