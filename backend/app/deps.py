@@ -1,7 +1,7 @@
 from fastapi import Header, HTTPException, Depends, Cookie
 from .db import get_conn, get_admin_conn, set_company_context
 from .security import verify_device_token
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 import uuid
 
@@ -34,7 +34,8 @@ def get_session(
                 (token,),
             )
             row = cur.fetchone()
-            if not row or not row["is_active"] or row["expires_at"] < datetime.utcnow():
+            now = datetime.now(timezone.utc)
+            if not row or not row["is_active"] or row["expires_at"] < now:
                 raise HTTPException(status_code=401, detail="invalid token")
             return {
                 "session_id": row["session_id"],

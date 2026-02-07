@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 from ..config import settings
 from ..db import get_admin_conn, get_conn, set_company_context
@@ -47,7 +47,7 @@ def login(data: LoginIn):
                 )
 
             token = str(uuid.uuid4())
-            expires = datetime.utcnow() + timedelta(days=SESSION_DAYS)
+            expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
             cur.execute(
                 """
                 SELECT DISTINCT company_id
