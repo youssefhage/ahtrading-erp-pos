@@ -169,7 +169,9 @@ run_migration "seed_company_coa" "backend/db/seeds/seed_company_coa.sql"
 run_migration "seed_bootstrap_master_data" "backend/db/seeds/seed_bootstrap_master_data.sql"
 
 if [[ "${BOOTSTRAP_ADMIN:-}" == "1" ]]; then
-  python3 backend/scripts/bootstrap_admin.py
+  # When running as a script, Python sets sys.path[0] to the script directory, which
+  # breaks imports like `from backend...` unless we add the repo root to PYTHONPATH.
+  PYTHONPATH=. python3 backend/scripts/bootstrap_admin.py
 fi
 
 echo "Database initialized."
