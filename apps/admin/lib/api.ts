@@ -61,7 +61,17 @@ export function clearSession() {
 }
 
 function headers(extra?: Record<string, string>) {
+  const rid = (() => {
+    try {
+      return globalThis.crypto && "randomUUID" in globalThis.crypto
+        ? (globalThis.crypto as Crypto).randomUUID()
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
   const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (rid) h["X-Request-Id"] = rid;
   return { ...h, ...(extra || {}) };
 }
 
