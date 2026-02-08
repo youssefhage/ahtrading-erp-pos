@@ -1,6 +1,6 @@
 # Admin UI/UX Audit (Web Admin)
 
-Last updated: 2026-02-09
+Last updated: 2026-02-08
 
 Scope: Web Admin (`apps/admin`). Review focuses on usability for real operations (wholesale/warehouse/accounting), consistency, speed, error clarity, and reducing “operator mistakes”.
 

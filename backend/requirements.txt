@@ -3,5 +3,7 @@ uvicorn==0.27.1
 psycopg[binary]==3.1.18
 pydantic==2.6.1
 passlib[bcrypt]==1.7.4
-bcrypt<5
+# passlib 1.7.4 tries to read `bcrypt.__about__.__version__`, which was removed in bcrypt 4+.
+# Pin to a compatible bcrypt to avoid noisy tracebacks in logs.
+bcrypt==3.2.2
 python-multipart==0.0.9

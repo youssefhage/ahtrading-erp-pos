@@ -32,6 +32,89 @@ class PaymentMethodMappingIn(BaseModel):
     method: PaymentMethod
     role_code: str
 
+
+@router.get("/preflight", dependencies=[Depends(require_permission("config:read"))])
+def preflight(company_id: str = Depends(get_company_id)):
+    """
+    Lightweight go-live readiness checks. This is not a guarantee, but it catches
+    the most common "go-live day" blockers (missing defaults, missing warehouse, etc).
+    """
+    checks: list[dict] = []
+
+    def add(name: str, status: str, detail: str):
+        checks.append({"name": name, "status": status, "detail": detail})
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute("SELECT name, base_currency, vat_currency, default_rate_type FROM companies WHERE id=%s", (company_id,))
+            c = cur.fetchone()
+            if c:
+                add("company", "ok", f"{c['name']} ({c['base_currency']}/{c['vat_currency']}, rate={c['default_rate_type']})")
+            else:
+                add("company", "error", "Company not found")
+
+            cur.execute("SELECT COUNT(*)::int AS n FROM warehouses WHERE company_id=%s", (company_id,))
+            n_wh = int(cur.fetchone()["n"])
+            add("warehouses", "ok" if n_wh > 0 else "error", f"{n_wh} warehouse(s)")
+
+            cur.execute("SELECT COUNT(*)::int AS n FROM branches WHERE company_id=%s", (company_id,))
+            n_br = int(cur.fetchone()["n"])
+            add("branches", "ok" if n_br > 0 else "warn", f"{n_br} branch(es)")
+
+            cur.execute("SELECT COUNT(*)::int AS n FROM tax_codes WHERE company_id=%s", (company_id,))
+            n_tax = int(cur.fetchone()["n"])
+            add("tax_codes", "ok" if n_tax > 0 else "warn", f"{n_tax} tax code(s)")
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS n
+                FROM exchange_rates
+                WHERE company_id=%s AND rate_date = CURRENT_DATE
+                """,
+                (company_id,),
+            )
+            n_rates_today = int(cur.fetchone()["n"])
+            add("exchange_rate_today", "ok" if n_rates_today > 0 else "warn", f"{n_rates_today} rate(s) for today")
+
+            # Account defaults are mandatory for posting documents.
+            required_defaults = [
+                "AR",
+                "AP",
+                "CASH",
+                "BANK",
+                "SALES",
+                "SALES_RETURNS",
+                "INVENTORY",
+                "COGS",
+                "VAT_PAYABLE",
+                "VAT_RECOVERABLE",
+                "OPENING_BALANCE",
+                "INV_ADJ",
+            ]
+            cur.execute(
+                "SELECT role_code FROM company_account_defaults WHERE company_id=%s",
+                (company_id,),
+            )
+            have = {str(r["role_code"]) for r in cur.fetchall()}
+            missing = [r for r in required_defaults if r not in have]
+            add(
+                "account_defaults",
+                "ok" if not missing else "error",
+                "all required defaults present" if not missing else f"missing: {', '.join(missing)}",
+            )
+
+            cur.execute("SELECT COUNT(*)::int AS n FROM payment_method_mappings WHERE company_id=%s", (company_id,))
+            n_pm = int(cur.fetchone()["n"])
+            add("payment_methods", "ok" if n_pm > 0 else "warn", f"{n_pm} mapping(s)")
+
+            cur.execute("SELECT COUNT(*)::int AS n FROM pos_devices WHERE company_id=%s", (company_id,))
+            n_dev = int(cur.fetchone()["n"])
+            add("pos_devices", "ok" if n_dev > 0 else "warn", f"{n_dev} device(s)")
+
+    ok = all(c["status"] != "error" for c in checks)
+    return {"ok": ok, "checks": checks}
+
 @router.get("/account-roles", dependencies=[Depends(require_permission("config:read"))])
 def list_account_roles(company_id: str = Depends(get_company_id)):
     # Account roles are global, but we still require an authenticated company context.

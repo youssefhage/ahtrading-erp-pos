@@ -52,7 +52,7 @@ import {
   Zap
 } from "lucide-react";
 
-import { apiGet, apiPost, clearSession, getCompanyId } from "@/lib/api";
+import { apiGet, apiPost, clearSession, getCompanyId, getCompanies } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -353,7 +353,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const [health, setHealth] = useState<"checking" | "online" | "offline">("checking");
   const [healthDetail, setHealthDetail] = useState("");
 
-  const companyId = getCompanyId();
+  const [companyId, setCompanyId] = useState(() => getCompanyId());
   const [authChecked, setAuthChecked] = useState(false);
   const [authOk, setAuthOk] = useState(false);
 
@@ -445,8 +445,23 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        await apiGet("/auth/me");
+        const me = await apiGet<{ active_company_id?: string | null; companies?: string[] }>("/auth/me");
         if (cancelled) return;
+        // If the user still has a valid cookie session but localStorage is empty
+        // (new browser/profile, cleared storage, etc), recover context from the server.
+        try {
+          const curCompany = getCompanyId();
+          if (!curCompany && me.active_company_id) {
+            window.localStorage.setItem("ahtrading.companyId", String(me.active_company_id));
+            setCompanyId(String(me.active_company_id));
+          }
+          const curCompanies = getCompanies();
+          if ((!curCompanies || curCompanies.length === 0) && Array.isArray(me.companies) && me.companies.length) {
+            window.localStorage.setItem("ahtrading.companies", JSON.stringify(me.companies));
+          }
+        } catch {
+          // ignore
+        }
         setAuthOk(true);
       } catch {
         if (cancelled) return;
@@ -466,6 +481,14 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     if (!authChecked || !authOk) return;
     if (!companyId) router.push("/company/select");
   }, [authChecked, authOk, companyId, router]);
+
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key === "ahtrading.companyId") setCompanyId(getCompanyId());
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   useEffect(() => {
     try {

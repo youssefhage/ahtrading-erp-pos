@@ -257,8 +257,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     setStatus("");
   }
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  async function save(e?: React.FormEvent) {
+    e?.preventDefault();
     if (!supplierId) return setStatus("supplier is required");
 
     const exRes = parseNumberInput(exchangeRate);
@@ -552,7 +552,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
           <CardDescription>Supplier, dates, and tax.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={save} className="space-y-4">
+          <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1 md:col-span-2">
                 <label className="text-xs font-medium text-fg-muted">Supplier</label>
@@ -734,11 +734,11 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             </Card>
 
             <div className="flex justify-end">
-              <Button type="submit" disabled={saving || loading}>
+              <Button type="button" onClick={() => save()} disabled={saving || loading}>
                 {saving ? "..." : props.mode === "edit" ? "Save Draft" : "Create Draft"}
               </Button>
             </div>
-          </form>
+          </div>
         </CardContent>
       </Card>
     </div>

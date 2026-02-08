@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 
 type RateRow = { rate_date: string; rate_type: string; usd_to_lbp: string | number };
+type PreflightRes = { ok: boolean; checks: Array<{ name: string; status: string; detail: string }> };
 
 type OpeningArRow = {
   customer_id?: string;
@@ -108,6 +109,10 @@ export default function GoLivePage() {
 
   const [rateType, setRateType] = useState("market");
   const [exchangeRate, setExchangeRate] = useState("90000");
+
+  const [preflight, setPreflight] = useState<PreflightRes | null>(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
+  const [demoSeeding, setDemoSeeding] = useState(false);
 
   const [arOpen, setArOpen] = useState(false);
   const [arText, setArText] = useState("");
@@ -291,6 +296,33 @@ export default function GoLivePage() {
     }
   }
 
+  async function reloadPreflight() {
+    setPreflightLoading(true);
+    try {
+      const res = await apiGet<PreflightRes>("/config/preflight");
+      setPreflight(res);
+    } catch (e) {
+      setPreflight(null);
+      setStatus(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPreflightLoading(false);
+    }
+  }
+
+  async function seedDemoData() {
+    setDemoSeeding(true);
+    setStatus("Seeding demo data...");
+    try {
+      await apiPost("/devtools/demo-data/import", { size: "small", with_opening_stock: true });
+      setStatus("Demo data seeded. You can now test invoices and stock flows.");
+      await reloadPreflight();
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDemoSeeding(false);
+    }
+  }
+
   async function loadDefaults() {
     try {
       const res = await apiGet<{ rates: RateRow[] }>("/config/exchange-rates");
@@ -304,6 +336,7 @@ export default function GoLivePage() {
 
   useEffect(() => {
     loadDefaults();
+    reloadPreflight();
   }, []);
 
   return (
@@ -319,6 +352,50 @@ export default function GoLivePage() {
           </CardContent>
         </Card>
       ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Go-Live Preflight</CardTitle>
+          <CardDescription>Fast checks for common setup blockers. Demo data seeding is local/dev only.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <Button type="button" variant="outline" onClick={reloadPreflight} disabled={preflightLoading}>
+              {preflightLoading ? "..." : "Refresh Checks"}
+            </Button>
+            <Button type="button" onClick={seedDemoData} disabled={demoSeeding || preflightLoading}>
+              {demoSeeding ? "..." : "Seed Demo Data"}
+            </Button>
+          </div>
+
+          {preflight ? (
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
+                  <tr>
+                    <th className="px-3 py-2">Check</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preflight.checks.map((c) => (
+                    <tr key={c.name} className="ui-tr-hover">
+                      <td className="px-3 py-2 font-mono text-xs">{c.name}</td>
+                      <td className="px-3 py-2">
+                        <span className="ui-chip ui-chip-default">{c.status.toUpperCase()}</span>
+                      </td>
+                      <td className="px-3 py-2 text-sm text-fg-muted">{c.detail}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-sm text-fg-muted">No preflight data yet.</div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

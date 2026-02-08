@@ -94,10 +94,23 @@ def login(data: LoginIn):
 
 @router.get("/me")
 def me(session=Depends(get_session)):
+    with get_admin_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT company_id
+                FROM user_roles
+                WHERE user_id = %s
+                ORDER BY company_id
+                """,
+                (session["user_id"],),
+            )
+            companies = [str(r["company_id"]) for r in cur.fetchall()]
     return {
         "user_id": session["user_id"],
         "email": session["email"],
-        "active_company_id": session.get("active_company_id"),
+        "active_company_id": str(session.get("active_company_id")) if session.get("active_company_id") else None,
+        "companies": companies,
     }
 
 

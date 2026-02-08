@@ -82,6 +82,10 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
   - Added an Admin pricing catalog endpoint `GET /pricing/catalog` that returns items with effective prices (default price list fallback + item_prices) and full barcode lists (mirrors POS `/pos/catalog` logic but session-authenticated).
   - Sales Invoice Draft editor: replaced SKU-memorization flow with a fast searchable item picker (SKU/name/barcode), auto-shows UOM, and auto-fills unit price (editable).
   - Supplier Invoice Draft editor: same searchable item picker + UOM; auto-fills unit cost from supplier’s last cost when available (editable), with caching to avoid repeated calls.
+- Go-live readiness tooling (to reduce “day-1 surprises”):
+  - Added `GET /config/preflight` and a Web Admin UI at `System → Go-Live` that shows red/warn/ok checks (warehouses, account defaults, today’s exchange rate, payment method mappings, POS devices, etc).
+  - Added a dev-only demo seeding tool `POST /devtools/demo-data/import` (404 outside `local/dev`) and a “Seed Demo Data” button in `System → Go-Live` for rapid operator testing.
+  - Added a Playwright E2E flow (skipped unless `E2E_EMAIL`/`E2E_PASSWORD` are set) to validate “seed demo data → create draft invoice” end-to-end.
 - Local run sanity check:
   - `docker compose up -d` starts `db`, `api`, `worker`, `admin`, and `pos-agent`.
   - Verify with `docker compose ps` and `GET /health` on the mapped API port.
