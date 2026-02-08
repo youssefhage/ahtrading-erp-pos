@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import Optional
 from ..db import get_conn, get_admin_conn, set_company_context
 from ..deps import get_current_user, require_company_access, get_company_id, require_permission
+from ..validation import CurrencyCode, RateType
 
 router = APIRouter(prefix="/companies", tags=["companies"], dependencies=[Depends(get_current_user)])
 
@@ -12,9 +13,9 @@ class CompanyIn(BaseModel):
     legal_name: Optional[str] = None
     registration_no: Optional[str] = None
     vat_no: Optional[str] = None
-    base_currency: str = "USD"
-    vat_currency: str = "LBP"
-    default_rate_type: str = "market"
+    base_currency: CurrencyCode = "USD"
+    vat_currency: CurrencyCode = "LBP"
+    default_rate_type: RateType = "market"
 
 
 @router.get("")

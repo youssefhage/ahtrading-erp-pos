@@ -8,20 +8,21 @@ import json
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
+from ..validation import BankDirection, CurrencyCode
 
 router = APIRouter(prefix="/banking", tags=["banking"])
 
 
 class BankAccountIn(BaseModel):
     name: str
-    currency: str = "USD"
+    currency: CurrencyCode = "USD"
     gl_account_id: str
     is_active: bool = True
 
 
 class BankAccountUpdate(BaseModel):
     name: Optional[str] = None
-    currency: Optional[str] = None
+    currency: Optional[CurrencyCode] = None
     gl_account_id: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -134,7 +135,7 @@ def update_bank_account(account_id: str, data: BankAccountUpdate, company_id: st
 class BankTxnIn(BaseModel):
     bank_account_id: str
     txn_date: date
-    direction: str  # inflow|outflow
+    direction: BankDirection  # inflow|outflow
     amount_usd: Decimal = Decimal("0")
     amount_lbp: Decimal = Decimal("0")
     description: Optional[str] = None
@@ -191,9 +192,7 @@ def list_transactions(
 
 @router.post("/transactions", dependencies=[Depends(require_permission("accounting:write"))])
 def create_transaction(data: BankTxnIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    direction = (data.direction or "").strip().lower()
-    if direction not in {"inflow", "outflow"}:
-        raise HTTPException(status_code=400, detail="direction must be inflow or outflow")
+    direction = data.direction
     if data.amount_usd < 0 or data.amount_lbp < 0:
         raise HTTPException(status_code=400, detail="amounts must be >= 0")
     if data.amount_usd == 0 and data.amount_lbp == 0:
@@ -303,4 +302,3 @@ def unmatch_transaction(txn_id: str, company_id: str = Depends(get_company_id), 
                     (company_id, user["user_id"], txn_id),
                 )
                 return {"ok": True}
-

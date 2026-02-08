@@ -168,3 +168,14 @@ Risks to watch:
 - `backend/app/main.py`: map common Postgres errors to 4xx/409 instead of 500.
 - Added `.python-version` (3.11) and `.nvmrc` (20) to align local dev with CI/Docker.
 
+## Additional Execution (2026-02-08)
+
+- Added shared request validation types for currency/rate/status/payment method and applied them across core routers:
+  - `backend/app/validation.py`
+  - `backend/app/routers/companies.py`
+  - `backend/app/routers/config.py`
+  - `backend/app/routers/sales.py`
+  - `backend/app/routers/purchases.py`
+  - `backend/app/routers/banking.py`
+  - `backend/app/routers/pricing.py`
+- Fixed a runtime bug in `/purchases/payments` where the supplier payment journal referenced an undefined `exchange_rate` variable (now uses 0, consistent with customer payments).

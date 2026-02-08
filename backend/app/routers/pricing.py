@@ -8,6 +8,7 @@ import json
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
+from ..validation import CurrencyCode
 
 router = APIRouter(prefix="/pricing", tags=["pricing"])
 
@@ -15,13 +16,13 @@ router = APIRouter(prefix="/pricing", tags=["pricing"])
 class PriceListIn(BaseModel):
     code: str
     name: str
-    currency: str = "USD"
+    currency: CurrencyCode = "USD"
     is_default: bool = False
 
 
 class PriceListUpdate(BaseModel):
     name: Optional[str] = None
-    currency: Optional[str] = None
+    currency: Optional[CurrencyCode] = None
     is_default: Optional[bool] = None
 
 
@@ -245,4 +246,3 @@ def upsert_company_setting(data: CompanySettingIn, company_id: str = Depends(get
                     (company_id, user["user_id"], json.dumps(data.model_dump())),
                 )
                 return {"ok": True}
-

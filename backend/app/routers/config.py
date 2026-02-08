@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission
+from ..validation import CurrencyCode, PaymentMethod, RateType
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -12,12 +13,12 @@ class TaxCodeIn(BaseModel):
     name: str
     rate: Decimal
     tax_type: str = "vat"
-    reporting_currency: str = "LBP"
+    reporting_currency: CurrencyCode = "LBP"
 
 
 class ExchangeRateIn(BaseModel):
     rate_date: date
-    rate_type: str
+    rate_type: RateType
     usd_to_lbp: Decimal
 
 
@@ -27,7 +28,7 @@ class AccountDefaultIn(BaseModel):
 
 
 class PaymentMethodMappingIn(BaseModel):
-    method: str
+    method: PaymentMethod
     role_code: str
 
 @router.get("/account-roles", dependencies=[Depends(require_permission("config:read"))])

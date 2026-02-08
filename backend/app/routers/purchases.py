@@ -9,6 +9,7 @@ from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
 import json
 from ..journal_utils import auto_balance_journal
+from ..validation import DocStatus, PaymentMethod
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
@@ -258,7 +259,7 @@ class TaxBlock(BaseModel):
 
 
 class PaymentBlock(BaseModel):
-    method: str
+    method: PaymentMethod
     amount_usd: Decimal
     amount_lbp: Decimal
 
@@ -313,7 +314,7 @@ class PurchaseOrderIn(BaseModel):
     lines: List[PurchaseOrderLine]
 
 class PurchaseOrderStatusUpdate(BaseModel):
-    status: str  # draft|posted|canceled
+    status: DocStatus  # draft|posted|canceled
 
 
 class PurchaseOrderDraftLineIn(BaseModel):
@@ -424,7 +425,7 @@ class SupplierInvoiceDraftFromReceiptIn(BaseModel):
 
 class SupplierPaymentIn(BaseModel):
     supplier_invoice_id: str
-    method: str = "bank"  # cash|bank|transfer|other
+    method: PaymentMethod = "bank"
     amount_usd: Decimal = Decimal("0")
     amount_lbp: Decimal = Decimal("0")
     payment_date: Optional[date] = None
@@ -3042,13 +3043,11 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
 
 @router.post("/payments", dependencies=[Depends(require_permission("purchases:write"))])
 def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    method = (data.method or "bank").strip().lower()
-    if method not in {"cash", "bank", "transfer", "other"}:
-        raise HTTPException(status_code=400, detail="invalid method")
     if data.amount_usd < 0 or data.amount_lbp < 0:
         raise HTTPException(status_code=400, detail="amounts must be >= 0")
     if data.amount_usd == 0 and data.amount_lbp == 0:
         raise HTTPException(status_code=400, detail="amount is required")
+    method = data.method  # already normalized by validator
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -3068,6 +3067,18 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                 inv = cur.fetchone()
                 if not inv:
                     raise HTTPException(status_code=404, detail="supplier invoice not found")
+
+                # Require mapping so methods are consistent and GL accounts are resolvable.
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM payment_method_mappings
+                    WHERE company_id = %s AND method = %s
+                    """,
+                    (company_id, method),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail=f"Unknown payment method: {method}")
 
                 cur.execute(
                     """
@@ -3098,7 +3109,8 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                       (gen_random_uuid(), %s, %s, 'supplier_payment', %s, %s, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"SP-{str(payment_id)[:8]}", payment_id, pay_date, exchange_rate, "Supplier payment", user["user_id"]),
+                    # Payment journals don't require an FX rate; keep 0 for auditability consistency.
+                    (company_id, f"SP-{str(payment_id)[:8]}", payment_id, pay_date, 0, "Supplier payment", user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 

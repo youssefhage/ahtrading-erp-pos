@@ -10,6 +10,7 @@ import json
 import uuid
 from backend.workers import pos_processor
 from ..journal_utils import auto_balance_journal
+from ..validation import CurrencyCode, PaymentMethod
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
@@ -159,7 +160,7 @@ class TaxBlock(BaseModel):
 
 
 class PaymentBlock(BaseModel):
-    method: str
+    method: PaymentMethod
     amount_usd: Decimal
     amount_lbp: Decimal
 
@@ -168,8 +169,8 @@ class SalesInvoiceIn(BaseModel):
     device_id: str
     invoice_no: Optional[str] = None
     exchange_rate: Decimal
-    pricing_currency: str = "USD"
-    settlement_currency: str = "USD"
+    pricing_currency: CurrencyCode = "USD"
+    settlement_currency: CurrencyCode = "USD"
     customer_id: Optional[str] = None
     warehouse_id: Optional[str] = None
     shift_id: Optional[str] = None
@@ -192,7 +193,7 @@ class SalesReturnIn(BaseModel):
 
 class SalesPaymentIn(BaseModel):
     invoice_id: str
-    method: str
+    method: PaymentMethod
     amount_usd: Decimal
     amount_lbp: Decimal
     payment_date: Optional[date] = None
@@ -404,8 +405,8 @@ class SalesInvoiceDraftIn(BaseModel):
     invoice_date: Optional[date] = None
     due_date: Optional[date] = None
     exchange_rate: Decimal = Decimal("0")
-    pricing_currency: str = "USD"
-    settlement_currency: str = "USD"
+    pricing_currency: CurrencyCode = "USD"
+    settlement_currency: CurrencyCode = "USD"
     # Allow creating an empty draft (header-first); posting will require lines.
     lines: List[SalesInvoiceDraftLineIn] = []
 
@@ -416,8 +417,8 @@ class SalesInvoiceDraftUpdateIn(BaseModel):
     invoice_date: Optional[date] = None
     due_date: Optional[date] = None
     exchange_rate: Optional[Decimal] = None
-    pricing_currency: Optional[str] = None
-    settlement_currency: Optional[str] = None
+    pricing_currency: Optional[CurrencyCode] = None
+    settlement_currency: Optional[CurrencyCode] = None
     # Replaces all lines if provided; drafts may be temporarily empty.
     lines: Optional[List[SalesInvoiceDraftLineIn]] = None
 
@@ -1415,6 +1416,10 @@ def get_sales_return(return_id: str, company_id: str = Depends(get_company_id)):
 
 @router.post("/payments", dependencies=[Depends(require_permission("sales:write"))])
 def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    if data.amount_usd < 0 or data.amount_lbp < 0:
+        raise HTTPException(status_code=400, detail="amounts must be >= 0")
+    if data.amount_usd == 0 and data.amount_lbp == 0:
+        raise HTTPException(status_code=400, detail="amount is required")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
@@ -1433,9 +1438,18 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 if not row:
                     raise HTTPException(status_code=404, detail="invoice not found")
 
-                method = (data.method or "").strip().lower()
-                if not method:
-                    raise HTTPException(status_code=400, detail="method is required")
+                method = data.method  # already normalized by validator
+                # Always require a mapping so methods stay consistent identifiers across the system.
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM payment_method_mappings
+                    WHERE company_id = %s AND method = %s
+                    """,
+                    (company_id, method),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail=f"Unknown payment method: {method}")
 
                 cur.execute(
                     """
