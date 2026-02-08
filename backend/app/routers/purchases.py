@@ -533,7 +533,7 @@ def list_supplier_invoices(
     limit: Optional[int] = None,
     offset: int = 0,
     q: Optional[str] = None,
-    status: Optional[str] = None,
+    status: Optional[DocStatus] = None,
     supplier_id: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,

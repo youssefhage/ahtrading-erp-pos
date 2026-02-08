@@ -10,7 +10,7 @@ import json
 import uuid
 from backend.workers import pos_processor
 from ..journal_utils import auto_balance_journal
-from ..validation import CurrencyCode, PaymentMethod
+from ..validation import CurrencyCode, PaymentMethod, DocStatus
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
@@ -246,7 +246,7 @@ def list_sales_invoices(
     limit: Optional[int] = None,
     offset: int = 0,
     q: Optional[str] = None,
-    status: Optional[str] = None,
+    status: Optional[DocStatus] = None,
     customer_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
     date_from: Optional[date] = None,
