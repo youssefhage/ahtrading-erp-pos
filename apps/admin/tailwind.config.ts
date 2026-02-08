@@ -2,58 +2,12 @@ import type { Config } from "tailwindcss";
 import defaultTheme from "tailwindcss/defaultTheme";
 
 const config: Config = {
-  darkMode: "class",
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       fontFamily: {
-        sans: ["var(--font-sans)", ...defaultTheme.fontFamily.sans],
-        mono: ['"JetBrains Mono"', "ui-monospace", "monospace"]
-      },
-      colors: {
-        border: "rgb(var(--border))",
-        "border-subtle": "rgb(var(--border-subtle))",
-        "border-strong": "rgb(var(--border-strong))",
-        background: "rgb(var(--bg))",
-        "bg-elevated": "rgb(var(--bg-elevated))",
-        "bg-sunken": "rgb(var(--bg-sunken))",
-        foreground: "rgb(var(--fg))",
-        "fg-muted": "rgb(var(--fg-muted))",
-        "fg-subtle": "rgb(var(--fg-subtle))",
-        primary: {
-          DEFAULT: "rgb(var(--primary))",
-          foreground: "rgb(var(--primary-fg))",
-          dim: "rgb(var(--primary-dim))"
-        },
-        terminal: {
-          green: "rgb(var(--terminal-green))",
-          amber: "rgb(var(--terminal-amber))",
-          cyan: "rgb(var(--terminal-cyan))"
-        }
-      },
-      boxShadow: {
-        "glow-amber": "0 0 20px rgba(245, 158, 11, 0.15)",
-        "glow-green": "0 0 20px rgba(34, 197, 94, 0.15)",
-        "glow-red": "0 0 20px rgba(239, 68, 68, 0.15)"
-      },
-      animation: {
-        "fade-in": "fadeIn 0.2s ease-out",
-        "slide-in-right": "slideInRight 0.2s ease-out",
-        "pulse-subtle": "pulseSubtle 2s ease-in-out infinite"
-      },
-      keyframes: {
-        fadeIn: {
-          "0%": { opacity: "0" },
-          "100%": { opacity: "1" }
-        },
-        slideInRight: {
-          "0%": { opacity: "0", transform: "translateX(10px)" },
-          "100%": { opacity: "1", transform: "translateX(0)" }
-        },
-        pulseSubtle: {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.7" }
-        }
+        sans: ['"Space Grotesk"', ...defaultTheme.fontFamily.sans],
+        mono: ['"JetBrains Mono"', ...defaultTheme.fontFamily.mono]
       }
     }
   },

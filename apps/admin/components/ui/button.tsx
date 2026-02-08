@@ -5,27 +5,20 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
-        default:
-          "bg-amber-500 text-black shadow-sm hover:bg-amber-400 active:bg-amber-600",
-        secondary:
-          "bg-bg-elevated text-foreground shadow-sm hover:bg-bg-sunken active:bg-bg-sunken",
-        outline:
-          "border border-border bg-transparent text-foreground shadow-sm hover:border-border-strong hover:bg-bg-elevated/60",
-        ghost:
-          "text-fg-muted hover:bg-bg-elevated/60 hover:text-foreground",
-        destructive:
-          "bg-red-600 text-white shadow-sm hover:bg-red-500 active:bg-red-700",
-        link:
-          "text-primary underline-offset-4 hover:underline"
+        default: "bg-teal-600 text-white shadow-sm hover:bg-teal-700 active:bg-teal-800",
+        secondary: "bg-slate-900/5 text-slate-900 hover:bg-slate-900/10",
+        outline: "border border-[rgb(var(--border)/0.9)] bg-white/50 shadow-sm hover:bg-white/75",
+        ghost: "hover:bg-slate-900/5",
+        destructive: "bg-rose-600 text-white shadow-sm hover:bg-rose-700 active:bg-rose-800"
       },
       size: {
         default: "h-10 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-11 rounded-md px-8",
+        sm: "h-9 rounded-lg px-3",
+        lg: "h-11 rounded-lg px-8",
         icon: "h-10 w-10"
       }
     },

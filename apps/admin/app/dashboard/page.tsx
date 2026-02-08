@@ -2,20 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  TrendingUp,
-  TrendingDown,
-  DollarSign,
-  Package,
-  Users,
-  AlertTriangle,
-  RefreshCw,
-  ArrowRight,
-  Activity,
-  CreditCard,
-  ShoppingCart,
-  Truck
-} from "lucide-react";
 
 import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -49,147 +35,6 @@ function fmtCurrency(value: string | number, currency: "USD" | "LBP") {
   if (currency === "USD") return `$${fmtNumber(n)}`;
   return `LBP ${fmtNumber(n)}`;
 }
-
-function MetricCard({
-  title,
-  description,
-  value,
-  secondaryValue,
-  icon: Icon,
-  trend,
-  trendValue,
-  loading,
-  onClick
-}: {
-  title: string;
-  description: string;
-  value: string;
-  secondaryValue?: string;
-  icon: React.ComponentType<{ className?: string }>;
-  trend?: "up" | "down" | "neutral";
-  trendValue?: string;
-  loading?: boolean;
-  onClick?: () => void;
-}) {
-  if (loading) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-3 w-16" />
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-8 w-32 mb-2" />
-          <Skeleton className="h-4 w-24" />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card
-      className="transition-all duration-200 hover:border-border-strong hover:bg-bg-sunken/60 cursor-pointer group"
-      onClick={onClick}
-    >
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between">
-          <div className="flex flex-col gap-1">
-            <CardTitle className="text-sm font-medium text-fg-muted">{title}</CardTitle>
-            <CardDescription className="text-xs">{description}</CardDescription>
-          </div>
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-sunken text-fg-muted transition-colors">
-            <Icon className="h-4 w-4" />
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-col gap-1">
-          <span className="text-2xl font-semibold tabular-nums text-foreground">{value}</span>
-          {secondaryValue && (
-            <span className="text-sm text-fg-subtle tabular-nums">{secondaryValue}</span>
-          )}
-          {trend && trendValue && (
-            <div className="flex items-center gap-1 mt-1">
-              {trend === "up" ? (
-                <TrendingUp className="h-3.5 w-3.5 text-green-400" />
-              ) : trend === "down" ? (
-                <TrendingDown className="h-3.5 w-3.5 text-red-400" />
-              ) : null}
-              <span
-                className={cn(
-                  "text-xs",
-                  trend === "up" ? "text-green-400" : trend === "down" ? "text-red-400" : "text-fg-subtle"
-                )}
-              >
-                {trendValue}
-              </span>
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function QuickAction({
-  icon: Icon,
-  label,
-  description,
-  onClick
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  description: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex w-full items-center gap-3 rounded-lg border border-border-subtle bg-bg-elevated/60 p-3 text-left transition-all duration-200 hover:border-border-strong hover:bg-bg-sunken/60"
-    >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-bg-sunken text-fg-muted">
-        <Icon className="h-5 w-5" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">{label}</p>
-        <p className="text-xs text-fg-subtle">{description}</p>
-      </div>
-      <ArrowRight className="h-4 w-4 shrink-0 text-fg-subtle" />
-    </button>
-  );
-}
-
-function StatusIndicator({
-  label,
-  value,
-  status
-}: {
-  label: string;
-  value: string | number;
-  status: "good" | "warning" | "critical";
-}) {
-  const statusColors = {
-    good: "bg-green-500/20 text-green-400 border-green-500/30",
-    warning: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-    critical: "bg-red-500/20 text-red-400 border-red-500/30"
-  };
-
-  return (
-    <div className="flex items-center justify-between rounded-md border border-border-subtle bg-bg-elevated/60 px-3 py-2">
-      <span className="text-sm text-fg-muted">{label}</span>
-      <span
-        className={cn(
-          "rounded-md border px-2 py-0.5 text-xs font-medium tabular-nums",
-          statusColors[status]
-        )}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-import { cn } from "@/lib/utils";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -229,248 +74,162 @@ export default function DashboardPage() {
     }
   }
 
-  const isLoading = !metrics && status === "Loading...";
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
-          <p className="text-sm text-fg-subtle">Overview of your business metrics and activity</p>
+    <div className="mx-auto max-w-5xl space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={refresh} disabled={refreshing}>
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </Button>
+            {lastUpdatedAt ? (
+              <p className="text-xs text-slate-600">
+                Updated{" "}
+                <span className="font-medium text-slate-800">
+                  {lastUpdatedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => router.push("/sales/invoices")}>
+              Sales Invoices
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/inventory/stock")}>
+              Stock
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/catalog/items")}>
+              Items
+            </Button>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          {lastUpdatedAt && (
-            <span className="text-xs text-fg-subtle">
-              Last updated{" "}
-              <time className="tabular-nums text-fg-muted">
-                {lastUpdatedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-              </time>
-            </span>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={refresh}
-            disabled={refreshing}
-            className="gap-2"
-          >
-            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-            {refreshing ? "Refreshing..." : "Refresh"}
-          </Button>
-        </div>
-      </div>
 
-      {/* Error State */}
-      {status && status !== "Loading..." && (
-        <Card className="border-red-500/30 bg-red-500/10">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="h-5 w-5 text-red-400" />
-            <div>
-              <p className="text-sm font-medium text-red-400">Error loading metrics</p>
-              <p className="text-xs text-red-300/70">{status}</p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+        {status && status !== "Loading..." ? (
+          <Card className="border-red-200/70 bg-red-50/60">
+            <CardHeader>
+              <CardTitle>Status</CardTitle>
+              <CardDescription>API errors will show here.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+            </CardContent>
+          </Card>
+        ) : null}
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <MetricCard
-          title="Today's Sales"
-          description="USD revenue today"
-          value={metrics ? fmtCurrency(metrics.sales_today_usd, "USD") : "$0.00"}
-          secondaryValue={metrics ? fmtCurrency(metrics.sales_today_lbp, "LBP") : undefined}
-          icon={DollarSign}
-          trend="up"
-          trendValue="+12% vs yesterday"
-          loading={isLoading}
-          onClick={() => router.push("/sales/invoices")}
-        />
+        {!metrics && status === "Loading..." ? (
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Card key={i}>
+                <CardHeader>
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="h-4 w-28" />
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Skeleton className="h-7 w-32" />
+                  <Skeleton className="h-4 w-24" />
+                </CardContent>
+              </Card>
+            ))}
+          </section>
+        ) : null}
 
-        <MetricCard
-          title="Today's Purchases"
-          description="USD spent today"
-          value={metrics ? fmtCurrency(metrics.purchases_today_usd, "USD") : "$0.00"}
-          secondaryValue={metrics ? fmtCurrency(metrics.purchases_today_lbp, "LBP") : undefined}
-          icon={Truck}
-          trend="neutral"
-          trendValue="Same as yesterday"
-          loading={isLoading}
-          onClick={() => router.push("/purchasing/purchase-orders")}
-        />
-
-        <MetricCard
-          title="Stock Value"
-          description="Total inventory value"
-          value={metrics ? fmtCurrency(metrics.stock_value_usd, "USD") : "$0.00"}
-          secondaryValue={metrics ? fmtCurrency(metrics.stock_value_lbp, "LBP") : undefined}
-          icon={Package}
-          trend="up"
-          trendValue="+3.2% this week"
-          loading={isLoading}
-          onClick={() => router.push("/inventory/stock")}
-        />
-
-        <MetricCard
-          title="Accounts Receivable"
-          description="Outstanding customer balances"
-          value={metrics ? fmtCurrency(metrics.ar_usd, "USD") : "$0.00"}
-          secondaryValue={metrics ? fmtCurrency(metrics.ar_lbp, "LBP") : undefined}
-          icon={CreditCard}
-          trend="down"
-          trendValue="-5% collected"
-          loading={isLoading}
-          onClick={() => router.push("/accounting/reports/ar-aging")}
-        />
-
-        <MetricCard
-          title="Accounts Payable"
-          description="Outstanding supplier balances"
-          value={metrics ? fmtCurrency(metrics.ap_usd, "USD") : "$0.00"}
-          secondaryValue={metrics ? fmtCurrency(metrics.ap_lbp, "LBP") : undefined}
-          icon={Activity}
-          loading={isLoading}
-          onClick={() => router.push("/accounting/reports/ap-aging")}
-        />
-
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between">
-              <div className="flex flex-col gap-1">
-                <CardTitle className="text-sm font-medium text-fg-muted">Catalog & Partners</CardTitle>
-                <CardDescription className="text-xs">Entity counts</CardDescription>
-              </div>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-sunken text-fg-muted">
-                <Users className="h-4 w-4" />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {isLoading ? (
-              <>
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-              </>
-            ) : (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">Items</span>
-                  <span className="text-sm font-medium tabular-nums text-foreground">
-                    {fmtNumber(metrics?.items_count || 0)}
-                  </span>
+        {metrics ? (
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <Card>
+              <CardHeader>
+                <CardTitle>Today Sales</CardTitle>
+                <CardDescription>USD + LBP</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                <div className="text-xl font-semibold">
+                  {fmtCurrency(metrics.sales_today_usd, "USD")}
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">Customers</span>
-                  <span className="text-sm font-medium tabular-nums text-foreground">
-                    {fmtNumber(metrics?.customers_count || 0)}
-                  </span>
+                <div className="text-sm text-slate-600">
+                  {fmtCurrency(metrics.sales_today_lbp, "LBP")}
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">Suppliers</span>
-                  <span className="text-sm font-medium tabular-nums text-foreground">
-                    {fmtNumber(metrics?.suppliers_count || 0)}
-                  </span>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Today Purchases</CardTitle>
+                <CardDescription>USD + LBP</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                <div className="text-xl font-semibold">
+                  {fmtCurrency(metrics.purchases_today_usd, "USD")}
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">Low Stock Alerts</span>
-                  <span
-                    className={cn(
-                      "text-sm font-medium tabular-nums",
-                      (metrics?.low_stock_count || 0) > 0 ? "text-red-400" : "text-foreground"
-                    )}
-                  >
-                    {fmtNumber(metrics?.low_stock_count || 0)}
-                  </span>
+                <div className="text-sm text-slate-600">
+                  {fmtCurrency(metrics.purchases_today_lbp, "LBP")}
                 </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Bottom Section */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Quick Actions */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">Quick Actions</CardTitle>
-            <CardDescription>Common tasks and workflows</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <QuickAction
-                icon={ShoppingCart}
-                label="Create Sales Invoice"
-                description="New customer invoice"
-                onClick={() => router.push("/sales/invoices")}
-              />
-              <QuickAction
-                icon={Truck}
-                label="Create Purchase Order"
-                description="Order from suppliers"
-                onClick={() => router.push("/purchasing/purchase-orders")}
-              />
-              <QuickAction
-                icon={Package}
-                label="View Stock Levels"
-                description="Check inventory status"
-                onClick={() => router.push("/inventory/stock")}
-              />
-              <QuickAction
-                icon={Users}
-                label="Manage Customers"
-                description="Customer directory"
-                onClick={() => router.push("/partners/customers")}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* System Status */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">System Status</CardTitle>
-            <CardDescription>Health indicators</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <StatusIndicator
-              label="Database"
-              value="Connected"
-              status="good"
-            />
-            <StatusIndicator
-              label="POS Integration"
-              value="Active"
-              status="good"
-            />
-            <StatusIndicator
-              label="Outbox Queue"
-              value={metrics ? fmtNumber(0) : "-"}
-              status="good"
-            />
-            <StatusIndicator
-              label="Low Stock Items"
-              value={metrics ? fmtNumber(metrics.low_stock_count) : "-"}
-              status={metrics && metrics.low_stock_count > 0 ? "warning" : "good"}
-            />
-
-            <div className="mt-4 rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
-              <div className="flex items-start gap-2">
-                <Activity className="mt-0.5 h-4 w-4 text-amber-400" />
-                <div>
-                  <p className="text-xs font-medium text-amber-400">Daily Summary</p>
-                  <p className="text-xs text-amber-300/70">
-                    Sales are up 12% compared to yesterday. Consider reviewing stock levels for fast-moving items.
-                  </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Stock Value</CardTitle>
+                <CardDescription>Based on stock_moves valuation</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                <div className="text-xl font-semibold">
+                  {fmtCurrency(metrics.stock_value_usd, "USD")}
                 </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
+                <div className="text-sm text-slate-600">
+                  {fmtCurrency(metrics.stock_value_lbp, "LBP")}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Accounts Receivable</CardTitle>
+                <CardDescription>Outstanding customer balances</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                <div className="text-xl font-semibold">
+                  {fmtCurrency(metrics.ar_usd, "USD")}
+                </div>
+                <div className="text-sm text-slate-600">
+                  {fmtCurrency(metrics.ar_lbp, "LBP")}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Accounts Payable</CardTitle>
+                <CardDescription>Outstanding supplier balances</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                <div className="text-xl font-semibold">
+                  {fmtCurrency(metrics.ap_usd, "USD")}
+                </div>
+                <div className="text-sm text-slate-600">
+                  {fmtCurrency(metrics.ap_lbp, "LBP")}
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Catalog & Partners</CardTitle>
+                <CardDescription>Counts</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Items</span>
+                  <span className="font-medium">{fmtNumber(metrics.items_count)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Customers</span>
+                  <span className="font-medium">{fmtNumber(metrics.customers_count)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Suppliers</span>
+                  <span className="font-medium">{fmtNumber(metrics.suppliers_count)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-600">Low Stock</span>
+                  <span className="font-medium">{fmtNumber(metrics.low_stock_count)}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        ) : null}
+      </div>);
 }
