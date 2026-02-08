@@ -78,6 +78,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [importAutoCreateSupplier, setImportAutoCreateSupplier] = useState(true);
   const [importAutoCreateItems, setImportAutoCreateItems] = useState(true);
   const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -147,12 +148,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         );
 
         // Attachments are optional; don't block editing if the user lacks access.
-        try {
-          const a = await apiGet<{ attachments: AttachmentRow[] }>(`/attachments?entity_type=supplier_invoice&entity_id=${encodeURIComponent(id)}`);
-          setAttachments(a.attachments || []);
-        } catch {
-          setAttachments([]);
-        }
+        await reloadAttachments(id);
       } else {
         setSupplierId("");
         setInvoiceNo("");
@@ -296,6 +292,15 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
   const title = props.mode === "edit" ? "Edit Draft Supplier Invoice" : "Create Draft Supplier Invoice";
 
+  async function reloadAttachments(id: string) {
+    try {
+      const a = await apiGet<{ attachments: AttachmentRow[] }>(`/attachments?entity_type=supplier_invoice&entity_id=${encodeURIComponent(id)}`);
+      setAttachments(a.attachments || []);
+    } catch {
+      setAttachments([]);
+    }
+  }
+
   async function importFromFile(e: React.FormEvent) {
     e.preventDefault();
     const form = e.target as HTMLFormElement;
@@ -327,6 +332,36 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       setStatus(message);
     } finally {
       setImporting(false);
+      if (input) input.value = "";
+    }
+  }
+
+  async function uploadAttachment(e: React.FormEvent) {
+    e.preventDefault();
+    const id = props.invoiceId || "";
+    if (!id) return setStatus("missing invoice id");
+    const form = e.target as HTMLFormElement;
+    const input = form.querySelector<HTMLInputElement>("input[name='attachment_file']");
+    const f = input?.files?.[0];
+    if (!f) return setStatus("Pick a file to attach.");
+
+    setAttachmentUploading(true);
+    setStatus("Uploading attachment...");
+    try {
+      const fd = new FormData();
+      fd.set("entity_type", "supplier_invoice");
+      fd.set("entity_id", id);
+      fd.set("file", f);
+
+      const raw = await fetch("/api/attachments", { method: "POST", body: fd, credentials: "include" });
+      if (!raw.ok) throw new Error(await raw.text());
+      await reloadAttachments(id);
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setAttachmentUploading(false);
       if (input) input.value = "";
     }
   }
@@ -411,6 +446,15 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             <CardDescription>Reference the uploaded supplier invoice while you edit the draft.</CardDescription>
           </CardHeader>
           <CardContent>
+            <form onSubmit={uploadAttachment} className="mb-4 flex flex-wrap items-end justify-between gap-2">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Add attachment (max 5MB)</label>
+                <input name="attachment_file" type="file" disabled={attachmentUploading || loading || saving} className="block w-full text-xs" />
+              </div>
+              <Button type="submit" variant="outline" disabled={attachmentUploading || loading || saving}>
+                {attachmentUploading ? "Uploading..." : "Upload"}
+              </Button>
+            </form>
             {attachments.length ? (
               <div className="ui-table-wrap">
                 <table className="ui-table">
