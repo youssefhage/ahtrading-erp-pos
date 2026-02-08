@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -8,9 +8,17 @@ import { parseNumberInput } from "@/lib/numbers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ItemPicker, type ItemPickerItem } from "@/components/item-picker";
 
 type Customer = { id: string; name: string; payment_terms_days?: string | number };
-type Item = { id: string; sku: string; barcode: string | null; name: string };
+type CatalogItemBarcode = { id: string; barcode: string; qty_factor: string | number; label: string | null; is_primary: boolean };
+type Item = ItemPickerItem & {
+  barcode: string | null;
+  unit_of_measure: string;
+  price_usd: string | number | null;
+  price_lbp: string | number | null;
+  barcodes: CatalogItemBarcode[];
+};
 type Warehouse = { id: string; name: string };
 
 type InvoiceLine = {
@@ -77,19 +85,16 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 
   const [lines, setLines] = useState<Array<{ item_id: string; qty: string; unit_price_usd: string; unit_price_lbp: string }>>([]);
 
-  const [addSku, setAddSku] = useState("");
   const [addItemId, setAddItemId] = useState("");
   const [addQty, setAddQty] = useState("1");
   const [addUsd, setAddUsd] = useState("");
   const [addLbp, setAddLbp] = useState("");
 
+  const addQtyRef = useRef<HTMLInputElement | null>(null);
+
   const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  const itemBySku = useMemo(() => new Map(items.map((i) => [i.sku.toUpperCase(), i])), [items]);
-  const itemByBarcode = useMemo(
-    () => new Map(items.filter((i) => i.barcode).map((i) => [String(i.barcode).toUpperCase(), i])),
-    [items]
-  );
+  const addItem = addItemId ? itemById.get(addItemId) : undefined;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,7 +102,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     try {
       const [cust, it, wh] = await Promise.all([
         apiGet<{ customers: Customer[] }>("/customers"),
-        apiGet<{ items: Item[] }>("/items"),
+        apiGet<{ items: Item[] }>("/pricing/catalog"),
         apiGet<{ warehouses: Warehouse[] }>("/warehouses")
       ]);
       setCustomers(cust.customers || []);
@@ -160,24 +165,36 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoDueDate, customerId, invoiceDate, customers.length]);
 
-  function onSkuChange(next: string) {
-    const token = (next || "").trim().toUpperCase();
-    setAddSku(token);
-    const it = itemBySku.get(token) || itemByBarcode.get(token);
-    setAddItemId(it?.id || "");
+  function onPickItem(it: Item) {
+    setAddItemId(it.id);
+    setAddQty("1");
+
+    const usd = toNum(String(it.price_usd ?? ""));
+    const lbp = toNum(String(it.price_lbp ?? ""));
+    setAddUsd(usd > 0 ? String(usd) : "");
+    setAddLbp(lbp > 0 ? String(lbp) : "");
+
+    setStatus("");
+    setTimeout(() => addQtyRef.current?.focus(), 0);
   }
 
   function addLine(e: React.FormEvent) {
     e.preventDefault();
-    if (!addItemId) return setStatus("Pick a valid SKU/item.");
+    if (!addItemId) return setStatus("Select an item.");
     const q = toNum(addQty);
     if (q <= 0) return setStatus("qty must be > 0");
-    if (toNum(addUsd) === 0 && toNum(addLbp) === 0) return setStatus("Set USD or LL unit price.");
+    let unitUsd = toNum(addUsd);
+    let unitLbp = toNum(addLbp);
+    const ex = toNum(exchangeRate);
+    if (ex > 0) {
+      if (unitUsd === 0 && unitLbp > 0) unitUsd = unitLbp / ex;
+      if (unitLbp === 0 && unitUsd > 0) unitLbp = unitUsd * ex;
+    }
+    if (unitUsd === 0 && unitLbp === 0) return setStatus("Set USD or LL unit price.");
     setLines((prev) => [
       ...prev,
-      { item_id: addItemId, qty: String(q), unit_price_usd: String(toNum(addUsd)), unit_price_lbp: String(toNum(addLbp)) }
+      { item_id: addItemId, qty: String(q), unit_price_usd: String(unitUsd), unit_price_lbp: String(unitLbp) }
     ]);
-    setAddSku("");
     setAddItemId("");
     setAddQty("1");
     setAddUsd("");
@@ -350,42 +367,28 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                  <div className="space-y-1 md:col-span-3">
-                    <label className="text-xs font-medium text-fg-muted">SKU or Barcode</label>
-                    <Input value={addSku} onChange={(e) => onSkuChange(e.target.value)} placeholder="SKU-001 or 0123456789" />
-                    <p className="text-[11px] text-fg-subtle">
-                      Match:{" "}
-                      {addItemId ? (
-                        <span className="font-mono">{itemById.get(addItemId)?.sku || addItemId}</span>
-                      ) : (
-                        <span className="text-fg-subtle">none</span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="space-y-1 md:col-span-3">
-                    <label className="text-xs font-medium text-fg-muted">Item</label>
-                    <select
-                      className="ui-select"
-                      value={addItemId}
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        setAddItemId(id);
-                        const it = itemById.get(id);
-                        if (it) setAddSku(it.sku);
-                      }}
-                    >
-                      <option value="">Select item...</option>
-                      {items.map((it) => (
-                        <option key={it.id} value={it.id}>
-                          {it.sku} · {it.name}
-                        </option>
-                      ))}
-                    </select>
+                <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
+                  <div className="space-y-1 md:col-span-6">
+                    <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
+                    <ItemPicker items={items} onSelect={(it) => onPickItem(it as Item)} disabled={loading} />
+                    {addItem ? (
+                      <p className="text-[11px] text-fg-subtle">
+                        Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-fg-subtle">Tip: paste/scan a barcode then press Enter.</p>
+                    )}
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Qty</label>
-                    <Input value={addQty} onChange={(e) => setAddQty(e.target.value)} />
+                    <div className="relative">
+                      <Input ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} className="pr-14" />
+                      {addItem?.unit_of_measure ? (
+                        <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[11px] text-fg-subtle">
+                          {addItem.unit_of_measure}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Unit USD</label>
@@ -395,7 +398,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                     <label className="text-xs font-medium text-fg-muted">Unit LL</label>
                     <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
                   </div>
-                  <div className="md:col-span-6 flex justify-end gap-2">
+                  <div className="md:col-span-12 flex justify-end gap-2">
                     <Button type="submit" variant="outline" disabled={loading}>
                       Add Line
                     </Button>
@@ -433,7 +436,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                               )}
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
-                              {qty.toLocaleString("en-US", { maximumFractionDigits: 3 })}
+                              {qty.toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
+                              {it?.unit_of_measure ? <span className="text-[10px] text-fg-subtle">{it.unit_of_measure}</span> : null}
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
                               {unitUsd.toLocaleString("en-US", { maximumFractionDigits: 4 })}

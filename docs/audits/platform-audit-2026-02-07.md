@@ -63,7 +63,7 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
       - Supplier Invoices: `AI_AP_GUARD`
       - Inventory Alerts: `AI_EXPIRY_OPS`
       - Dashboard: pending AI recommendation counts (via `GET /ai/recommendations/summary`)
-  - AI-assisted purchasing import (v1):
+- AI-assisted purchasing import (v1):
     - Admin can upload a supplier invoice image/PDF and auto-generate a draft Supplier Invoice.
     - The original file is always attached to the draft invoice (auditability/rollback).
     - Draft editor and list UX improvements:
@@ -78,9 +78,13 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
     - Telegram webhook receiver exists (off-by-default) to support “send invoice to bot → create draft invoice” workflows (future WhatsApp can mirror this pattern).
     - Company policy gate exists to disable external AI processing while keeping “draft + attachment” imports working:
       - `company_settings.key='ai'` with `allow_external_processing` (Admin: `System → Config → AI Policy`).
-  - Local run sanity check:
-    - `docker compose up -d` starts `db`, `api`, `worker`, `admin`, and `pos-agent`.
-    - Verify with `docker compose ps` and `GET /health` on the mapped API port.
+- Admin data-entry UX (speed + convenience):
+  - Added an Admin pricing catalog endpoint `GET /pricing/catalog` that returns items with effective prices (default price list fallback + item_prices) and full barcode lists (mirrors POS `/pos/catalog` logic but session-authenticated).
+  - Sales Invoice Draft editor: replaced SKU-memorization flow with a fast searchable item picker (SKU/name/barcode), auto-shows UOM, and auto-fills unit price (editable).
+  - Supplier Invoice Draft editor: same searchable item picker + UOM; auto-fills unit cost from supplier’s last cost when available (editable), with caching to avoid repeated calls.
+- Local run sanity check:
+  - `docker compose up -d` starts `db`, `api`, `worker`, `admin`, and `pos-agent`.
+  - Verify with `docker compose ps` and `GET /health` on the mapped API port.
 
 Remaining work in this audit is mostly “business robustness” (expiry/lot operations, document metadata completeness, richer audit timelines for all mutations, and deeper ERP workflows).
 

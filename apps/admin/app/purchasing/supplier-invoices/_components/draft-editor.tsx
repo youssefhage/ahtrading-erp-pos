@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -8,9 +8,17 @@ import { parseNumberInput } from "@/lib/numbers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ItemPicker, type ItemPickerItem } from "@/components/item-picker";
 
 type Supplier = { id: string; name: string };
-type Item = { id: string; sku: string; name: string };
+type CatalogItemBarcode = { id: string; barcode: string; qty_factor: string | number; label: string | null; is_primary: boolean };
+type Item = ItemPickerItem & {
+  barcode?: string | null;
+  unit_of_measure?: string | null;
+  price_usd?: string | number | null;
+  price_lbp?: string | number | null;
+  barcodes?: CatalogItemBarcode[] | null;
+};
 type AttachmentRow = { id: string; filename: string; content_type: string; size_bytes: number; uploaded_at: string };
 
 type TaxCode = {
@@ -95,7 +103,6 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
   const [lines, setLines] = useState<InvoiceLineDraft[]>([]);
 
-  const [addSku, setAddSku] = useState("");
   const [addItemId, setAddItemId] = useState("");
   const [addQty, setAddQty] = useState("1");
   const [addUsd, setAddUsd] = useState("");
@@ -104,7 +111,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [addExpiry, setAddExpiry] = useState("");
 
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  const itemBySku = useMemo(() => new Map(items.map((i) => [i.sku.toUpperCase(), i])), [items]);
+  const addItem = addItemId ? itemById.get(addItemId) : undefined;
+  const addQtyRef = useRef<HTMLInputElement | null>(null);
+  const supplierCostCache = useRef(new Map<string, { usd: number; lbp: number } | null>());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,7 +121,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     try {
       const [s, i, tc] = await Promise.all([
         apiGet<{ suppliers: Supplier[] }>("/suppliers"),
-        apiGet<{ items: Item[] }>("/items"),
+        apiGet<{ items: Item[] }>("/pricing/catalog"),
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes")
       ]);
       setSuppliers(s.suppliers || []);
@@ -175,33 +184,68 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     load();
   }, [load]);
 
-  function onSkuChange(next: string) {
-    const token = (next || "").trim().toUpperCase();
-    setAddSku(token);
-    const it = itemBySku.get(token);
-    setAddItemId(it?.id || "");
+  async function fetchSupplierLastCost(itemId: string): Promise<{ usd: number; lbp: number } | null> {
+    const sup = (supplierId || "").trim();
+    if (!sup) return null;
+    const key = `${sup}:${itemId}`;
+    if (supplierCostCache.current.has(key)) return supplierCostCache.current.get(key) || null;
+    try {
+      const res = await apiGet<{
+        suppliers: Array<{ supplier_id: string; last_cost_usd: string | number | null; last_cost_lbp: string | number | null }>;
+      }>(`/suppliers/items/${encodeURIComponent(itemId)}`);
+      const row = (res.suppliers || []).find((r) => r.supplier_id === sup);
+      const usd = row ? toNum(String(row.last_cost_usd ?? "")) : 0;
+      const lbp = row ? toNum(String(row.last_cost_lbp ?? "")) : 0;
+      const val = usd > 0 || lbp > 0 ? { usd, lbp } : null;
+      supplierCostCache.current.set(key, val);
+      return val;
+    } catch {
+      supplierCostCache.current.set(key, null);
+      return null;
+    }
+  }
+
+  async function onPickItem(it: Item) {
+    setAddItemId(it.id);
+    setAddQty("1");
+    setAddBatchNo("");
+    setAddExpiry("");
+
+    // Prefer supplier-specific last cost when available.
+    const last = await fetchSupplierLastCost(it.id);
+    setAddUsd(last?.usd ? String(last.usd) : "");
+    setAddLbp(last?.lbp ? String(last.lbp) : "");
+
+    setStatus("");
+    setTimeout(() => addQtyRef.current?.focus(), 0);
   }
 
   function addLine(e: React.FormEvent) {
     e.preventDefault();
-    if (!addItemId) return setStatus("Pick a valid SKU/item.");
+    if (!addItemId) return setStatus("Select an item.");
     const q = toNum(addQty);
     if (q <= 0) return setStatus("qty must be > 0");
-    if (toNum(addUsd) === 0 && toNum(addLbp) === 0) return setStatus("Set USD or LL unit cost.");
+    let unitUsd = toNum(addUsd);
+    let unitLbp = toNum(addLbp);
+    const ex = toNum(exchangeRate);
+    if (ex > 0) {
+      if (unitUsd === 0 && unitLbp > 0) unitUsd = unitLbp / ex;
+      if (unitLbp === 0 && unitUsd > 0) unitLbp = unitUsd * ex;
+    }
+    if (unitUsd === 0 && unitLbp === 0) return setStatus("Set USD or LL unit cost.");
     setLines((prev) => [
       ...prev,
       {
         item_id: addItemId,
         qty: String(q),
-        unit_cost_usd: String(toNum(addUsd)),
-        unit_cost_lbp: String(toNum(addLbp)),
+        unit_cost_usd: String(unitUsd),
+        unit_cost_lbp: String(unitLbp),
         batch_no: addBatchNo || "",
         expiry_date: addExpiry || "",
         supplier_item_code: null,
         supplier_item_name: null
       }
     ]);
-    setAddSku("");
     setAddItemId("");
     setAddQty("1");
     setAddUsd("");
@@ -573,42 +617,28 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 <CardDescription>Add items and costs. Batch/expiry required if item tracking is enabled.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-6">
-                  <div className="space-y-1 md:col-span-3">
-                    <label className="text-xs font-medium text-fg-muted">SKU</label>
-                    <Input value={addSku} onChange={(e) => onSkuChange(e.target.value)} placeholder="SKU-001" />
-                    <p className="text-[11px] text-fg-subtle">
-                      Match:{" "}
-                      {addItemId ? (
-                        <span className="font-mono">{itemById.get(addItemId)?.sku || addItemId}</span>
-                      ) : (
-                        <span className="text-fg-subtle">none</span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="space-y-1 md:col-span-3">
-                    <label className="text-xs font-medium text-fg-muted">Item</label>
-                    <select
-                      className="ui-select"
-                      value={addItemId}
-                      onChange={(e) => {
-                        const id = e.target.value;
-                        setAddItemId(id);
-                        const it = itemById.get(id);
-                        if (it) setAddSku(it.sku);
-                      }}
-                    >
-                      <option value="">Select item...</option>
-                      {items.map((it) => (
-                        <option key={it.id} value={it.id}>
-                          {it.sku} · {it.name}
-                        </option>
-                      ))}
-                    </select>
+                <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
+                  <div className="space-y-1 md:col-span-6">
+                    <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
+                    <ItemPicker items={items} onSelect={(it) => void onPickItem(it as Item)} disabled={loading} />
+                    {addItem ? (
+                      <p className="text-[11px] text-fg-subtle">
+                        Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-fg-subtle">Tip: pick the item first, then type qty and cost.</p>
+                    )}
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Qty</label>
-                    <Input value={addQty} onChange={(e) => setAddQty(e.target.value)} />
+                    <div className="relative">
+                      <Input ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} className="pr-14" />
+                      {addItem?.unit_of_measure ? (
+                        <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[11px] text-fg-subtle">
+                          {String(addItem.unit_of_measure)}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Unit USD</label>
@@ -618,15 +648,15 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     <label className="text-xs font-medium text-fg-muted">Unit LL</label>
                     <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
                   </div>
-                  <div className="space-y-1 md:col-span-3">
+                  <div className="space-y-1 md:col-span-6">
                     <label className="text-xs font-medium text-fg-muted">Batch No (optional)</label>
                     <Input value={addBatchNo} onChange={(e) => setAddBatchNo(e.target.value)} placeholder="BATCH-001" />
                   </div>
-                  <div className="space-y-1 md:col-span-3">
+                  <div className="space-y-1 md:col-span-6">
                     <label className="text-xs font-medium text-fg-muted">Expiry Date (optional)</label>
                     <Input type="date" value={addExpiry} onChange={(e) => setAddExpiry(e.target.value)} />
                   </div>
-                  <div className="md:col-span-6 flex justify-end gap-2">
+                  <div className="md:col-span-12 flex justify-end gap-2">
                     <Button type="submit" variant="outline" disabled={loading}>
                       Add Line
                     </Button>
@@ -672,7 +702,10 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                                 <span className="font-mono text-xs">{l.item_id}</span>
                               )}
                             </td>
-                            <td className="px-3 py-2 text-right data-mono text-xs">{qty.toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
+                            <td className="px-3 py-2 text-right data-mono text-xs">
+                              {qty.toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
+                              {it?.unit_of_measure ? <span className="text-[10px] text-fg-subtle">{String(it.unit_of_measure)}</span> : null}
+                            </td>
                             <td className="px-3 py-2 text-right data-mono text-xs">{unitUsd.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
                             <td className="px-3 py-2 text-right data-mono text-xs">{unitLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}</td>
                             <td className="px-3 py-2 font-mono text-xs">{l.batch_no || "-"}</td>
