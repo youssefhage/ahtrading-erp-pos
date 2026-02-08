@@ -66,6 +66,79 @@ def fetch_payment_method_accounts(cur, company_id: str):
     rows = cur.fetchall()
     return {r["method"]: r["account_id"] for r in rows}
 
+def q_points(v: Decimal) -> Decimal:
+    # customer_loyalty_ledger.points is numeric(18,4)
+    return v.quantize(Decimal("0.0001"))
+
+
+def fetch_loyalty_policy(cur, company_id: str) -> tuple[Decimal, Decimal]:
+    """
+    Returns (points_per_usd, points_per_lbp) from company_settings key='loyalty'.
+    Stored as value_json: {"points_per_usd": 1, "points_per_lbp": 0}
+    """
+    set_company_context(cur, company_id)
+    cur.execute(
+        """
+        SELECT value_json
+        FROM company_settings
+        WHERE company_id=%s AND key='loyalty'
+        """,
+        (company_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return Decimal("0"), Decimal("0")
+    v = row.get("value_json") or {}
+    try:
+        p_usd = Decimal(str((v or {}).get("points_per_usd") or 0))
+    except Exception:
+        p_usd = Decimal("0")
+    try:
+        p_lbp = Decimal(str((v or {}).get("points_per_lbp") or 0))
+    except Exception:
+        p_lbp = Decimal("0")
+    if p_usd < 0:
+        p_usd = Decimal("0")
+    if p_lbp < 0:
+        p_lbp = Decimal("0")
+    return p_usd, p_lbp
+
+
+def apply_loyalty_points(
+    cur,
+    company_id: str,
+    customer_id: Optional[str],
+    source_type: str,
+    source_id: str,
+    points: Decimal,
+):
+    if not customer_id:
+        return
+    points = q_points(points)
+    if points == 0:
+        return
+    cur.execute(
+        """
+        INSERT INTO customer_loyalty_ledger
+          (id, company_id, customer_id, source_type, source_id, points)
+        VALUES
+          (gen_random_uuid(), %s, %s, %s, %s, %s)
+        ON CONFLICT (company_id, source_type, source_id) DO NOTHING
+        RETURNING id
+        """,
+        (company_id, customer_id, source_type, source_id, points),
+    )
+    if cur.fetchone():
+        cur.execute(
+            """
+            UPDATE customers
+            SET loyalty_points = GREATEST(loyalty_points + %s, 0),
+                updated_at = now()
+            WHERE company_id=%s AND id=%s
+            """,
+            (points, company_id, customer_id),
+        )
+
 def emit_event(cur, company_id: str, event_type: str, source_type: str, source_id: str, payload: dict):
     cur.execute(
         """
@@ -459,6 +532,17 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             ),
         )
 
+    # Loyalty points:
+    # - If the POS payload includes `loyalty_points`, treat it as an explicit override (backward compatible).
+    # - Otherwise compute from company_settings key='loyalty'.
+    if customer_id:
+        if "loyalty_points" in payload:
+            pts = Decimal(str(payload.get("loyalty_points") or 0))
+        else:
+            p_usd, p_lbp = fetch_loyalty_policy(cur, company_id)
+            pts = (total_usd * p_usd) + (total_lbp * p_lbp)
+        apply_loyalty_points(cur, company_id, customer_id, "sales_invoice", str(invoice_id), pts)
+
     # Tax line (VAT)
     if tax:
         cur.execute(
@@ -662,25 +746,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             (credit_usd, credit_lbp, company_id, customer_id),
         )
 
-    loyalty_points = payload.get("loyalty_points")
-    if customer_id and loyalty_points:
-        cur.execute(
-            """
-            UPDATE customers
-            SET loyalty_points = loyalty_points + %s
-            WHERE company_id = %s AND id = %s
-            """,
-            (Decimal(str(loyalty_points)), company_id, customer_id),
-        )
-        cur.execute(
-            """
-            INSERT INTO customer_loyalty_ledger
-              (id, company_id, customer_id, source_type, source_id, points)
-            VALUES
-              (gen_random_uuid(), %s, %s, 'sales_invoice', %s, %s)
-            """,
-            (company_id, customer_id, invoice_id, Decimal(str(loyalty_points))),
-        )
+    # (Legacy) loyalty_points payload is handled above through apply_loyalty_points().
 
     # COGS / Inventory posting
     if total_cost_usd > 0 or total_cost_lbp > 0:
@@ -1065,6 +1131,18 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             """,
             (total_usd, total_lbp, company_id, invoice_customer_id),
         )
+
+    # Loyalty points reversal:
+    # - If payload includes `loyalty_points`, treat it as an explicit override.
+    # - Otherwise compute from current policy, and apply as negative points.
+    return_customer_id = payload.get("customer_id") or invoice_customer_id
+    if return_customer_id:
+        if "loyalty_points" in payload:
+            pts = -Decimal(str(payload.get("loyalty_points") or 0))
+        else:
+            p_usd, p_lbp = fetch_loyalty_policy(cur, company_id)
+            pts = -((total_usd * p_usd) + (total_lbp * p_lbp))
+        apply_loyalty_points(cur, company_id, return_customer_id, "sales_return", str(return_id), pts)
 
     emit_event(
         cur,

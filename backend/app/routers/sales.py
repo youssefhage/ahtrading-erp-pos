@@ -957,6 +957,13 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                         (credit_usd, credit_lbp, company_id, customer_id),
                     )
 
+                # Loyalty points (optional; configured via company_settings key='loyalty').
+                # Idempotent via unique index on (company_id, source_type, source_id).
+                if customer_id:
+                    p_usd, p_lbp = pos_processor.fetch_loyalty_policy(cur, company_id)
+                    pts = (total_usd * p_usd) + (total_lbp * p_lbp)
+                    pos_processor.apply_loyalty_points(cur, company_id, str(customer_id), "sales_invoice", str(invoice_id), pts)
+
                 cur.execute(
                     """
                     UPDATE sales_invoices
@@ -999,7 +1006,7 @@ def cancel_sales_invoice(invoice_id: str, data: SalesInvoiceCancelIn, company_id
 
                 cur.execute(
                     """
-                    SELECT id, invoice_no, status, COALESCE(doc_subtype,'standard') AS doc_subtype
+                    SELECT id, invoice_no, status, customer_id, total_usd, total_lbp, COALESCE(doc_subtype,'standard') AS doc_subtype
                     FROM sales_invoices
                     WHERE company_id = %s AND id = %s
                     FOR UPDATE
@@ -1137,6 +1144,37 @@ def cancel_sales_invoice(invoice_id: str, data: SalesInvoiceCancelIn, company_id
                     """,
                     (user["user_id"], reason, company_id, invoice_id),
                 )
+
+                # Reverse customer credit balance (credit invoices have no payments; cash/bank invoices can't be canceled).
+                if inv.get("customer_id"):
+                    cur.execute(
+                        """
+                        UPDATE customers
+                        SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
+                            credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0),
+                            updated_at = now()
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (
+                            Decimal(str(inv.get("total_usd") or 0)),
+                            Decimal(str(inv.get("total_lbp") or 0)),
+                            company_id,
+                            inv["customer_id"],
+                        ),
+                    )
+
+                    # Reverse loyalty points using the original points for the invoice (policy may have changed).
+                    cur.execute(
+                        """
+                        SELECT COALESCE(SUM(points), 0) AS points
+                        FROM customer_loyalty_ledger
+                        WHERE company_id=%s AND customer_id=%s AND source_type='sales_invoice' AND source_id=%s
+                        """,
+                        (company_id, inv["customer_id"], invoice_id),
+                    )
+                    pts_row = cur.fetchone() or {}
+                    orig_pts = Decimal(str((pts_row.get("points") or 0)))
+                    pos_processor.apply_loyalty_points(cur, company_id, str(inv["customer_id"]), "sales_invoice_cancel", str(invoice_id), -orig_pts)
 
                 cur.execute(
                     """

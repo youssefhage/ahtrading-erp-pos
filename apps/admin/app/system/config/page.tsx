@@ -14,6 +14,7 @@ type AccountRole = { code: string; description: string };
 type CoaAccount = { id: string; account_code: string; name_en: string; is_postable: boolean };
 type AccountDefaultRow = { role_code: string; account_code: string; name_en: string };
 type PaymentMethodRow = { method: string; role_code: string; created_at: string };
+type CompanySettingRow = { key: string; value_json: any; updated_at: string };
 
 function todayISO() {
   const d = new Date();
@@ -30,6 +31,12 @@ export default function ConfigPage() {
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
   const [defaults, setDefaults] = useState<AccountDefaultRow[]>([]);
   const [methods, setMethods] = useState<PaymentMethodRow[]>([]);
+  const [settings, setSettings] = useState<CompanySettingRow[]>([]);
+
+  // Loyalty settings (company_settings.key='loyalty')
+  const [pointsPerUsd, setPointsPerUsd] = useState("0");
+  const [pointsPerLbp, setPointsPerLbp] = useState("0");
+  const [savingLoyalty, setSavingLoyalty] = useState(false);
 
   // Tax code form
   const [taxName, setTaxName] = useState("");
@@ -64,13 +71,14 @@ export default function ConfigPage() {
   async function load() {
     setStatus("Loading...");
     try {
-      const [tc, er, ar, ca, ad, pm] = await Promise.all([
+      const [tc, er, ar, ca, ad, pm, cs] = await Promise.all([
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes"),
         apiGet<{ rates: ExchangeRateRow[] }>("/config/exchange-rates"),
         apiGet<{ roles: AccountRole[] }>("/config/account-roles"),
         apiGet<{ accounts: CoaAccount[] }>("/coa/accounts"),
         apiGet<{ defaults: AccountDefaultRow[] }>("/config/account-defaults"),
-        apiGet<{ methods: PaymentMethodRow[] }>("/config/payment-methods")
+        apiGet<{ methods: PaymentMethodRow[] }>("/config/payment-methods"),
+        apiGet<{ settings: CompanySettingRow[] }>("/pricing/company-settings")
       ]);
       setTaxCodes(tc.tax_codes || []);
       setRates(er.rates || []);
@@ -78,6 +86,7 @@ export default function ConfigPage() {
       setAccounts(ca.accounts || []);
       setDefaults(ad.defaults || []);
       setMethods(pm.methods || []);
+      setSettings(cs.settings || []);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -88,6 +97,13 @@ export default function ConfigPage() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    const loyalty = settings.find((s) => s.key === "loyalty");
+    const v = (loyalty?.value_json || {}) as any;
+    setPointsPerUsd(String(v?.points_per_usd ?? 0));
+    setPointsPerLbp(String(v?.points_per_lbp ?? 0));
+  }, [settings]);
 
   useEffect(() => {
     if (!defaultRole && roles.length) setDefaultRole(roles[0]?.code || "");
@@ -200,6 +216,28 @@ export default function ConfigPage() {
       setStatus(message);
     } finally {
       setSavingMethod(false);
+    }
+  }
+
+  async function saveLoyalty(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingLoyalty(true);
+    setStatus("Saving loyalty settings...");
+    try {
+      await apiPost("/pricing/company-settings", {
+        key: "loyalty",
+        value_json: {
+          points_per_usd: Number(pointsPerUsd || 0),
+          points_per_lbp: Number(pointsPerLbp || 0)
+        }
+      });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSavingLoyalty(false);
     }
   }
 
@@ -317,6 +355,32 @@ export default function ConfigPage() {
                 </tbody>
               </table>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Loyalty</CardTitle>
+            <CardDescription>
+              Configure loyalty points accrual. POS and posted sales invoices will accrue points; returns and invoice voids reverse them.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <form onSubmit={saveLoyalty} className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-700">Points per USD</label>
+                <Input value={pointsPerUsd} onChange={(e) => setPointsPerUsd(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-700">Points per LBP</label>
+                <Input value={pointsPerLbp} onChange={(e) => setPointsPerLbp(e.target.value)} />
+              </div>
+              <div className="flex items-end justify-end">
+                <Button type="submit" disabled={savingLoyalty}>
+                  {savingLoyalty ? "Saving..." : "Save Loyalty"}
+                </Button>
+              </div>
+            </form>
           </CardContent>
         </Card>
 

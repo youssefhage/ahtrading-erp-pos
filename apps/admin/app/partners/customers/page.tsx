@@ -39,6 +39,14 @@ function fmt(n: string | number) {
   return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
+type LoyaltyRow = {
+  id: string;
+  source_type: string;
+  source_id: string;
+  points: string | number;
+  created_at: string;
+};
+
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [status, setStatus] = useState("");
@@ -46,6 +54,8 @@ export default function CustomersPage() {
 
   const [customerId, setCustomerId] = useState("");
   const [detail, setDetail] = useState<Customer | null>(null);
+  const [loyaltyLedger, setLoyaltyLedger] = useState<LoyaltyRow[]>([]);
+  const [loyaltyStatus, setLoyaltyStatus] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -135,6 +145,27 @@ export default function CustomersPage() {
     setDetail(found);
   }, [customerId, customers]);
 
+  useEffect(() => {
+    if (!customerId) {
+      setLoyaltyLedger([]);
+      setLoyaltyStatus("");
+      return;
+    }
+    loadLoyaltyLedger(customerId);
+  }, [customerId]);
+
+  async function loadLoyaltyLedger(id: string) {
+    setLoyaltyStatus("Loading loyalty ledger...");
+    try {
+      const res = await apiGet<{ loyalty_points: string | number; ledger: LoyaltyRow[] }>(`/customers/${id}/loyalty-ledger?limit=50`);
+      setLoyaltyLedger(res.ledger || []);
+      setLoyaltyStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setLoyaltyStatus(message);
+    }
+  }
+
   async function createCustomer(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return setStatus("name is required");
@@ -188,6 +219,7 @@ export default function CustomersPage() {
 
   function openEdit(c: Customer) {
     setCustomerId(c.id);
+    loadLoyaltyLedger(c.id);
     setEditCode((c.code as any) || "");
     setEditName(c.name || "");
     setEditPartyType((c.party_type as PartyType) || "individual");
@@ -736,7 +768,52 @@ export default function CustomersPage() {
                       <span className="text-slate-500">Balance:</span> {fmt(detail.credit_balance_usd)} USD / {fmt(detail.credit_balance_lbp)} LBP
                     </div>
                     <div>
+                      <span className="text-slate-500">Loyalty Points:</span> {fmt(detail.loyalty_points)}
+                    </div>
+                    <div>
                       <span className="text-slate-500">Notes:</span> {detail.notes || "-"}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Loyalty Ledger</CardTitle>
+                    <CardDescription>Recent point movements for this customer.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button variant="outline" onClick={() => loadLoyaltyLedger(detail.id)}>
+                        Refresh
+                      </Button>
+                    </div>
+                    {loyaltyStatus ? <pre className="whitespace-pre-wrap text-xs text-slate-700">{loyaltyStatus}</pre> : null}
+                    <div className="ui-table-wrap">
+                      <table className="ui-table">
+                        <thead className="ui-thead">
+                          <tr>
+                            <th className="px-3 py-2">When</th>
+                            <th className="px-3 py-2">Source</th>
+                            <th className="px-3 py-2 text-right">Points</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {loyaltyLedger.map((r) => (
+                            <tr key={r.id} className="ui-tr-hover">
+                              <td className="px-3 py-2 font-mono text-xs">{String(r.created_at || "").replace("T", " ").slice(0, 19)}</td>
+                              <td className="px-3 py-2 font-mono text-xs">{r.source_type}:{String(r.source_id).slice(0, 8)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.points)}</td>
+                            </tr>
+                          ))}
+                          {loyaltyLedger.length === 0 ? (
+                            <tr>
+                              <td className="px-3 py-6 text-center text-slate-500" colSpan={3}>
+                                No loyalty entries yet.
+                              </td>
+                            </tr>
+                          ) : null}
+                        </tbody>
+                      </table>
                     </div>
                   </CardContent>
                 </Card>

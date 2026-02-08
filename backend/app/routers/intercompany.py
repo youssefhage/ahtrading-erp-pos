@@ -3,11 +3,29 @@ from pydantic import BaseModel
 from typing import List
 from decimal import Decimal
 from datetime import datetime
-from ..db import get_conn, set_company_context
+from ..db import get_conn, get_admin_conn, set_company_context
 from ..deps import get_company_id, require_permission
 from ..deps import get_current_user
 
 router = APIRouter(prefix="/intercompany", tags=["intercompany"])
+
+def _assert_user_perm_in_company(user_id: str, company_id: str, perm_code: str):
+    # Use the admin connection to check roles/permissions across companies regardless of current context.
+    with get_admin_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1
+                FROM user_roles ur
+                JOIN role_permissions rp ON rp.role_id = ur.role_id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE ur.user_id=%s AND ur.company_id=%s AND p.code=%s
+                LIMIT 1
+                """,
+                (user_id, company_id, perm_code),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=403, detail=f"missing permission {perm_code} for company {company_id}")
 
 
 class IntercompanyLine(BaseModel):
@@ -39,6 +57,14 @@ class IntercompanySettleIn(BaseModel):
 def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     if data.issue_company_id == data.sell_company_id:
         raise HTTPException(status_code=400, detail="issue and sell company must differ")
+
+    # Caller must be operating from one of the involved companies and must have intercompany:write
+    # in all companies we will touch.
+    if company_id not in {data.source_company_id, data.issue_company_id, data.sell_company_id}:
+        raise HTTPException(status_code=403, detail="active company must be one of the involved companies")
+    _assert_user_perm_in_company(user["user_id"], data.source_company_id, "intercompany:write")
+    _assert_user_perm_in_company(user["user_id"], data.issue_company_id, "intercompany:write")
+    _assert_user_perm_in_company(user["user_id"], data.sell_company_id, "intercompany:write")
 
     total_cost_usd = Decimal("0")
     total_cost_lbp = Decimal("0")
@@ -235,6 +261,11 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
     if method not in {"cash", "bank"}:
         raise HTTPException(status_code=400, detail="method must be cash or bank")
 
+    if company_id not in {data.from_company_id, data.to_company_id}:
+        raise HTTPException(status_code=403, detail="active company must be payer or receiver company")
+    _assert_user_perm_in_company(user["user_id"], data.from_company_id, "intercompany:write")
+    _assert_user_perm_in_company(user["user_id"], data.to_company_id, "intercompany:write")
+
     # Payer company: Dr Interco AP, Cr Cash/Bank
     with get_conn() as conn:
         with conn.transaction():
@@ -364,3 +395,57 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
             )
 
     return {"ok": True}
+
+
+@router.get("/documents", dependencies=[Depends(require_permission("intercompany:write"))])
+def list_intercompany_documents(limit: int = 200, company_id: str = Depends(get_company_id)):
+    if limit <= 0 or limit > 2000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT d.id,
+                       d.source_company_id, sc.name AS source_company_name,
+                       d.issue_company_id, ic.name AS issue_company_name,
+                       d.sell_company_id, sl.name AS sell_company_name,
+                       d.source_type, d.source_id, d.settlement_status, d.created_at
+                FROM intercompany_documents d
+                LEFT JOIN companies sc ON sc.id = d.source_company_id
+                LEFT JOIN companies ic ON ic.id = d.issue_company_id
+                LEFT JOIN companies sl ON sl.id = d.sell_company_id
+                WHERE d.source_company_id = %s
+                   OR d.issue_company_id = %s
+                   OR d.sell_company_id = %s
+                ORDER BY d.created_at DESC
+                LIMIT %s
+                """,
+                (company_id, company_id, company_id, limit),
+            )
+            return {"documents": cur.fetchall()}
+
+
+@router.get("/settlements", dependencies=[Depends(require_permission("intercompany:write"))])
+def list_intercompany_settlements(limit: int = 200, company_id: str = Depends(get_company_id)):
+    if limit <= 0 or limit > 2000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT s.id,
+                       s.from_company_id, fc.name AS from_company_name,
+                       s.to_company_id, tc.name AS to_company_name,
+                       s.amount_usd, s.amount_lbp, s.exchange_rate, s.journal_id, s.created_at
+                FROM intercompany_settlements s
+                LEFT JOIN companies fc ON fc.id = s.from_company_id
+                LEFT JOIN companies tc ON tc.id = s.to_company_id
+                WHERE s.from_company_id = %s OR s.to_company_id = %s
+                ORDER BY s.created_at DESC
+                LIMIT %s
+                """,
+                (company_id, company_id, limit),
+            )
+            return {"settlements": cur.fetchall()}

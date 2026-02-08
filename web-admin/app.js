@@ -5,6 +5,9 @@ const storage = {
   get(key, fallback) {
     return localStorage.getItem(key) || fallback;
   },
+  has(key) {
+    return localStorage.getItem(key) !== null;
+  },
   set(key, value) {
     localStorage.setItem(key, value);
   },
@@ -186,6 +189,36 @@ async function testConnection() {
   } catch (err) {
     setConnBadge("Disconnected", "bad");
     toast(`API error: ${err.message}`, "bad", 4200);
+  }
+}
+
+async function fetchWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const t = window.setTimeout(() => controller.abort(), Math.max(200, timeoutMs || 800));
+  try {
+    return await fetch(url, { signal: controller.signal, cache: "no-store" });
+  } finally {
+    window.clearTimeout(t);
+  }
+}
+
+async function autoDetectApiBase() {
+  // Only auto-detect if the user hasn't explicitly configured an API base.
+  if (storage.has("apiBase")) return;
+
+  const candidates = ["http://localhost:8000", "http://localhost:8001"];
+  for (const base of candidates) {
+    try {
+      const res = await fetchWithTimeout(`${base}/health`, 900);
+      if (!res.ok) continue;
+      storage.set("apiBase", base);
+      loadConnection();
+      setConnBadge("Connected", "ok");
+      toast(`Using API: ${base}`, "ok", 2400);
+      return;
+    } catch {
+      // try next
+    }
   }
 }
 
@@ -986,9 +1019,11 @@ function init() {
   bind();
   showSection("dashboard");
   setStatus("Ready");
-  // Best-effort connection check.
-  testConnection();
-  loadMetrics();
+  // Best-effort: pick the right local API port, then check health and load metrics.
+  autoDetectApiBase().finally(() => {
+    testConnection();
+    loadMetrics();
+  });
 }
 
 init();

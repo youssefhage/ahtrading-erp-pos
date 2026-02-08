@@ -1,12 +1,227 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Response, HTTPException
 from datetime import date
 from typing import Optional
+from decimal import Decimal
 import csv
 import io
-from ..db import get_conn, set_company_context
-from ..deps import get_company_id, require_permission
+from ..db import get_conn, get_admin_conn, set_company_context
+from ..deps import get_company_id, require_permission, get_current_user
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+def _parse_company_ids(company_ids: Optional[str], fallback: str) -> list[str]:
+    if company_ids:
+        parts = [p.strip() for p in company_ids.split(",")]
+        ids = [p for p in parts if p]
+        if not ids:
+            raise HTTPException(status_code=400, detail="company_ids is empty")
+        if len(ids) > 25:
+            raise HTTPException(status_code=400, detail="too many companies (max 25)")
+        return ids
+    return [fallback]
+
+def _assert_reports_access(user_id: str, company_ids: list[str]):
+    # Cross-company access check: user must have reports:read in each requested company.
+    with get_admin_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ur.company_id
+                FROM user_roles ur
+                JOIN role_permissions rp ON rp.role_id = ur.role_id
+                JOIN permissions p ON p.id = rp.permission_id
+                WHERE ur.user_id = %s
+                  AND ur.company_id = ANY(%s::uuid[])
+                  AND p.code = 'reports:read'
+                GROUP BY ur.company_id
+                """,
+                (user_id, company_ids),
+            )
+            allowed = {str(r["company_id"]) for r in cur.fetchall()}
+    missing = [cid for cid in company_ids if cid not in allowed]
+    if missing:
+        raise HTTPException(status_code=403, detail=f"missing reports:read for {len(missing)} companies")
+
+
+@router.get("/consolidated/trial-balance", dependencies=[Depends(require_permission("reports:read"))])
+def consolidated_trial_balance(
+    company_ids: Optional[str] = None,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    ids = _parse_company_ids(company_ids, company_id)
+    _assert_reports_access(user["user_id"], ids)
+    acc: dict[str, dict] = {}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            for cid in ids:
+                set_company_context(conn, cid)
+                cur.execute(
+                    """
+                    SELECT a.account_code, a.name_en, t.debit_usd, t.credit_usd, t.debit_lbp, t.credit_lbp
+                    FROM gl_trial_balance t
+                    JOIN company_coa_accounts a ON a.id = t.account_id
+                    WHERE t.company_id = %s
+                    """,
+                    (cid,),
+                )
+                for r in cur.fetchall():
+                    code = r["account_code"]
+                    if code not in acc:
+                        acc[code] = {
+                            "account_code": code,
+                            "name_en": r.get("name_en"),
+                            "debit_usd": Decimal("0"),
+                            "credit_usd": Decimal("0"),
+                            "debit_lbp": Decimal("0"),
+                            "credit_lbp": Decimal("0"),
+                        }
+                    if not acc[code]["name_en"] and r.get("name_en"):
+                        acc[code]["name_en"] = r.get("name_en")
+                    acc[code]["debit_usd"] += Decimal(str(r.get("debit_usd") or 0))
+                    acc[code]["credit_usd"] += Decimal(str(r.get("credit_usd") or 0))
+                    acc[code]["debit_lbp"] += Decimal(str(r.get("debit_lbp") or 0))
+                    acc[code]["credit_lbp"] += Decimal(str(r.get("credit_lbp") or 0))
+    rows = [acc[k] for k in sorted(acc.keys())]
+    return {"company_ids": ids, "trial_balance": rows}
+
+
+@router.get("/consolidated/profit-loss", dependencies=[Depends(require_permission("reports:read"))])
+def consolidated_profit_and_loss(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    company_ids: Optional[str] = None,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    today = date.today()
+    start_date = start_date or today.replace(day=1)
+    end_date = end_date or today
+    ids = _parse_company_ids(company_ids, company_id)
+    _assert_reports_access(user["user_id"], ids)
+    acc: dict[str, dict] = {}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            for cid in ids:
+                set_company_context(conn, cid)
+                cur.execute(
+                    """
+                    SELECT a.account_code, a.name_en,
+                           CASE WHEN a.account_code LIKE '7%%' THEN 'revenue' ELSE 'expense' END AS kind,
+                           COALESCE(SUM(
+                             CASE
+                               WHEN a.account_code LIKE '7%%' THEN (e.credit_usd - e.debit_usd)
+                               ELSE (e.debit_usd - e.credit_usd)
+                             END
+                           ), 0) AS amount_usd,
+                           COALESCE(SUM(
+                             CASE
+                               WHEN a.account_code LIKE '7%%' THEN (e.credit_lbp - e.debit_lbp)
+                               ELSE (e.debit_lbp - e.credit_lbp)
+                             END
+                           ), 0) AS amount_lbp
+                    FROM gl_entries e
+                    JOIN gl_journals j ON j.id = e.journal_id
+                    JOIN company_coa_accounts a ON a.id = e.account_id
+                    WHERE j.company_id = %s
+                      AND j.journal_date BETWEEN %s AND %s
+                      AND (a.account_code LIKE '6%%' OR a.account_code LIKE '7%%')
+                    GROUP BY a.account_code, a.name_en, kind
+                    HAVING COALESCE(SUM(e.debit_usd) + SUM(e.credit_usd) + SUM(e.debit_lbp) + SUM(e.credit_lbp), 0) != 0
+                    """,
+                    (cid, start_date, end_date),
+                )
+                for r in cur.fetchall():
+                    key = f"{r['kind']}:{r['account_code']}"
+                    if key not in acc:
+                        acc[key] = {
+                            "account_code": r["account_code"],
+                            "name_en": r.get("name_en"),
+                            "kind": r["kind"],
+                            "amount_usd": Decimal("0"),
+                            "amount_lbp": Decimal("0"),
+                        }
+                    if not acc[key]["name_en"] and r.get("name_en"):
+                        acc[key]["name_en"] = r.get("name_en")
+                    acc[key]["amount_usd"] += Decimal(str(r.get("amount_usd") or 0))
+                    acc[key]["amount_lbp"] += Decimal(str(r.get("amount_lbp") or 0))
+
+    rows = [acc[k] for k in sorted(acc.keys(), key=lambda x: (x.split(":")[1], x.split(":")[0]))]
+    revenue_usd = sum([r["amount_usd"] for r in rows if r["kind"] == "revenue"], Decimal("0"))
+    revenue_lbp = sum([r["amount_lbp"] for r in rows if r["kind"] == "revenue"], Decimal("0"))
+    expense_usd = sum([r["amount_usd"] for r in rows if r["kind"] == "expense"], Decimal("0"))
+    expense_lbp = sum([r["amount_lbp"] for r in rows if r["kind"] == "expense"], Decimal("0"))
+    return {
+        "company_ids": ids,
+        "start_date": str(start_date),
+        "end_date": str(end_date),
+        "revenue_usd": revenue_usd,
+        "revenue_lbp": revenue_lbp,
+        "expense_usd": expense_usd,
+        "expense_lbp": expense_lbp,
+        "net_profit_usd": revenue_usd - expense_usd,
+        "net_profit_lbp": revenue_lbp - expense_lbp,
+        "rows": rows,
+    }
+
+
+@router.get("/consolidated/balance-sheet", dependencies=[Depends(require_permission("reports:read"))])
+def consolidated_balance_sheet(
+    as_of: Optional[date] = None,
+    company_ids: Optional[str] = None,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    as_of = as_of or date.today()
+    ids = _parse_company_ids(company_ids, company_id)
+    _assert_reports_access(user["user_id"], ids)
+    acc: dict[str, dict] = {}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            for cid in ids:
+                set_company_context(conn, cid)
+                cur.execute(
+                    """
+                    SELECT a.account_code, a.name_en, a.normal_balance,
+                           COALESCE(SUM(
+                             CASE WHEN a.normal_balance = 'credit' THEN (e.credit_usd - e.debit_usd)
+                                  ELSE (e.debit_usd - e.credit_usd)
+                             END
+                           ), 0) AS balance_usd,
+                           COALESCE(SUM(
+                             CASE WHEN a.normal_balance = 'credit' THEN (e.credit_lbp - e.debit_lbp)
+                                  ELSE (e.debit_lbp - e.credit_lbp)
+                             END
+                           ), 0) AS balance_lbp
+                    FROM gl_entries e
+                    JOIN gl_journals j ON j.id = e.journal_id
+                    JOIN company_coa_accounts a ON a.id = e.account_id
+                    WHERE j.company_id = %s
+                      AND j.journal_date <= %s
+                      AND (a.account_code LIKE '1%%' OR a.account_code LIKE '2%%' OR a.account_code LIKE '3%%' OR a.account_code LIKE '4%%' OR a.account_code LIKE '5%%')
+                    GROUP BY a.account_code, a.name_en, a.normal_balance
+                    HAVING COALESCE(SUM(e.debit_usd) + SUM(e.credit_usd) + SUM(e.debit_lbp) + SUM(e.credit_lbp), 0) != 0
+                    """,
+                    (cid, as_of),
+                )
+                for r in cur.fetchall():
+                    code = r["account_code"]
+                    if code not in acc:
+                        acc[code] = {
+                            "account_code": code,
+                            "name_en": r.get("name_en"),
+                            "normal_balance": r.get("normal_balance"),
+                            "balance_usd": Decimal("0"),
+                            "balance_lbp": Decimal("0"),
+                        }
+                    if not acc[code]["name_en"] and r.get("name_en"):
+                        acc[code]["name_en"] = r.get("name_en")
+                    if not acc[code]["normal_balance"] and r.get("normal_balance"):
+                        acc[code]["normal_balance"] = r.get("normal_balance")
+                    acc[code]["balance_usd"] += Decimal(str(r.get("balance_usd") or 0))
+                    acc[code]["balance_lbp"] += Decimal(str(r.get("balance_lbp") or 0))
+    rows = [acc[k] for k in sorted(acc.keys())]
+    return {"company_ids": ids, "as_of": str(as_of), "rows": rows}
 
 
 @router.get("/vat", dependencies=[Depends(require_permission("reports:read"))])

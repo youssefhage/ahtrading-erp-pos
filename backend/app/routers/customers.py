@@ -545,3 +545,35 @@ def delete_customer_contact(
                     (company_id, user["user_id"], contact_id, json.dumps({"customer_id": customer_id})),
                 )
                 return {"ok": True}
+
+
+@router.get("/{customer_id}/loyalty-ledger", dependencies=[Depends(require_permission("customers:read"))])
+def loyalty_ledger(customer_id: str, limit: int = 100, company_id: str = Depends(get_company_id)):
+    if limit <= 0 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT loyalty_points
+                FROM customers
+                WHERE company_id=%s AND id=%s
+                """,
+                (company_id, customer_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="customer not found")
+
+            cur.execute(
+                """
+                SELECT id, source_type, source_id, points, created_at
+                FROM customer_loyalty_ledger
+                WHERE company_id=%s AND customer_id=%s
+                ORDER BY created_at DESC, id DESC
+                LIMIT %s
+                """,
+                (company_id, customer_id, limit),
+            )
+            return {"customer_id": customer_id, "loyalty_points": row["loyalty_points"], "ledger": cur.fetchall()}

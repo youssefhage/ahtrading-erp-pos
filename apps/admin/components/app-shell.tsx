@@ -89,6 +89,7 @@ const navSections: NavSection[] = [
     items: [
       { label: "Journals", href: "/accounting/journals" },
       { label: "COA", href: "/accounting/coa" },
+      { label: "Intercompany", href: "/accounting/intercompany" },
       { label: "Bank Accounts", href: "/accounting/banking/accounts" },
       { label: "Reconciliation", href: "/accounting/banking/reconciliation" },
       { label: "Period Locks", href: "/accounting/period-locks" },
@@ -99,7 +100,8 @@ const navSections: NavSection[] = [
       { label: "Balance Sheet", href: "/accounting/reports/balance-sheet" },
       { label: "AR Aging", href: "/accounting/reports/ar-aging" },
       { label: "AP Aging", href: "/accounting/reports/ap-aging" },
-      { label: "Inventory Valuation", href: "/accounting/reports/inventory-valuation" }
+      { label: "Inventory Valuation", href: "/accounting/reports/inventory-valuation" },
+      { label: "Consolidated", href: "/accounting/reports/consolidated" }
     ]
   },
   {
