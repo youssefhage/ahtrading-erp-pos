@@ -24,3 +24,7 @@ node_modules/
 .next/
 dist/
 .turbo/
+
+# Playwright artifacts (admin app)
+apps/admin/test-results/
+apps/admin/playwright-report/
