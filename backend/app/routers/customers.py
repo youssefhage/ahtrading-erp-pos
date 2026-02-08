@@ -32,12 +32,87 @@ class CustomerIn(BaseModel):
 
 
 @router.get("", dependencies=[Depends(require_permission("customers:read"))])
-def list_customers(company_id: str = Depends(get_company_id)):
+def list_customers(
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+    sort: Optional[str] = None,
+    dir: Optional[str] = None,
+    q: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    is_member: Optional[bool] = None,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Customers list.
+
+    Backwards compatible:
+    - Legacy clients call without query params and receive {"customers": [...]} (full list).
+    - Admin v2 passes pagination/search params and receives {"data": [...], "total": N} (and also {"customers": [...]}).
+    """
+    admin_mode = any(v is not None and v != "" for v in (limit, offset, sort, dir, q, is_active, is_member))
+    if admin_mode:
+        if limit is None:
+            limit = 25
+        if offset is None:
+            offset = 0
+        if limit <= 0 or limit > 200:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+        if offset < 0:
+            raise HTTPException(status_code=400, detail="offset must be >= 0")
+
+        sort_map = {
+            "name": "name",
+            "code": "code",
+            "updated_at": "updated_at",
+            "loyalty_points": "loyalty_points",
+            "credit_balance_usd": "credit_balance_usd",
+        }
+        sort_sql = sort_map.get(sort or "", "name")
+        dir_sql = "ASC"
+        if (dir or "").lower() in {"asc", "desc"}:
+            dir_sql = (dir or "").upper()
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            if not admin_mode:
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
+                           membership_no, is_member, membership_expires_at,
+                           payment_terms_days,
+                           credit_limit_usd, credit_limit_lbp,
+                           credit_balance_usd, credit_balance_lbp,
+                           loyalty_points,
+                           price_list_id,
+                           is_active,
+                           updated_at
+                    FROM customers
+                    WHERE company_id = %s
+                    ORDER BY name
+                    """,
+                    (company_id,),
+                )
+                return {"customers": cur.fetchall()}
+
+            where = ["company_id = %s"]
+            params: list = [company_id]
+            if is_active is not None:
+                where.append("is_active = %s")
+                params.append(bool(is_active))
+            if is_member is not None:
+                where.append("is_member = %s")
+                params.append(bool(is_member))
+            if q:
+                needle = f"%{q.strip()}%"
+                where.append("(name ILIKE %s OR COALESCE(code,'') ILIKE %s OR COALESCE(phone,'') ILIKE %s OR COALESCE(email,'') ILIKE %s)")
+                params.extend([needle, needle, needle, needle])
+
+            where_sql = " AND ".join(where)
+            cur.execute(f"SELECT COUNT(*)::int AS total FROM customers WHERE {where_sql}", params)
+            total = int(cur.fetchone()["total"])
+
             cur.execute(
-                """
+                f"""
                 SELECT id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
                        membership_no, is_member, membership_expires_at,
                        payment_terms_days,
@@ -48,12 +123,14 @@ def list_customers(company_id: str = Depends(get_company_id)):
                        is_active,
                        updated_at
                 FROM customers
-                WHERE company_id = %s
-                ORDER BY name
+                WHERE {where_sql}
+                ORDER BY {sort_sql} {dir_sql}
+                LIMIT %s OFFSET %s
                 """,
-                (company_id,),
+                [*params, limit, offset],
             )
-            return {"customers": cur.fetchall()}
+            rows = cur.fetchall()
+            return {"data": rows, "total": total, "customers": rows}
 
 
 @router.post("", dependencies=[Depends(require_permission("customers:write"))])

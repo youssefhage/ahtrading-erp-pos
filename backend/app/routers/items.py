@@ -53,27 +53,122 @@ class ItemPriceIn(BaseModel):
 
 
 @router.get("", dependencies=[Depends(require_permission("items:read"))])
-def list_items(company_id: str = Depends(get_company_id)):
+def list_items(
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+    sort: Optional[str] = None,
+    dir: Optional[str] = None,
+    q: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    category_id: Optional[str] = None,
+    brand: Optional[str] = None,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Items list.
+
+    Backwards compatible:
+    - Legacy clients call without query params and receive {"items": [...]} (full list).
+    - Admin v2 passes pagination/search params and receives {"data": [...], "total": N} (and also {"items": [...]}).
+    """
+    admin_mode = any(v is not None and v != "" for v in (limit, offset, sort, dir, q, is_active, category_id, brand))
+    if admin_mode:
+        if limit is None:
+            limit = 25
+        if offset is None:
+            offset = 0
+        if limit <= 0 or limit > 200:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+        if offset < 0:
+            raise HTTPException(status_code=400, detail="offset must be >= 0")
+
+        sort_map = {
+            "sku": "i.sku",
+            "name": "i.name",
+            "updated_at": "i.updated_at",
+            "barcode": "i.barcode",
+            "brand": "i.brand",
+            "category_name": "cat.name",
+        }
+        sort_sql = sort_map.get(sort or "", "i.sku")
+        dir_sql = "ASC"
+        if (dir or "").lower() in {"asc", "desc"}:
+            dir_sql = (dir or "").upper()
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            if not admin_mode:
+                cur.execute(
+                    """
+                    SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure, i.tax_code_id, i.reorder_point, i.reorder_qty,
+                           i.is_active, i.category_id, i.brand, i.short_name, i.description,
+                           i.track_batches, i.track_expiry,
+                           i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
+                           COALESCE(bc.cnt, 0) AS barcode_count,
+                           COALESCE(cat.name, '') AS category_name
+                    FROM items i
+                    LEFT JOIN item_categories cat ON cat.id = i.category_id
+                    LEFT JOIN LATERAL (
+                      SELECT COUNT(*)::int AS cnt
+                      FROM item_barcodes b
+                      WHERE b.company_id = i.company_id AND b.item_id = i.id
+                    ) bc ON true
+                    ORDER BY i.sku
+                    """
+                )
+                return {"items": cur.fetchall()}
+
+            where = ["i.company_id = %s"]
+            params: list = [company_id]
+            if is_active is not None:
+                where.append("i.is_active = %s")
+                params.append(bool(is_active))
+            if category_id:
+                where.append("i.category_id = %s")
+                params.append(category_id)
+            if brand:
+                where.append("i.brand = %s")
+                params.append(brand)
+            if q:
+                needle = f"%{q.strip()}%"
+                where.append("(i.sku ILIKE %s OR i.name ILIKE %s OR COALESCE(i.barcode,'') ILIKE %s)")
+                params.extend([needle, needle, needle])
+
+            where_sql = " AND ".join(where)
             cur.execute(
-                """
+                f"""
+                SELECT COUNT(*)::int AS total
+                FROM items i
+                LEFT JOIN item_categories cat ON cat.id = i.category_id
+                WHERE {where_sql}
+                """,
+                params,
+            )
+            total = int(cur.fetchone()["total"])
+
+            cur.execute(
+                f"""
                 SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure, i.tax_code_id, i.reorder_point, i.reorder_qty,
                        i.is_active, i.category_id, i.brand, i.short_name, i.description,
                        i.track_batches, i.track_expiry,
                        i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
-                       COALESCE(bc.cnt, 0) AS barcode_count
+                       COALESCE(bc.cnt, 0) AS barcode_count,
+                       COALESCE(cat.name, '') AS category_name
                 FROM items i
+                LEFT JOIN item_categories cat ON cat.id = i.category_id
                 LEFT JOIN LATERAL (
                   SELECT COUNT(*)::int AS cnt
                   FROM item_barcodes b
                   WHERE b.company_id = i.company_id AND b.item_id = i.id
                 ) bc ON true
-                ORDER BY i.sku
-                """
+                WHERE {where_sql}
+                ORDER BY {sort_sql} {dir_sql}
+                LIMIT %s OFFSET %s
+                """,
+                [*params, limit, offset],
             )
-            return {"items": cur.fetchall()}
+            rows = cur.fetchall()
+            return {"data": rows, "total": total, "items": rows}
 
 
 @router.post("", dependencies=[Depends(require_permission("items:write"))])

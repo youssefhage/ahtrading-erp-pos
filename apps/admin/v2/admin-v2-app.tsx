@@ -1,0 +1,76 @@
+"use client";
+
+import * as React from "react";
+import {
+  Admin,
+  CustomRoutes,
+  Resource,
+  defaultTheme,
+} from "react-admin";
+import { createTheme } from "@mui/material/styles";
+import { Route } from "react-router-dom";
+
+import { authProvider } from "@/v2/authProvider";
+import { dataProvider } from "@/v2/dataProvider";
+import { AdminV2Layout } from "@/v2/layout";
+import { LoginPage } from "@/v2/login";
+import { Dashboard } from "@/v2/pages/dashboard";
+import { OpsPortal } from "@/v2/pages/ops-portal";
+import { SalesInvoiceList } from "@/v2/resources/sales-invoices/list";
+import { SalesInvoiceShow } from "@/v2/resources/sales-invoices/show";
+import { ItemList } from "@/v2/resources/items/list";
+import { CustomerList } from "@/v2/resources/customers/list";
+
+const lightTheme = createTheme({
+  ...defaultTheme,
+  palette: {
+    mode: "light",
+    primary: { main: "#f59e0b" }, // amber-500
+  },
+});
+
+const darkTheme = createTheme({
+  ...defaultTheme,
+  palette: {
+    mode: "dark",
+    primary: { main: "#f59e0b" },
+  },
+});
+
+export function AdminV2App() {
+  return (
+    <Admin
+      basename="/v2"
+      authProvider={authProvider}
+      dataProvider={dataProvider}
+      layout={AdminV2Layout}
+      loginPage={LoginPage}
+      dashboard={Dashboard}
+      theme={lightTheme}
+      darkTheme={darkTheme}
+      disableTelemetry
+    >
+      <CustomRoutes>
+        <Route path="/ops" element={<OpsPortal />} />
+      </CustomRoutes>
+
+      <Resource
+        name="sales-invoices"
+        list={SalesInvoiceList}
+        show={SalesInvoiceShow}
+        recordRepresentation={(r) => r.invoice_no || r.id}
+      />
+      <Resource
+        name="items"
+        list={ItemList}
+        recordRepresentation={(r) => r.sku || r.id}
+      />
+      <Resource
+        name="customers"
+        list={CustomerList}
+        recordRepresentation={(r) => r.name || r.id}
+      />
+    </Admin>
+  );
+}
+
