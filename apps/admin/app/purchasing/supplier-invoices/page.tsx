@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Paperclip } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
@@ -27,6 +28,7 @@ type InvoiceRow = {
   invoice_date: string;
   due_date: string;
   created_at: string;
+  attachment_count?: number;
 };
 
 type AiRecRow = {
@@ -230,7 +232,15 @@ function SupplierInvoicesListInner() {
                     onClick={() => router.push(`/purchasing/supplier-invoices/${inv.id}`)}
                   >
                     <td className="px-3 py-2">
-                      <div className="data-mono text-xs text-foreground">{inv.invoice_no || "(draft)"}</div>
+                      <div className="flex items-center gap-2">
+                        <div className="data-mono text-xs text-foreground">{inv.invoice_no || "(draft)"}</div>
+                        {Number(inv.attachment_count || 0) > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-muted px-2 py-0.5 text-[10px] text-fg-muted">
+                            <Paperclip className="h-3 w-3" />
+                            {Number(inv.attachment_count || 0)}
+                          </span>
+                        ) : null}
+                      </div>
                       {inv.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {inv.supplier_ref}</div> : null}
                       <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
                     </td>

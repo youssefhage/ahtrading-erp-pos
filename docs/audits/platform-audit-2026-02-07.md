@@ -66,7 +66,12 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
   - AI-assisted purchasing import (v1):
     - Admin can upload a supplier invoice image/PDF and auto-generate a draft Supplier Invoice.
     - The original file is always attached to the draft invoice (auditability/rollback).
+    - Draft editor and list UX improvements:
+      - Draft edit screen shows attachments inline (View/Download) so users can reconcile while editing.
+      - Supplier invoice list shows an attachment count badge (paperclip) for quick scanning.
     - Supplier-provided item code/name are preserved on invoice lines and a supplier→item alias table is populated for future matching.
+    - Import robustness:
+      - If AI extraction yields a supplier vendor reference that already exists for that supplier, the draft keeps `supplier_ref` blank and returns a warning (prevents import failures).
     - AI can surface “price impact” signals (e.g. large cost increases) as recommendations for review.
     - Item name “AI Suggest” exists in the Items editor to normalize/enhance messy names (LLM if configured, deterministic fallback otherwise).
     - Telegram webhook receiver exists (off-by-default) to support “send invoice to bot → create draft invoice” workflows (future WhatsApp can mirror this pattern).

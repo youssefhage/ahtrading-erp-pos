@@ -789,6 +789,25 @@ def import_supplier_invoice_draft_from_file(
                         due_date = inv_date
 
                     # Fill header.
+                    if supplier_id and supplier_ref:
+                        # Avoid unique violations on (company_id, supplier_id, supplier_ref) by pre-checking.
+                        cur.execute(
+                            """
+                            SELECT 1
+                            FROM supplier_invoices
+                            WHERE company_id=%s
+                              AND supplier_id=%s
+                              AND supplier_ref=%s
+                              AND status <> 'canceled'
+                              AND id <> %s
+                            LIMIT 1
+                            """,
+                            (company_id, supplier_id, supplier_ref, invoice_id),
+                        )
+                        if cur.fetchone():
+                            warnings.append(f"Duplicate supplier_ref for this supplier ({supplier_ref}); left supplier_ref blank on the draft.")
+                            supplier_ref = None
+
                     cur.execute(
                         """
                         UPDATE supplier_invoices
@@ -1285,6 +1304,13 @@ def list_supplier_invoices(
                   ON gr.company_id = i.company_id AND gr.id = i.goods_receipt_id
                 LEFT JOIN suppliers s
                   ON s.company_id = i.company_id AND s.id = i.supplier_id
+                LEFT JOIN LATERAL (
+                  SELECT COUNT(*)::int AS attachment_count
+                  FROM document_attachments a
+                  WHERE a.company_id = i.company_id
+                    AND a.entity_type = 'supplier_invoice'
+                    AND a.entity_id = i.id
+                ) att ON true
                 WHERE i.company_id = %s
             """
             params: list = [company_id]
@@ -1318,7 +1344,8 @@ def list_supplier_invoices(
                 SELECT i.id, i.invoice_no, i.supplier_ref, i.supplier_id, s.name AS supplier_name,
                        i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
                        i.is_on_hold, i.hold_reason,
-                       i.status, i.total_usd, i.total_lbp, i.tax_code_id, i.invoice_date, i.due_date, i.created_at
+                       i.status, i.total_usd, i.total_lbp, i.tax_code_id, i.invoice_date, i.due_date, i.created_at,
+                       COALESCE(att.attachment_count, 0) AS attachment_count
                 {base_sql}
                 ORDER BY {sort_sql} {dir_sql}
             """

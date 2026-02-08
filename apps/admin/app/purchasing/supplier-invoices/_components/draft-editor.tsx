@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 
 type Supplier = { id: string; name: string };
 type Item = { id: string; sku: string; name: string };
+type AttachmentRow = { id: string; filename: string; content_type: string; size_bytes: number; uploaded_at: string };
 
 type TaxCode = {
   id: string;
@@ -76,6 +77,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [importing, setImporting] = useState(false);
   const [importAutoCreateSupplier, setImportAutoCreateSupplier] = useState(true);
   const [importAutoCreateItems, setImportAutoCreateItems] = useState(true);
+  const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -143,6 +145,14 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             supplier_item_name: (l.supplier_item_name as any) || null
           }))
         );
+
+        // Attachments are optional; don't block editing if the user lacks access.
+        try {
+          const a = await apiGet<{ attachments: AttachmentRow[] }>(`/attachments?entity_type=supplier_invoice&entity_id=${encodeURIComponent(id)}`);
+          setAttachments(a.attachments || []);
+        } catch {
+          setAttachments([]);
+        }
       } else {
         setSupplierId("");
         setInvoiceNo("");
@@ -153,6 +163,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setTaxCodeId("");
         setGoodsReceiptId("");
         setLines([]);
+        setAttachments([]);
       }
 
       setStatus("");
@@ -389,6 +400,58 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 The uploaded file is always attached to the draft invoice so you can audit it later.
               </p>
             </form>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {props.mode === "edit" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Attachments</CardTitle>
+            <CardDescription>Reference the uploaded supplier invoice while you edit the draft.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {attachments.length ? (
+              <div className="ui-table-wrap">
+                <table className="ui-table">
+                  <thead className="ui-thead">
+                    <tr>
+                      <th className="px-3 py-2">File</th>
+                      <th className="px-3 py-2">Type</th>
+                      <th className="px-3 py-2 text-right">Size</th>
+                      <th className="px-3 py-2">Uploaded</th>
+                      <th className="px-3 py-2 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attachments.map((a) => (
+                      <tr key={a.id} className="border-t border-border-subtle">
+                        <td className="px-3 py-2 text-xs">{a.filename || a.id}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-fg-muted">{a.content_type}</td>
+                        <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{Math.max(0, Number(a.size_bytes || 0)).toLocaleString("en-US")}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-fg-muted">{String(a.uploaded_at || "")}</td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button asChild variant="outline" size="sm">
+                              <a href={`/api/attachments/${a.id}/view`} target="_blank" rel="noreferrer">
+                                View
+                              </a>
+                            </Button>
+                            <Button asChild variant="outline" size="sm">
+                              <a href={`/api/attachments/${a.id}/download`} target="_blank" rel="noreferrer">
+                                Download
+                              </a>
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-sm text-fg-muted">No attachments.</div>
+            )}
           </CardContent>
         </Card>
       ) : null}
