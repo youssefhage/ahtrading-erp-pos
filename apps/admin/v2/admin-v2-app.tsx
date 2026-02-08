@@ -18,8 +18,11 @@ import { Dashboard } from "@/v2/pages/dashboard";
 import { OpsPortal } from "@/v2/pages/ops-portal";
 import { SalesInvoiceList } from "@/v2/resources/sales-invoices/list";
 import { SalesInvoiceShow } from "@/v2/resources/sales-invoices/show";
+import { SalesInvoiceCreate } from "@/v2/resources/sales-invoices/create";
+import { SalesInvoiceEdit } from "@/v2/resources/sales-invoices/edit";
 import { ItemList } from "@/v2/resources/items/list";
 import { CustomerList } from "@/v2/resources/customers/list";
+import { WarehouseList } from "@/v2/resources/warehouses/list";
 
 const lightTheme = createTheme({
   ...defaultTheme,
@@ -40,7 +43,10 @@ const darkTheme = createTheme({
 export function AdminV2App() {
   return (
     <Admin
-      basename="/v2"
+      // React-Admin defaults to a hash router when not already inside a router context.
+      // In Next.js `/v2`, we keep the base path handled by Next and let RA manage the hash part.
+      // This avoids "URL '/' does not start with the basename '/v2'" warnings on first load.
+      basename=""
       authProvider={authProvider}
       dataProvider={dataProvider}
       layout={AdminV2Layout}
@@ -58,6 +64,8 @@ export function AdminV2App() {
         name="sales-invoices"
         list={SalesInvoiceList}
         show={SalesInvoiceShow}
+        create={SalesInvoiceCreate}
+        edit={SalesInvoiceEdit}
         recordRepresentation={(r) => r.invoice_no || r.id}
       />
       <Resource
@@ -70,7 +78,11 @@ export function AdminV2App() {
         list={CustomerList}
         recordRepresentation={(r) => r.name || r.id}
       />
+      <Resource
+        name="warehouses"
+        list={WarehouseList}
+        recordRepresentation={(r) => r.name || r.id}
+      />
     </Admin>
   );
 }
-

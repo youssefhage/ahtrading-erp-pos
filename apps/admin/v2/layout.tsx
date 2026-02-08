@@ -16,6 +16,7 @@ import {
   Box,
   FormControl,
   InputLabel,
+  ListSubheader,
   MenuItem,
   Select,
   Tooltip,
@@ -146,11 +147,21 @@ export function AdminV2Layout(props: React.ComponentProps<typeof Layout>) {
 function AdminV2Menu() {
   return (
     <Menu>
+      <ListSubheader component="div">Overview</ListSubheader>
       <Menu.DashboardItem />
+
+      <ListSubheader component="div">Automation</ListSubheader>
       <MenuItemLink to="/ops" primaryText="Ops Portal" />
+
+      <ListSubheader component="div">Sales</ListSubheader>
       <Menu.ResourceItem name="sales-invoices" />
+
+      <ListSubheader component="div">Catalog</ListSubheader>
       <Menu.ResourceItem name="items" />
       <Menu.ResourceItem name="customers" />
+
+      <ListSubheader component="div">Setup</ListSubheader>
+      <Menu.ResourceItem name="warehouses" />
     </Menu>
   );
 }
