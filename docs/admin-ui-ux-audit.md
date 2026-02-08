@@ -1,123 +1,148 @@
 # Admin UI/UX Audit (Web Admin)
 
-Last updated: 2026-02-08
+Last updated: 2026-02-09
 
-## North Star (ERPNext-Like Flow)
+Scope: Web Admin (`apps/admin`). Review focuses on usability for real operations (wholesale/warehouse/accounting), consistency, speed, error clarity, and reducing “operator mistakes”.
 
-ERPNext's "document" model is a good target for this admin:
+This audit is intentionally pragmatic: it prioritizes changes that reduce confusion and bad data entry, not visual polish for its own sake.
 
-- List view that is fast, filterable, and scannable.
-- A single "document view" where everything about a record is organized and readable.
-- Clear primary actions (Draft, Submit/Post, Cancel, Print, Email) with predictable permissions.
-- Consistent layout across modules: Sales Invoice, Purchase Order, Item, Customer, etc.
-- Errors that are actionable and not noisy.
+## What’s Working Well
 
-## Key Findings
+- Navigation shell is strong:
+  - Collapsible sidebar, module grouping, health indicator, and command palette (`Cmd/Ctrl+K`) in `apps/admin/components/app-shell.tsx`.
+  - “Lite vs Full” navigation is a good idea for operators vs admins.
+- The design token system is coherent and readable:
+  - Semantic tokens and the `ui-*` primitives (tables/selects/controls) in `apps/admin/app/globals.css`.
+  - The token-lint script to prevent palette drift exists (`apps/admin/scripts/check-design-tokens.mjs`).
+- Document-first patterns are already emerging and should become the standard:
+  - Sales invoices: list/new/[id]/edit (`apps/admin/app/sales/invoices/...`)
+  - Supplier invoices: list/new/[id]/edit (`apps/admin/app/purchasing/supplier-invoices/...`)
+  - These are the best UX building blocks we should replicate for other modules.
+- DataTable is a good reusable primitive:
+  - Sorting, global search, column visibility persistence (`apps/admin/components/data-table.tsx`).
 
-### 1) Inconsistent UI language and styling
+## Rating Guide
 
-The app currently mixes:
+- Critical: blocks daily work, causes high operator confusion, increases the chance of financial/inventory mistakes, or makes the product feel unreliable.
+- Less critical: meaningful friction that slows work or reduces trust, but there are workarounds.
+- Nice to have: polish, convenience, or “power user” capabilities.
 
-- Semantic tokens (`bg-background`, `text-foreground`, etc.) introduced for theme support.
-- Hard-coded Tailwind palettes (`text-slate-*`, `bg-white`, `border-slate-*`) scattered across pages.
-- Custom utility classes (`ui-*`) that sometimes assume dark styling.
+## Critical Improvements
 
-Result: pages look like they belong to different apps, and theme changes amplify inconsistencies.
+1) Make “document-first” consistent across modules
+- Problem:
+  - Several high-usage workflows are still “split view inside one page” with querystring selection and heavy dialog state.
+  - This makes deep-linking, back-button behavior, and “open in new tab” unreliable and increases QA surface.
+- Evidence:
+  - Purchase Orders: `apps/admin/app/purchasing/purchase-orders/page.tsx`
+  - Goods Receipts: `apps/admin/app/purchasing/goods-receipts/page.tsx`
+  - Suppliers: list/detail is still in one page and uses a clickable table row: `apps/admin/app/partners/suppliers/page.tsx`
+- Fix:
+  - Convert to `/list`, `/new`, `/[id]`, `/[id]/edit` routes (same pattern as sales/supplier invoices).
+  - Standardize “Draft vs Posted/Voided” lifecycle UI and primary action placements.
 
-### 2) Workflow screens try to do "everything, everywhere"
+2) Replace raw “Status” `<pre>` error surfaces with productized error/empty states
+- Problem:
+  - Many screens render raw exception strings and JSON in a “Status” card. This reads like a debug console and makes the system feel fragile.
+- Evidence:
+  - Common pattern across most pages (Sales, Purchasing, Accounting reports, System tools), for example:
+    - `apps/admin/app/sales/invoices/page.tsx`
+    - `apps/admin/app/purchasing/supplier-invoices/page.tsx`
+    - `apps/admin/app/inventory/stock/page.tsx`
+    - `apps/admin/app/system/outbox/page.tsx`
+- Fix:
+  - Introduce a single shared component:
+    - `ErrorBanner` or `Callout` with:
+      - friendly headline (“Permission missing”, “API offline”, “Invalid input”, “Not configured”)
+      - “Details” expander for the raw text
+      - “Retry” button
+  - Use `ApiError.status` from `apps/admin/lib/api.ts` to specialize messages for 401/403/409/422.
 
-Several pages combine list + detail + create/edit + advanced actions in a single component with many modal states.
-Example: Sales Invoices screen.
+3) Searchable selects / command-driven picking for large master data
+- Problem:
+  - In warehouse/purchasing flows, `<select>` for items/suppliers/warehouses will not scale once there are hundreds or thousands of items.
+  - This becomes a hard blocker for speed and accuracy.
+- Evidence:
+  - PO/GRN drafts use `<select className="ui-select">` with all items/suppliers in memory:
+    - `apps/admin/app/purchasing/purchase-orders/page.tsx`
+    - `apps/admin/app/purchasing/goods-receipts/page.tsx`
+- Fix:
+  - Introduce a reusable `Combobox` (async search, keyboard friendly).
+  - Add server endpoints for “typeahead search” (items/suppliers) if needed.
+  - Default behavior: show recent items, then search.
 
-Result: cognitive overload, brittle state, and the back button/refresh behavior is unreliable.
+4) Automation / AI features still read like internal tooling
+- Problem:
+  - “AI Hub”, “Copilot”, “Ops Copilot” expose raw JSON and require interpretation.
+  - This is dangerous because it trains users to ignore the system, which reduces adoption of the AI layer we want.
+- Evidence:
+  - `apps/admin/app/automation/ai-hub/page.tsx`
+  - `apps/admin/app/automation/ops-copilot/page.tsx`
+  - `apps/admin/app/automation/copilot/page.tsx`
+- Fix:
+  - Keep JSON only behind “View raw” toggles.
+  - Convert core lists to a scannable queue:
+    - Recommendation type, why it fired, suggested action, risk level, and a single primary action (Approve/Reject/Open doc).
 
-### 3) Excessive modal/dialog usage and nesting
+5) Accessibility and interaction correctness for “clickable rows” and plain `<button>`
+- Problem:
+  - Some list rows are clickable without being keyboard accessible (table row `onClick`), which breaks accessibility and feels inconsistent.
+  - There are also plain `<button>` elements without explicit `type`, which can accidentally submit forms when inside `<form>`.
+- Evidence:
+  - Clickable table row:
+    - `apps/admin/app/partners/suppliers/page.tsx`
+    - `apps/admin/app/catalog/item-categories/page.tsx`
+  - Plain `<button>` without type:
+    - `apps/admin/app/dashboard/page.tsx` (ok because not in a form)
+    - `apps/admin/app/login/page.tsx` (ok because not in a form)
+    - `apps/admin/app/accounting/banking/reconciliation/page.tsx` (needs review)
+- Fix:
+  - Use links/buttons inside cells, not `<tr onClick>`.
+  - Add `type="button"` for non-submit actions when inside forms.
 
-Dialogs are used for many workflows that should be first-class routes (create, edit, post/submit).
+## Less Critical Improvements
 
-Result: stacked overlays, focus issues, confusing navigation, and harder QA.
+1) Standardize page structure and reduce duplication
+- Many pages re-implement the same patterns (filters toolbar, refresh button, pagination, “New Draft”).
+- Introduce:
+  - `Page`, `PageHeader`, `Toolbar`, `Section`, `EmptyState`.
+- Benefit: consistency, faster feature development, fewer regressions.
 
-### 4) Error handling is noisy and inconsistent
+2) Expand and enforce color rules for status semantics
+- The design-token lint bans slate/white (good), but status colors still use raw Tailwind greens/reds in some places (dashboard, login).
+- Consider extending `check-design-tokens.mjs` to also forbid `text-green-*`, `bg-green-*`, `text-red-*`, `bg-red-*` in TS/TSX, pushing everyone to semantic status tokens.
 
-Many pages store raw error strings in `status` and display them in a "Status" card.
+3) Make “company selection” human-friendly
+- Company select shows UUIDs only (`apps/admin/app/company/select/page.tsx`).
+- At minimum show company name/slug, and allow searching (future multi-company operators).
 
-Result: users see technical output frequently and lose confidence in the system.
+4) Unify “numbers and dates” entry ergonomics
+- Some pages use strong numeric parsing, others accept raw strings and show generic errors.
+- Add consistent number inputs:
+  - quick set buttons (0, 1, 10)
+  - always show currency label next to amount inputs
+  - consistent date pickers and ISO display formatting
 
-### 5) Portal/Automation features feel like debug tools
+## Nice To Have
 
-Pages such as:
+- Saved views and filters per table (beyond column visibility).
+- Bulk actions:
+  - bulk approve AI recs, bulk set “inactive”, bulk price updates by category.
+- Keyboard shortcuts for common actions:
+  - New invoice, add line, post/submit, search focus.
+- “Help mode” overlays for new users:
+  - what drafts mean, what posting does (stock + GL), and what holds mean (AP guardrails).
 
-- `apps/admin/app/automation/ops-copilot/page.tsx`
-- `apps/admin/app/automation/copilot/page.tsx`
-- `apps/admin/app/automation/ai-hub/page.tsx`
+## Suggested Implementation Order (Pragmatic)
 
-...render raw JSON blobs, hard-coded "slate/white" styling, and show frequent API errors without guidance.
-
-Result: the feature appears unreliable and difficult to understand, even when the backend is working.
-
-## Recommendations
-
-### A) Establish a small, enforceable design system
-
-Goal: eliminate palette drift and make screens visually coherent.
-
-- Ban direct grays/palettes in app code. Use semantic tokens only.
-- Expand tokens to cover: `surface`, `surface-2`, `muted`, `divider`, `focus`, `danger/success/warning`.
-- Standardize typography scale, spacing, and table density.
-
-Deliverables:
-
-- `Page` wrapper (width, padding, vertical rhythm).
-- `PageHeader` (title, subtitle, breadcrumbs, actions).
-- `Toolbar` (search, filters, view toggles, bulk actions).
-- `EmptyState` (no data, no access, not configured, error).
-- `Toast` system (success/error feedback).
-
-### B) Adopt a Document-First information architecture
-
-Goal: make screens feel like ERPNext: organized, predictable, readable.
-
-Routes:
-
-- `/sales/invoices` (List view)
-- `/sales/invoices/new` (Create draft)
-- `/sales/invoices/[id]` (Document view)
-- `/sales/invoices/[id]/edit` (Edit draft)
-- `/sales/invoices/[id]/post` (Submit/Post flow)
-
-Document view layout (template):
-
-- Header: document title + status pill + primary action.
-- Left column: key metadata (customer, dates, warehouse, currency, terms).
-- Main tabs:
-  - Items
-  - Taxes
-  - Payments
-  - Accounting (GL preview or postings)
-  - Attachments
-  - Timeline/Audit
-- Right column (optional): totals summary, warnings, quick actions.
-
-### C) Fix errors first (stability pass)
-
-Goal: reduce error frequency and make remaining errors understandable.
-
-- Centralize API error parsing and show friendly messages (with a "details" expander).
-- Add per-screen empty/error states (not raw `<pre>`).
-- Add retry and "health" hints: "API offline", "feature not configured", "permission missing".
-- Add lightweight client-side logging (console plus optional backend event endpoint later).
-
-### D) Redesign the Portal/Automation experience
-
-Goal: make portal features feel productized, not like internal debug pages.
-
-Replace "raw JSON screens" with:
-
-- Ops Portal dashboard: outbox health, failed events, negative inventory, period locks, recommended actions.
-- AI Hub: three clear sections:
-  - Recommendations queue (scannable table, filters, detail drawer)
-  - Actions execution (status, retries, reason, clear next step)
-  - Schedules (human-readable scheduler UI, not raw JSON)
+1) Standard UI primitives:
+- Add `ErrorBanner`, `EmptyState`, `PageHeader`, `Toolbar`.
+2) Convert the remaining high-usage purchasing flows to document-first routes:
+- Purchase Orders, Goods Receipts, Suppliers.
+3) Add searchable combobox picking for large master data:
+- Items + suppliers in PO/GRN and invoice draft editors.
+4) Productize Automation/AI views:
+- Queue-first views, raw JSON behind toggles, clearer “why” and “what next”.
 - Copilot: chat UI with:
   - Clear "what it can/can't do"
   - Suggested prompts by role (owner, accountant, store manager)
