@@ -4,7 +4,6 @@ Repo: `/Users/Youssef/oDocuments/Business/Codex POS`
 
 This document is a deeper, repo-wide audit that complements:
 - `docs/audits/platform-audit-2026-02-07.md` (core platform audit)
-- `docs/audits/platform-audit-2026-02-08.md` (post-merge update)
 - `docs/admin-ui-ux-audit.md` (admin UX audit + phased plan)
 
 Scope here: runtime/CI correctness, migration reliability, worker robustness, deploy/ops, admin productization risks, and cross-cutting security/integrity issues that are not just “missing features”.

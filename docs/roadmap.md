@@ -1,69 +1,88 @@
 # Roadmap
 
-## Current Status (2026-02-08)
+Last updated: 2026-02-09
 
-We have a working end-to-end POS + ERP foundation (RLS, outbox worker, dual-currency, GL posting, Admin UI).
+Repo: `/Users/Youssef/oDocuments/Business/Codex POS`
 
-The immediate focus is to reduce operational drift and productize the Admin UI:
-- Platform audits and execution backlog:
-  - `docs/audits/platform-audit-2026-02-07.md`
-  - `docs/audits/platform-audit-2026-02-08-deep-dive.md`
-- Admin UI/UX phased plan:
-  - `docs/admin-ui-ux-audit.md`
- - AI layer is now visibly embedded in core screens (items/AP/expiry + dashboard counts) as a practical assist layer.
+## Where We Are Now (What We Achieved)
 
-## Near-Term Focus (Next 2-4 Weeks)
+Core platform is live-quality in the areas that cause real-world breakage:
+- Security hardening:
+  - POS desktop agent is loopback-bound by default; LAN exposure requires explicit host config and LAN requests are gated behind a local PIN session.
+  - Auth sessions use strong random tokens stored as one-way hashes; session revocation controls exist (logout-all, revoke user/company sessions) and sessions are revoked on role/permission changes.
+- DB invariants + drift protection:
+  - “One open shift per device” enforced at DB level.
+  - Bootstrap/migrations now run all numeric migrations in order (prevents fresh-environment drift).
+- Ops reliability + observability:
+  - Worker heartbeat + job health surfaced in Ops Copilot.
+  - Structured JSON logging + `X-Request-Id` correlation.
+  - `/health` checks DB connectivity.
+- ERP robustness upgrades executed from the audit:
+  - Stronger expiry/lot handling (FEFO rules, warehouse shelf-life policy, batch metadata, cycle counts for batch-tracked items).
+  - Stock reporting includes reserved/incoming/available and negative-stock policy supports company + warehouse + item overrides.
+  - GL immutability enforced via DB triggers.
+  - Supplier invoice hold/unhold workflow (auto-hold on variance + manual controls; payments blocked while on hold).
+  - Audit logs expanded (users/config/high-value mutations) + Admin audit feed page.
+- Practical AI layer embedded into operations (non-blocking, safe-by-default):
+  - Deterministic “AI Insights” in Admin: items hygiene, AP guard, expiry ops + dashboard pending counts.
+  - AI-assisted purchases ingestion v1:
+    - Admin upload (image/PDF) creates a draft supplier invoice, always attaches the original document, preserves supplier item code/name, learns supplier item aliases, and surfaces price-impact insights.
+    - Telegram webhook receiver exists (off-by-default) to support “send invoice → create draft”.
+  - AI governance:
+    - Company setting `company_settings.key='ai'` / `allow_external_processing` can disable external AI processing while keeping “draft + attachment” working.
 
-1) Ops reliability and observability
-- Worker/job health surfaced in Admin (heartbeat + failed runs + last activity)
-- Structured logging + correlation ids
-- Restore drills + post-restore verification checklist (already started)
+Canonical execution documents:
+- `/Users/Youssef/oDocuments/Business/Codex POS/docs/audits/platform-audit-2026-02-07.md`
+- `/Users/Youssef/oDocuments/Business/Codex POS/docs/audits/platform-audit-2026-02-08-deep-dive.md`
+- `/Users/Youssef/oDocuments/Business/Codex POS/docs/admin-ui-ux-audit.md`
 
-2) Admin UI: Document-first rebuild
-- Continue converting high-usage modules to document routes:
-  - Sales Invoices, Supplier Invoices (started)
-  - Purchase Orders, Goods Receipts, Items, Customers
-- Centralize error parsing + consistent empty/error states
+## Next 2-4 Weeks (High-ROI, Low-Regret)
 
-3) Data integrity and auditability
-- Expand audit trail coverage and surface timeline per document in Admin
-- Close remaining “free-string” validation drift (keep inputs strict)
+1) Admin UI: complete the document-first experience
+- Convert Purchase Orders, Goods Receipts, Items, Customers into consistent list/new/[id]/edit routes.
+- Standardize “Attachments” and “Timeline/Audit” tabs across documents.
+- Centralize API error parsing and replace raw “Status” pre blocks with productized error/empty states.
 
-4) AI-assisted ingestion (Purchases)
-- Telegram/WhatsApp invoice upload -> AI draft Supplier Invoice (async fill + human review)
-- Supplier item code/name aliasing to improve matching and reduce noisy item creation
-- “Price impact” and margin-risk insights on new supplier invoices
+2) Purchasing: make invoice ingestion feel flawless
+- Move invoice extraction to async background jobs:
+  - Upload returns immediately (draft + attachment).
+  - Worker fills lines later and posts a recommendation with confidence + explainability.
+- Matching UX (human-in-the-loop):
+  - Show top candidate matches per line and require user confirmation before creating new items.
+  - Improve alias learning reliability (code/name normalization, recency weighting).
 
-Note:
-- Telegram webhook receiver is implemented (off-by-default) and can be enabled via env vars.
+3) Margin + price intelligence (wholesale-grade)
+- Auto-generate “price impact” tasks when costs change:
+  - Suggest updated sell prices based on target margin rules (configurable by category/brand/customer segment).
+  - Flag client-facing risk (price protection, contract pricing, key accounts).
+- Add a small “Price change log” and “Last cost vs current cost” visibility per item and supplier.
 
-## Phase 0: Foundation
-- Define COA templates (Lebanese + IFRS stub + custom template tooling)
-- Dual-currency data model finalized
-- VAT rules and reporting format defined
-- POS offline sync protocol finalized
+4) Audit coverage completion (business-grade)
+- Ensure all document lifecycle actions write `audit_logs`:
+  - draft create/update, post/submit, cancel/void, hold/unhold, payment create/cancel, attachments uploaded.
 
-## Phase 1: Core MVP
-- Companies, users, roles, permissions
-- Inventory + warehouse
-- Purchasing (PO, GRN, supplier invoice)
-- Sales + POS offline (invoice, receipt, return)
-- GL auto-posting
-- VAT reports in LBP
+## Next 1-3 Months (Competitive Differentiators)
 
-## Phase 2: Operations
-- CRM, loyalty
-- Pricing engine and promotions
-- Intercompany issuing workflow
-- Consolidated reporting
+1) WhatsApp ingestion (mirror Telegram pattern)
+- Keep off-by-default and secret-gated.
+- Reuse the same invoice import pipeline and attachment storage.
 
-## Phase 3: AI Automation
-- AI purchase recommendations
-- AI inventory alerts
-- AI CRM follow-up suggestions
-- Auto-execute workflows with approval gates
+2) Landed cost allocation (real COGS)
+- Capture freight/customs/handling per shipment and allocate to items/batches.
+- Drive more accurate margin reporting and pricing decisions.
 
-## Phase 4: Optimization
-- Advanced analytics
-- Forecasting and demand planning
-- Multi-warehouse support
+3) 3-way match v2 (AP controls)
+- Expand variance checks: qty, price, tax; configurable thresholds; audit reasons.
+- Better visibility: ordered vs received vs invoiced by PO line and item.
+
+4) Proactive ops dashboards
+- “What needs attention today” views:
+  - expiring stock, negative stock risk, unposted drafts, held invoices, cash reconciliation anomalies.
+
+## Longer Term (6-12 Months)
+
+- Demand planning and automated replenishment suggestions.
+- Client notification workflows (approve a price change set, then notify wholesale clients).
+- Multi-warehouse advanced operations: bins, pick/pack, transfers, receiving placement workflows.
+- AI automation with approval gates:
+  - approve and execute routine fixes (data hygiene), with caps, explainability, and rollback hooks.
