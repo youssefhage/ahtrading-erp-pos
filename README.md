@@ -7,6 +7,10 @@ This repo is an offline-first POS + ERP foundation for AH Trading (Lebanon), bui
 - A lightweight POS desktop agent (Python + SQLite + static UI) for early pilots
 
 ## Quickstart (Local Dev)
+Prereqs (recommended for non-Docker tooling):
+- Python 3.11 (see `.python-version`)
+- Node 20 (see `.nvmrc`)
+
 1) Start the stack:
 ```bash
 docker compose up --build
