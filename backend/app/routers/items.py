@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from datetime import date
 from decimal import Decimal
-from typing import Optional, List
+from typing import Optional, List, Literal
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission
 from ..deps import get_current_user
@@ -10,10 +10,14 @@ import json
 
 router = APIRouter(prefix="/items", tags=["items"])
 
+ItemType = Literal["stocked", "service", "bundle"]
+
 
 class ItemIn(BaseModel):
     sku: str
     name: str
+    item_type: ItemType = "stocked"
+    tags: Optional[List[str]] = None
     unit_of_measure: str
     barcode: Optional[str] = None
     tax_code_id: Optional[str] = None
@@ -62,7 +66,8 @@ def list_items(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure, i.tax_code_id, i.reorder_point, i.reorder_qty,
+                SELECT i.id, i.sku, i.barcode, i.name, i.item_type, i.tags,
+                       i.unit_of_measure, i.tax_code_id, i.reorder_point, i.reorder_qty,
                        i.is_active, i.category_id, i.brand, i.short_name, i.description,
                        i.track_batches, i.track_expiry,
                        i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
@@ -88,20 +93,20 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
         with conn.transaction():
             with conn.cursor() as cur:
                 barcode = data.barcode.strip() if data.barcode else None
+                tags = [t.strip() for t in (data.tags or []) if (t or "").strip()] or None
                 cur.execute(
                     """
                     INSERT INTO items
-                      (id, company_id, sku, barcode, name, unit_of_measure, tax_code_id, reorder_point, reorder_qty,
+                      (id, company_id, sku, barcode, name, item_type, tags, unit_of_measure, tax_code_id, reorder_point, reorder_qty,
                        is_active, category_id, brand, short_name, description,
                        track_batches, track_expiry, default_shelf_life_days, min_shelf_life_days_for_sale, expiry_warning_days,
                        allow_negative_stock,
                        image_attachment_id, image_alt)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s,
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                        %s, %s, %s, %s, %s,
                        %s, %s, %s, %s, %s,
-                       %s,
-                       %s, %s)
+                       %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -109,6 +114,8 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                         data.sku,
                         barcode,
                         data.name,
+                        data.item_type,
+                        tags,
                         data.unit_of_measure,
                         data.tax_code_id,
                         data.reorder_point or 0,
@@ -243,6 +250,8 @@ def bulk_upsert_items(data: BulkItemsIn, company_id: str = Depends(get_company_i
 
 class ItemUpdate(BaseModel):
     name: Optional[str] = None
+    item_type: Optional[ItemType] = None
+    tags: Optional[List[str]] = None
     unit_of_measure: Optional[str] = None
     barcode: Optional[str] = None
     tax_code_id: Optional[str] = None
@@ -272,6 +281,9 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
         fields.append(f"{k} = %s")
         if k == "barcode" and isinstance(v, str):
             params.append(v.strip() or None)
+        elif k == "tags" and isinstance(v, list):
+            norm = [str(t).strip() for t in v if str(t or "").strip()]
+            params.append(norm or None)
         elif k in {"brand", "short_name", "description", "image_alt"} and isinstance(v, str):
             params.append(v.strip() or None)
         else:

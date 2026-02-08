@@ -184,7 +184,9 @@ These are the most common fields you’ll eventually need for a robust POS/ERP. 
 
 Identity and lifecycle:
 - `item_type` (stocked, non-stock/service, bundle/kit)
+  - Implemented v1: `items.item_type` (enum: `stocked|service|bundle`) + Admin edit field.
 - `tags` (or a simple tagging model)
+  - Implemented v1: `items.tags` (text[]) + Admin edit field (comma-separated).
 
 Units and packaging:
 - Base UOM is present (`unit_of_measure`) but missing:

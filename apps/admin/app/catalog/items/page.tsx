@@ -14,6 +14,8 @@ type Item = {
   sku: string;
   barcode: string | null;
   name: string;
+  item_type?: "stocked" | "service" | "bundle";
+  tags?: string[] | null;
   unit_of_measure: string;
   tax_code_id: string | null;
   reorder_point: string | number | null;
@@ -100,6 +102,8 @@ export default function ItemsPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editItem, setEditItem] = useState<Item | null>(null);
   const [editName, setEditName] = useState("");
+  const [editItemType, setEditItemType] = useState<"stocked" | "service" | "bundle">("stocked");
+  const [editTags, setEditTags] = useState("");
   const [editUom, setEditUom] = useState("");
   const [editBarcode, setEditBarcode] = useState("");
   const [editTaxCodeId, setEditTaxCodeId] = useState("");
@@ -203,6 +207,15 @@ export default function ItemsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  function parseTags(input: string): string[] | null {
+    const parts = (input || "")
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const uniq = Array.from(new Set(parts));
+    return uniq.length ? uniq : null;
+  }
 
   function parseCsv(input: string): string[][] {
     const out: string[][] = [];
@@ -398,6 +411,8 @@ export default function ItemsPage() {
   function openEdit(item: Item) {
     setEditItem(item);
     setEditName(item.name || "");
+    setEditItemType((item.item_type as any) || "stocked");
+    setEditTags(Array.isArray(item.tags) ? item.tags.join(", ") : "");
     setEditUom(item.unit_of_measure || "");
     setEditBarcode(item.barcode || "");
     setEditTaxCodeId(item.tax_code_id || "");
@@ -476,6 +491,8 @@ export default function ItemsPage() {
     try {
       await apiPatch(`/items/${editItem.id}`, {
         name: editName.trim(),
+        item_type: editItemType,
+        tags: parseTags(editTags),
         unit_of_measure: editUom.trim(),
         barcode: editBarcode.trim(),
         tax_code_id: editTaxCodeId ? editTaxCodeId : null,
@@ -993,10 +1010,18 @@ export default function ItemsPage() {
                   </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-fg-muted">Name</label>
                       <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-fg-muted">Item Type</label>
+                      <select className="ui-select" value={editItemType} onChange={(e) => setEditItemType(e.target.value as any)}>
+                        <option value="stocked">Stocked</option>
+                        <option value="service">Service</option>
+                        <option value="bundle">Bundle/Kit</option>
+                      </select>
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-fg-muted">UOM</label>
@@ -1117,6 +1142,11 @@ export default function ItemsPage() {
                       <div className="space-y-1 md:col-span-2">
                         <label className="text-xs font-medium text-fg-muted">Description</label>
                         <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Optional" />
+                      </div>
+
+                      <div className="space-y-1 md:col-span-2">
+                        <label className="text-xs font-medium text-fg-muted">Tags (comma-separated)</label>
+                        <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="e.g. dairy, chilled, local" />
                       </div>
 
                       <div className="space-y-1">
