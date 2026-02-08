@@ -227,9 +227,14 @@ def main():
         company_ids = args.companies or list_company_ids(args.db)
         did_work = False
         for cid in company_ids:
-            processed = process_events(args.db, cid, args.limit, max_attempts=args.max_attempts)
-            if processed:
-                did_work = True
+            try:
+                processed = process_events(args.db, cid, args.limit, max_attempts=args.max_attempts)
+                if processed:
+                    did_work = True
+            except Exception as ex:
+                # Never crash the worker loop due to outbox processing errors.
+                print(f"[worker] outbox processing error for company {cid}: {ex}", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
 
             try:
                 jobs_ran = run_due_jobs(args.db, cid, max_jobs=3)
