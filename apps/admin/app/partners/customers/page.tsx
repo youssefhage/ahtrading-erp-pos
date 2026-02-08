@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { fmtLbp, fmtUsd } from "@/lib/money";
 import { PartyAddresses } from "@/components/party-addresses";
 import { PartyContacts } from "@/components/party-contacts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { Chip } from "@/components/ui/chip";
 
 type PartyType = "individual" | "business";
 
@@ -50,7 +53,6 @@ type LoyaltyRow = {
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [status, setStatus] = useState("");
-  const [q, setQ] = useState("");
 
   const [customerId, setCustomerId] = useState("");
   const [detail, setDetail] = useState<Customer | null>(null);
@@ -106,23 +108,127 @@ export default function CustomersPage() {
   const [importErrors, setImportErrors] = useState("");
   const [importing, setImporting] = useState(false);
 
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return customers;
-    return customers.filter((c) => {
-      return (
-        c.name.toLowerCase().includes(needle) ||
-        (c.code || "").toLowerCase().includes(needle) ||
-        (c.legal_name || "").toLowerCase().includes(needle) ||
-        (c.phone || "").toLowerCase().includes(needle) ||
-        (c.email || "").toLowerCase().includes(needle) ||
-        (c.membership_no || "").toLowerCase().includes(needle) ||
-        (c.vat_no || "").toLowerCase().includes(needle) ||
-        (c.tax_id || "").toLowerCase().includes(needle) ||
-        c.id.toLowerCase().includes(needle)
-      );
-    });
-  }, [customers, q]);
+  const loadLoyaltyLedger = useCallback(async (id: string) => {
+    setLoyaltyStatus("Loading loyalty ledger...");
+    try {
+      const res = await apiGet<{ loyalty_points: string | number; ledger: LoyaltyRow[] }>(`/customers/${id}/loyalty-ledger?limit=50`);
+      setLoyaltyLedger(res.ledger || []);
+      setLoyaltyStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setLoyaltyStatus(message);
+    }
+  }, []);
+
+  const openEdit = useCallback(
+    (c: Customer) => {
+      setCustomerId(c.id);
+      setEditCode((c.code as any) || "");
+      setEditName(c.name || "");
+      setEditPartyType((c.party_type as PartyType) || "individual");
+      setEditLegalName(c.legal_name || "");
+      setEditTaxId(c.tax_id || "");
+      setEditVatNo(c.vat_no || "");
+      setEditNotes(c.notes || "");
+      setEditPhone(c.phone || "");
+      setEditEmail(c.email || "");
+      setEditMembershipNo(c.membership_no || "");
+      setEditIsMember(Boolean(c.is_member));
+      setEditMembershipExpiresAt(c.membership_expires_at || "");
+      setEditIsActive(c.is_active !== false);
+      setEditTermsDays(String(c.payment_terms_days ?? 0));
+      setEditLimitUsd(String(c.credit_limit_usd ?? 0));
+      setEditLimitLbp(String(c.credit_limit_lbp ?? 0));
+      setEditOpen(true);
+    },
+    []
+  );
+
+  const columns = useMemo(() => {
+    const cols: Array<DataTableColumn<Customer>> = [
+      { id: "code", header: "Code", sortable: true, mono: true, defaultHidden: true, accessor: (c) => c.code || "" },
+      { id: "name", header: "Name", sortable: true, accessor: (c) => c.name, cell: (c) => <span className="font-medium">{c.name}</span> },
+      {
+        id: "party_type",
+        header: "Type",
+        sortable: true,
+        accessor: (c) => c.party_type || "individual",
+        cell: (c) => (
+          <Chip variant={(c.party_type || "individual") === "business" ? "primary" : "default"}>
+            {c.party_type || "individual"}
+          </Chip>
+        ),
+        globalSearch: true,
+      },
+      { id: "phone", header: "Phone", sortable: true, accessor: (c) => c.phone || "-" },
+      { id: "email", header: "Email", sortable: true, accessor: (c) => c.email || "-" },
+      { id: "membership_no", header: "Membership #", sortable: true, defaultHidden: true, accessor: (c) => c.membership_no || "-" },
+      { id: "vat_no", header: "VAT", sortable: true, defaultHidden: true, accessor: (c) => c.vat_no || "-" },
+      { id: "tax_id", header: "Tax ID", sortable: true, defaultHidden: true, accessor: (c) => c.tax_id || "-" },
+      {
+        id: "is_active",
+        header: "Active",
+        sortable: true,
+        accessor: (c) => (c.is_active === false ? "No" : "Yes"),
+        cell: (c) => (
+          <Chip variant={c.is_active === false ? "default" : "success"}>
+            {c.is_active === false ? "No" : "Yes"}
+          </Chip>
+        ),
+      },
+      {
+        id: "credit_balance_usd",
+        header: "AR USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (c) => Number(c.credit_balance_usd || 0),
+        cell: (c) => fmt(c.credit_balance_usd),
+        cellClassName: (c) => {
+          const n = Number(c.credit_balance_usd || 0);
+          if (n < 0) return "text-red-600";
+          if (n > 0) return "text-sky-700";
+          return "text-fg-subtle";
+        },
+      },
+      {
+        id: "credit_balance_lbp",
+        header: "AR LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (c) => Number(c.credit_balance_lbp || 0),
+        cell: (c) => fmt(c.credit_balance_lbp),
+        cellClassName: (c) => {
+          const n = Number(c.credit_balance_lbp || 0);
+          if (n < 0) return "text-red-600";
+          if (n > 0) return "text-sky-700";
+          return "text-fg-subtle";
+        },
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        align: "right",
+        globalSearch: false,
+        cell: (c) => (
+          <div className="text-right">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation();
+                openEdit(c);
+              }}
+            >
+              Edit
+            </Button>
+          </div>
+        ),
+      },
+    ];
+    return cols;
+  }, [openEdit]);
 
   async function load() {
     setStatus("Loading...");
@@ -152,19 +258,7 @@ export default function CustomersPage() {
       return;
     }
     loadLoyaltyLedger(customerId);
-  }, [customerId]);
-
-  async function loadLoyaltyLedger(id: string) {
-    setLoyaltyStatus("Loading loyalty ledger...");
-    try {
-      const res = await apiGet<{ loyalty_points: string | number; ledger: LoyaltyRow[] }>(`/customers/${id}/loyalty-ledger?limit=50`);
-      setLoyaltyLedger(res.ledger || []);
-      setLoyaltyStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setLoyaltyStatus(message);
-    }
-  }
+  }, [customerId, loadLoyaltyLedger]);
 
   async function createCustomer(e: React.FormEvent) {
     e.preventDefault();
@@ -215,28 +309,6 @@ export default function CustomersPage() {
     } finally {
       setCreating(false);
     }
-  }
-
-  function openEdit(c: Customer) {
-    setCustomerId(c.id);
-    loadLoyaltyLedger(c.id);
-    setEditCode((c.code as any) || "");
-    setEditName(c.name || "");
-    setEditPartyType((c.party_type as PartyType) || "individual");
-    setEditLegalName(c.legal_name || "");
-    setEditTaxId(c.tax_id || "");
-    setEditVatNo(c.vat_no || "");
-    setEditNotes(c.notes || "");
-    setEditPhone(c.phone || "");
-    setEditEmail(c.email || "");
-    setEditMembershipNo(c.membership_no || "");
-    setEditIsMember(Boolean(c.is_member));
-    setEditMembershipExpiresAt(c.membership_expires_at || "");
-    setEditIsActive(c.is_active !== false);
-    setEditTermsDays(String(c.payment_terms_days ?? 0));
-    setEditLimitUsd(String(c.credit_limit_usd ?? 0));
-    setEditLimitLbp(String(c.credit_limit_lbp ?? 0));
-    setEditOpen(true);
   }
 
   async function saveEdit(e: React.FormEvent) {
@@ -427,7 +499,7 @@ export default function CustomersPage() {
               <CardDescription>Errors and action results show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -466,7 +538,7 @@ export default function CustomersPage() {
                     </DialogHeader>
                     <form onSubmit={submitImport} className="space-y-3">
                       <textarea
-                        className="h-48 w-full rounded-md border border-slate-200 bg-white p-3 text-xs font-mono text-slate-900"
+                        className="h-48 w-full rounded-md border border-border bg-bg-elevated p-3 text-xs font-mono text-foreground"
                         value={importText}
                         onChange={(e) => {
                           const v = e.target.value;
@@ -476,11 +548,11 @@ export default function CustomersPage() {
                         placeholder={"code,name,party_type,phone,email,membership_no\nC-0001,Walk-in,individual,,,\nC-1002,Company XYZ,business,+961...,ap@xyz.com,"}
                       />
                       {importErrors ? (
-                        <pre className="whitespace-pre-wrap rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                        <pre className="whitespace-pre-wrap rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
                           {importErrors}
                         </pre>
                       ) : null}
-                      <div className="rounded-md border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                      <div className="rounded-md border border-border bg-bg-elevated p-3 text-xs text-fg-muted">
                         Parsed rows: <span className="font-mono">{importPreview.length}</span>
                       </div>
                       <div className="flex justify-end">
@@ -503,67 +575,67 @@ export default function CustomersPage() {
 
                     <form onSubmit={createCustomer} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Code (optional)</label>
+                        <label className="text-xs font-medium text-fg-muted">Code (optional)</label>
                         <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="C-0001" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Display Name</label>
+                        <label className="text-xs font-medium text-fg-muted">Display Name</label>
                         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. John Doe or ABC Market" />
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Type</label>
+                        <label className="text-xs font-medium text-fg-muted">Type</label>
                         <select className="ui-select" value={partyType} onChange={(e) => setPartyType(e.target.value as PartyType)}>
                           <option value="individual">Individual</option>
                           <option value="business">Business</option>
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Legal Name</label>
+                        <label className="text-xs font-medium text-fg-muted">Legal Name</label>
                         <Input value={legalName} onChange={(e) => setLegalName(e.target.value)} placeholder="Optional" />
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Tax ID</label>
+                        <label className="text-xs font-medium text-fg-muted">Tax ID</label>
                         <Input value={taxId} onChange={(e) => setTaxId(e.target.value)} placeholder="Optional" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">VAT No</label>
+                        <label className="text-xs font-medium text-fg-muted">VAT No</label>
                         <Input value={vatNo} onChange={(e) => setVatNo(e.target.value)} placeholder="Optional" />
                       </div>
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:col-span-2">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Phone</label>
+                          <label className="text-xs font-medium text-fg-muted">Phone</label>
                           <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+961..." />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Email</label>
+                          <label className="text-xs font-medium text-fg-muted">Email</label>
                           <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="billing@..." />
                         </div>
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Payment Terms (days)</label>
+                        <label className="text-xs font-medium text-fg-muted">Payment Terms (days)</label>
                         <Input value={termsDays} onChange={(e) => setTermsDays(e.target.value)} placeholder="0" />
                       </div>
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Credit USD</label>
+                          <label className="text-xs font-medium text-fg-muted">Credit USD</label>
                           <Input value={creditLimitUsd} onChange={(e) => setCreditLimitUsd(e.target.value)} />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Credit LBP</label>
+                          <label className="text-xs font-medium text-fg-muted">Credit LL</label>
                           <Input value={creditLimitLbp} onChange={(e) => setCreditLimitLbp(e.target.value)} />
                         </div>
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Membership #</label>
+                        <label className="text-xs font-medium text-fg-muted">Membership #</label>
                         <Input value={membershipNo} onChange={(e) => setMembershipNo(e.target.value)} placeholder="Optional" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Member?</label>
+                        <label className="text-xs font-medium text-fg-muted">Member?</label>
                         <select className="ui-select" value={isMember ? "yes" : "no"} onChange={(e) => setIsMember(e.target.value === "yes")}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
@@ -571,7 +643,7 @@ export default function CustomersPage() {
                       </div>
 
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Active?</label>
+                        <label className="text-xs font-medium text-fg-muted">Active?</label>
                         <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
@@ -579,7 +651,7 @@ export default function CustomersPage() {
                       </div>
 
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Notes</label>
+                        <label className="text-xs font-medium text-fg-muted">Notes</label>
                         <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
                       </div>
 
@@ -600,65 +672,65 @@ export default function CustomersPage() {
                     </DialogHeader>
                     <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Code (optional)</label>
+                        <label className="text-xs font-medium text-fg-muted">Code (optional)</label>
                         <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} placeholder="C-0001" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Display Name</label>
+                        <label className="text-xs font-medium text-fg-muted">Display Name</label>
                         <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Type</label>
+                        <label className="text-xs font-medium text-fg-muted">Type</label>
                         <select className="ui-select" value={editPartyType} onChange={(e) => setEditPartyType(e.target.value as PartyType)}>
                           <option value="individual">Individual</option>
                           <option value="business">Business</option>
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Legal Name</label>
+                        <label className="text-xs font-medium text-fg-muted">Legal Name</label>
                         <Input value={editLegalName} onChange={(e) => setEditLegalName(e.target.value)} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Tax ID</label>
+                        <label className="text-xs font-medium text-fg-muted">Tax ID</label>
                         <Input value={editTaxId} onChange={(e) => setEditTaxId(e.target.value)} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">VAT No</label>
+                        <label className="text-xs font-medium text-fg-muted">VAT No</label>
                         <Input value={editVatNo} onChange={(e) => setEditVatNo(e.target.value)} />
                       </div>
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:col-span-2">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Phone</label>
+                          <label className="text-xs font-medium text-fg-muted">Phone</label>
                           <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Email</label>
+                          <label className="text-xs font-medium text-fg-muted">Email</label>
                           <Input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
                         </div>
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Terms (days)</label>
+                        <label className="text-xs font-medium text-fg-muted">Terms (days)</label>
                         <Input value={editTermsDays} onChange={(e) => setEditTermsDays(e.target.value)} />
                       </div>
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Credit USD</label>
+                          <label className="text-xs font-medium text-fg-muted">Credit USD</label>
                           <Input value={editLimitUsd} onChange={(e) => setEditLimitUsd(e.target.value)} />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Credit LBP</label>
+                          <label className="text-xs font-medium text-fg-muted">Credit LL</label>
                           <Input value={editLimitLbp} onChange={(e) => setEditLimitLbp(e.target.value)} />
                         </div>
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Membership #</label>
+                        <label className="text-xs font-medium text-fg-muted">Membership #</label>
                         <Input value={editMembershipNo} onChange={(e) => setEditMembershipNo(e.target.value)} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Member?</label>
+                        <label className="text-xs font-medium text-fg-muted">Member?</label>
                         <select className="ui-select" value={editIsMember ? "yes" : "no"} onChange={(e) => setEditIsMember(e.target.value === "yes")}>
                           <option value="no">No</option>
                           <option value="yes">Yes</option>
@@ -666,7 +738,7 @@ export default function CustomersPage() {
                       </div>
 
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Active?</label>
+                        <label className="text-xs font-medium text-fg-muted">Active?</label>
                         <select className="ui-select" value={editIsActive ? "yes" : "no"} onChange={(e) => setEditIsActive(e.target.value === "yes")}>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
@@ -674,7 +746,7 @@ export default function CustomersPage() {
                       </div>
 
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Notes</label>
+                        <label className="text-xs font-medium text-fg-muted">Notes</label>
                         <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
                       </div>
 
@@ -691,46 +763,20 @@ export default function CustomersPage() {
 	          </CardHeader>
 
 	          <CardContent className="space-y-3">
-	            <div className="flex flex-wrap items-center justify-between gap-2">
-	              <div className="w-full md:w-96">
-	                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name/legal/phone/email/vat/tax/id..." />
-	              </div>
-	            </div>
-
-	            <div className="ui-table-wrap">
-	              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Type</th>
-                    <th className="px-3 py-2">Phone</th>
-                    <th className="px-3 py-2">Email</th>
-                    <th className="px-3 py-2">Active</th>
-                    <th className="px-3 py-2 text-right">AR USD</th>
-                    <th className="px-3 py-2 text-right">AR LBP</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((c) => (
-                    <tr key={c.id} className="ui-tr-hover" style={{ cursor: "pointer" }} onClick={() => setCustomerId(c.id)}>
-                      <td className="px-3 py-2 font-medium">{c.name}</td>
-                      <td className="px-3 py-2">{c.party_type || "individual"}</td>
-                      <td className="px-3 py-2">{c.phone || "-"}</td>
-                      <td className="px-3 py-2">{c.email || "-"}</td>
-                      <td className="px-3 py-2">{c.is_active === false ? <span className="text-slate-500">No</span> : "Yes"}</td>
-                      <td className="px-3 py-2 text-right">{fmt(c.credit_balance_usd)}</td>
-                      <td className="px-3 py-2 text-right">{fmt(c.credit_balance_lbp)}</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button size="sm" variant="outline" onClick={() => openEdit(c)}>
-                          Edit
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+              <DataTable
+                tableId="partners.customers"
+                rows={customers}
+                columns={columns}
+                getRowId={(c) => c.id}
+                onRowClick={(c) => setCustomerId(c.id)}
+                globalFilterPlaceholder="Search name, code, phone, email, VAT, tax id, membership..."
+                emptyText="No customers yet."
+                actions={
+                  <Button size="sm" variant="outline" onClick={load}>
+                    Refresh
+                  </Button>
+                }
+              />
 
 	            {detail ? (
 	              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -741,37 +787,43 @@ export default function CustomersPage() {
                   </CardHeader>
                   <CardContent className="text-sm space-y-1">
                     <div>
-                      <span className="text-slate-500">Code:</span> {detail.code || "-"}
+                      <span className="text-fg-subtle">Code:</span> {detail.code || "-"}
                     </div>
                     <div>
-                      <span className="text-slate-500">Name:</span> {detail.name}
+                      <span className="text-fg-subtle">Name:</span> {detail.name}
                     </div>
                     <div>
-                      <span className="text-slate-500">Type:</span> {detail.party_type || "individual"}
+                      <span className="text-fg-subtle">Type:</span> {detail.party_type || "individual"}
                     </div>
                     <div>
-                      <span className="text-slate-500">Legal:</span> {detail.legal_name || "-"}
+                      <span className="text-fg-subtle">Legal:</span> {detail.legal_name || "-"}
                     </div>
                     <div>
-                      <span className="text-slate-500">VAT:</span> {detail.vat_no || "-"}
+                      <span className="text-fg-subtle">VAT:</span> {detail.vat_no || "-"}
                     </div>
                     <div>
-                      <span className="text-slate-500">Tax ID:</span> {detail.tax_id || "-"}
+                      <span className="text-fg-subtle">Tax ID:</span> {detail.tax_id || "-"}
                     </div>
                     <div>
-                      <span className="text-slate-500">Terms:</span> {detail.payment_terms_days}
+                      <span className="text-fg-subtle">Terms:</span> {detail.payment_terms_days}
                     </div>
                     <div>
-                      <span className="text-slate-500">Credit Limit:</span> {fmt(detail.credit_limit_usd)} USD / {fmt(detail.credit_limit_lbp)} LBP
+                      <span className="text-fg-subtle">Credit Limit:</span>{" "}
+                      <span className="data-mono">
+                        {fmtUsd(detail.credit_limit_usd)} / {fmtLbp(detail.credit_limit_lbp)}
+                      </span>
                     </div>
                     <div>
-                      <span className="text-slate-500">Balance:</span> {fmt(detail.credit_balance_usd)} USD / {fmt(detail.credit_balance_lbp)} LBP
+                      <span className="text-fg-subtle">Balance:</span>{" "}
+                      <span className="data-mono">
+                        {fmtUsd(detail.credit_balance_usd)} / {fmtLbp(detail.credit_balance_lbp)}
+                      </span>
                     </div>
                     <div>
-                      <span className="text-slate-500">Loyalty Points:</span> {fmt(detail.loyalty_points)}
+                      <span className="text-fg-subtle">Loyalty Points:</span> {fmt(detail.loyalty_points)}
                     </div>
                     <div>
-                      <span className="text-slate-500">Notes:</span> {detail.notes || "-"}
+                      <span className="text-fg-subtle">Notes:</span> {detail.notes || "-"}
                     </div>
                   </CardContent>
                 </Card>
@@ -787,7 +839,7 @@ export default function CustomersPage() {
                         Refresh
                       </Button>
                     </div>
-                    {loyaltyStatus ? <pre className="whitespace-pre-wrap text-xs text-slate-700">{loyaltyStatus}</pre> : null}
+                    {loyaltyStatus ? <pre className="whitespace-pre-wrap text-xs text-fg-muted">{loyaltyStatus}</pre> : null}
                     <div className="ui-table-wrap">
                       <table className="ui-table">
                         <thead className="ui-thead">
@@ -807,7 +859,7 @@ export default function CustomersPage() {
                           ))}
                           {loyaltyLedger.length === 0 ? (
                             <tr>
-                              <td className="px-3 py-6 text-center text-slate-500" colSpan={3}>
+                              <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
                                 No loyalty entries yet.
                               </td>
                             </tr>

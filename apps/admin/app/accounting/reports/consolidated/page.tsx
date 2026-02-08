@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { fmtLbp, fmtUsd } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -33,10 +34,6 @@ type BSRow = {
   balance_usd: string | number;
   balance_lbp: string | number;
 };
-
-function fmt(n: string | number) {
-  return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
-}
 
 function todayISO() {
   const d = new Date();
@@ -154,7 +151,7 @@ export default function ConsolidatedReportsPage() {
             <CardDescription>API errors will show here.</CardDescription>
           </CardHeader>
           <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
           </CardContent>
         </Card>
       ) : null}
@@ -167,7 +164,7 @@ export default function ConsolidatedReportsPage() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-slate-700">Report</label>
+              <label className="text-xs font-medium text-fg-muted">Report</label>
               <select className="ui-select" value={report} onChange={(e) => setReport(e.target.value as any)}>
                 <option value="trial">Trial Balance</option>
                 <option value="pl">Profit &amp; Loss</option>
@@ -178,11 +175,11 @@ export default function ConsolidatedReportsPage() {
             {report === "pl" ? (
               <>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Start</label>
+                  <label className="text-xs font-medium text-fg-muted">Start</label>
                   <Input value={startDate} onChange={(e) => setStartDate(e.target.value)} placeholder="YYYY-MM-DD" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">End</label>
+                  <label className="text-xs font-medium text-fg-muted">End</label>
                   <Input value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="YYYY-MM-DD" />
                 </div>
               </>
@@ -190,15 +187,15 @@ export default function ConsolidatedReportsPage() {
 
             {report === "bs" ? (
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">As of</label>
+                <label className="text-xs font-medium text-fg-muted">As of</label>
                 <Input value={asOf} onChange={(e) => setAsOf(e.target.value)} placeholder="YYYY-MM-DD" />
               </div>
             ) : null}
           </div>
 
-          <div className="rounded-md border border-slate-200 p-3">
+          <div className="rounded-md border border-border p-3">
             <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-medium text-slate-800">Companies ({companyIds.length} selected)</div>
+              <div className="text-sm font-medium text-foreground">Companies ({companyIds.length} selected)</div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" onClick={() => selectAll(true)}>
                   Select all
@@ -213,10 +210,10 @@ export default function ConsolidatedReportsPage() {
                 <label key={c.id} className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={!!selected[c.id]} onChange={() => toggleCompany(c.id)} />
                   <span>{c.name}</span>
-                  <span className="font-mono text-xs text-slate-500">{c.id.slice(0, 8)}</span>
+                  <span className="font-mono text-xs text-fg-subtle">{c.id.slice(0, 8)}</span>
                 </label>
               ))}
-              {companies.length === 0 ? <div className="text-sm text-slate-500">No companies.</div> : null}
+              {companies.length === 0 ? <div className="text-sm text-fg-subtle">No companies.</div> : null}
             </div>
           </div>
 
@@ -243,8 +240,8 @@ export default function ConsolidatedReportsPage() {
                   <th className="px-3 py-2">Account</th>
                   <th className="px-3 py-2 text-right">Dr USD</th>
                   <th className="px-3 py-2 text-right">Cr USD</th>
-                  <th className="px-3 py-2 text-right">Dr LBP</th>
-                  <th className="px-3 py-2 text-right">Cr LBP</th>
+                  <th className="px-3 py-2 text-right">Dr LL</th>
+                  <th className="px-3 py-2 text-right">Cr LL</th>
                 </tr>
               </thead>
               <tbody>
@@ -252,15 +249,15 @@ export default function ConsolidatedReportsPage() {
                   <tr key={r.account_code} className="ui-tr-hover">
                     <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
                     <td className="px-3 py-2">{r.name_en || ""}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.debit_usd)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.credit_usd)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.debit_lbp)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.credit_lbp)}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.debit_usd)}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.credit_usd)}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.debit_lbp)}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.credit_lbp)}</td>
                   </tr>
                 ))}
                 {trial.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-6 text-center text-slate-500" colSpan={6}>
+                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                       No GL entries yet.
                     </td>
                   </tr>
@@ -278,8 +275,8 @@ export default function ConsolidatedReportsPage() {
             <CardDescription>
               {plTotals ? (
                 <>
-                  Revenue: {fmt(plTotals.revenue_usd)} USD / {fmt(plTotals.revenue_lbp)} LBP · Expense: {fmt(plTotals.expense_usd)} USD /{" "}
-                  {fmt(plTotals.expense_lbp)} LBP · Net: {fmt(plTotals.net_profit_usd)} USD / {fmt(plTotals.net_profit_lbp)} LBP
+                  Revenue: {fmtUsd(plTotals.revenue_usd)} / {fmtLbp(plTotals.revenue_lbp)} · Expense: {fmtUsd(plTotals.expense_usd)} /{" "}
+                  {fmtLbp(plTotals.expense_lbp)} · Net: {fmtUsd(plTotals.net_profit_usd)} / {fmtLbp(plTotals.net_profit_lbp)}
                 </>
               ) : (
                 `${pl.length} rows`
@@ -294,7 +291,7 @@ export default function ConsolidatedReportsPage() {
                   <th className="px-3 py-2">Account</th>
                   <th className="px-3 py-2">Kind</th>
                   <th className="px-3 py-2 text-right">USD</th>
-                  <th className="px-3 py-2 text-right">LBP</th>
+                  <th className="px-3 py-2 text-right">LL</th>
                 </tr>
               </thead>
               <tbody>
@@ -303,13 +300,13 @@ export default function ConsolidatedReportsPage() {
                     <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
                     <td className="px-3 py-2">{r.name_en || ""}</td>
                     <td className="px-3 py-2">{r.kind}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.amount_usd)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.amount_lbp)}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.amount_usd)}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.amount_lbp)}</td>
                   </tr>
                 ))}
                 {pl.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                       No P&amp;L entries yet.
                     </td>
                   </tr>
@@ -334,7 +331,7 @@ export default function ConsolidatedReportsPage() {
                   <th className="px-3 py-2">Account</th>
                   <th className="px-3 py-2">Normal</th>
                   <th className="px-3 py-2 text-right">Balance USD</th>
-                  <th className="px-3 py-2 text-right">Balance LBP</th>
+                  <th className="px-3 py-2 text-right">Balance LL</th>
                 </tr>
               </thead>
               <tbody>
@@ -343,13 +340,13 @@ export default function ConsolidatedReportsPage() {
                     <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
                     <td className="px-3 py-2">{r.name_en || ""}</td>
                     <td className="px-3 py-2">{r.normal_balance || ""}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.balance_usd)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.balance_lbp)}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.balance_usd)}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.balance_lbp)}</td>
                   </tr>
                 ))}
                 {bs.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                       No balance sheet entries yet.
                     </td>
                   </tr>
@@ -362,4 +359,3 @@ export default function ConsolidatedReportsPage() {
     </div>
   );
 }
-

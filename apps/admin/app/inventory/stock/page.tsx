@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 
 type StockRow = {
   item_id: string;
@@ -18,13 +18,13 @@ type StockRow = {
 
 type Item = { id: string; sku: string; name: string };
 type Warehouse = { id: string; name: string };
+type EnrichedRow = StockRow & { sku: string; name: string; warehouse_name: string };
 
 export default function StockPage() {
   const [rows, setRows] = useState<StockRow[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [status, setStatus] = useState("");
-  const [q, setQ] = useState("");
   const [byBatch, setByBatch] = useState(false);
 
   const itemById = useMemo(() => {
@@ -40,8 +40,7 @@ export default function StockPage() {
   }, [warehouses]);
 
   const enriched = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const out = rows.map((r) => {
+    return rows.map((r) => {
       const it = itemById.get(r.item_id);
       const wh = whById.get(r.warehouse_id);
       return {
@@ -51,15 +50,46 @@ export default function StockPage() {
         warehouse_name: wh?.name || r.warehouse_id
       };
     });
-    if (!needle) return out;
-    return out.filter((r) => {
-      return (
-        r.sku.toLowerCase().includes(needle) ||
-        r.name.toLowerCase().includes(needle) ||
-        r.warehouse_name.toLowerCase().includes(needle)
-      );
+  }, [rows, itemById, whById]);
+
+  const columns = useMemo(() => {
+    const cols: Array<DataTableColumn<EnrichedRow>> = [
+      { id: "sku", header: "SKU", sortable: true, mono: true },
+      { id: "name", header: "Item", sortable: true },
+      { id: "warehouse_name", header: "Warehouse", sortable: true },
+    ];
+    if (byBatch) {
+      cols.push({
+        id: "batch",
+        header: "Batch",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.batch_no || "",
+        cell: (r) => (
+          <>
+            {(r.batch_no as any) || "-"}
+            {r.expiry_date ? ` · ${String(r.expiry_date).slice(0, 10)}` : ""}
+          </>
+        ),
+      });
+    }
+    cols.push({
+      id: "qty_on_hand",
+      header: "Qty On Hand",
+      sortable: true,
+      align: "right",
+      mono: true,
+      accessor: (r) => Number((r as any).qty_on_hand || 0),
+      cell: (r) => Number((r as any).qty_on_hand || 0).toLocaleString("en-US", { maximumFractionDigits: 3 }),
+      cellClassName: (r) => {
+        const n = Number((r as any).qty_on_hand || 0);
+        if (n < 0) return "text-red-600";
+        if (n === 0) return "text-fg-subtle";
+        return "text-foreground";
+      },
     });
-  }, [rows, itemById, whById, q]);
+    return cols;
+  }, [byBatch]);
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -92,7 +122,7 @@ export default function StockPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -105,59 +135,25 @@ export default function StockPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="w-full md:w-96">
-                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search item or warehouse..." />
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="flex items-center gap-2 text-xs text-slate-700">
-                  <input type="checkbox" checked={byBatch} onChange={(e) => setByBatch(e.target.checked)} />
-                  By batch
-                </label>
-                <Button variant="outline" onClick={load}>
-                  Refresh
-                </Button>
-              </div>
-            </div>
-
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">SKU</th>
-                    <th className="px-3 py-2">Item</th>
-                    <th className="px-3 py-2">Warehouse</th>
-                    {byBatch ? <th className="px-3 py-2">Batch</th> : null}
-                    <th className="px-3 py-2 text-right">Qty On Hand</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {enriched.map((r) => (
-                    <tr key={`${r.item_id}:${r.warehouse_id}:${(r as any).batch_id || ""}`} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{r.sku}</td>
-                      <td className="px-3 py-2">{r.name || <span className="text-slate-500">Unknown</span>}</td>
-                      <td className="px-3 py-2">{r.warehouse_name}</td>
-                      {byBatch ? (
-                        <td className="px-3 py-2 font-mono text-xs">
-                          {(r.batch_no as any) || "-"}
-                          {r.expiry_date ? ` · ${String(r.expiry_date).slice(0, 10)}` : ""}
-                        </td>
-                      ) : null}
-                      <td className="px-3 py-2 text-right font-mono text-xs">
-                        {Number(r.qty_on_hand || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                      </td>
-                    </tr>
-                  ))}
-                  {enriched.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={byBatch ? 5 : 4}>
-                        No stock rows yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              tableId={byBatch ? "inventory.stock.byBatch" : "inventory.stock"}
+              rows={enriched}
+              columns={columns}
+              getRowId={(r) => `${(r as any).item_id}:${(r as any).warehouse_id}:${(r as any).batch_id || ""}`}
+              emptyText="No stock rows yet."
+              globalFilterPlaceholder="Search item, SKU, warehouse..."
+              actions={
+                <>
+                  <label className="flex items-center gap-2 text-xs text-fg-muted">
+                    <input type="checkbox" checked={byBatch} onChange={(e) => setByBatch(e.target.checked)} />
+                    By batch
+                  </label>
+                  <Button variant="outline" size="sm" onClick={load}>
+                    Refresh
+                  </Button>
+                </>
+              }
+            />
           </CardContent>
         </Card>
       </div>);

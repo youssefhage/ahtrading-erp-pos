@@ -74,7 +74,7 @@ export default function OutboxPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -86,7 +86,7 @@ export default function OutboxPage() {
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
             <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-slate-700">Status</label>
+              <label className="text-xs font-medium text-fg-muted">Status</label>
               <select
                 className="ui-select"
                 value={filterStatus}
@@ -100,11 +100,11 @@ export default function OutboxPage() {
               </select>
             </div>
             <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-medium text-slate-700">Device ID (optional)</label>
+              <label className="text-xs font-medium text-fg-muted">Device ID (optional)</label>
               <Input value={filterDeviceId} onChange={(e) => setFilterDeviceId(e.target.value)} placeholder="uuid" />
             </div>
             <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-slate-700">Limit</label>
+              <label className="text-xs font-medium text-fg-muted">Limit</label>
               <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
             </div>
             <div className="md:col-span-4 flex items-center justify-end gap-2">
@@ -137,23 +137,23 @@ export default function OutboxPage() {
                 </thead>
                 <tbody>
                   {events.map((e) => (
-                    <tr key={e.id} className="border-t border-slate-100 align-top">
+                    <tr key={e.id} className="border-t border-border-subtle align-top">
                       <td className="px-3 py-2 font-mono text-xs">{e.created_at}</td>
                       <td className="px-3 py-2 font-mono text-xs">{e.status}</td>
                       <td className="px-3 py-2 font-mono text-xs">
                         {e.device_code}
-                        <div className="text-[10px] text-slate-500">{e.device_id}</div>
+                        <div className="text-[10px] text-fg-subtle">{e.device_id}</div>
                       </td>
                       <td className="px-3 py-2 font-mono text-xs">{e.event_type}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{e.attempt_count}</td>
                       <td className="px-3 py-2 font-mono text-xs">{e.processed_at || "-"}</td>
                       <td className="px-3 py-2">
                         {e.error_message ? (
-                          <pre className="max-w-[520px] whitespace-pre-wrap text-[11px] text-slate-700">
+                          <pre className="max-w-[520px] whitespace-pre-wrap text-[11px] text-fg-muted">
                             {e.error_message}
                           </pre>
                         ) : (
-                          <span className="text-xs text-slate-500">-</span>
+                          <span className="text-xs text-fg-subtle">-</span>
                         )}
                       </td>
                       <td className="px-3 py-2 text-right">
@@ -162,14 +162,14 @@ export default function OutboxPage() {
                             Requeue
                           </Button>
                         ) : (
-                          <span className="text-xs text-slate-500">-</span>
+                          <span className="text-xs text-fg-subtle">-</span>
                         )}
                       </td>
                     </tr>
                   ))}
                   {events.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={8}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
                         No events.
                       </td>
                     </tr>

@@ -4,10 +4,12 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { fmtLbp, fmtUsd } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { StatusChip } from "@/components/ui/status-chip";
 
 type Supplier = { id: string; name: string };
 type Item = { id: string; sku: string; name: string };
@@ -296,7 +298,7 @@ function PurchaseOrdersPageInner() {
               <CardDescription>Errors and action results show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -340,7 +342,7 @@ function PurchaseOrdersPageInner() {
                         <th className="px-3 py-2">Supplier</th>
                         <th className="px-3 py-2">Status</th>
                         <th className="px-3 py-2 text-right">Total USD</th>
-                        <th className="px-3 py-2 text-right">Total LBP</th>
+                        <th className="px-3 py-2 text-right">Total LL</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -349,15 +351,17 @@ function PurchaseOrdersPageInner() {
                         return (
                           <tr
                             key={o.id}
-                            className={selected ? "bg-slate-50" : "ui-tr-hover"}
+                            className={selected ? "bg-bg-sunken/20" : "ui-tr-hover"}
                             style={{ cursor: "pointer" }}
                             onClick={() => setOrderId(o.id)}
                           >
                             <td className="px-3 py-2 font-medium">{o.order_no || "(draft)"}</td>
                             <td className="px-3 py-2">{supplierById.get(o.supplier_id || "")?.name || "-"}</td>
-                            <td className="px-3 py-2">{o.status}</td>
-                            <td className="px-3 py-2 text-right">{Number(o.total_usd || 0).toFixed(2)}</td>
-                            <td className="px-3 py-2 text-right">{Number(o.total_lbp || 0).toFixed(0)}</td>
+                            <td className="px-3 py-2">
+                              <StatusChip value={o.status} />
+                            </td>
+                            <td className="px-3 py-2 text-right data-mono">{fmtUsd(o.total_usd)}</td>
+                            <td className="px-3 py-2 text-right data-mono">{fmtLbp(o.total_lbp)}</td>
                           </tr>
                         );
                       })}
@@ -377,16 +381,19 @@ function PurchaseOrdersPageInner() {
                       <>
                         <div className="space-y-1 text-sm">
                           <div>
-                            <span className="text-slate-500">Order:</span> {detail.order.order_no || "(draft)"}
+                            <span className="text-fg-subtle">Order:</span> {detail.order.order_no || "(draft)"}
                           </div>
                           <div>
-                            <span className="text-slate-500">Supplier:</span> {supplierById.get(detail.order.supplier_id || "")?.name || "-"}
+                            <span className="text-fg-subtle">Supplier:</span> {supplierById.get(detail.order.supplier_id || "")?.name || "-"}
                           </div>
                           <div>
-                            <span className="text-slate-500">Exchange:</span> {Number(detail.order.exchange_rate || 0).toFixed(0)}
+                            <span className="text-fg-subtle">Exchange:</span> {Number(detail.order.exchange_rate || 0).toFixed(0)}
                           </div>
                           <div>
-                            <span className="text-slate-500">Totals:</span> {Number(detail.order.total_usd || 0).toFixed(2)} USD / {Number(detail.order.total_lbp || 0).toFixed(0)} LBP
+                            <span className="text-fg-subtle">Totals:</span>{" "}
+                            <span className="data-mono">
+                              {fmtUsd(detail.order.total_usd)} / {fmtLbp(detail.order.total_lbp)}
+                            </span>
                           </div>
                         </div>
 
@@ -431,7 +438,7 @@ function PurchaseOrdersPageInner() {
                         </div>
                       </>
                     ) : (
-                      <div className="text-sm text-slate-600">Pick an order from the list to view it.</div>
+                      <div className="text-sm text-fg-muted">Pick an order from the list to view it.</div>
                     )}
                   </CardContent>
                 </Card>
@@ -448,7 +455,7 @@ function PurchaseOrdersPageInner() {
             </DialogHeader>
             <form onSubmit={createReceiptDraftFromOrder} className="grid grid-cols-1 gap-3 md:grid-cols-6">
               <div className="space-y-1 md:col-span-6">
-                <label className="text-xs font-medium text-slate-700">Warehouse</label>
+                <label className="text-xs font-medium text-fg-muted">Warehouse</label>
                 <select className="ui-select" value={receiveWarehouseId} onChange={(e) => setReceiveWarehouseId(e.target.value)}>
                   <option value="">Select warehouse...</option>
                   {warehouses.map((w) => (
@@ -477,7 +484,7 @@ function PurchaseOrdersPageInner() {
             <form onSubmit={saveDraft} className="space-y-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-slate-700">Supplier</label>
+                  <label className="text-xs font-medium text-fg-muted">Supplier</label>
                   <select className="ui-select" value={draftSupplierId} onChange={(e) => setDraftSupplierId(e.target.value)}>
                     <option value="">Select supplier...</option>
                     {suppliers.map((s) => (
@@ -488,7 +495,7 @@ function PurchaseOrdersPageInner() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Exchange Rate (USD→LBP)</label>
+                  <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
                   <Input value={draftExchangeRate} onChange={(e) => setDraftExchangeRate(e.target.value)} />
                 </div>
               </div>
@@ -500,7 +507,7 @@ function PurchaseOrdersPageInner() {
                       <th className="px-3 py-2">Item</th>
                       <th className="px-3 py-2 text-right">Qty</th>
                       <th className="px-3 py-2 text-right">Unit USD</th>
-                      <th className="px-3 py-2 text-right">Unit LBP</th>
+                      <th className="px-3 py-2 text-right">Unit LL</th>
                       <th className="px-3 py-2 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -539,7 +546,7 @@ function PurchaseOrdersPageInner() {
                     ))}
                     {!draftLines.length ? (
                       <tr>
-                        <td className="px-3 py-3 text-sm text-slate-600" colSpan={5}>
+                        <td className="px-3 py-3 text-sm text-fg-muted" colSpan={5}>
                           No lines yet.
                         </td>
                       </tr>
@@ -564,7 +571,7 @@ function PurchaseOrdersPageInner() {
 
 export default function PurchaseOrdersPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-slate-700">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
       <PurchaseOrdersPageInner />
     </Suspense>
   );

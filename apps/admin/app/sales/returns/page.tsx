@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { fmtLbp, fmtUsd } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { StatusChip } from "@/components/ui/status-chip";
 
 type ReturnRow = {
   id: string;
@@ -134,7 +136,7 @@ export default function SalesReturnsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -168,7 +170,7 @@ export default function SalesReturnsPage() {
                         <th className="px-3 py-2">Refund</th>
                         <th className="px-3 py-2">Status</th>
                         <th className="px-3 py-2 text-right">Total USD</th>
-                        <th className="px-3 py-2 text-right">Total LBP</th>
+                        <th className="px-3 py-2 text-right">Total LL</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -177,7 +179,7 @@ export default function SalesReturnsPage() {
                         return (
                           <tr
                             key={r.id}
-                            className={selected ? "bg-slate-50" : "ui-tr-hover"}
+                            className={selected ? "bg-bg-sunken/20" : "ui-tr-hover"}
                             style={{ cursor: "pointer" }}
                             onClick={() => setReturnId(r.id)}
                           >
@@ -186,26 +188,24 @@ export default function SalesReturnsPage() {
                               {r.invoice_id ? (
                                 <span className="font-mono text-xs">{invoiceById.get(r.invoice_id)?.invoice_no || r.invoice_id}</span>
                               ) : (
-                                <span className="text-slate-500">-</span>
+                                <span className="text-fg-subtle">-</span>
                               )}
                             </td>
                             <td className="px-3 py-2">
-                              {r.warehouse_id ? whById.get(r.warehouse_id)?.name || r.warehouse_id : <span className="text-slate-500">-</span>}
+                              {r.warehouse_id ? whById.get(r.warehouse_id)?.name || r.warehouse_id : <span className="text-fg-subtle">-</span>}
                             </td>
                             <td className="px-3 py-2 font-mono text-xs">{r.refund_method || "-"}</td>
-                            <td className="px-3 py-2">{r.status}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
-                              {Number(r.total_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                            <td className="px-3 py-2">
+                              <StatusChip value={r.status} />
                             </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
-                              {Number(r.total_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                            </td>
+                            <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.total_usd)}</td>
+                            <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.total_lbp)}</td>
                           </tr>
                         );
                       })}
                       {filtered.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-center text-slate-500" colSpan={7}>
+                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
                             No returns.
                           </td>
                         </tr>
@@ -226,22 +226,24 @@ export default function SalesReturnsPage() {
                       <>
                         <div className="space-y-1 text-sm">
                           <div>
-                            <span className="text-slate-500">Return:</span> {detail.return.return_no || detail.return.id}
+                            <span className="text-fg-subtle">Return:</span> {detail.return.return_no || detail.return.id}
                           </div>
                           <div>
-                            <span className="text-slate-500">Invoice:</span>{" "}
+                            <span className="text-fg-subtle">Invoice:</span>{" "}
                             {detail.return.invoice_id ? invoiceById.get(detail.return.invoice_id)?.invoice_no || detail.return.invoice_id : "-"}
                           </div>
                           <div>
-                            <span className="text-slate-500">Warehouse:</span>{" "}
+                            <span className="text-fg-subtle">Warehouse:</span>{" "}
                             {detail.return.warehouse_id ? whById.get(detail.return.warehouse_id)?.name || detail.return.warehouse_id : "-"}
                           </div>
                           <div>
-                            <span className="text-slate-500">Refund:</span> {detail.return.refund_method || "-"}
+                            <span className="text-fg-subtle">Refund:</span> {detail.return.refund_method || "-"}
                           </div>
                           <div>
-                            <span className="text-slate-500">Totals:</span>{" "}
-                            {Number(detail.return.total_usd || 0).toFixed(2)} USD / {Number(detail.return.total_lbp || 0).toFixed(0)} LBP
+                            <span className="text-fg-subtle">Totals:</span>{" "}
+                            <span className="data-mono">
+                              {fmtUsd(detail.return.total_usd)} / {fmtLbp(detail.return.total_lbp)}
+                            </span>
                           </div>
                         </div>
 
@@ -275,7 +277,7 @@ export default function SalesReturnsPage() {
                               })}
                               {!(detail.lines || []).length ? (
                                 <tr>
-                                  <td className="px-3 py-6 text-center text-slate-500" colSpan={2}>
+                                  <td className="px-3 py-6 text-center text-fg-subtle" colSpan={2}>
                                     No lines.
                                   </td>
                                 </tr>
@@ -284,24 +286,23 @@ export default function SalesReturnsPage() {
                           </table>
                         </div>
 
-                        <div className="rounded-md border border-slate-200 bg-white p-3">
-                          <p className="text-sm font-medium text-slate-900">Tax Lines</p>
-                          <div className="mt-2 space-y-1 text-xs text-slate-700">
+                        <div className="rounded-md border border-border bg-bg-elevated p-3">
+                          <p className="text-sm font-medium text-foreground">Tax Lines</p>
+                          <div className="mt-2 space-y-1 text-xs text-fg-muted">
                             {(detail.tax_lines || []).map((t) => (
                               <div key={t.id} className="flex items-center justify-between gap-2">
                                 <span className="font-mono">{t.tax_code_id}</span>
-                                <span className="font-mono">
-                                  {Number(t.tax_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD /{" "}
-                                  {Number(t.tax_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} LBP
+                                <span className="data-mono">
+                                  {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
                                 </span>
                               </div>
                             ))}
-                            {!(detail.tax_lines || []).length ? <p className="text-slate-500">No tax lines.</p> : null}
+                            {!(detail.tax_lines || []).length ? <p className="text-fg-subtle">No tax lines.</p> : null}
                           </div>
                         </div>
                       </>
                     ) : (
-                      <div className="text-sm text-slate-600">Pick a return from the list to view it.</div>
+                      <div className="text-sm text-fg-muted">Pick a return from the list to view it.</div>
                     )}
                   </CardContent>
                 </Card>

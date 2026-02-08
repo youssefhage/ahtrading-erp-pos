@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,8 @@ type Item = {
   min_shelf_life_days_for_sale?: number | null;
   expiry_warning_days?: number | null;
   barcode_count?: number;
+  image_attachment_id?: string | null;
+  image_alt?: string | null;
 };
 
 type TaxCode = { id: string; name: string; rate: string | number };
@@ -104,6 +107,9 @@ export default function ItemsPage() {
   const [editDefaultShelfLifeDays, setEditDefaultShelfLifeDays] = useState("");
   const [editMinShelfLifeDaysForSale, setEditMinShelfLifeDaysForSale] = useState("");
   const [editExpiryWarningDays, setEditExpiryWarningDays] = useState("");
+  const [editImageAttachmentId, setEditImageAttachmentId] = useState("");
+  const [editImageAlt, setEditImageAlt] = useState("");
+  const [imageUploading, setImageUploading] = useState(false);
   const [editing, setEditing] = useState(false);
 
   const [importOpen, setImportOpen] = useState(false);
@@ -388,7 +394,56 @@ export default function ItemsPage() {
     setEditDefaultShelfLifeDays(String(item.default_shelf_life_days ?? ""));
     setEditMinShelfLifeDaysForSale(String(item.min_shelf_life_days_for_sale ?? ""));
     setEditExpiryWarningDays(String(item.expiry_warning_days ?? ""));
+    setEditImageAttachmentId((item.image_attachment_id as any) || "");
+    setEditImageAlt((item.image_alt as any) || "");
     setEditOpen(true);
+  }
+
+  async function uploadItemImage(file: File) {
+    if (!editItem) return;
+    setImageUploading(true);
+    setStatus("Uploading image...");
+    try {
+      const fd = new FormData();
+      fd.set("entity_type", "item_image");
+      fd.set("entity_id", editItem.id);
+      fd.set("file", file);
+      const raw = await fetch(`/api/attachments`, {
+        method: "POST",
+        body: fd,
+        credentials: "include"
+      });
+      if (!raw.ok) throw new Error(await raw.text());
+      const res = (await raw.json()) as { id: string };
+
+      // Persist immediately so a user doesn't lose the upload if they close the dialog.
+      await apiPatch(`/items/${editItem.id}`, { image_attachment_id: res.id });
+      setEditImageAttachmentId(res.id);
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setImageUploading(false);
+    }
+  }
+
+  async function removeItemImage() {
+    if (!editItem) return;
+    setImageUploading(true);
+    setStatus("Removing image...");
+    try {
+      await apiPatch(`/items/${editItem.id}`, { image_attachment_id: null });
+      setEditImageAttachmentId("");
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setImageUploading(false);
+    }
   }
 
   async function saveEdit(e: React.FormEvent) {
@@ -416,7 +471,9 @@ export default function ItemsPage() {
         track_expiry: !!editTrackExpiry,
         default_shelf_life_days: editDefaultShelfLifeDays.trim() ? Number(editDefaultShelfLifeDays) : null,
         min_shelf_life_days_for_sale: editMinShelfLifeDaysForSale.trim() ? Number(editMinShelfLifeDaysForSale) : null,
-        expiry_warning_days: editExpiryWarningDays.trim() ? Number(editExpiryWarningDays) : null
+        expiry_warning_days: editExpiryWarningDays.trim() ? Number(editExpiryWarningDays) : null,
+        image_attachment_id: editImageAttachmentId || null,
+        image_alt: editImageAlt.trim() || null
       });
       setEditOpen(false);
       setEditItem(null);
@@ -638,7 +695,7 @@ export default function ItemsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -681,26 +738,26 @@ export default function ItemsPage() {
                     </DialogHeader>
                     <form onSubmit={createItem} className="grid grid-cols-1 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">SKU</label>
+                        <label className="text-xs font-medium text-fg-muted">SKU</label>
                         <Input value={sku} onChange={(e) => setSku(e.target.value)} placeholder="SKU-001" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Name</label>
+                        <label className="text-xs font-medium text-fg-muted">Name</label>
                         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Item name" />
                       </div>
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">UOM</label>
+                          <label className="text-xs font-medium text-fg-muted">UOM</label>
                           <Input value={uom} onChange={(e) => setUom(e.target.value)} placeholder="EA" />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Barcode (optional)</label>
+                          <label className="text-xs font-medium text-fg-muted">Barcode (optional)</label>
                           <Input value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="629..." />
                         </div>
                       </div>
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Category (optional)</label>
+                          <label className="text-xs font-medium text-fg-muted">Category (optional)</label>
                           <select className="ui-select" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
                             <option value="">(none)</option>
                             {categories.map((c) => (
@@ -711,7 +768,7 @@ export default function ItemsPage() {
                           </select>
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Active?</label>
+                          <label className="text-xs font-medium text-fg-muted">Active?</label>
                           <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
                             <option value="yes">Yes</option>
                             <option value="no">No</option>
@@ -750,7 +807,7 @@ export default function ItemsPage() {
                     </DialogHeader>
                     <form onSubmit={submitImport} className="space-y-3">
                       <textarea
-                        className="h-48 w-full rounded-md border border-slate-200 bg-white p-3 text-xs font-mono text-slate-900"
+                        className="h-48 w-full rounded-md border border-border bg-bg-elevated p-3 text-xs font-mono text-foreground"
                         value={importText}
                         onChange={(e) => {
                           const v = e.target.value;
@@ -760,11 +817,11 @@ export default function ItemsPage() {
                         placeholder={'sku,name,unit_of_measure,barcode,tax_code,reorder_point,reorder_qty\nSKU-001,Milk 1L,EA,629...,VAT 11%,10,50'}
                       />
                       {importErrors ? (
-                        <pre className="whitespace-pre-wrap rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                        <pre className="whitespace-pre-wrap rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
                           {importErrors}
                         </pre>
                       ) : null}
-                      <div className="rounded-md border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                      <div className="rounded-md border border-border bg-bg-elevated p-3 text-xs text-fg-muted">
                         Parsed rows: <span className="font-mono">{importPreview.length}</span>
                       </div>
                       <div className="flex justify-end">
@@ -782,6 +839,7 @@ export default function ItemsPage() {
               <table className="ui-table">
                 <thead className="ui-thead">
                   <tr>
+                    <th className="px-3 py-2">Image</th>
                     <th className="px-3 py-2">SKU</th>
                     <th className="px-3 py-2">Name</th>
                     <th className="px-3 py-2">Category</th>
@@ -795,12 +853,27 @@ export default function ItemsPage() {
                 <tbody>
                   {filtered.map((i) => (
                     <tr key={i.id} className="ui-tr-hover">
+                      <td className="px-3 py-2">
+                        {i.image_attachment_id ? (
+                          // Uses backend inline endpoint for thumbnails
+                          <Image
+                            src={`/api/attachments/${i.image_attachment_id}/view`}
+                            alt={i.image_alt || i.name}
+                            width={32}
+                            height={32}
+                            unoptimized
+                            className="h-8 w-8 rounded-md border border-border-subtle object-cover"
+                          />
+                        ) : (
+                          <div className="h-8 w-8 rounded-md border border-border-subtle bg-bg-sunken/40" />
+                        )}
+                      </td>
                       <td className="px-3 py-2 font-mono text-xs">{i.sku}</td>
                       <td className="px-3 py-2">{i.name}</td>
                       <td className="px-3 py-2">{i.category_id ? categoryNameById.get(i.category_id) || "-" : "-"}</td>
                       <td className="px-3 py-2 font-mono text-xs">{i.barcode || "-"}</td>
                       <td className="px-3 py-2">{i.unit_of_measure}</td>
-                      <td className="px-3 py-2">{i.is_active === false ? <span className="text-slate-500">No</span> : "Yes"}</td>
+                      <td className="px-3 py-2">{i.is_active === false ? <span className="text-fg-subtle">No</span> : "Yes"}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">
                         {Number(i.reorder_point || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })} /{" "}
                         {Number(i.reorder_qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
@@ -822,7 +895,7 @@ export default function ItemsPage() {
                   ))}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={8}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={9}>
                         No items found.
                       </td>
                     </tr>
@@ -855,21 +928,21 @@ export default function ItemsPage() {
                 <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Name</label>
+                      <label className="text-xs font-medium text-fg-muted">Name</label>
                       <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">UOM</label>
+                      <label className="text-xs font-medium text-fg-muted">UOM</label>
                       <Input value={editUom} onChange={(e) => setEditUom(e.target.value)} placeholder="EA" />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Primary Barcode (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Primary Barcode (optional)</label>
                       <Input value={editBarcode} onChange={(e) => setEditBarcode(e.target.value)} placeholder="629..." />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Tax Code (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Tax Code (optional)</label>
                       <select className="ui-select" value={editTaxCodeId} onChange={(e) => setEditTaxCodeId(e.target.value)}>
                         <option value="">(none)</option>
                         {taxCodes.map((t) => (
@@ -882,20 +955,72 @@ export default function ItemsPage() {
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Reorder Point</label>
+                      <label className="text-xs font-medium text-fg-muted">Reorder Point</label>
                       <Input value={editReorderPoint} onChange={(e) => setEditReorderPoint(e.target.value)} placeholder="0" />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Reorder Qty</label>
+                      <label className="text-xs font-medium text-fg-muted">Reorder Qty</label>
                       <Input value={editReorderQty} onChange={(e) => setEditReorderQty(e.target.value)} placeholder="0" />
                     </div>
                   </div>
 
-                  <div className="rounded-md border border-slate-200 bg-white p-3">
-                    <div className="text-xs font-medium text-slate-700">Master Data</div>
+                  <div className="rounded-md border border-border bg-bg-elevated p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-medium text-fg-muted">Item Image</div>
+                      {editImageAttachmentId ? (
+                        <Button type="button" size="sm" variant="outline" disabled={imageUploading} onClick={removeItemImage}>
+                          Remove
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[120px_1fr]">
+                      <div className="flex items-start">
+                        {editImageAttachmentId ? (
+                          <Image
+                            src={`/api/attachments/${editImageAttachmentId}/view`}
+                            alt={editImageAlt || editName || "Item image"}
+                            width={96}
+                            height={96}
+                            unoptimized
+                            className="h-24 w-24 rounded-md border border-border object-cover"
+                          />
+                        ) : (
+                          <div className="h-24 w-24 rounded-md border border-border bg-bg-sunken/20" />
+                        )}
+                      </div>
+                      <div className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-fg-muted">Upload (PNG/JPG, max 5MB)</label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={imageUploading || !editItem}
+                            className="block w-full text-xs"
+                            onChange={async (e) => {
+                              const f = e.target.files?.[0];
+                              // allow re-uploading the same file later
+                              e.currentTarget.value = "";
+                              if (!f) return;
+                              await uploadItemImage(f);
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-fg-muted">Alt Text (for website/app)</label>
+                          <Input value={editImageAlt} onChange={(e) => setEditImageAlt(e.target.value)} placeholder="e.g. 'Milk 1L bottle'" />
+                        </div>
+                        <div className="text-[11px] text-fg-subtle">
+                          Tip: keep the background clean and the product centered. This will be used as consumer metadata later.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-border bg-bg-elevated p-3">
+                    <div className="text-xs font-medium text-fg-muted">Master Data</div>
                     <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Category</label>
+                        <label className="text-xs font-medium text-fg-muted">Category</label>
                         <select className="ui-select" value={editCategoryId} onChange={(e) => setEditCategoryId(e.target.value)}>
                           <option value="">(none)</option>
                           {categories.map((c) => (
@@ -906,7 +1031,7 @@ export default function ItemsPage() {
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Active?</label>
+                        <label className="text-xs font-medium text-fg-muted">Active?</label>
                         <select className="ui-select" value={editIsActive ? "yes" : "no"} onChange={(e) => setEditIsActive(e.target.value === "yes")}>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
@@ -914,21 +1039,21 @@ export default function ItemsPage() {
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Brand</label>
+                        <label className="text-xs font-medium text-fg-muted">Brand</label>
                         <Input value={editBrand} onChange={(e) => setEditBrand(e.target.value)} placeholder="Optional" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Short Name</label>
+                        <label className="text-xs font-medium text-fg-muted">Short Name</label>
                         <Input value={editShortName} onChange={(e) => setEditShortName(e.target.value)} placeholder="Optional (POS label)" />
                       </div>
 
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Description</label>
+                        <label className="text-xs font-medium text-fg-muted">Description</label>
                         <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Optional" />
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Track Batches?</label>
+                        <label className="text-xs font-medium text-fg-muted">Track Batches?</label>
                         <select
                           className="ui-select"
                           value={editTrackBatches ? "yes" : "no"}
@@ -939,7 +1064,7 @@ export default function ItemsPage() {
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Track Expiry?</label>
+                        <label className="text-xs font-medium text-fg-muted">Track Expiry?</label>
                         <select
                           className="ui-select"
                           value={editTrackExpiry ? "yes" : "no"}
@@ -951,11 +1076,11 @@ export default function ItemsPage() {
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Default Shelf Life (days)</label>
+                        <label className="text-xs font-medium text-fg-muted">Default Shelf Life (days)</label>
                         <Input value={editDefaultShelfLifeDays} onChange={(e) => setEditDefaultShelfLifeDays(e.target.value)} placeholder="Optional" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Min Shelf Life For Sale (days)</label>
+                        <label className="text-xs font-medium text-fg-muted">Min Shelf Life For Sale (days)</label>
                         <Input
                           value={editMinShelfLifeDaysForSale}
                           onChange={(e) => setEditMinShelfLifeDaysForSale(e.target.value)}
@@ -963,7 +1088,7 @@ export default function ItemsPage() {
                         />
                       </div>
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Expiry Warning (days)</label>
+                        <label className="text-xs font-medium text-fg-muted">Expiry Warning (days)</label>
                         <Input value={editExpiryWarningDays} onChange={(e) => setEditExpiryWarningDays(e.target.value)} placeholder="Optional" />
                       </div>
                     </div>
@@ -1002,7 +1127,7 @@ export default function ItemsPage() {
                   </DialogDescription>
                 </DialogHeader>
 
-                {barcodeStatus ? <pre className="whitespace-pre-wrap text-xs text-slate-700">{barcodeStatus}</pre> : null}
+                {barcodeStatus ? <pre className="whitespace-pre-wrap text-xs text-fg-muted">{barcodeStatus}</pre> : null}
 
                 <div className="ui-table-wrap">
                   <table className="ui-table">
@@ -1036,7 +1161,7 @@ export default function ItemsPage() {
                       ))}
                       {barcodes.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                             No barcodes yet.
                           </td>
                         </tr>
@@ -1047,19 +1172,19 @@ export default function ItemsPage() {
 
                 <form onSubmit={addBarcode} className="grid grid-cols-1 gap-3 md:grid-cols-6">
                   <div className="space-y-1 md:col-span-3">
-                    <label className="text-xs font-medium text-slate-700">Barcode</label>
+                    <label className="text-xs font-medium text-fg-muted">Barcode</label>
                     <Input value={newBarcode} onChange={(e) => setNewBarcode(e.target.value)} placeholder="629..." />
                   </div>
                   <div className="space-y-1 md:col-span-1">
-                    <label className="text-xs font-medium text-slate-700">Factor</label>
+                    <label className="text-xs font-medium text-fg-muted">Factor</label>
                     <Input value={newFactor} onChange={(e) => setNewFactor(e.target.value)} placeholder="12" />
                   </div>
                   <div className="space-y-1 md:col-span-2">
-                    <label className="text-xs font-medium text-slate-700">Label</label>
+                    <label className="text-xs font-medium text-fg-muted">Label</label>
                     <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Case of 12" />
                   </div>
                   <div className="md:col-span-6 flex items-center justify-between gap-2">
-                    <label className="flex items-center gap-2 text-xs text-slate-700">
+                    <label className="flex items-center gap-2 text-xs text-fg-muted">
                       <input type="checkbox" checked={newPrimary} onChange={(e) => setNewPrimary(e.target.checked)} />
                       Make primary
                     </label>
@@ -1097,7 +1222,7 @@ export default function ItemsPage() {
                   </DialogDescription>
                 </DialogHeader>
 
-                {supplierStatus ? <pre className="whitespace-pre-wrap text-xs text-slate-700">{supplierStatus}</pre> : null}
+                {supplierStatus ? <pre className="whitespace-pre-wrap text-xs text-fg-muted">{supplierStatus}</pre> : null}
 
                 <div className="ui-table-wrap">
                   <table className="ui-table">
@@ -1108,7 +1233,7 @@ export default function ItemsPage() {
                         <th className="px-3 py-2 text-right">Lead Time</th>
                         <th className="px-3 py-2 text-right">Min Qty</th>
                         <th className="px-3 py-2 text-right">Last Cost USD</th>
-                        <th className="px-3 py-2 text-right">Last Cost LBP</th>
+                        <th className="px-3 py-2 text-right">Last Cost LL</th>
                         <th className="px-3 py-2 text-right">Actions</th>
                       </tr>
                     </thead>
@@ -1135,7 +1260,7 @@ export default function ItemsPage() {
                       ))}
                       {itemLinks.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-center text-slate-500" colSpan={7}>
+                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
                             No suppliers linked yet.
                           </td>
                         </tr>
@@ -1152,9 +1277,9 @@ export default function ItemsPage() {
                   <CardContent>
                     <form onSubmit={addSupplierLink} className="grid grid-cols-1 gap-3 md:grid-cols-8">
                       <div className="space-y-1 md:col-span-3">
-                        <label className="text-xs font-medium text-slate-700">Supplier</label>
+                        <label className="text-xs font-medium text-fg-muted">Supplier</label>
                         <select
-                          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                          className="h-10 w-full rounded-md border border-border bg-bg-elevated px-3 text-sm"
                           value={addSupplierId}
                           onChange={(e) => setAddSupplierId(e.target.value)}
                         >
@@ -1167,23 +1292,23 @@ export default function ItemsPage() {
                         </select>
                       </div>
                       <div className="space-y-1 md:col-span-1">
-                        <label className="text-xs font-medium text-slate-700">Lead Time</label>
+                        <label className="text-xs font-medium text-fg-muted">Lead Time</label>
                         <Input value={addLeadTimeDays} onChange={(e) => setAddLeadTimeDays(e.target.value)} placeholder="0" />
                       </div>
                       <div className="space-y-1 md:col-span-1">
-                        <label className="text-xs font-medium text-slate-700">Min Qty</label>
+                        <label className="text-xs font-medium text-fg-muted">Min Qty</label>
                         <Input value={addMinOrderQty} onChange={(e) => setAddMinOrderQty(e.target.value)} placeholder="0" />
                       </div>
                       <div className="space-y-1 md:col-span-1">
-                        <label className="text-xs font-medium text-slate-700">Last USD</label>
+                        <label className="text-xs font-medium text-fg-muted">Last USD</label>
                         <Input value={addLastCostUsd} onChange={(e) => setAddLastCostUsd(e.target.value)} placeholder="0.00" />
                       </div>
                       <div className="space-y-1 md:col-span-1">
-                        <label className="text-xs font-medium text-slate-700">Last LBP</label>
+                        <label className="text-xs font-medium text-fg-muted">Last LL</label>
                         <Input value={addLastCostLbp} onChange={(e) => setAddLastCostLbp(e.target.value)} placeholder="0" />
                       </div>
                       <div className="flex items-end md:col-span-1">
-                        <label className="flex items-center gap-2 text-xs text-slate-700">
+                        <label className="flex items-center gap-2 text-xs text-fg-muted">
                           <input type="checkbox" checked={addIsPrimary} onChange={(e) => setAddIsPrimary(e.target.checked)} />
                           Primary
                         </label>
@@ -1206,25 +1331,25 @@ export default function ItemsPage() {
                     <form onSubmit={saveEditSupplierLink} className="grid grid-cols-1 gap-3">
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Lead Time (days)</label>
+                          <label className="text-xs font-medium text-fg-muted">Lead Time (days)</label>
                           <Input value={editLeadTimeDays} onChange={(e) => setEditLeadTimeDays(e.target.value)} />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Min Order Qty</label>
+                          <label className="text-xs font-medium text-fg-muted">Min Order Qty</label>
                           <Input value={editMinOrderQty} onChange={(e) => setEditMinOrderQty(e.target.value)} />
                         </div>
                       </div>
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Last Cost USD</label>
+                          <label className="text-xs font-medium text-fg-muted">Last Cost USD</label>
                           <Input value={editLastCostUsd} onChange={(e) => setEditLastCostUsd(e.target.value)} />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Last Cost LBP</label>
+                          <label className="text-xs font-medium text-fg-muted">Last Cost LL</label>
                           <Input value={editLastCostLbp} onChange={(e) => setEditLastCostLbp(e.target.value)} />
                         </div>
                       </div>
-                      <label className="flex items-center gap-2 text-xs text-slate-700">
+                      <label className="flex items-center gap-2 text-xs text-fg-muted">
                         <input type="checkbox" checked={editIsPrimary} onChange={(e) => setEditIsPrimary(e.target.checked)} />
                         Primary supplier for this item
                       </label>

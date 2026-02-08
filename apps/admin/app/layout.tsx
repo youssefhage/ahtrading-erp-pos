@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import { Schibsted_Grotesk } from "next/font/google";
+import { IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
 import Script from "next/script";
-import "@fontsource-variable/jetbrains-mono/wght.css";
 import "./globals.css";
 import { ClientShellLayout } from "./client-shell-layout";
 
@@ -11,6 +10,13 @@ const schibsted = Schibsted_Grotesk({
   variable: "--font-sans"
 });
 
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  display: "swap",
+  variable: "--font-mono"
+});
+
 export const metadata: Metadata = {
   title: "AH Trading Admin",
   description: "Industrial-grade ERP for AH Trading"
@@ -18,7 +24,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={schibsted.variable} suppressHydrationWarning>
+    <html lang="en" className={`${schibsted.variable} ${plexMono.variable}`} suppressHydrationWarning>
       <head>
         <Script
           id="admin-theme-init"

@@ -71,14 +71,14 @@ export default function VatReportPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
 
         <Card>
           <CardHeader>
-            <CardTitle>Monthly VAT (LBP)</CardTitle>
+            <CardTitle>Monthly VAT (LL)</CardTitle>
             <CardDescription>Aggregated from tax lines. {rows.length} rows</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -97,8 +97,8 @@ export default function VatReportPage() {
                   <tr>
                     <th className="px-3 py-2">Period</th>
                     <th className="px-3 py-2">Tax</th>
-                    <th className="px-3 py-2 text-right">Base (LBP)</th>
-                    <th className="px-3 py-2 text-right">VAT (LBP)</th>
+                    <th className="px-3 py-2 text-right">Base (LL)</th>
+                    <th className="px-3 py-2 text-right">VAT (LL)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -112,7 +112,7 @@ export default function VatReportPage() {
                   ))}
                   {rows.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={4}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
                         No VAT rows yet.
                       </td>
                     </tr>

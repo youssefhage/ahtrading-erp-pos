@@ -274,7 +274,7 @@ export default function JournalsPage() {
               <CardDescription>API errors and validations show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -299,19 +299,19 @@ export default function JournalsPage() {
                       </DialogHeader>
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1 md:col-span-2">
-                          <label className="text-xs font-medium text-slate-700">Search</label>
+                          <label className="text-xs font-medium text-fg-muted">Search</label>
                           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Journal no or memo..." />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Start Date</label>
+                          <label className="text-xs font-medium text-fg-muted">Start Date</label>
                           <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">End Date</label>
+                          <label className="text-xs font-medium text-fg-muted">End Date</label>
                           <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                         </div>
                         <div className="space-y-1 md:col-span-2">
-                          <label className="text-xs font-medium text-slate-700">Source Type</label>
+                          <label className="text-xs font-medium text-fg-muted">Source Type</label>
                           <Input value={sourceType} onChange={(e) => setSourceType(e.target.value)} placeholder="manual_journal, sales_invoice..." />
                         </div>
                         <div className="flex justify-end md:col-span-2">
@@ -354,7 +354,7 @@ export default function JournalsPage() {
                     <form onSubmit={createManualJournal} className="space-y-4">
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Date</label>
+                          <label className="text-xs font-medium text-fg-muted">Date</label>
                           <Input
                             type="date"
                             value={journalDate}
@@ -365,7 +365,7 @@ export default function JournalsPage() {
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Rate Type</label>
+                          <label className="text-xs font-medium text-fg-muted">Rate Type</label>
                           <Input
                             value={rateType}
                             onChange={(e) => {
@@ -376,11 +376,11 @@ export default function JournalsPage() {
                           />
                         </div>
                         <div className="space-y-1 md:col-span-2">
-                          <label className="text-xs font-medium text-slate-700">Exchange Rate (USD→LBP)</label>
+                          <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
                           <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} />
                         </div>
                         <div className="space-y-1 md:col-span-4">
-                          <label className="text-xs font-medium text-slate-700">Memo (optional)</label>
+                          <label className="text-xs font-medium text-fg-muted">Memo (optional)</label>
                           <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Why are we booking this?" />
                         </div>
                       </div>
@@ -392,7 +392,7 @@ export default function JournalsPage() {
                               <th className="px-3 py-2">Side</th>
                               <th className="px-3 py-2">Account</th>
                               <th className="px-3 py-2 text-right">USD</th>
-                              <th className="px-3 py-2 text-right">LBP</th>
+                              <th className="px-3 py-2 text-right">LL</th>
                               <th className="px-3 py-2">Memo</th>
                               <th className="px-3 py-2"></th>
                             </tr>
@@ -401,10 +401,10 @@ export default function JournalsPage() {
                             {lines.map((l, idx) => {
                               const acc = l.account_code ? accountByCode.get(l.account_code) : undefined;
                               return (
-                                <tr key={l.key} className="border-t border-slate-100 align-top">
+                                <tr key={l.key} className="border-t border-border-subtle align-top">
                                   <td className="px-3 py-2">
                                     <select
-                                      className="h-9 w-28 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                                      className="h-9 w-28 rounded-md border border-border bg-bg-elevated px-2 text-sm"
                                       value={l.side}
                                       onChange={(e) => updateLine(idx, { side: e.target.value as "debit" | "credit" })}
                                     >
@@ -419,7 +419,7 @@ export default function JournalsPage() {
                                       onChange={(e) => onAccountCodeChange(idx, e.target.value)}
                                       placeholder="Account code..."
                                     />
-                                    <div className="mt-1 text-[11px] text-slate-500">
+                                    <div className="mt-1 text-[11px] text-fg-subtle">
                                       {acc?.name_en || (l.account_code ? "Unknown account" : "")}
                                     </div>
                                   </td>
@@ -455,9 +455,9 @@ export default function JournalsPage() {
                               );
                             })}
                           </tbody>
-                          <tfoot className="border-t border-slate-200 bg-slate-50">
+                          <tfoot className="border-t border-border bg-bg-sunken/20">
                             <tr>
-                              <td className="px-3 py-2 text-xs font-semibold text-slate-700" colSpan={2}>
+                              <td className="px-3 py-2 text-xs font-semibold text-fg-muted" colSpan={2}>
                                 Totals
                               </td>
                               <td className="px-3 py-2 text-right font-mono text-xs">
@@ -466,8 +466,8 @@ export default function JournalsPage() {
                               <td className="px-3 py-2 text-right font-mono text-xs">
                                 D {fmt(totals.dLbp, 2)} / C {fmt(totals.cLbp, 2)}
                               </td>
-                              <td className="px-3 py-2 text-xs text-slate-600" colSpan={2}>
-                                Diff USD {fmt(totals.diffUsd, 4)} | Diff LBP {fmt(totals.diffLbp, 2)}
+                              <td className="px-3 py-2 text-xs text-fg-muted" colSpan={2}>
+                                Diff USD {fmt(totals.diffUsd, 4)} | Diff LL {fmt(totals.diffLbp, 2)}
                               </td>
                             </tr>
                           </tfoot>
@@ -519,19 +519,19 @@ export default function JournalsPage() {
                     {journals.map((j) => (
                       <tr
                         key={j.id}
-                        className="cursor-pointer border-t border-slate-100 hover:bg-slate-50"
+                        className="cursor-pointer border-t border-border-subtle hover:bg-bg-sunken/20"
                         onClick={() => loadDetail(j.id)}
                       >
                         <td className="px-3 py-2 font-mono text-xs">{j.journal_date}</td>
                         <td className="px-3 py-2 font-mono text-xs">{j.journal_no}</td>
-                        <td className="px-3 py-2 text-xs text-slate-600">{j.source_type || "-"}</td>
-                        <td className="px-3 py-2 text-xs text-slate-700">{j.memo || ""}</td>
-                        <td className="px-3 py-2 text-xs text-slate-600">{j.created_by_email || "-"}</td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">{j.source_type || "-"}</td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">{j.memo || ""}</td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">{j.created_by_email || "-"}</td>
                       </tr>
                     ))}
                     {journals.length === 0 ? (
                       <tr>
-                        <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                           No journals.
                         </td>
                       </tr>
@@ -550,19 +550,19 @@ export default function JournalsPage() {
             <CardContent className="space-y-3">
               {detail ? (
                 <>
-                  <div className="rounded-md border border-slate-200 bg-white p-3 text-sm">
+                  <div className="rounded-md border border-border bg-bg-elevated p-3 text-sm">
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <div>
-                        <div className="text-xs text-slate-500">Date</div>
+                        <div className="text-xs text-fg-subtle">Date</div>
                         <div className="font-mono text-xs">{detail.journal.journal_date}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-slate-500">Source</div>
-                        <div className="text-xs text-slate-700">{detail.journal.source_type || "-"}</div>
+                        <div className="text-xs text-fg-subtle">Source</div>
+                        <div className="text-xs text-fg-muted">{detail.journal.source_type || "-"}</div>
                       </div>
                       <div className="md:col-span-2">
-                        <div className="text-xs text-slate-500">Memo</div>
-                        <div className="text-xs text-slate-700">{detail.journal.memo || "-"}</div>
+                        <div className="text-xs text-fg-subtle">Memo</div>
+                        <div className="text-xs text-fg-muted">{detail.journal.memo || "-"}</div>
                       </div>
                     </div>
                   </div>
@@ -599,8 +599,8 @@ export default function JournalsPage() {
                           <th className="px-3 py-2">Account</th>
                           <th className="px-3 py-2 text-right">Debit USD</th>
                           <th className="px-3 py-2 text-right">Credit USD</th>
-                          <th className="px-3 py-2 text-right">Debit LBP</th>
-                          <th className="px-3 py-2 text-right">Credit LBP</th>
+                          <th className="px-3 py-2 text-right">Debit LL</th>
+                          <th className="px-3 py-2 text-right">Credit LL</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -608,7 +608,7 @@ export default function JournalsPage() {
                           <tr key={e.id} className="ui-tr-hover">
                             <td className="px-3 py-2">
                               <div className="font-mono text-xs">{e.account_code}</div>
-                              <div className="text-xs text-slate-600">{e.name_en || ""}</div>
+                              <div className="text-xs text-fg-muted">{e.name_en || ""}</div>
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">{fmt(e.debit_usd, 4)}</td>
                             <td className="px-3 py-2 text-right font-mono text-xs">{fmt(e.credit_usd, 4)}</td>
@@ -618,7 +618,7 @@ export default function JournalsPage() {
                         ))}
                         {detail.entries.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                               No entries.
                             </td>
                           </tr>
@@ -628,7 +628,7 @@ export default function JournalsPage() {
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-slate-600">Pick a journal from the list to see entries.</p>
+                <p className="text-sm text-fg-muted">Pick a journal from the list to see entries.</p>
               )}
             </CardContent>
           </Card>

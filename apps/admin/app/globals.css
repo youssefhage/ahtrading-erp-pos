@@ -20,11 +20,11 @@
     --border-subtle: 228 228 231; /* zinc-200 */
     --border-strong: 161 161 170; /* zinc-400 */
 
-    /* Primary accent: Industrial Amber */
-    --primary: 245 158 11; /* amber-500 */
-    --primary-fg: 0 0 0;   /* black on amber */
-    --primary-dim: 180 83 9; /* amber-700: hover states */
-    --primary-glow: 245 158 11; /* for shadows */
+    /* Primary accent: Industrial Sky */
+    --primary: 14 165 233; /* sky-500 */
+    --primary-fg: 0 0 0;   /* black on sky */
+    --primary-dim: 3 105 161; /* sky-700: hover states */
+    --primary-glow: 14 165 233; /* for shadows */
 
     /* Status colors: functional but muted */
     --success: 34 197 94;  /* green-500 */
@@ -38,11 +38,11 @@
 
     /* Terminal-specific */
     --terminal-green: 74 222 128; /* green-400: data accents */
-    --terminal-amber: 251 191 36; /* amber-400: warnings */
+    --terminal-amber: 251 191 36; /* warning accent (legacy name) */
     --terminal-cyan: 34 211 238;  /* cyan-400: info */
 
     /* Ring focus */
-    --ring: 245 158 11;    /* amber-500 */
+    --ring: 14 165 233;    /* sky-500 */
   }
 
   .dark {
@@ -115,7 +115,11 @@
 @layer components {
   /* Terminal-style data display */
   .data-mono {
-    @apply font-mono tabular-nums tracking-tight;
+    /* Higher weight + a touch of spacing makes dense amounts easier to scan */
+    @apply font-mono tabular-nums font-medium tracking-[0.02em];
+    font-variant-numeric: tabular-nums;
+    /* Avoid dotted/slashed zeros; they hurt scanning in dense tables */
+    font-feature-settings: "zero" 0;
   }
 
   /* Navigation rail item */
@@ -125,12 +129,12 @@
   }
 
   .nav-rail-item[data-active="true"] {
-    @apply text-amber-600 bg-amber-500/10;
+    @apply text-sky-600 bg-sky-500/10;
   }
 
   .nav-rail-item[data-active="true"]::before {
     content: "";
-    @apply absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-amber-500 rounded-r-full;
+    @apply absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-sky-500 rounded-r-full;
   }
 
   /* Form controls - industrial style */
@@ -138,7 +142,7 @@
     @apply h-10 w-full rounded-md px-3 text-sm transition-all duration-200;
     @apply bg-bg-elevated border border-border text-foreground;
     @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20;
+    @apply focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/20;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
@@ -146,7 +150,7 @@
     @apply h-8 w-full rounded-md px-2.5 text-sm;
     @apply bg-bg-elevated border border-border text-foreground;
     @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20;
+    @apply focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/20;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
@@ -161,24 +165,34 @@
     @apply w-full rounded-md px-3 py-2 text-sm min-h-[80px];
     @apply bg-bg-elevated border border-border text-foreground;
     @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20;
+    @apply focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/20;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   /* Checkbox - industrial toggle style */
   .ui-checkbox {
     @apply h-4 w-4 rounded border border-border-strong bg-bg-elevated;
-    @apply text-amber-500 focus:ring-amber-500/20 focus:ring-offset-0;
+    @apply text-sky-500 focus:ring-sky-500/20 focus:ring-offset-0;
     @apply transition-colors;
   }
 
   /* Table styling - data terminal aesthetic */
   .ui-table-wrap {
-    @apply overflow-auto rounded-lg border border-border-subtle bg-bg-elevated/60;
+    @apply relative overflow-auto rounded-lg border border-border-subtle bg-bg-elevated/60;
   }
 
   .ui-table {
     @apply w-full text-left text-sm;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Enhanced table readability (applies to all ui-table inside ui-table-wrap) */
+  .ui-table-wrap .ui-table thead th {
+    @apply sticky top-0 z-10 bg-bg-elevated;
+  }
+
+  .ui-table-wrap .ui-table tbody tr:nth-child(even) {
+    background: rgba(var(--bg-sunken), 0.22);
   }
 
   .ui-thead {
@@ -199,7 +213,8 @@
   }
 
   .ui-table td {
-    @apply py-3 px-4 text-fg-muted;
+    /* Higher contrast makes dense tables easier to scan */
+    @apply py-3 px-4 text-foreground;
   }
 
   .ui-table tbody tr:last-child {
@@ -223,7 +238,7 @@
   }
 
   .ui-chip-primary {
-    @apply bg-amber-500/10 text-amber-400 border border-amber-500/20;
+    @apply bg-sky-500/10 text-sky-500 border border-sky-500/20;
   }
 
   .ui-chip-success {
@@ -279,13 +294,69 @@
   }
 
   .data-cell-highlight {
-    @apply text-amber-400;
+    @apply text-sky-500;
   }
 
   /* Card variations */
   .card-interactive {
     @apply transition-all duration-200;
     @apply hover:border-border-strong hover:shadow-lg hover:shadow-black/10;
+  }
+}
+
+@layer utilities {
+  /*
+    Token Compatibility Shim
+    Some pages still use hardcoded Tailwind slate/white utilities. Override the most common ones
+    so they follow our design tokens and stay correct in dark mode.
+  */
+
+  /* Backgrounds */
+  .bg-white {
+    background-color: rgb(var(--bg-elevated));
+  }
+  .bg-white\/60 {
+    background-color: rgb(var(--bg-elevated) / 0.6);
+  }
+  .bg-white\/80 {
+    background-color: rgb(var(--bg-elevated) / 0.8);
+  }
+
+  .bg-slate-50 {
+    background-color: rgb(var(--bg-sunken) / 0.35);
+  }
+  .bg-slate-100 {
+    background-color: rgb(var(--bg-sunken) / 0.55);
+  }
+
+  .hover\:bg-slate-50:hover {
+    background-color: rgb(var(--bg-sunken) / 0.45);
+  }
+
+  /* Borders */
+  .border-slate-100 {
+    border-color: rgb(var(--border-subtle));
+  }
+  .border-slate-200 {
+    border-color: rgb(var(--border-subtle));
+  }
+  .border-slate-300 {
+    border-color: rgb(var(--border));
+  }
+
+  /* Text */
+  .text-slate-950,
+  .text-slate-900,
+  .text-slate-800 {
+    color: rgb(var(--fg));
+  }
+  .text-slate-700,
+  .text-slate-600 {
+    color: rgb(var(--fg-muted));
+  }
+  .text-slate-500,
+  .text-slate-400 {
+    color: rgb(var(--fg-subtle));
   }
 }
 
@@ -310,12 +381,12 @@
 
   /* Gradient text */
   .text-gradient {
-    @apply bg-gradient-to-r from-amber-400 to-amber-200 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-sky-500 to-sky-300 bg-clip-text text-transparent;
   }
 
   /* Focus ring */
   .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:ring-offset-2 focus:ring-offset-background;
+    @apply focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:ring-offset-2 focus:ring-offset-background;
   }
 }
 

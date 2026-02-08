@@ -120,7 +120,7 @@ export default function CoaPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -167,12 +167,12 @@ export default function CoaPage() {
                       <tr key={a.id} className="ui-tr-hover">
                         <td className="px-3 py-2 font-mono text-xs">{a.account_code}</td>
                         <td className="px-3 py-2">
-                          <div className="font-medium text-slate-900">{a.name_en || "-"}</div>
-                          <div className="text-xs text-slate-500">{a.name_fr || ""}</div>
+                          <div className="font-medium text-foreground">{a.name_en || "-"}</div>
+                          <div className="text-xs text-fg-subtle">{a.name_fr || ""}</div>
                         </td>
-                        <td className="px-3 py-2 text-xs text-slate-700">{a.normal_balance}</td>
-                        <td className="px-3 py-2 text-xs text-slate-700">{a.is_postable ? "Yes" : "No"}</td>
-                        <td className="px-3 py-2 text-xs text-slate-600">{parent?.account_code || "-"}</td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">{a.normal_balance}</td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">{a.is_postable ? "Yes" : "No"}</td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">{parent?.account_code || "-"}</td>
                         <td className="px-3 py-2">
                           <Button variant="outline" size="sm" onClick={() => openEdit(a)}>
                             Edit
@@ -183,7 +183,7 @@ export default function CoaPage() {
                   })}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={6}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                         No accounts.
                       </td>
                     </tr>
@@ -203,25 +203,25 @@ export default function CoaPage() {
             {edit ? (
               <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-slate-700">Account</label>
-                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-700">
+                  <label className="text-xs font-medium text-fg-muted">Account</label>
+                  <div className="rounded-md border border-border bg-bg-sunken/20 px-3 py-2 font-mono text-xs text-fg-muted">
                     {edit.account_code} {edit.name_en ? `· ${edit.name_en}` : ""}
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Name (EN)</label>
+                  <label className="text-xs font-medium text-fg-muted">Name (EN)</label>
                   <Input value={editNameEn} onChange={(e) => setEditNameEn(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Name (FR)</label>
+                  <label className="text-xs font-medium text-fg-muted">Name (FR)</label>
                   <Input value={editNameFr} onChange={(e) => setEditNameFr(e.target.value)} />
                 </div>
                 <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-slate-700">Name (AR)</label>
+                  <label className="text-xs font-medium text-fg-muted">Name (AR)</label>
                   <Input value={editNameAr} onChange={(e) => setEditNameAr(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Parent Account Code (optional)</label>
+                  <label className="text-xs font-medium text-fg-muted">Parent Account Code (optional)</label>
                   <Input
                     list="coa-parent-accounts"
                     value={editParentCode}
@@ -230,8 +230,8 @@ export default function CoaPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Postable</label>
-                  <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <label className="text-xs font-medium text-fg-muted">Postable</label>
+                  <label className="flex items-center gap-2 rounded-md border border-border bg-bg-elevated px-3 py-2 text-sm">
                     <input
                       type="checkbox"
                       checked={editPostable}

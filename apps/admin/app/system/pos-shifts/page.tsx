@@ -109,7 +109,7 @@ export default function PosShiftsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -163,7 +163,7 @@ export default function PosShiftsPage() {
                   })}
                   {shifts.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={8}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
                         No shifts.
                       </td>
                     </tr>
@@ -190,7 +190,7 @@ export default function PosShiftsPage() {
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div className="w-full md:w-56">
-                <label className="text-xs font-medium text-slate-700">Limit</label>
+                <label className="text-xs font-medium text-fg-muted">Limit</label>
                 <Input value={movementsLimit} onChange={(e) => setMovementsLimit(e.target.value)} />
               </div>
               <Button variant="outline" onClick={() => loadMovements(selectedShiftId)} disabled={!selectedShiftId}>
@@ -206,24 +206,24 @@ export default function PosShiftsPage() {
                     <th className="px-3 py-2">Device</th>
                     <th className="px-3 py-2">Type</th>
                     <th className="px-3 py-2 text-right">USD</th>
-                    <th className="px-3 py-2 text-right">LBP</th>
+                    <th className="px-3 py-2 text-right">LL</th>
                     <th className="px-3 py-2">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {movements.map((m) => (
-                    <tr key={m.id} className="border-t border-slate-100 align-top">
+                    <tr key={m.id} className="border-t border-border-subtle align-top">
                       <td className="px-3 py-2 font-mono text-xs">{m.created_at}</td>
                       <td className="px-3 py-2 font-mono text-xs">{m.device_code}</td>
                       <td className="px-3 py-2 font-mono text-xs">{m.movement_type}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(m.amount_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(m.amount_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2 text-xs text-slate-700">{m.notes || "-"}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{m.notes || "-"}</td>
                     </tr>
                   ))}
                   {movements.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={6}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                         No cash movements.
                       </td>
                     </tr>
@@ -235,4 +235,3 @@ export default function PosShiftsPage() {
         </Card>
       </div>);
 }
-

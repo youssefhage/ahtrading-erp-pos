@@ -108,7 +108,7 @@ export default function PeriodLocksPage() {
               <CardDescription>Locking affects all posting (journals cannot be inserted in locked dates).</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -134,15 +134,15 @@ export default function PeriodLocksPage() {
                   </DialogHeader>
                   <form onSubmit={createLock} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Start Date</label>
+                      <label className="text-xs font-medium text-fg-muted">Start Date</label>
                       <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">End Date</label>
+                      <label className="text-xs font-medium text-fg-muted">End Date</label>
                       <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Reason (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
                       <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Month-end close Jan 2026" />
                     </div>
                     <div className="flex justify-end md:col-span-2">
@@ -173,8 +173,8 @@ export default function PeriodLocksPage() {
                         {l.start_date} → {l.end_date}
                       </td>
                       <td className="px-3 py-2 text-xs">{l.locked ? "Locked" : "Unlocked"}</td>
-                      <td className="px-3 py-2 text-xs text-slate-700">{l.reason || "-"}</td>
-                      <td className="px-3 py-2 text-xs text-slate-600">{l.created_by_email || "-"}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{l.reason || "-"}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{l.created_by_email || "-"}</td>
                       <td className="px-3 py-2">
                         {l.locked ? (
                           <Button variant="outline" size="sm" onClick={() => askToggle(l.id, false)}>
@@ -190,7 +190,7 @@ export default function PeriodLocksPage() {
                   ))}
                   {locks.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No locks.
                       </td>
                     </tr>

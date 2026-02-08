@@ -71,7 +71,7 @@ export default function CopilotChatPage() {
               <CardDescription>Errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -112,7 +112,7 @@ export default function CopilotChatPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {messages.length === 0 ? (
-              <p className="text-sm text-slate-600">No messages yet.</p>
+              <p className="text-sm text-fg-muted">No messages yet.</p>
             ) : (
               <div className="space-y-2">
                 {messages.map((m, idx) => (
@@ -120,14 +120,14 @@ export default function CopilotChatPage() {
                     key={idx}
                     className={
                       m.role === "user"
-                        ? "rounded-lg border border-slate-200 bg-white p-3"
+                        ? "rounded-lg border border-border bg-bg-elevated p-3"
                         : "rounded-lg border border-emerald-200 bg-emerald-50 p-3"
                     }
                   >
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-fg-subtle">
                       {m.role === "user" ? "You" : "Copilot"}
                     </div>
-                    <div className="mt-1 whitespace-pre-wrap text-sm text-slate-900">{m.content}</div>
+                    <div className="mt-1 whitespace-pre-wrap text-sm text-foreground">{m.content}</div>
                   </div>
                 ))}
               </div>
@@ -143,7 +143,7 @@ export default function CopilotChatPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="ui-table-wrap p-3">
-                <pre className="whitespace-pre-wrap text-xs text-slate-700">{JSON.stringify(last.cards || [], null, 2)}</pre>
+                <pre className="whitespace-pre-wrap text-xs text-fg-muted">{JSON.stringify(last.cards || [], null, 2)}</pre>
               </div>
             </CardContent>
           </Card>

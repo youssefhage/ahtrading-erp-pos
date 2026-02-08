@@ -92,7 +92,7 @@ export default function InventoryAlertsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -111,7 +111,7 @@ export default function InventoryAlertsPage() {
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div className="w-full md:w-64 space-y-1">
-                <label className="text-xs font-medium text-slate-700">Days Ahead</label>
+                <label className="text-xs font-medium text-fg-muted">Days Ahead</label>
                 <Input value={days} onChange={(e) => setDays(e.target.value)} />
               </div>
               <Button variant="outline" onClick={loadExpiry}>
@@ -155,7 +155,7 @@ export default function InventoryAlertsPage() {
                   })}
                   {expiry.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No expiring batches found.
                       </td>
                     </tr>
@@ -174,7 +174,7 @@ export default function InventoryAlertsPage() {
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div className="w-full md:w-96 space-y-1">
-                <label className="text-xs font-medium text-slate-700">Warehouse (optional)</label>
+                <label className="text-xs font-medium text-fg-muted">Warehouse (optional)</label>
                 <select className="ui-select" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
                   <option value="">All warehouses</option>
                   {warehouses.map((w) => (
@@ -221,7 +221,7 @@ export default function InventoryAlertsPage() {
                   ))}
                   {reorder.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No reorder alerts.
                       </td>
                     </tr>

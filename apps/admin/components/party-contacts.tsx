@@ -149,20 +149,20 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {status ? <div className="text-xs text-slate-600">{status}</div> : null}
+        {status ? <div className="text-xs text-fg-muted">{status}</div> : null}
 
         <div className="space-y-2">
           {(contacts || []).map((c) => (
-            <div key={c.id} className="rounded-md border border-slate-200 p-3">
+            <div key={c.id} className="rounded-md border border-border p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="text-sm">
                   <div className="font-medium">
                     {c.name}{" "}
-                    {c.is_primary ? <span className="text-xs text-slate-500">(primary)</span> : null}{" "}
-                    {!c.is_active ? <span className="text-xs text-slate-500">(inactive)</span> : null}
+                    {c.is_primary ? <span className="text-xs text-fg-subtle">(primary)</span> : null}{" "}
+                    {!c.is_active ? <span className="text-xs text-fg-subtle">(inactive)</span> : null}
                   </div>
-                  <div className="text-slate-700">{c.title || "-"}</div>
-                  <div className="text-slate-600">
+                  <div className="text-fg-muted">{c.title || "-"}</div>
+                  <div className="text-fg-muted">
                     {[c.phone, c.email].filter(Boolean).join(" · ") || "-"}
                     {c.notes ? ` · ${c.notes}` : ""}
                   </div>
@@ -178,7 +178,7 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
               </div>
             </div>
           ))}
-          {!contacts.length ? <div className="text-sm text-slate-600">No contacts yet.</div> : null}
+          {!contacts.length ? <div className="text-sm text-fg-muted">No contacts yet.</div> : null}
         </div>
 
         <Dialog open={open} onOpenChange={setOpen}>
@@ -190,35 +190,35 @@ export function PartyContacts({ partyKind, partyId }: { partyKind: PartyKind; pa
 
             <form onSubmit={save} className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Name</label>
+                <label className="text-xs font-medium text-fg-muted">Name</label>
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Title</label>
+                <label className="text-xs font-medium text-fg-muted">Title</label>
                 <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Owner, Accountant, Buyer..." />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Phone</label>
+                <label className="text-xs font-medium text-fg-muted">Phone</label>
                 <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+961..." />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Email</label>
+                <label className="text-xs font-medium text-fg-muted">Email</label>
                 <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Notes</label>
+                <label className="text-xs font-medium text-fg-muted">Notes</label>
                 <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="WhatsApp preferred, call mornings..." />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Primary?</label>
+                <label className="text-xs font-medium text-fg-muted">Primary?</label>
                 <select className="ui-select" value={isPrimary ? "yes" : "no"} onChange={(e) => setIsPrimary(e.target.value === "yes")}>
                   <option value="no">No</option>
                   <option value="yes">Yes</option>
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Active?</label>
+                <label className="text-xs font-medium text-fg-muted">Active?</label>
                 <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
                   <option value="yes">Yes</option>
                   <option value="no">No</option>

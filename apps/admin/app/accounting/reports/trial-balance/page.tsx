@@ -48,14 +48,14 @@ export default function TrialBalancePage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
 
         <Card>
           <CardHeader>
-            <CardTitle>Balances (USD + LBP)</CardTitle>
+            <CardTitle>Balances (USD + LL)</CardTitle>
             <CardDescription>Aggregated from GL entries. {rows.length} accounts</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -73,8 +73,8 @@ export default function TrialBalancePage() {
                     <th className="px-3 py-2">Account</th>
                     <th className="px-3 py-2 text-right">Dr USD</th>
                     <th className="px-3 py-2 text-right">Cr USD</th>
-                    <th className="px-3 py-2 text-right">Dr LBP</th>
-                    <th className="px-3 py-2 text-right">Cr LBP</th>
+                    <th className="px-3 py-2 text-right">Dr LL</th>
+                    <th className="px-3 py-2 text-right">Cr LL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -90,7 +90,7 @@ export default function TrialBalancePage() {
                   ))}
                   {rows.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={6}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                         No GL entries yet.
                       </td>
                     </tr>
@@ -102,4 +102,3 @@ export default function TrialBalancePage() {
         </Card>
       </div>);
 }
-

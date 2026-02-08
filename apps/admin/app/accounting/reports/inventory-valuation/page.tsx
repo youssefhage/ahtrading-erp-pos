@@ -72,7 +72,7 @@ export default function InventoryValuationPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -100,7 +100,7 @@ export default function InventoryValuationPage() {
                     <th className="px-3 py-2">Item</th>
                     <th className="px-3 py-2 text-right">Qty</th>
                     <th className="px-3 py-2 text-right">Value USD</th>
-                    <th className="px-3 py-2 text-right">Value LBP</th>
+                    <th className="px-3 py-2 text-right">Value LL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -115,7 +115,7 @@ export default function InventoryValuationPage() {
                   ))}
                   {rows.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No items / moves yet.
                       </td>
                     </tr>
@@ -127,4 +127,3 @@ export default function InventoryValuationPage() {
         </Card>
       </div>);
 }
-

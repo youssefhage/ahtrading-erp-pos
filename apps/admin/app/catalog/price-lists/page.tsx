@@ -239,7 +239,7 @@ export default function PriceListsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -266,26 +266,26 @@ export default function PriceListsPage() {
                   <form onSubmit={createList} className="grid grid-cols-1 gap-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Code</label>
+                        <label className="text-xs font-medium text-fg-muted">Code</label>
                         <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="WHOLESALE" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Currency</label>
+                        <label className="text-xs font-medium text-fg-muted">Currency</label>
                         <select
                           className="ui-select"
                           value={currency}
                           onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}
                         >
                           <option value="USD">USD</option>
-                          <option value="LBP">LBP</option>
+                          <option value="LBP">LL</option>
                         </select>
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Name</label>
+                      <label className="text-xs font-medium text-fg-muted">Name</label>
                       <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Wholesale USD" />
                     </div>
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <label className="flex items-center gap-2 text-sm text-fg-muted">
                       <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
                       Set as default (used by POS)
                     </label>
@@ -336,7 +336,7 @@ export default function PriceListsPage() {
                   ))}
                   {lists.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No price lists yet.
                       </td>
                     </tr>
@@ -356,22 +356,22 @@ export default function PriceListsPage() {
             <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Name</label>
+                  <label className="text-xs font-medium text-fg-muted">Name</label>
                   <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Currency</label>
+                  <label className="text-xs font-medium text-fg-muted">Currency</label>
                   <select
                     className="ui-select"
                     value={editCurrency}
                     onChange={(e) => setEditCurrency(e.target.value as "USD" | "LBP")}
                   >
                     <option value="USD">USD</option>
-                    <option value="LBP">LBP</option>
+                    <option value="LBP">LL</option>
                   </select>
                 </div>
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
+              <label className="flex items-center gap-2 text-sm text-fg-muted">
                 <input type="checkbox" checked={editDefault} onChange={(e) => setEditDefault(e.target.checked)} />
                 Set as default (POS)
               </label>
@@ -399,7 +399,7 @@ export default function PriceListsPage() {
                       <th className="px-3 py-2">SKU</th>
                       <th className="px-3 py-2">Item</th>
                       <th className="px-3 py-2">USD</th>
-                      <th className="px-3 py-2">LBP</th>
+                      <th className="px-3 py-2">LL</th>
                       <th className="px-3 py-2">From</th>
                       <th className="px-3 py-2">To</th>
                     </tr>
@@ -420,7 +420,7 @@ export default function PriceListsPage() {
                     })}
                     {listItems.length === 0 ? (
                       <tr>
-                        <td className="px-3 py-6 text-center text-slate-500" colSpan={6}>
+                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                           No items yet.
                         </td>
                       </tr>
@@ -438,7 +438,7 @@ export default function PriceListsPage() {
                   <form onSubmit={addPrice} className="grid grid-cols-1 gap-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">SKU</label>
+                        <label className="text-xs font-medium text-fg-muted">SKU</label>
                         <Input
                           value={addSku}
                           onChange={(e) => onSkuChange(e.target.value)}
@@ -453,28 +453,28 @@ export default function PriceListsPage() {
                           ))}
                         </datalist>
                         {addItemId ? (
-                          <p className="text-xs text-slate-500">Item: {itemById.get(addItemId)?.name || addItemId}</p>
+                          <p className="text-xs text-fg-subtle">Item: {itemById.get(addItemId)?.name || addItemId}</p>
                         ) : (
-                          <p className="text-xs text-slate-500">Pick a valid SKU.</p>
+                          <p className="text-xs text-fg-subtle">Pick a valid SKU.</p>
                         )}
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Effective From</label>
+                        <label className="text-xs font-medium text-fg-muted">Effective From</label>
                         <Input value={addEffectiveFrom} onChange={(e) => setAddEffectiveFrom(e.target.value)} type="date" />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Price USD</label>
+                        <label className="text-xs font-medium text-fg-muted">Price USD</label>
                         <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0" inputMode="decimal" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Price LBP</label>
+                        <label className="text-xs font-medium text-fg-muted">Price LL</label>
                         <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Effective To (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Effective To (optional)</label>
                       <Input value={addEffectiveTo} onChange={(e) => setAddEffectiveTo(e.target.value)} type="date" />
                     </div>
                     <div className="flex justify-end">
@@ -490,4 +490,3 @@ export default function PriceListsPage() {
         </Dialog>
       </div>);
 }
-

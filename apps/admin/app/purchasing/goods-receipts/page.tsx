@@ -4,10 +4,12 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { fmtLbp, fmtUsd } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { StatusChip } from "@/components/ui/status-chip";
 
 type Supplier = { id: string; name: string };
 type Item = { id: string; sku: string; name: string };
@@ -321,7 +323,7 @@ function GoodsReceiptsPageInner() {
       );
       setCreateInvOpen(false);
       setStatus("");
-      router.push(`/purchasing/supplier-invoices?id=${encodeURIComponent(res.id)}`);
+      router.push(`/purchasing/supplier-invoices/${encodeURIComponent(res.id)}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
@@ -405,7 +407,7 @@ function GoodsReceiptsPageInner() {
               <CardDescription>Errors and action results show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -458,21 +460,23 @@ function GoodsReceiptsPageInner() {
                         return (
                           <tr
                             key={r.id}
-                            className={selected ? "bg-slate-50" : "ui-tr-hover"}
+                            className={selected ? "bg-bg-sunken/20" : "ui-tr-hover"}
                             style={{ cursor: "pointer" }}
                             onClick={() => setReceiptId(r.id)}
                           >
                             <td className="px-3 py-2 font-medium">{r.receipt_no || "(draft)"}</td>
                             <td className="px-3 py-2">{supplierById.get(r.supplier_id || "")?.name || "-"}</td>
                             <td className="px-3 py-2">{whById.get(r.warehouse_id || "")?.name || "-"}</td>
-                            <td className="px-3 py-2">{r.status}</td>
-                            <td className="px-3 py-2 text-right">{Number(r.total_usd || 0).toFixed(2)}</td>
+                            <td className="px-3 py-2">
+                              <StatusChip value={r.status} />
+                            </td>
+                            <td className="px-3 py-2 text-right data-mono">{fmtUsd(r.total_usd)}</td>
                           </tr>
                         );
                       })}
                       {filteredReceipts.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                             No receipts.
                           </td>
                         </tr>
@@ -493,22 +497,25 @@ function GoodsReceiptsPageInner() {
                       <>
                         <div className="space-y-1 text-sm">
                           <div>
-                            <span className="text-slate-500">Receipt:</span> {detail.receipt.receipt_no || "(draft)"}
+                            <span className="text-fg-subtle">Receipt:</span> {detail.receipt.receipt_no || "(draft)"}
                           </div>
                           <div>
-                            <span className="text-slate-500">Supplier:</span> {supplierById.get(detail.receipt.supplier_id || "")?.name || "-"}
+                            <span className="text-fg-subtle">Supplier:</span> {supplierById.get(detail.receipt.supplier_id || "")?.name || "-"}
                           </div>
                           <div>
-                            <span className="text-slate-500">Warehouse:</span> {whById.get(detail.receipt.warehouse_id || "")?.name || "-"}
+                            <span className="text-fg-subtle">Warehouse:</span> {whById.get(detail.receipt.warehouse_id || "")?.name || "-"}
                           </div>
                           {detail.receipt.purchase_order_id ? (
                             <div>
-                              <span className="text-slate-500">PO:</span>{" "}
+                              <span className="text-fg-subtle">PO:</span>{" "}
                               {detail.receipt.purchase_order_no || detail.receipt.purchase_order_id}
                             </div>
                           ) : null}
                           <div>
-                            <span className="text-slate-500">Totals:</span> {Number(detail.receipt.total_usd || 0).toFixed(2)} USD / {Number(detail.receipt.total_lbp || 0).toFixed(0)} LBP
+                            <span className="text-fg-subtle">Totals:</span>{" "}
+                            <span className="data-mono">
+                              {fmtUsd(detail.receipt.total_usd)} / {fmtLbp(detail.receipt.total_lbp)}
+                            </span>
                           </div>
                         </div>
 
@@ -567,7 +574,7 @@ function GoodsReceiptsPageInner() {
                         </div>
                       </>
                     ) : (
-                      <div className="text-sm text-slate-600">Pick a receipt from the list to view it.</div>
+                      <div className="text-sm text-fg-muted">Pick a receipt from the list to view it.</div>
                     )}
                   </CardContent>
                 </Card>
@@ -586,7 +593,7 @@ function GoodsReceiptsPageInner() {
             <form onSubmit={saveDraft} className="space-y-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Supplier</label>
+                  <label className="text-xs font-medium text-fg-muted">Supplier</label>
                   <select className="ui-select" value={draftSupplierId} onChange={(e) => setDraftSupplierId(e.target.value)}>
                     <option value="">Select supplier...</option>
                     {suppliers.map((s) => (
@@ -597,7 +604,7 @@ function GoodsReceiptsPageInner() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Warehouse</label>
+                  <label className="text-xs font-medium text-fg-muted">Warehouse</label>
                   <select className="ui-select" value={draftWarehouseId} onChange={(e) => setDraftWarehouseId(e.target.value)}>
                     <option value="">Select warehouse...</option>
                     {warehouses.map((w) => (
@@ -608,7 +615,7 @@ function GoodsReceiptsPageInner() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Exchange Rate (USD→LBP)</label>
+                  <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
                   <Input value={draftExchangeRate} onChange={(e) => setDraftExchangeRate(e.target.value)} />
                 </div>
               </div>
@@ -620,7 +627,7 @@ function GoodsReceiptsPageInner() {
                       <th className="px-3 py-2">Item</th>
                       <th className="px-3 py-2 text-right">Qty</th>
                       <th className="px-3 py-2 text-right">Unit USD</th>
-                      <th className="px-3 py-2 text-right">Unit LBP</th>
+                      <th className="px-3 py-2 text-right">Unit LL</th>
                       <th className="px-3 py-2">Batch</th>
                       <th className="px-3 py-2 text-right">Actions</th>
                     </tr>
@@ -656,7 +663,7 @@ function GoodsReceiptsPageInner() {
                             {l.batch_no || l.expiry_date ? "Edit" : "Add"}
                           </Button>
                           {(l.batch_no || l.expiry_date) && (
-                            <div className="mt-1 text-xs text-slate-600">{l.batch_no ? `#${l.batch_no}` : ""}{l.expiry_date ? ` · exp ${l.expiry_date}` : ""}</div>
+                            <div className="mt-1 text-xs text-fg-muted">{l.batch_no ? `#${l.batch_no}` : ""}{l.expiry_date ? ` · exp ${l.expiry_date}` : ""}</div>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -668,7 +675,7 @@ function GoodsReceiptsPageInner() {
                     ))}
                     {!draftLines.length ? (
                       <tr>
-                        <td className="px-3 py-3 text-sm text-slate-600" colSpan={6}>
+                        <td className="px-3 py-3 text-sm text-fg-muted" colSpan={6}>
                           No lines yet.
                         </td>
                       </tr>
@@ -698,7 +705,7 @@ function GoodsReceiptsPageInner() {
             {batchIdx >= 0 && batchIdx < draftLines.length ? (
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Batch No</label>
+                  <label className="text-xs font-medium text-fg-muted">Batch No</label>
                   <Input
                     value={draftLines[batchIdx].batch_no}
                     onChange={(e) => updateLine(batchIdx, { batch_no: e.target.value })}
@@ -706,7 +713,7 @@ function GoodsReceiptsPageInner() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Expiry Date</label>
+                  <label className="text-xs font-medium text-fg-muted">Expiry Date</label>
                   <Input
                     value={draftLines[batchIdx].expiry_date}
                     onChange={(e) => updateLine(batchIdx, { expiry_date: e.target.value })}
@@ -731,7 +738,7 @@ function GoodsReceiptsPageInner() {
             </DialogHeader>
             <form onSubmit={postReceipt} className="space-y-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Posting Date</label>
+                <label className="text-xs font-medium text-fg-muted">Posting Date</label>
                 <Input value={postingDate} onChange={(e) => setPostingDate(e.target.value)} placeholder="YYYY-MM-DD" />
               </div>
               <div className="flex items-center justify-end gap-2">
@@ -754,11 +761,11 @@ function GoodsReceiptsPageInner() {
             </DialogHeader>
             <form onSubmit={createInvoiceFromReceipt} className="grid grid-cols-1 gap-3 md:grid-cols-6">
               <div className="space-y-1 md:col-span-3">
-                <label className="text-xs font-medium text-slate-700">Invoice Date</label>
+                <label className="text-xs font-medium text-fg-muted">Invoice Date</label>
                 <Input type="date" value={createInvInvoiceDate} onChange={(e) => setCreateInvInvoiceDate(e.target.value)} />
               </div>
               <div className="space-y-1 md:col-span-3">
-                <label className="text-xs font-medium text-slate-700">Tax Code (optional)</label>
+                <label className="text-xs font-medium text-fg-muted">Tax Code (optional)</label>
                 <select className="ui-select" value={createInvTaxCodeId} onChange={(e) => setCreateInvTaxCodeId(e.target.value)}>
                   <option value="">(none)</option>
                   {taxCodes.map((t) => (
@@ -769,7 +776,7 @@ function GoodsReceiptsPageInner() {
                 </select>
               </div>
               <div className="space-y-1 md:col-span-6">
-                <label className="text-xs font-medium text-slate-700">Internal Invoice No (optional)</label>
+                <label className="text-xs font-medium text-fg-muted">Internal Invoice No (optional)</label>
                 <Input value={createInvInvoiceNo} onChange={(e) => setCreateInvInvoiceNo(e.target.value)} placeholder="Leave blank to auto-assign" />
               </div>
               <div className="md:col-span-6 flex justify-end">
@@ -791,11 +798,11 @@ function GoodsReceiptsPageInner() {
             </DialogHeader>
             <form onSubmit={cancelReceipt} className="grid grid-cols-1 gap-3 md:grid-cols-6">
               <div className="space-y-1 md:col-span-3">
-                <label className="text-xs font-medium text-slate-700">Void Date</label>
+                <label className="text-xs font-medium text-fg-muted">Void Date</label>
                 <Input type="date" value={cancelDate} onChange={(e) => setCancelDate(e.target.value)} />
               </div>
               <div className="space-y-1 md:col-span-6">
-                <label className="text-xs font-medium text-slate-700">Reason (optional)</label>
+                <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
                 <Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="duplicate / correction" />
               </div>
               <div className="md:col-span-6 flex justify-end gap-2">
@@ -818,7 +825,7 @@ function GoodsReceiptsPageInner() {
             </DialogHeader>
             <form onSubmit={cancelDraftReceipt} className="space-y-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Reason (optional)</label>
+                <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
                 <Input value={cancelDraftReason} onChange={(e) => setCancelDraftReason(e.target.value)} placeholder="Optional" />
               </div>
               <div className="flex justify-end gap-2">
@@ -837,7 +844,7 @@ function GoodsReceiptsPageInner() {
 
 export default function GoodsReceiptsPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-slate-700">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
       <GoodsReceiptsPageInner />
     </Suspense>
   );

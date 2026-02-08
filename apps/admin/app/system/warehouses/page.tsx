@@ -71,7 +71,7 @@ export default function WarehousesPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -97,11 +97,11 @@ export default function WarehousesPage() {
                   </DialogHeader>
                   <form onSubmit={createWarehouse} className="grid grid-cols-1 gap-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Name</label>
+                      <label className="text-xs font-medium text-fg-muted">Name</label>
                       <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Main Warehouse" />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Location (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Location (optional)</label>
                       <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Lebanon" />
                     </div>
                     <div className="flex justify-end">
@@ -132,7 +132,7 @@ export default function WarehousesPage() {
                   ))}
                   {warehouses.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={3}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
                         No warehouses.
                       </td>
                     </tr>

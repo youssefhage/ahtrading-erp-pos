@@ -124,7 +124,7 @@ export default function ItemCategoriesPage() {
             <CardDescription>Errors and action results show here.</CardDescription>
           </CardHeader>
           <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
           </CardContent>
         </Card>
       ) : null}
@@ -161,11 +161,11 @@ export default function ItemCategoriesPage() {
                   </DialogHeader>
                   <form onSubmit={createCategory} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Name</label>
+                      <label className="text-xs font-medium text-fg-muted">Name</label>
                       <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Dairy, Beverages..." />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Parent (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Parent (optional)</label>
                       <select className="ui-select" value={parentId} onChange={(e) => setParentId(e.target.value)}>
                         <option value="">None</option>
                         {categories.map((c) => (
@@ -176,7 +176,7 @@ export default function ItemCategoriesPage() {
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Active?</label>
+                      <label className="text-xs font-medium text-fg-muted">Active?</label>
                       <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
                         <option value="yes">Yes</option>
                         <option value="no">No</option>
@@ -215,7 +215,7 @@ export default function ItemCategoriesPage() {
                   <tr key={c.id} className="ui-tr-hover" style={{ cursor: "pointer" }} onClick={() => openEdit(c)}>
                     <td className="px-3 py-2 font-medium">{c.name}</td>
                     <td className="px-3 py-2">{c.parent_id ? parentNameById.get(c.parent_id) || c.parent_id : "-"}</td>
-                    <td className="px-3 py-2">{c.is_active === false ? <span className="text-slate-500">No</span> : "Yes"}</td>
+                    <td className="px-3 py-2">{c.is_active === false ? <span className="text-fg-subtle">No</span> : "Yes"}</td>
                     <td className="px-3 py-2 text-right">
                       <Button
                         size="sm"
@@ -243,11 +243,11 @@ export default function ItemCategoriesPage() {
               </DialogHeader>
               <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-slate-700">Name</label>
+                  <label className="text-xs font-medium text-fg-muted">Name</label>
                   <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
                 </div>
                 <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-slate-700">Parent (optional)</label>
+                  <label className="text-xs font-medium text-fg-muted">Parent (optional)</label>
                   <select className="ui-select" value={editParentId} onChange={(e) => setEditParentId(e.target.value)}>
                     <option value="">None</option>
                     {categories
@@ -260,7 +260,7 @@ export default function ItemCategoriesPage() {
                   </select>
                 </div>
                 <div className="space-y-1 md:col-span-2">
-                  <label className="text-xs font-medium text-slate-700">Active?</label>
+                  <label className="text-xs font-medium text-fg-muted">Active?</label>
                   <select className="ui-select" value={editIsActive ? "yes" : "no"} onChange={(e) => setEditIsActive(e.target.value === "yes")}>
                     <option value="yes">Yes</option>
                     <option value="no">No</option>

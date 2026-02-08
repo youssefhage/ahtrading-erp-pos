@@ -101,7 +101,7 @@ export default function UsersPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -121,11 +121,11 @@ export default function UsersPage() {
               </DialogHeader>
               <form onSubmit={createUser} className="grid grid-cols-1 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Email</label>
+                  <label className="text-xs font-medium text-fg-muted">Email</label>
                   <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@ahtrading.local" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Password</label>
+                  <label className="text-xs font-medium text-fg-muted">Password</label>
                   <Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Set a password" />
                 </div>
                 <div className="flex justify-end">
@@ -148,7 +148,7 @@ export default function UsersPage() {
               </DialogHeader>
               <form onSubmit={assignRole} className="grid grid-cols-1 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">User</label>
+                  <label className="text-xs font-medium text-fg-muted">User</label>
                   <select
                     className="ui-select"
                     value={assignUserId}
@@ -163,7 +163,7 @@ export default function UsersPage() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Role</label>
+                  <label className="text-xs font-medium text-fg-muted">Role</label>
                   <select
                     className="ui-select"
                     value={assignRoleId}
@@ -178,7 +178,7 @@ export default function UsersPage() {
                   </select>
                 </div>
                 {assignRoleId ? (
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-fg-muted">
                     Selected role:{" "}
                     <span className="font-mono text-xs">{roleById.get(assignRoleId)?.name || assignRoleId}</span>
                   </p>
@@ -218,7 +218,7 @@ export default function UsersPage() {
                   ))}
                   {users.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={3}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
                         No users.
                       </td>
                     </tr>

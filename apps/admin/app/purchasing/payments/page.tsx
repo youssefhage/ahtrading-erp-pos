@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { fmtUsd } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -171,7 +172,7 @@ export default function SupplierPaymentsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -200,7 +201,7 @@ export default function SupplierPaymentsPage() {
                   </DialogHeader>
                   <form onSubmit={createPayment} className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <div className="space-y-1 md:col-span-4">
-                      <label className="text-xs font-medium text-slate-700">Supplier Invoice</label>
+                      <label className="text-xs font-medium text-fg-muted">Supplier Invoice</label>
                       <select
                         className="ui-select"
                         value={payInvoiceId}
@@ -211,13 +212,13 @@ export default function SupplierPaymentsPage() {
                           <option key={inv.id} value={inv.id}>
                             {(inv.invoice_no || inv.id).toString()} ·{" "}
                             {inv.supplier_id ? supplierById.get(inv.supplier_id)?.name || inv.supplier_id : "-"} ·{" "}
-                            {Number(inv.total_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} USD
+                            {fmtUsd(inv.total_usd)}
                           </option>
                         ))}
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Method</label>
+                      <label className="text-xs font-medium text-fg-muted">Method</label>
                       <select
                         className="ui-select"
                         value={method}
@@ -231,11 +232,11 @@ export default function SupplierPaymentsPage() {
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Payment Date</label>
+                      <label className="text-xs font-medium text-fg-muted">Payment Date</label>
                       <Input value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} type="date" />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Bank Account (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Bank Account (optional)</label>
                       <select
                         className="ui-select"
                         value={bankAccountId}
@@ -250,11 +251,11 @@ export default function SupplierPaymentsPage() {
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Amount USD</label>
+                      <label className="text-xs font-medium text-fg-muted">Amount USD</label>
                       <Input value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Amount LBP</label>
+                      <label className="text-xs font-medium text-fg-muted">Amount LL</label>
                       <Input value={amountLbp} onChange={(e) => setAmountLbp(e.target.value)} />
                     </div>
                     <div className="flex justify-end md:col-span-6">
@@ -270,7 +271,7 @@ export default function SupplierPaymentsPage() {
             {filtersOpen ? (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Supplier</label>
+                  <label className="text-xs font-medium text-fg-muted">Supplier</label>
                   <select
                     className="ui-select"
                     value={supplierId}
@@ -285,7 +286,7 @@ export default function SupplierPaymentsPage() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Supplier Invoice</label>
+                  <label className="text-xs font-medium text-fg-muted">Supplier Invoice</label>
                   <select
                     className="ui-select"
                     value={supplierInvoiceId}
@@ -300,11 +301,11 @@ export default function SupplierPaymentsPage() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">From</label>
+                  <label className="text-xs font-medium text-fg-muted">From</label>
                   <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">To</label>
+                  <label className="text-xs font-medium text-fg-muted">To</label>
                   <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                 </div>
               </div>
@@ -327,7 +328,7 @@ export default function SupplierPaymentsPage() {
                     <th className="px-3 py-2">Supplier</th>
                     <th className="px-3 py-2">Method</th>
                     <th className="px-3 py-2 text-right">USD</th>
-                    <th className="px-3 py-2 text-right">LBP</th>
+                    <th className="px-3 py-2 text-right">LL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -343,7 +344,7 @@ export default function SupplierPaymentsPage() {
                   ))}
                   {payments.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={6}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                         No payments.
                       </td>
                     </tr>

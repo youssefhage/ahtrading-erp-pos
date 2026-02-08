@@ -47,7 +47,7 @@ function fmtNumber(value: string | number) {
 function fmtCurrency(value: string | number, currency: "USD" | "LBP") {
   const n = Number(value || 0);
   if (currency === "USD") return `$${fmtNumber(n)}`;
-  return `LBP ${fmtNumber(n)}`;
+  return `LL ${fmtNumber(n)}`;
 }
 
 function MetricCard({
@@ -457,12 +457,12 @@ export default function DashboardPage() {
               status={metrics && metrics.low_stock_count > 0 ? "warning" : "good"}
             />
 
-            <div className="mt-4 rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
+            <div className="mt-4 rounded-md border border-sky-500/20 bg-sky-500/10 p-3">
               <div className="flex items-start gap-2">
-                <Activity className="mt-0.5 h-4 w-4 text-amber-400" />
+                <Activity className="mt-0.5 h-4 w-4 text-sky-500" />
                 <div>
-                  <p className="text-xs font-medium text-amber-400">Daily Summary</p>
-                  <p className="text-xs text-amber-300/70">
+                  <p className="text-xs font-medium text-sky-500">Daily Summary</p>
+                  <p className="text-xs text-sky-700/80">
                     Sales are up 12% compared to yesterday. Consider reviewing stock levels for fast-moving items.
                   </p>
                 </div>

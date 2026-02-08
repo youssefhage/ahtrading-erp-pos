@@ -444,7 +444,7 @@ export default function InventoryOpsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -476,7 +476,7 @@ export default function InventoryOpsPage() {
                   <form onSubmit={submitOpeningImport} className="space-y-4">
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
                       <div className="space-y-1 md:col-span-3">
-                        <label className="text-xs font-medium text-slate-700">Warehouse</label>
+                        <label className="text-xs font-medium text-fg-muted">Warehouse</label>
                         <select className="ui-select" value={openingWarehouseId} onChange={(e) => setOpeningWarehouseId(e.target.value)}>
                           <option value="">Select warehouse...</option>
                           {warehouses.map((w) => (
@@ -487,11 +487,11 @@ export default function InventoryOpsPage() {
                         </select>
                       </div>
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Posting Date</label>
+                        <label className="text-xs font-medium text-fg-muted">Posting Date</label>
                         <Input type="date" value={openingPostingDate} onChange={(e) => setOpeningPostingDate(e.target.value)} />
                       </div>
                       <div className="space-y-1 md:col-span-6">
-                        <label className="text-xs font-medium text-slate-700">Import ID (UUID, for safe retries)</label>
+                        <label className="text-xs font-medium text-fg-muted">Import ID (UUID, for safe retries)</label>
                         <div className="flex flex-wrap items-center gap-2">
                           <Input value={openingImportId} onChange={(e) => setOpeningImportId(e.target.value)} placeholder="leave blank to auto-generate" />
                           <Button
@@ -508,7 +508,7 @@ export default function InventoryOpsPage() {
                             New ID
                           </Button>
                         </div>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-fg-subtle">
                           If you run the same import twice with the same Import ID, the server will return “already applied”.
                         </p>
                       </div>
@@ -516,7 +516,7 @@ export default function InventoryOpsPage() {
 
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">CSV</label>
+                        <label className="text-xs font-medium text-fg-muted">CSV</label>
                         <textarea
                           className="ui-textarea min-h-[220px]"
                           value={openingCsv}
@@ -529,7 +529,7 @@ export default function InventoryOpsPage() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <div className="rounded-md border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                        <div className="rounded-md border border-border bg-bg-elevated p-3 text-xs text-fg-muted">
                           <div className="flex items-center justify-between gap-2">
                             <span>Warehouse</span>
                             <span className="font-mono">{whById.get(openingWarehouseId)?.name || "-"}</span>
@@ -618,7 +618,7 @@ export default function InventoryOpsPage() {
                   </DialogHeader>
                   <form onSubmit={submitAdjust} className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Item</label>
+                      <label className="text-xs font-medium text-fg-muted">Item</label>
                       <select
                         className="ui-select"
                         value={adjust.item_id}
@@ -633,7 +633,7 @@ export default function InventoryOpsPage() {
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Warehouse</label>
+                      <label className="text-xs font-medium text-fg-muted">Warehouse</label>
                       <select
                         className="ui-select"
                         value={adjust.warehouse_id}
@@ -648,23 +648,23 @@ export default function InventoryOpsPage() {
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-slate-700">Qty In</label>
+                      <label className="text-xs font-medium text-fg-muted">Qty In</label>
                       <Input value={adjust.qty_in} onChange={(e) => setAdjust((p) => ({ ...p, qty_in: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-slate-700">Qty Out</label>
+                      <label className="text-xs font-medium text-fg-muted">Qty Out</label>
                       <Input value={adjust.qty_out} onChange={(e) => setAdjust((p) => ({ ...p, qty_out: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Unit Cost USD</label>
+                      <label className="text-xs font-medium text-fg-muted">Unit Cost USD</label>
                       <Input value={adjust.unit_cost_usd} onChange={(e) => setAdjust((p) => ({ ...p, unit_cost_usd: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Unit Cost LBP</label>
+                      <label className="text-xs font-medium text-fg-muted">Unit Cost LL</label>
                       <Input value={adjust.unit_cost_lbp} onChange={(e) => setAdjust((p) => ({ ...p, unit_cost_lbp: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-4">
-                      <label className="text-xs font-medium text-slate-700">Reason (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
                       <Input value={adjust.reason} onChange={(e) => setAdjust((p) => ({ ...p, reason: e.target.value }))} placeholder="shrinkage / damaged / correction" />
                     </div>
                     <div className="md:col-span-6 flex justify-end">
@@ -697,7 +697,7 @@ export default function InventoryOpsPage() {
                   </DialogHeader>
                   <form onSubmit={submitTransfer} className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Item</label>
+                      <label className="text-xs font-medium text-fg-muted">Item</label>
                       <select
                         className="ui-select"
                         value={transfer.item_id}
@@ -712,7 +712,7 @@ export default function InventoryOpsPage() {
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">From Warehouse</label>
+                      <label className="text-xs font-medium text-fg-muted">From Warehouse</label>
                       <select
                         className="ui-select"
                         value={transfer.from_warehouse_id}
@@ -727,7 +727,7 @@ export default function InventoryOpsPage() {
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">To Warehouse</label>
+                      <label className="text-xs font-medium text-fg-muted">To Warehouse</label>
                       <select
                         className="ui-select"
                         value={transfer.to_warehouse_id}
@@ -742,19 +742,19 @@ export default function InventoryOpsPage() {
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-slate-700">Qty</label>
+                      <label className="text-xs font-medium text-fg-muted">Qty</label>
                       <Input value={transfer.qty} onChange={(e) => setTransfer((p) => ({ ...p, qty: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Reason (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
                       <Input value={transfer.reason} onChange={(e) => setTransfer((p) => ({ ...p, reason: e.target.value }))} placeholder="putaway / rebalancing" />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Unit Cost USD (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Unit Cost USD (optional)</label>
                       <Input value={transfer.unit_cost_usd} onChange={(e) => setTransfer((p) => ({ ...p, unit_cost_usd: e.target.value }))} />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Unit Cost LBP (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Unit Cost LL (optional)</label>
                       <Input value={transfer.unit_cost_lbp} onChange={(e) => setTransfer((p) => ({ ...p, unit_cost_lbp: e.target.value }))} />
                     </div>
                     <div className="md:col-span-6 flex justify-end">
@@ -786,7 +786,7 @@ export default function InventoryOpsPage() {
                   <form onSubmit={submitCycleCount} className="space-y-4">
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                       <div className="space-y-1 md:col-span-1">
-                        <label className="text-xs font-medium text-slate-700">Warehouse</label>
+                        <label className="text-xs font-medium text-fg-muted">Warehouse</label>
                         <select
                           className="ui-select"
                           value={cycleWarehouseId}
@@ -801,7 +801,7 @@ export default function InventoryOpsPage() {
                         </select>
                       </div>
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Reason (optional)</label>
+                        <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
                         <Input value={cycleReason} onChange={(e) => setCycleReason(e.target.value)} placeholder="month-end count / spot check" />
                       </div>
                     </div>

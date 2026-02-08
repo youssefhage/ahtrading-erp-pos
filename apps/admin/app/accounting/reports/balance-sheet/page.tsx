@@ -64,7 +64,7 @@ export default function BalanceSheetPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -91,7 +91,7 @@ export default function BalanceSheetPage() {
                 </DialogHeader>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-700">As Of</label>
+                    <label className="text-xs font-medium text-fg-muted">As Of</label>
                     <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
                   </div>
                   <div className="flex items-end justify-end">
@@ -124,22 +124,22 @@ export default function BalanceSheetPage() {
                     <th className="px-3 py-2">Account</th>
                     <th className="px-3 py-2">Normal</th>
                     <th className="px-3 py-2 text-right">Balance USD</th>
-                    <th className="px-3 py-2 text-right">Balance LBP</th>
+                    <th className="px-3 py-2 text-right">Balance LL</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(data?.rows || []).map((r) => (
                     <tr key={r.account_code} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
-                      <td className="px-3 py-2 text-xs text-slate-700">{r.name_en || "-"}</td>
-                      <td className="px-3 py-2 text-xs text-slate-600">{r.normal_balance}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{r.name_en || "-"}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{r.normal_balance}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.balance_usd, 2)}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.balance_lbp, 0)}</td>
                     </tr>
                   ))}
                   {(data?.rows || []).length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No rows.
                       </td>
                     </tr>

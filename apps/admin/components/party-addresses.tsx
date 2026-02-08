@@ -152,18 +152,18 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {status ? <div className="text-xs text-slate-600">{status}</div> : null}
+        {status ? <div className="text-xs text-fg-muted">{status}</div> : null}
 
         <div className="space-y-2">
           {(addresses || []).map((a) => (
-            <div key={a.id} className="rounded-md border border-slate-200 p-3">
+            <div key={a.id} className="rounded-md border border-border p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="text-sm">
                   <div className="font-medium">
-                    {a.label || "Address"} {a.is_default ? <span className="text-xs text-slate-500">(default)</span> : null}
+                    {a.label || "Address"} {a.is_default ? <span className="text-xs text-fg-subtle">(default)</span> : null}
                   </div>
-                  <div className="text-slate-700">{[a.line1, a.line2].filter(Boolean).join(", ") || "-"}</div>
-                  <div className="text-slate-600">
+                  <div className="text-fg-muted">{[a.line1, a.line2].filter(Boolean).join(", ") || "-"}</div>
+                  <div className="text-fg-muted">
                     {[a.city, a.region, a.country].filter(Boolean).join(", ") || "-"}{a.postal_code ? ` · ${a.postal_code}` : ""}
                   </div>
                 </div>
@@ -178,7 +178,7 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
               </div>
             </div>
           ))}
-          {!addresses.length ? <div className="text-sm text-slate-600">No addresses yet.</div> : null}
+          {!addresses.length ? <div className="text-sm text-fg-muted">No addresses yet.</div> : null}
         </div>
 
         <Dialog open={open} onOpenChange={setOpen}>
@@ -190,36 +190,36 @@ export function PartyAddresses({ partyKind, partyId }: { partyKind: PartyKind; p
 
             <form onSubmit={save} className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Label</label>
+                <label className="text-xs font-medium text-fg-muted">Label</label>
                 <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Main, Warehouse, Billing..." />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Line 1</label>
+                <label className="text-xs font-medium text-fg-muted">Line 1</label>
                 <Input value={line1} onChange={(e) => setLine1(e.target.value)} placeholder="Street, building..." />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Line 2</label>
+                <label className="text-xs font-medium text-fg-muted">Line 2</label>
                 <Input value={line2} onChange={(e) => setLine2(e.target.value)} placeholder="Area, floor..." />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">City</label>
+                <label className="text-xs font-medium text-fg-muted">City</label>
                 <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Beirut" />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Region</label>
+                <label className="text-xs font-medium text-fg-muted">Region</label>
                 <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="Mount Lebanon" />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Country</label>
+                <label className="text-xs font-medium text-fg-muted">Country</label>
                 <Input value={country} onChange={(e) => setCountry(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Postal Code</label>
+                <label className="text-xs font-medium text-fg-muted">Postal Code</label>
                 <Input value={postal} onChange={(e) => setPostal(e.target.value)} />
               </div>
 
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Default?</label>
+                <label className="text-xs font-medium text-fg-muted">Default?</label>
                 <select className="ui-select" value={isDefault ? "yes" : "no"} onChange={(e) => setIsDefault(e.target.value === "yes")}>
                   <option value="yes">Yes</option>
                   <option value="no">No</option>

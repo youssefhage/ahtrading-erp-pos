@@ -315,7 +315,7 @@ export default function GoLivePage() {
             <CardDescription>Errors will show here.</CardDescription>
           </CardHeader>
           <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
           </CardContent>
         </Card>
       ) : null}
@@ -327,9 +327,9 @@ export default function GoLivePage() {
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {cards.map((c) => (
-            <div key={c.href} className="rounded-lg border border-slate-200 bg-white p-4">
+            <div key={c.href} className="rounded-lg border border-border bg-bg-elevated p-4">
               <div className="text-sm font-semibold">{c.title}</div>
-              <div className="mt-1 text-xs text-slate-600">{c.desc}</div>
+              <div className="mt-1 text-xs text-fg-muted">{c.desc}</div>
               <div className="mt-3">
                 <Button asChild variant="outline">
                   <Link href={c.href}>{c.cta}</Link>
@@ -347,11 +347,11 @@ export default function GoLivePage() {
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-700">Rate Type</label>
+            <label className="text-xs font-medium text-fg-muted">Rate Type</label>
             <Input value={rateType} onChange={(e) => setRateType(e.target.value)} placeholder="market" />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-700">Exchange Rate (USD to LBP)</label>
+            <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD to LL)</label>
             <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="90000" />
           </div>
           <div className="flex items-end gap-2">
@@ -372,7 +372,7 @@ export default function GoLivePage() {
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div className="space-y-2">
                     <textarea
-                      className="h-64 w-full rounded-md border border-slate-200 bg-white p-3 font-mono text-xs"
+                      className="h-64 w-full rounded-md border border-border bg-bg-elevated p-3 font-mono text-xs"
                       placeholder={
                         "customer_code,invoice_no,invoice_date,due_date,amount_usd,amount_lbp\nCUST-001,OPEN-1001,2026-02-01,2026-02-15,120.00,\nCUST-002,OPEN-1002,2026-02-01,, ,8950000"
                       }
@@ -383,13 +383,13 @@ export default function GoLivePage() {
                       }}
                     />
                     {arErrors ? (
-                      <pre className="whitespace-pre-wrap rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                      <pre className="whitespace-pre-wrap rounded-md border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900">
                         {arErrors}
                       </pre>
                     ) : null}
                   </div>
                   <div className="space-y-2">
-                    <div className="text-xs text-slate-600">Preview (first {arPreview.length})</div>
+                    <div className="text-xs text-fg-muted">Preview (first {arPreview.length})</div>
                     <div className="ui-table-wrap">
                       <table className="ui-table">
                         <thead className="ui-thead">
@@ -398,7 +398,7 @@ export default function GoLivePage() {
                             <th className="px-3 py-2">Invoice</th>
                             <th className="px-3 py-2">Date</th>
                             <th className="px-3 py-2 text-right">USD</th>
-                            <th className="px-3 py-2 text-right">LBP</th>
+                            <th className="px-3 py-2 text-right">LL</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -413,7 +413,7 @@ export default function GoLivePage() {
                           ))}
                           {arPreview.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
+                              <td colSpan={5} className="px-3 py-6 text-center text-fg-subtle">
                                 Paste CSV to preview.
                               </td>
                             </tr>
@@ -486,7 +486,7 @@ export default function GoLivePage() {
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div className="space-y-2">
                     <textarea
-                      className="h-64 w-full rounded-md border border-slate-200 bg-white p-3 font-mono text-xs"
+                      className="h-64 w-full rounded-md border border-border bg-bg-elevated p-3 font-mono text-xs"
                       placeholder={
                         "supplier_code,invoice_no,invoice_date,due_date,amount_usd,amount_lbp\nSUP-001,OPEN-2001,2026-02-01,2026-02-20,300.00,\nSUP-002,OPEN-2002,2026-02-01,, ,26850000"
                       }
@@ -497,13 +497,13 @@ export default function GoLivePage() {
                       }}
                     />
                     {apErrors ? (
-                      <pre className="whitespace-pre-wrap rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                      <pre className="whitespace-pre-wrap rounded-md border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900">
                         {apErrors}
                       </pre>
                     ) : null}
                   </div>
                   <div className="space-y-2">
-                    <div className="text-xs text-slate-600">Preview (first {apPreview.length})</div>
+                    <div className="text-xs text-fg-muted">Preview (first {apPreview.length})</div>
                     <div className="ui-table-wrap">
                       <table className="ui-table">
                         <thead className="ui-thead">
@@ -512,7 +512,7 @@ export default function GoLivePage() {
                             <th className="px-3 py-2">Invoice</th>
                             <th className="px-3 py-2">Date</th>
                             <th className="px-3 py-2 text-right">USD</th>
-                            <th className="px-3 py-2 text-right">LBP</th>
+                            <th className="px-3 py-2 text-right">LL</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -527,7 +527,7 @@ export default function GoLivePage() {
                           ))}
                           {apPreview.length === 0 ? (
                             <tr>
-                              <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
+                              <td colSpan={5} className="px-3 py-6 text-center text-fg-subtle">
                                 Paste CSV to preview.
                               </td>
                             </tr>

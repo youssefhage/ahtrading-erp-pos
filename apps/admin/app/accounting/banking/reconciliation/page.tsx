@@ -314,7 +314,7 @@ export default function BankingReconciliationPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -326,7 +326,7 @@ export default function BankingReconciliationPage() {
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Bank Account</label>
+              <label className="text-xs font-medium text-fg-muted">Bank Account</label>
               <select
                 className="ui-select"
                 value={bankAccountId}
@@ -341,7 +341,7 @@ export default function BankingReconciliationPage() {
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Matched</label>
+              <label className="text-xs font-medium text-fg-muted">Matched</label>
               <select
                 className="ui-select"
                 value={matched}
@@ -353,11 +353,11 @@ export default function BankingReconciliationPage() {
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">From</label>
+              <label className="text-xs font-medium text-fg-muted">From</label>
               <Input value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} type="date" />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">To</label>
+              <label className="text-xs font-medium text-fg-muted">To</label>
               <Input value={dateTo} onChange={(e) => setDateTo(e.target.value)} type="date" />
             </div>
           </CardContent>
@@ -384,7 +384,7 @@ export default function BankingReconciliationPage() {
                   </DialogHeader>
                   <form onSubmit={createTxn} className="grid grid-cols-1 gap-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Bank Account</label>
+                      <label className="text-xs font-medium text-fg-muted">Bank Account</label>
                       <select
                         className="ui-select"
                         value={txnBankAccountId}
@@ -400,11 +400,11 @@ export default function BankingReconciliationPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Date</label>
+                        <label className="text-xs font-medium text-fg-muted">Date</label>
                         <Input value={txnDate} onChange={(e) => setTxnDate(e.target.value)} type="date" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Direction</label>
+                        <label className="text-xs font-medium text-fg-muted">Direction</label>
                         <select
                           className="ui-select"
                           value={direction}
@@ -417,26 +417,26 @@ export default function BankingReconciliationPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Amount USD</label>
+                        <label className="text-xs font-medium text-fg-muted">Amount USD</label>
                         <Input value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} inputMode="decimal" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Amount LBP</label>
+                        <label className="text-xs font-medium text-fg-muted">Amount LL</label>
                         <Input value={amountLbp} onChange={(e) => setAmountLbp(e.target.value)} inputMode="decimal" />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Reference (optional)</label>
+                        <label className="text-xs font-medium text-fg-muted">Reference (optional)</label>
                         <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Cheque / transfer ref" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Counterparty (optional)</label>
+                        <label className="text-xs font-medium text-fg-muted">Counterparty (optional)</label>
                         <Input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="Bank / customer / supplier" />
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Description (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Description (optional)</label>
                       <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Statement text" />
                     </div>
                     <div className="flex justify-end">
@@ -457,7 +457,7 @@ export default function BankingReconciliationPage() {
                     <th className="px-3 py-2">Account</th>
                     <th className="px-3 py-2">Dir</th>
                     <th className="px-3 py-2">USD</th>
-                    <th className="px-3 py-2">LBP</th>
+                    <th className="px-3 py-2">LL</th>
                     <th className="px-3 py-2">Ref</th>
                     <th className="px-3 py-2">Matched</th>
                     <th className="px-3 py-2 text-right">Actions</th>
@@ -469,7 +469,7 @@ export default function BankingReconciliationPage() {
                       <td className="px-3 py-2 text-xs">{t.txn_date}</td>
                       <td className="px-3 py-2">
                         <div className="text-sm font-medium">{t.bank_account_name}</div>
-                        <div className="text-xs text-slate-500">{t.description || ""}</div>
+                        <div className="text-xs text-fg-subtle">{t.description || ""}</div>
                       </td>
                       <td className="px-3 py-2 text-xs">{t.direction}</td>
                       <td className="px-3 py-2 font-mono text-xs">{fmt(t.amount_usd)}</td>
@@ -498,7 +498,7 @@ export default function BankingReconciliationPage() {
                   ))}
                   {txns.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={8}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
                         No transactions.
                       </td>
                     </tr>
@@ -517,7 +517,7 @@ export default function BankingReconciliationPage() {
             </DialogHeader>
             <div className="grid grid-cols-1 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Journal ID</label>
+                <label className="text-xs font-medium text-fg-muted">Journal ID</label>
                 <Input value={journalId} onChange={(e) => setJournalId(e.target.value)} placeholder="uuid" />
               </div>
               <Card>
@@ -531,23 +531,23 @@ export default function BankingReconciliationPage() {
                     onChange={(e) => searchJournals(e.target.value)}
                     placeholder="Search journals..."
                   />
-                  <div className="max-h-48 overflow-auto rounded-md border border-slate-200">
+                  <div className="max-h-48 overflow-auto rounded-md border border-border">
                     {journalHits.map((j) => (
                       <button
                         key={j.id}
-                        className="flex w-full items-start justify-between gap-2 border-b border-slate-100 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                        className="flex w-full items-start justify-between gap-2 border-b border-border-subtle px-3 py-2 text-left text-sm hover:bg-bg-sunken/20"
                         onClick={() => setJournalId(j.id)}
                         type="button"
                       >
                         <div>
                           <div className="font-mono text-xs">{j.journal_no}</div>
-                          <div className="text-xs text-slate-600">{j.memo || ""}</div>
+                          <div className="text-xs text-fg-muted">{j.memo || ""}</div>
                         </div>
-                        <div className="text-xs text-slate-500">{j.journal_date}</div>
+                        <div className="text-xs text-fg-subtle">{j.journal_date}</div>
                       </button>
                     ))}
                     {journalQuery && journalHits.length === 0 ? (
-                      <div className="px-3 py-3 text-xs text-slate-500">No matches.</div>
+                      <div className="px-3 py-3 text-xs text-fg-subtle">No matches.</div>
                     ) : null}
                   </div>
                 </CardContent>
@@ -574,7 +574,7 @@ export default function BankingReconciliationPage() {
             </DialogHeader>
             <div className="grid grid-cols-1 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Offset Account Code</label>
+                <label className="text-xs font-medium text-fg-muted">Offset Account Code</label>
                 <Input
                   value={offsetAccountCode}
                   onChange={(e) => setOffsetAccountCode(e.target.value)}
@@ -590,7 +590,7 @@ export default function BankingReconciliationPage() {
                 </datalist>
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Memo (optional)</label>
+                <label className="text-xs font-medium text-fg-muted">Memo (optional)</label>
                 <Input value={createMemo} onChange={(e) => setCreateMemo(e.target.value)} placeholder="Statement description" />
               </div>
               <div className="flex justify-end gap-2">

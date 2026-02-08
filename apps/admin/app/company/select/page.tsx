@@ -29,9 +29,9 @@ export default function CompanySelectPage() {
     <main className="min-h-screen px-6 py-10">
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600">Context</p>
-          <h1 className="text-3xl font-semibold text-slate-950">Select company</h1>
-          <p className="text-sm text-slate-700">This sets the active company for reports, posting, and POS operations.</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-fg-muted">Context</p>
+          <h1 className="text-3xl font-semibold text-foreground">Select company</h1>
+          <p className="text-sm text-fg-muted">This sets the active company for reports, posting, and POS operations.</p>
         </div>
 
         <Card>
@@ -41,8 +41,8 @@ export default function CompanySelectPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {companies.length === 0 ? (
-              <div className="rounded-2xl border border-[rgb(var(--border)/0.92)] bg-white/60 p-4">
-                <p className="text-sm text-slate-700">No companies in session. Login first.</p>
+              <div className="rounded-2xl border border-[rgb(var(--border)/0.92)] bg-bg-elevated/60 p-4">
+                <p className="text-sm text-fg-muted">No companies in session. Login first.</p>
                 <div className="mt-3">
                   <Button onClick={() => router.push("/login")}>Go to login</Button>
                 </div>
@@ -51,7 +51,7 @@ export default function CompanySelectPage() {
               companies.map((id) => (
                 <div
                   key={id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[rgb(var(--border)/0.92)] bg-white/60 px-4 py-3 shadow-sm"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[rgb(var(--border)/0.92)] bg-bg-elevated/60 px-4 py-3 shadow-sm"
                 >
                   <code className="text-xs">{id}</code>
                   <Button variant="secondary" size="sm" onClick={() => selectCompany(id)}>

@@ -77,7 +77,7 @@ export default function InventoryMovementsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -89,7 +89,7 @@ export default function InventoryMovementsPage() {
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
             <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-slate-700">Item</label>
+              <label className="text-xs font-medium text-fg-muted">Item</label>
               <select
                 className="ui-select"
                 value={itemId}
@@ -104,7 +104,7 @@ export default function InventoryMovementsPage() {
               </select>
             </div>
             <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-slate-700">Warehouse</label>
+              <label className="text-xs font-medium text-fg-muted">Warehouse</label>
               <select
                 className="ui-select"
                 value={warehouseId}
@@ -119,11 +119,11 @@ export default function InventoryMovementsPage() {
               </select>
             </div>
             <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-slate-700">Source Type</label>
+              <label className="text-xs font-medium text-fg-muted">Source Type</label>
               <Input value={sourceType} onChange={(e) => setSourceType(e.target.value)} placeholder="sale / goods_receipt / cycle_count" />
             </div>
             <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-slate-700">Limit</label>
+              <label className="text-xs font-medium text-fg-muted">Limit</label>
               <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
             </div>
             <div className="md:col-span-4 flex items-center justify-end">
@@ -150,7 +150,7 @@ export default function InventoryMovementsPage() {
                     <th className="px-3 py-2 text-right">In</th>
                     <th className="px-3 py-2 text-right">Out</th>
                     <th className="px-3 py-2 text-right">Unit USD</th>
-                    <th className="px-3 py-2 text-right">Unit LBP</th>
+                    <th className="px-3 py-2 text-right">Unit LL</th>
                     <th className="px-3 py-2">Source</th>
                   </tr>
                 </thead>
@@ -159,7 +159,7 @@ export default function InventoryMovementsPage() {
                     const it = itemById.get(m.item_id);
                     const wh = whById.get(m.warehouse_id);
                     return (
-                      <tr key={m.id} className="border-t border-slate-100 align-top">
+                      <tr key={m.id} className="border-t border-border-subtle align-top">
                         <td className="px-3 py-2 font-mono text-xs">{m.created_at}</td>
                         <td className="px-3 py-2">
                           {it ? (
@@ -185,14 +185,14 @@ export default function InventoryMovementsPage() {
                         </td>
                         <td className="px-3 py-2">
                           <span className="font-mono text-xs">{m.source_type || "-"}</span>
-                          {m.source_id ? <div className="text-[10px] text-slate-500">{m.source_id}</div> : null}
+                          {m.source_id ? <div className="text-[10px] text-fg-subtle">{m.source_id}</div> : null}
                         </td>
                       </tr>
                     );
                   })}
                   {moves.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={8}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
                         No moves.
                       </td>
                     </tr>

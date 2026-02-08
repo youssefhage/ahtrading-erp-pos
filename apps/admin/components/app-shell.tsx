@@ -4,30 +4,52 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Command,
+  ArrowLeftRight,
+  BadgeDollarSign,
+  BellRing,
+  BookOpen,
+  Bot,
   Boxes,
   Building2,
   Calculator,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
+  Command,
   Cpu,
+  FileText,
+  GitBranch,
+  Inbox,
+  Landmark,
   LayoutDashboard,
   LogOut,
   Menu,
+  Monitor,
   Moon,
+  Package,
+  PackageCheck,
+  Percent,
+  ReceiptText,
+  Rocket,
   Search,
-  Settings,
+  Settings2,
+  ShieldCheck,
   ShoppingCart,
-  Sun,
-  Zap,
   Sparkles,
-  Tag,
+  Sun,
+  Timer,
+  TrendingUp,
   Truck,
+  UserRoundCog,
   Users,
+  UsersRound,
+  Warehouse,
   Wifi,
   WifiOff,
+  Workflow,
   X,
-  ChevronDown
+  Zap
 } from "lucide-react";
 
 import { apiGet, apiPost, clearSession, getCompanyId } from "@/lib/api";
@@ -45,14 +67,72 @@ type NavSection = { label: string; items: NavItem[] };
 type FlatNavItem = NavItem & { section: string };
 
 function iconForHref(href: string) {
+  const byHref: Record<string, React.ComponentType<{ className?: string }>> = {
+    "/dashboard": LayoutDashboard,
+
+    "/system/outbox": Inbox,
+    "/system/pos-devices": Monitor,
+    "/system/pos-cashiers": UserRoundCog,
+    "/system/pos-shifts": Timer,
+
+    "/sales/invoices": ReceiptText,
+    "/sales/payments": BadgeDollarSign,
+    "/sales/returns": ArrowLeftRight,
+
+    "/purchasing/purchase-orders": ClipboardList,
+    "/purchasing/goods-receipts": PackageCheck,
+    "/purchasing/supplier-invoices": FileText,
+    "/purchasing/payments": BadgeDollarSign,
+
+    "/partners/customers": UsersRound,
+    "/partners/suppliers": Users,
+
+    "/catalog/items": Package,
+    "/catalog/item-categories": Percent,
+    "/catalog/price-lists": BadgeDollarSign,
+    "/catalog/promotions": Sparkles,
+
+    "/inventory/stock": Boxes,
+    "/inventory/movements": ArrowLeftRight,
+    "/inventory/alerts": BellRing,
+    "/inventory/ops": Workflow,
+
+    "/accounting/journals": BookOpen,
+    "/accounting/coa": BookOpen,
+    "/accounting/intercompany": Workflow,
+    "/accounting/banking/accounts": Landmark,
+    "/accounting/banking/reconciliation": BadgeDollarSign,
+
+    "/accounting/reports/vat": Percent,
+    "/accounting/reports/trial-balance": Calculator,
+    "/accounting/reports/profit-loss": TrendingUp,
+    "/accounting/reports/balance-sheet": Calculator,
+    "/accounting/reports/general-ledger": BookOpen,
+    "/accounting/reports/ar-aging": Timer,
+    "/accounting/reports/ap-aging": Timer,
+    "/accounting/reports/inventory-valuation": BadgeDollarSign,
+    "/accounting/reports/consolidated": Workflow,
+
+    "/automation/ai-hub": Sparkles,
+    "/automation/copilot": Bot,
+    "/automation/ops-copilot": Workflow,
+
+    "/system/go-live": Rocket,
+    "/system/config": Settings2,
+    "/system/branches": GitBranch,
+    "/system/warehouses": Warehouse,
+    "/system/users": UserRoundCog,
+    "/system/roles-permissions": ShieldCheck,
+  };
+
+  if (byHref[href]) return byHref[href];
+
   if (href === "/dashboard") return LayoutDashboard;
   if (href.startsWith("/sales/")) return ShoppingCart;
   if (href.startsWith("/purchasing/")) return Truck;
   if (href.startsWith("/partners/")) return Users;
-  if (href.startsWith("/catalog/")) return Tag;
   if (href.startsWith("/inventory/")) return Boxes;
   if (href.startsWith("/accounting/")) return Calculator;
-  if (href.startsWith("/system/")) return Settings;
   if (href.startsWith("/automation/")) return Sparkles;
   return Cpu;
 }
@@ -66,13 +146,19 @@ function withIcons(sections: NavSection[]): NavSection[] {
 
 const FULL_NAV_SECTIONS: NavSection[] = [
   {
-    label: "Operations",
+    label: "Home",
     items: [
       { label: "Dashboard", href: "/dashboard" },
+    ]
+  },
+  {
+    label: "Operations",
+    items: [
+      { label: "Outbox", href: "/system/outbox" },
+      { label: "POS Shifts", href: "/system/pos-shifts" },
       { label: "POS Devices", href: "/system/pos-devices" },
       { label: "POS Cashiers", href: "/system/pos-cashiers" },
-      { label: "POS Shifts", href: "/system/pos-shifts" },
-      { label: "Outbox", href: "/system/outbox" }
+      { label: "Inventory Ops", href: "/inventory/ops" }
     ]
   },
   {
@@ -86,7 +172,6 @@ const FULL_NAV_SECTIONS: NavSection[] = [
   {
     label: "Purchasing",
     items: [
-      { label: "Suppliers", href: "/partners/suppliers" },
       { label: "Purchase Orders", href: "/purchasing/purchase-orders" },
       { label: "Goods Receipts", href: "/purchasing/goods-receipts" },
       { label: "Supplier Invoices", href: "/purchasing/supplier-invoices" },
@@ -94,19 +179,22 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     ]
   },
   {
-    label: "Partners",
-    items: [{ label: "Customers", href: "/partners/customers" }]
-  },
-  {
-    label: "Catalog & Inventory",
+    label: "Master Data",
     items: [
+      { label: "Customers", href: "/partners/customers" },
+      { label: "Suppliers", href: "/partners/suppliers" },
       { label: "Items", href: "/catalog/items" },
       { label: "Categories", href: "/catalog/item-categories" },
       { label: "Price Lists", href: "/catalog/price-lists" },
-      { label: "Promotions", href: "/catalog/promotions" },
+      { label: "Promotions", href: "/catalog/promotions" }
+    ]
+  },
+  {
+    label: "Inventory",
+    items: [
       { label: "Stock", href: "/inventory/stock" },
-      { label: "Alerts", href: "/inventory/alerts" },
-      { label: "Movements", href: "/inventory/movements" }
+      { label: "Movements", href: "/inventory/movements" },
+      { label: "Alerts", href: "/inventory/alerts" }
     ]
   },
   {
@@ -116,15 +204,33 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Chart of Accounts", href: "/accounting/coa" },
       { label: "Intercompany", href: "/accounting/intercompany" },
       { label: "Bank Accounts", href: "/accounting/banking/accounts" },
-      { label: "Reconciliation", href: "/accounting/banking/reconciliation" },
-      { label: "VAT Report", href: "/accounting/reports/vat" },
-      { label: "Trial Balance", href: "/accounting/reports/trial-balance" },
-      { label: "P&L", href: "/accounting/reports/profit-loss" },
-      { label: "Balance Sheet", href: "/accounting/reports/balance-sheet" }
+      { label: "Reconciliation", href: "/accounting/banking/reconciliation" }
     ]
   },
   {
-    label: "System",
+    label: "Reports",
+    items: [
+      { label: "VAT", href: "/accounting/reports/vat" },
+      { label: "Trial Balance", href: "/accounting/reports/trial-balance" },
+      { label: "Profit & Loss", href: "/accounting/reports/profit-loss" },
+      { label: "Balance Sheet", href: "/accounting/reports/balance-sheet" },
+      { label: "General Ledger", href: "/accounting/reports/general-ledger" },
+      { label: "AR Aging", href: "/accounting/reports/ar-aging" },
+      { label: "AP Aging", href: "/accounting/reports/ap-aging" },
+      { label: "Inventory Valuation", href: "/accounting/reports/inventory-valuation" },
+      { label: "Consolidated", href: "/accounting/reports/consolidated" }
+    ]
+  },
+  {
+    label: "Automation",
+    items: [
+      { label: "AI Hub", href: "/automation/ai-hub" },
+      { label: "Copilot", href: "/automation/copilot" },
+      { label: "Ops Copilot", href: "/automation/ops-copilot" }
+    ]
+  },
+  {
+    label: "Administration",
     items: [
       { label: "Go-Live", href: "/system/go-live" },
       { label: "Config", href: "/system/config" },
@@ -148,7 +254,7 @@ const LITE_NAV_SECTIONS: NavSection[] = [
     ]
   },
   {
-    label: "Ops",
+    label: "Operations",
     items: [
       { label: "POS Shifts", href: "/system/pos-shifts" },
       { label: "POS Devices", href: "/system/pos-devices" },
@@ -156,7 +262,7 @@ const LITE_NAV_SECTIONS: NavSection[] = [
     ]
   },
   {
-    label: "System",
+    label: "Administration",
     items: [
       { label: "Users", href: "/system/users" },
       { label: "Config", href: "/system/config" }
@@ -191,12 +297,12 @@ function NavItemComponent({
         "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 focus-ring",
         collapsed && "justify-center px-2",
         isActive
-          ? "bg-amber-500/10 text-primary"
+          ? "bg-sky-500/10 text-primary"
           : "text-fg-muted hover:bg-bg-elevated/60 hover:text-foreground"
       )}
     >
       {isActive && (
-        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-amber-500" />
+        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-sky-500" />
       )}
       <Icon
         className={cn(
@@ -206,7 +312,7 @@ function NavItemComponent({
       />
       <span className={cn("truncate", collapsed && "hidden")}>{item.label}</span>
       {isActive && !collapsed && (
-        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-500" />
+        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-500" />
       )}
     </Link>
   );
@@ -261,6 +367,64 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
 
   const active = activeInfo.href;
   const title = props.title ?? activeInfo.label;
+
+  const activeSectionLabel = useMemo(() => {
+    const item = flatNav.find((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
+    return item?.section || "";
+  }, [pathname, flatNav]);
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    // Persist module expansion per UI variant (full vs lite).
+    const key = `admin.navOpenSections.${uiVariant}`;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          setOpenSections(parsed);
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Default: keep the first module and the active module open.
+    const defaults: Record<string, boolean> = {};
+    for (const s of navSections) defaults[s.label] = false;
+    if (navSections[0]?.label) defaults[navSections[0].label] = true;
+    if (activeSectionLabel) defaults[activeSectionLabel] = true;
+    setOpenSections(defaults);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uiVariant, navSections.length]);
+
+  useEffect(() => {
+    if (!activeSectionLabel) return;
+    setOpenSections((prev) => {
+      if (prev[activeSectionLabel]) return prev;
+      const next = { ...prev, [activeSectionLabel]: true };
+      try {
+        localStorage.setItem(`admin.navOpenSections.${uiVariant}`, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, [activeSectionLabel, uiVariant]);
+
+  function toggleSection(label: string) {
+    setOpenSections((prev) => {
+      const next = { ...prev, [label]: !(prev[label] ?? true) };
+      try {
+        localStorage.setItem(`admin.navOpenSections.${uiVariant}`, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
 
   const commandResults = useMemo(() => {
     const needle = commandQ.trim().toLowerCase();
@@ -406,15 +570,15 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   }
 
   if (!authChecked) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-amber-500" />
-          <p className="text-sm text-fg-subtle">Initializing session...</p>
-        </div>
-      </div>
-    );
-  }
+        return (
+          <div className="flex h-screen items-center justify-center bg-background">
+            <div className="flex flex-col items-center gap-4">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-sky-500" />
+              <p className="text-sm text-fg-subtle">Initializing session...</p>
+            </div>
+          </div>
+        );
+      }
   if (!authOk) return null;
 
   return (
@@ -428,8 +592,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       >
         {/* Header */}
         <div className="flex h-14 items-center border-b border-border-subtle px-4">
-          <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-amber-600">
+            <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-600">
               <span className="text-sm font-bold text-black">AH</span>
             </div>
             {!collapsed && (
@@ -470,21 +634,37 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           {navSections.map((section) => (
             <div key={section.label} className="px-2 py-2">
               {!collapsed && (
-                <p className="mb-1 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-fg-subtle">
-                  {section.label}
-                </p>
+                <button
+                  type="button"
+                  className={cn(
+                    "mb-1 flex w-full items-center gap-2 rounded-md px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-fg-subtle transition-colors hover:bg-bg-sunken/60 hover:text-fg-muted",
+                    openSections[section.label] ? "text-fg-muted" : "text-fg-subtle"
+                  )}
+                  onClick={() => toggleSection(section.label)}
+                  aria-expanded={!!openSections[section.label]}
+                >
+                  <span className="flex-1 text-left">{section.label}</span>
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 transition-transform",
+                      openSections[section.label] ? "rotate-0" : "-rotate-90"
+                    )}
+                  />
+                </button>
               )}
               {collapsed && <div className="mb-2 h-px bg-border-subtle" />}
-              <div className="space-y-0.5">
-                {section.items.map((item) => (
-                  <NavItemComponent
-                    key={item.href}
-                    item={item}
-                    isActive={active === item.href}
-                    collapsed={collapsed}
-                  />
-                ))}
-              </div>
+              {(collapsed || openSections[section.label]) && (
+                <div className="space-y-0.5">
+                  {section.items.map((item) => (
+                    <NavItemComponent
+                      key={item.href}
+                      item={item}
+                      isActive={active === item.href}
+                      collapsed={collapsed}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </nav>
@@ -513,7 +693,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                     className={cn(
                       "ml-auto rounded px-1.5 py-0.5 text-[10px]",
                       colorTheme === "dark"
-                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        ? "bg-sky-500/10 text-sky-600 dark:text-sky-400"
                         : "bg-bg-sunken text-fg-muted"
                     )}
                   >
@@ -539,7 +719,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                     className={cn(
                       "ml-auto rounded px-1.5 py-0.5 text-[10px]",
                       uiVariant === "lite"
-                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        ? "bg-sky-500/10 text-sky-600 dark:text-sky-400"
                         : "bg-bg-sunken text-fg-muted"
                     )}
                   >
@@ -600,7 +780,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
             <div className="flex flex-col">
               <span className="text-sm font-medium text-foreground">{title}</span>
               <span className="text-[10px] uppercase tracking-wider text-fg-subtle">
-                {activeInfo.label}
+                {activeSectionLabel || activeInfo.label}
               </span>
             </div>
           </div>
@@ -673,7 +853,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
         <DialogContent className="left-0 top-0 h-full w-72 max-w-none translate-x-0 translate-y-0 rounded-none border-0 border-r border-border-subtle bg-bg-elevated p-0">
           <DialogHeader className="border-b border-border-subtle p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-amber-600">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-600">
                 <span className="text-sm font-bold text-black">AH</span>
               </div>
               <div className="flex flex-col">

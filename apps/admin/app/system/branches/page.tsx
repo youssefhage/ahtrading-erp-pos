@@ -73,7 +73,7 @@ export default function BranchesPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -99,11 +99,11 @@ export default function BranchesPage() {
                   </DialogHeader>
                   <form onSubmit={createBranch} className="grid grid-cols-1 gap-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Name</label>
+                      <label className="text-xs font-medium text-fg-muted">Name</label>
                       <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Main" />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Address (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Address (optional)</label>
                       <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Lebanon" />
                     </div>
                     <div className="flex justify-end">
@@ -134,7 +134,7 @@ export default function BranchesPage() {
                   ))}
                   {branches.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={3}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
                         No branches.
                       </td>
                     </tr>

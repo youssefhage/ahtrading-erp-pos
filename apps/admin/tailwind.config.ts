@@ -8,7 +8,7 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans: ["var(--font-sans)", ...defaultTheme.fontFamily.sans],
-        mono: ['"JetBrains Mono"', "ui-monospace", "monospace"]
+        mono: ["var(--font-mono)", ...defaultTheme.fontFamily.mono]
       },
       colors: {
         border: "rgb(var(--border))",

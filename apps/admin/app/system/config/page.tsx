@@ -250,7 +250,7 @@ export default function ConfigPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -283,7 +283,7 @@ export default function ConfigPage() {
                   </DialogHeader>
                   <form onSubmit={setDefault} className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-slate-700">Role</label>
+                      <label className="text-xs font-medium text-fg-muted">Role</label>
                       <select
                         className="ui-select"
                         value={defaultRole}
@@ -299,7 +299,7 @@ export default function ConfigPage() {
                     </div>
 
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Account</label>
+                      <label className="text-xs font-medium text-fg-muted">Account</label>
                       <select
                         className="ui-select"
                         value={defaultAccountCode}
@@ -341,13 +341,13 @@ export default function ConfigPage() {
                       <tr key={r.code} className="ui-tr-hover">
                         <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
                         <td className="px-3 py-2 font-mono text-xs">{d?.account_code || "-"}</td>
-                        <td className="px-3 py-2 text-xs text-slate-700">{a?.name_en || d?.name_en || "-"}</td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">{a?.name_en || d?.name_en || "-"}</td>
                       </tr>
                     );
                   })}
                   {roles.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={3}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
                         No roles found.
                       </td>
                     </tr>
@@ -368,11 +368,11 @@ export default function ConfigPage() {
           <CardContent className="space-y-3">
             <form onSubmit={saveLoyalty} className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Points per USD</label>
+                <label className="text-xs font-medium text-fg-muted">Points per USD</label>
                 <Input value={pointsPerUsd} onChange={(e) => setPointsPerUsd(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Points per LBP</label>
+                <label className="text-xs font-medium text-fg-muted">Points per LL</label>
                 <Input value={pointsPerLbp} onChange={(e) => setPointsPerLbp(e.target.value)} />
               </div>
               <div className="flex items-end justify-end">
@@ -406,11 +406,11 @@ export default function ConfigPage() {
                   </DialogHeader>
                   <form onSubmit={upsertMethod} className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-slate-700">Method</label>
+                      <label className="text-xs font-medium text-fg-muted">Method</label>
                       <Input value={methodName} onChange={(e) => setMethodName(e.target.value)} placeholder="cash / bank / card / transfer" />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Role</label>
+                      <label className="text-xs font-medium text-fg-muted">Role</label>
                       <select
                         className="ui-select"
                         value={methodRole}
@@ -448,12 +448,12 @@ export default function ConfigPage() {
                     <tr key={m.method} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{m.method}</td>
                       <td className="px-3 py-2 font-mono text-xs">{m.role_code}</td>
-                      <td className="px-3 py-2 text-xs text-slate-700">{m.created_at}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{m.created_at}</td>
                     </tr>
                   ))}
                   {methods.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={3}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
                         No payment method mappings yet.
                       </td>
                     </tr>
@@ -482,26 +482,26 @@ export default function ConfigPage() {
                   </DialogHeader>
                   <form onSubmit={createTaxCode} className="grid grid-cols-1 gap-3 md:grid-cols-4">
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Name</label>
+                      <label className="text-xs font-medium text-fg-muted">Name</label>
                       <Input value={taxName} onChange={(e) => setTaxName(e.target.value)} placeholder="VAT 11%" />
                     </div>
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-slate-700">Rate (%)</label>
+                      <label className="text-xs font-medium text-fg-muted">Rate (%)</label>
                       <Input value={taxRate} onChange={(e) => setTaxRate(e.target.value)} />
                     </div>
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-slate-700">Reporting Currency</label>
+                      <label className="text-xs font-medium text-fg-muted">Reporting Currency</label>
                       <select
                         className="ui-select"
                         value={taxCurrency}
                         onChange={(e) => setTaxCurrency(e.target.value)}
                       >
-                        <option value="LBP">LBP</option>
+                        <option value="LBP">LL</option>
                         <option value="USD">USD</option>
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">Tax Type</label>
+                      <label className="text-xs font-medium text-fg-muted">Tax Type</label>
                       <Input value={taxType} onChange={(e) => setTaxType(e.target.value)} placeholder="vat" />
                     </div>
                     <div className="md:col-span-2 flex items-end justify-end">
@@ -537,7 +537,7 @@ export default function ConfigPage() {
                   ))}
                   {taxCodes.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={4}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
                         No tax codes yet.
                       </td>
                     </tr>
@@ -551,7 +551,7 @@ export default function ConfigPage() {
         <Card>
           <CardHeader>
             <CardTitle>Exchange Rates</CardTitle>
-            <CardDescription>USD to LBP daily rates used for dual-currency reporting.</CardDescription>
+            <CardDescription>USD to LL daily rates used for dual-currency reporting.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-end">
@@ -563,20 +563,20 @@ export default function ConfigPage() {
                   <DialogHeader>
                     <DialogTitle>Upsert Exchange Rate</DialogTitle>
                     <DialogDescription>
-                      Used for dual-currency reporting and for documents that need a locked USD→LBP rate.
+                      Used for dual-currency reporting and for documents that need a locked USD→LL rate.
                     </DialogDescription>
                   </DialogHeader>
                   <form onSubmit={upsertRate} className="grid grid-cols-1 gap-3 md:grid-cols-4">
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-slate-700">Date</label>
+                      <label className="text-xs font-medium text-fg-muted">Date</label>
                       <Input value={rateDate} onChange={(e) => setRateDate(e.target.value)} placeholder="YYYY-MM-DD" />
                     </div>
                     <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-slate-700">Type</label>
+                      <label className="text-xs font-medium text-fg-muted">Type</label>
                       <Input value={rateType} onChange={(e) => setRateType(e.target.value)} placeholder="market" />
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-slate-700">USD→LBP</label>
+                      <label className="text-xs font-medium text-fg-muted">USD→LL</label>
                       <Input value={usdToLbp} onChange={(e) => setUsdToLbp(e.target.value)} />
                     </div>
                     <div className="md:col-span-4 flex justify-end">
@@ -595,7 +595,7 @@ export default function ConfigPage() {
                   <tr>
                     <th className="px-3 py-2">Date</th>
                     <th className="px-3 py-2">Type</th>
-                    <th className="px-3 py-2 text-right">USD→LBP</th>
+                    <th className="px-3 py-2 text-right">USD→LL</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -610,7 +610,7 @@ export default function ConfigPage() {
                   ))}
                   {rates.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={3}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
                         No exchange rates yet.
                       </td>
                     </tr>

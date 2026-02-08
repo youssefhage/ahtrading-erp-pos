@@ -100,7 +100,7 @@ export default function PosDevicesPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -115,12 +115,12 @@ export default function PosDevicesPage() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-slate-600">Device ID</span>
-                <code className="rounded bg-slate-100 px-2 py-1 text-xs">{lastToken.id}</code>
+                <span className="text-fg-muted">Device ID</span>
+                <code className="rounded bg-bg-sunken/30 px-2 py-1 text-xs">{lastToken.id}</code>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-slate-600">Token</span>
-                <code className="rounded bg-slate-100 px-2 py-1 text-xs break-all">
+                <span className="text-fg-muted">Token</span>
+                <code className="rounded bg-bg-sunken/30 px-2 py-1 text-xs break-all">
                   {lastToken.token || "(token not returned; already registered)"}
                 </code>
               </div>
@@ -149,11 +149,11 @@ export default function PosDevicesPage() {
                   </DialogHeader>
                   <form onSubmit={registerDevice} className="grid grid-cols-1 gap-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Device Code</label>
+                      <label className="text-xs font-medium text-fg-muted">Device Code</label>
                       <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} placeholder="POS-01" />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Branch ID (optional)</label>
+                      <label className="text-xs font-medium text-fg-muted">Branch ID (optional)</label>
                       <Input value={branchId} onChange={(e) => setBranchId(e.target.value)} placeholder="uuid" />
                     </div>
                     <div className="flex justify-end">
@@ -193,7 +193,7 @@ export default function PosDevicesPage() {
                   ))}
                   {devices.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No devices yet.
                       </td>
                     </tr>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { fmtLbp, fmtUsd } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -27,10 +28,6 @@ type PlRes = {
   net_profit_lbp: string | number;
   rows: PlRow[];
 };
-
-function fmt(n: string | number, frac = 2) {
-  return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: frac });
-}
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -79,7 +76,7 @@ export default function ProfitLossPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -97,20 +94,20 @@ export default function ProfitLossPage() {
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <div className="text-xs text-slate-500">Revenue</div>
-                  <div className="mt-1 font-mono text-sm">{fmt(data?.revenue_usd || 0, 2)} USD</div>
-                  <div className="font-mono text-xs text-slate-600">{fmt(data?.revenue_lbp || 0, 0)} LBP</div>
+                <div className="rounded-md border border-border bg-bg-elevated p-3">
+                  <div className="text-xs text-fg-subtle">Revenue</div>
+                  <div className="mt-1 data-mono text-sm">{fmtUsd(data?.revenue_usd || 0)}</div>
+                  <div className="data-mono text-xs text-fg-muted">{fmtLbp(data?.revenue_lbp || 0)}</div>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <div className="text-xs text-slate-500">Expenses</div>
-                  <div className="mt-1 font-mono text-sm">{fmt(data?.expense_usd || 0, 2)} USD</div>
-                  <div className="font-mono text-xs text-slate-600">{fmt(data?.expense_lbp || 0, 0)} LBP</div>
+                <div className="rounded-md border border-border bg-bg-elevated p-3">
+                  <div className="text-xs text-fg-subtle">Expenses</div>
+                  <div className="mt-1 data-mono text-sm">{fmtUsd(data?.expense_usd || 0)}</div>
+                  <div className="data-mono text-xs text-fg-muted">{fmtLbp(data?.expense_lbp || 0)}</div>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-white p-3">
-                  <div className="text-xs text-slate-500">Net Profit</div>
-                  <div className="mt-1 font-mono text-sm">{fmt(data?.net_profit_usd || 0, 2)} USD</div>
-                  <div className="font-mono text-xs text-slate-600">{fmt(data?.net_profit_lbp || 0, 0)} LBP</div>
+                <div className="rounded-md border border-border bg-bg-elevated p-3">
+                  <div className="text-xs text-fg-subtle">Net Profit</div>
+                  <div className="mt-1 data-mono text-sm">{fmtUsd(data?.net_profit_usd || 0)}</div>
+                  <div className="data-mono text-xs text-fg-muted">{fmtLbp(data?.net_profit_lbp || 0)}</div>
                 </div>
               </div>
 
@@ -129,11 +126,11 @@ export default function ProfitLossPage() {
                     </DialogHeader>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Start Date</label>
+                        <label className="text-xs font-medium text-fg-muted">Start Date</label>
                         <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">End Date</label>
+                        <label className="text-xs font-medium text-fg-muted">End Date</label>
                         <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                       </div>
                       <div className="flex justify-end md:col-span-2">
@@ -168,22 +165,22 @@ export default function ProfitLossPage() {
                     <th className="px-3 py-2">Code</th>
                     <th className="px-3 py-2">Account</th>
                     <th className="px-3 py-2 text-right">USD</th>
-                    <th className="px-3 py-2 text-right">LBP</th>
+                    <th className="px-3 py-2 text-right">LL</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(data?.rows || []).map((r) => (
                     <tr key={`${r.kind}-${r.account_code}`} className="ui-tr-hover">
-                      <td className="px-3 py-2 text-xs text-slate-700">{r.kind}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{r.kind}</td>
                       <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
-                      <td className="px-3 py-2 text-xs text-slate-700">{r.name_en || "-"}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.amount_usd, 2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.amount_lbp, 0)}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{r.name_en || "-"}</td>
+                      <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.amount_usd)}</td>
+                      <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.amount_lbp)}</td>
                     </tr>
                   ))}
                   {(data?.rows || []).length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No rows.
                       </td>
                     </tr>

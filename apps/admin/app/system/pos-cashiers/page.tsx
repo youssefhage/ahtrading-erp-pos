@@ -129,7 +129,7 @@ export default function PosCashiersPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -155,11 +155,11 @@ export default function PosCashiersPage() {
                   </DialogHeader>
                   <form onSubmit={createCashier} className="grid grid-cols-1 gap-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Name</label>
+                      <label className="text-xs font-medium text-fg-muted">Name</label>
                       <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Cashier name" />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">PIN</label>
+                      <label className="text-xs font-medium text-fg-muted">PIN</label>
                       <Input
                         value={pin}
                         onChange={(e) => setPin(e.target.value)}
@@ -168,7 +168,7 @@ export default function PosCashiersPage() {
                         type="password"
                       />
                     </div>
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <label className="flex items-center gap-2 text-sm text-fg-muted">
                       <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
                       Active
                     </label>
@@ -209,7 +209,7 @@ export default function PosCashiersPage() {
                   ))}
                   {cashiers.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No cashiers yet.
                       </td>
                     </tr>
@@ -228,11 +228,11 @@ export default function PosCashiersPage() {
             </DialogHeader>
             <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Name</label>
+                <label className="text-xs font-medium text-fg-muted">Name</label>
                 <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Cashier name" />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">New PIN (optional)</label>
+                <label className="text-xs font-medium text-fg-muted">New PIN (optional)</label>
                 <Input
                   value={editPin}
                   onChange={(e) => setEditPin(e.target.value)}
@@ -241,7 +241,7 @@ export default function PosCashiersPage() {
                   type="password"
                 />
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
+              <label className="flex items-center gap-2 text-sm text-fg-muted">
                 <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
                 Active
               </label>

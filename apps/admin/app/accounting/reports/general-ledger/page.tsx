@@ -86,14 +86,14 @@ export default function GeneralLedgerPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
 
         <Card>
           <CardHeader>
-            <CardTitle>Entries (USD + LBP)</CardTitle>
+            <CardTitle>Entries (USD + LL)</CardTitle>
             <CardDescription>
               Filter by journal date, then export CSV. {rows.length} rows
             </CardDescription>
@@ -102,11 +102,11 @@ export default function GeneralLedgerPage() {
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div className="flex flex-wrap items-end gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-600">Start</label>
+                  <label className="text-xs font-medium text-fg-muted">Start</label>
                   <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-600">End</label>
+                  <label className="text-xs font-medium text-fg-muted">End</label>
                   <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
                 </div>
               </div>
@@ -129,8 +129,8 @@ export default function GeneralLedgerPage() {
                     <th className="px-3 py-2">Account</th>
                     <th className="px-3 py-2 text-right">Dr USD</th>
                     <th className="px-3 py-2 text-right">Cr USD</th>
-                    <th className="px-3 py-2 text-right">Dr LBP</th>
-                    <th className="px-3 py-2 text-right">Cr LBP</th>
+                    <th className="px-3 py-2 text-right">Dr LL</th>
+                    <th className="px-3 py-2 text-right">Cr LL</th>
                     <th className="px-3 py-2">Memo</th>
                   </tr>
                 </thead>
@@ -141,18 +141,18 @@ export default function GeneralLedgerPage() {
                       <td className="px-3 py-2 font-mono text-xs">{r.journal_no}</td>
                       <td className="px-3 py-2">
                         <span className="font-mono text-xs">{r.account_code}</span>{" "}
-                        <span className="text-slate-700">{r.name_en || ""}</span>
+                        <span className="text-fg-muted">{r.name_en || ""}</span>
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.debit_usd)}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.credit_usd)}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.debit_lbp)}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.credit_lbp)}</td>
-                      <td className="px-3 py-2 text-xs text-slate-700">{r.memo || ""}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{r.memo || ""}</td>
                     </tr>
                   ))}
                   {rows.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={8}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
                         No GL entries yet.
                       </td>
                     </tr>

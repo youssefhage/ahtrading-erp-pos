@@ -348,7 +348,7 @@ export default function SuppliersPage() {
               <CardDescription>Errors and action results show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -395,7 +395,7 @@ export default function SuppliersPage() {
                     </DialogHeader>
                     <form onSubmit={submitImport} className="space-y-3">
                       <textarea
-                        className="h-48 w-full rounded-md border border-slate-200 bg-white p-3 text-xs font-mono text-slate-900"
+                        className="h-48 w-full rounded-md border border-border bg-bg-elevated p-3 text-xs font-mono text-foreground"
                         value={importText}
                         onChange={(e) => {
                           const v = e.target.value;
@@ -407,11 +407,11 @@ export default function SuppliersPage() {
                         }
                       />
                       {importErrors ? (
-                        <pre className="whitespace-pre-wrap rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                        <pre className="whitespace-pre-wrap rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
                           {importErrors}
                         </pre>
                       ) : null}
-                      <div className="rounded-md border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                      <div className="rounded-md border border-border bg-bg-elevated p-3 text-xs text-fg-muted">
                         Parsed rows: <span className="font-mono">{importPreview.length}</span>
                       </div>
                       <div className="flex justify-end">
@@ -433,57 +433,57 @@ export default function SuppliersPage() {
                     </DialogHeader>
                     <form onSubmit={createSupplier} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Code (optional)</label>
+                        <label className="text-xs font-medium text-fg-muted">Code (optional)</label>
                         <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="S-0001" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Display Name</label>
+                        <label className="text-xs font-medium text-fg-muted">Display Name</label>
                         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Nestle Lebanon" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Type</label>
+                        <label className="text-xs font-medium text-fg-muted">Type</label>
                         <select className="ui-select" value={partyType} onChange={(e) => setPartyType(e.target.value as PartyType)}>
                           <option value="business">Business</option>
                           <option value="individual">Individual</option>
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Legal Name</label>
+                        <label className="text-xs font-medium text-fg-muted">Legal Name</label>
                         <Input value={legalName} onChange={(e) => setLegalName(e.target.value)} placeholder="Optional" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Tax ID</label>
+                        <label className="text-xs font-medium text-fg-muted">Tax ID</label>
                         <Input value={taxId} onChange={(e) => setTaxId(e.target.value)} placeholder="Optional" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">VAT No</label>
+                        <label className="text-xs font-medium text-fg-muted">VAT No</label>
                         <Input value={vatNo} onChange={(e) => setVatNo(e.target.value)} placeholder="Optional" />
                       </div>
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:col-span-2">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Phone</label>
+                          <label className="text-xs font-medium text-fg-muted">Phone</label>
                           <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+961..." />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Email</label>
+                          <label className="text-xs font-medium text-fg-muted">Email</label>
                           <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ap@..." />
                         </div>
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Payment Terms (days)</label>
+                        <label className="text-xs font-medium text-fg-muted">Payment Terms (days)</label>
                         <Input value={termsDays} onChange={(e) => setTermsDays(e.target.value)} placeholder="0" />
                       </div>
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Active?</label>
+                        <label className="text-xs font-medium text-fg-muted">Active?</label>
                         <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
                         </select>
                       </div>
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Notes</label>
+                        <label className="text-xs font-medium text-fg-muted">Notes</label>
                         <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
                       </div>
 
@@ -504,57 +504,57 @@ export default function SuppliersPage() {
                 </DialogHeader>
                 <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Code (optional)</label>
+                        <label className="text-xs font-medium text-fg-muted">Code (optional)</label>
                         <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} placeholder="S-0001" />
                       </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-slate-700">Display Name</label>
+                    <label className="text-xs font-medium text-fg-muted">Display Name</label>
                     <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
                   </div>
                   <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Type</label>
+                        <label className="text-xs font-medium text-fg-muted">Type</label>
                         <select className="ui-select" value={editPartyType} onChange={(e) => setEditPartyType(e.target.value as PartyType)}>
                           <option value="business">Business</option>
                           <option value="individual">Individual</option>
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Legal Name</label>
+                        <label className="text-xs font-medium text-fg-muted">Legal Name</label>
                         <Input value={editLegalName} onChange={(e) => setEditLegalName(e.target.value)} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Tax ID</label>
+                        <label className="text-xs font-medium text-fg-muted">Tax ID</label>
                         <Input value={editTaxId} onChange={(e) => setEditTaxId(e.target.value)} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">VAT No</label>
+                        <label className="text-xs font-medium text-fg-muted">VAT No</label>
                         <Input value={editVatNo} onChange={(e) => setEditVatNo(e.target.value)} />
                       </div>
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:col-span-2">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Phone</label>
+                          <label className="text-xs font-medium text-fg-muted">Phone</label>
                           <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-slate-700">Email</label>
+                          <label className="text-xs font-medium text-fg-muted">Email</label>
                           <Input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
                         </div>
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Payment Terms (days)</label>
+                        <label className="text-xs font-medium text-fg-muted">Payment Terms (days)</label>
                         <Input value={editTermsDays} onChange={(e) => setEditTermsDays(e.target.value)} />
                       </div>
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Active?</label>
+                        <label className="text-xs font-medium text-fg-muted">Active?</label>
                         <select className="ui-select" value={editIsActive ? "yes" : "no"} onChange={(e) => setEditIsActive(e.target.value === "yes")}>
                           <option value="yes">Yes</option>
                           <option value="no">No</option>
                         </select>
                       </div>
                       <div className="space-y-1 md:col-span-2">
-                        <label className="text-xs font-medium text-slate-700">Notes</label>
+                        <label className="text-xs font-medium text-fg-muted">Notes</label>
                         <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
                       </div>
 
@@ -591,7 +591,7 @@ export default function SuppliersPage() {
                       <td className="px-3 py-2">{s.party_type || "business"}</td>
                       <td className="px-3 py-2">{s.phone || "-"}</td>
                       <td className="px-3 py-2">{s.email || "-"}</td>
-                      <td className="px-3 py-2">{s.is_active === false ? <span className="text-slate-500">No</span> : "Yes"}</td>
+                      <td className="px-3 py-2">{s.is_active === false ? <span className="text-fg-subtle">No</span> : "Yes"}</td>
                       <td className="px-3 py-2 text-right">{Number(s.payment_terms_days || 0)}</td>
                       <td className="px-3 py-2 text-right">
                         <Button
@@ -621,28 +621,28 @@ export default function SuppliersPage() {
                   </CardHeader>
                   <CardContent className="text-sm space-y-1">
                     <div>
-                      <span className="text-slate-500">Code:</span> {detail.code || "-"}
+                      <span className="text-fg-subtle">Code:</span> {detail.code || "-"}
                     </div>
                     <div>
-                      <span className="text-slate-500">Name:</span> {detail.name}
+                      <span className="text-fg-subtle">Name:</span> {detail.name}
                     </div>
                     <div>
-                      <span className="text-slate-500">Type:</span> {detail.party_type || "business"}
+                      <span className="text-fg-subtle">Type:</span> {detail.party_type || "business"}
                     </div>
                     <div>
-                      <span className="text-slate-500">Legal:</span> {detail.legal_name || "-"}
+                      <span className="text-fg-subtle">Legal:</span> {detail.legal_name || "-"}
                     </div>
                     <div>
-                      <span className="text-slate-500">VAT:</span> {detail.vat_no || "-"}
+                      <span className="text-fg-subtle">VAT:</span> {detail.vat_no || "-"}
                     </div>
                     <div>
-                      <span className="text-slate-500">Tax ID:</span> {detail.tax_id || "-"}
+                      <span className="text-fg-subtle">Tax ID:</span> {detail.tax_id || "-"}
                     </div>
                     <div>
-                      <span className="text-slate-500">Terms:</span> {detail.payment_terms_days}
+                      <span className="text-fg-subtle">Terms:</span> {detail.payment_terms_days}
                     </div>
                     <div>
-                      <span className="text-slate-500">Notes:</span> {detail.notes || "-"}
+                      <span className="text-fg-subtle">Notes:</span> {detail.notes || "-"}
                     </div>
                   </CardContent>
                 </Card>

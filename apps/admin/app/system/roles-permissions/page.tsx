@@ -127,7 +127,7 @@ export default function RolesPermissionsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -147,7 +147,7 @@ export default function RolesPermissionsPage() {
               </DialogHeader>
               <form onSubmit={createRole} className="grid grid-cols-1 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Role Name</label>
+                  <label className="text-xs font-medium text-fg-muted">Role Name</label>
                   <Input value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} placeholder="Cashier / Manager / Accounting" />
                 </div>
                 <div className="flex justify-end">
@@ -170,7 +170,7 @@ export default function RolesPermissionsPage() {
               </DialogHeader>
               <form onSubmit={assignPermission} className="grid grid-cols-1 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Role</label>
+                  <label className="text-xs font-medium text-fg-muted">Role</label>
                   <select
                     className="ui-select"
                     value={selectedRoleId}
@@ -185,7 +185,7 @@ export default function RolesPermissionsPage() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Permission</label>
+                  <label className="text-xs font-medium text-fg-muted">Permission</label>
                   <select
                     className="ui-select"
                     value={assignPermCode}
@@ -217,7 +217,7 @@ export default function RolesPermissionsPage() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Role</label>
+                <label className="text-xs font-medium text-fg-muted">Role</label>
                 <select
                   className="ui-select"
                   value={selectedRoleId}
@@ -233,10 +233,10 @@ export default function RolesPermissionsPage() {
               </div>
             </div>
 
-            <div className="rounded-md border border-slate-200 bg-white p-3">
-              <p className="text-sm font-medium text-slate-900">
+            <div className="rounded-md border border-border bg-bg-elevated p-3">
+              <p className="text-sm font-medium text-foreground">
                 {selectedRoleId ? (
-                  <span className="ml-2 text-xs font-normal text-slate-600">
+                  <span className="ml-2 text-xs font-normal text-fg-muted">
                     ({roleById.get(selectedRoleId)?.name || selectedRoleId})
                   </span>
                 ) : null}
@@ -258,7 +258,7 @@ export default function RolesPermissionsPage() {
                     ))}
                     {rolePerms.length === 0 ? (
                       <tr>
-                        <td className="px-3 py-6 text-center text-slate-500" colSpan={2}>
+                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={2}>
                           No permissions assigned.
                         </td>
                       </tr>
@@ -293,7 +293,7 @@ export default function RolesPermissionsPage() {
                   ))}
                   {permissions.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={2}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={2}>
                         No permissions.
                       </td>
                     </tr>

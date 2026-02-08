@@ -46,7 +46,7 @@ export default function LoginPage() {
       <div className="hidden flex-col justify-between border-r border-border-subtle bg-bg-elevated/60 p-8 lg:flex lg:w-1/2 xl:w-2/5">
         <div>
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-amber-600">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-600">
               <span className="text-lg font-bold text-black">AH</span>
             </div>
             <div>
@@ -89,7 +89,7 @@ export default function LoginPage() {
         <div className="w-full max-w-sm space-y-6">
           {/* Mobile branding */}
           <div className="flex flex-col items-center gap-3 lg:hidden">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-amber-600">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-600">
               <span className="text-xl font-bold text-black">AH</span>
             </div>
             <div className="text-center">

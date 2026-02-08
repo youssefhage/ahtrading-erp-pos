@@ -282,7 +282,7 @@ export default function AiHubPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -303,23 +303,23 @@ export default function AiHubPage() {
             </DialogHeader>
             <form onSubmit={saveSchedule} className="grid grid-cols-1 gap-3 md:grid-cols-6">
               <div className="space-y-1 md:col-span-3">
-                <label className="text-xs font-medium text-slate-700">Job Code</label>
+                <label className="text-xs font-medium text-fg-muted">Job Code</label>
                 <Input value={scheduleJobCode} disabled />
               </div>
               <div className="space-y-1 md:col-span-3">
-                <label className="text-xs font-medium text-slate-700">Interval (seconds)</label>
+                <label className="text-xs font-medium text-fg-muted">Interval (seconds)</label>
                 <Input value={scheduleIntervalSeconds} onChange={(e) => setScheduleIntervalSeconds(e.target.value)} />
               </div>
               <div className="md:col-span-6">
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-700">
+                <label className="flex items-center gap-2 text-xs font-medium text-fg-muted">
                   <input type="checkbox" checked={scheduleEnabled} onChange={(e) => setScheduleEnabled(e.target.checked)} />
                   Enabled
                 </label>
               </div>
               <div className="space-y-1 md:col-span-6">
-                <label className="text-xs font-medium text-slate-700">Options JSON</label>
+                <label className="text-xs font-medium text-fg-muted">Options JSON</label>
                 <textarea
-                  className="min-h-40 w-full rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900"
+                  className="min-h-40 w-full rounded-md border border-border bg-bg-elevated px-3 py-2 font-mono text-xs text-foreground"
                   value={scheduleOptionsJson}
                   onChange={(e) => setScheduleOptionsJson(e.target.value)}
                 />
@@ -341,7 +341,7 @@ export default function AiHubPage() {
           <CardContent className="space-y-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
               <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">Status</label>
+                <label className="text-xs font-medium text-fg-muted">Status</label>
                 <select
                   className="ui-select"
                   value={filterStatus}
@@ -355,7 +355,7 @@ export default function AiHubPage() {
                 </select>
               </div>
               <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">Agent</label>
+                <label className="text-xs font-medium text-fg-muted">Agent</label>
                 <Input value={filterAgent} onChange={(e) => setFilterAgent(e.target.value)} placeholder="e.g. AI_DEMAND" />
               </div>
               <div className="md:col-span-2 flex items-end justify-end">
@@ -378,12 +378,12 @@ export default function AiHubPage() {
                 </thead>
                 <tbody>
                   {recommendations.map((r) => (
-                    <tr key={r.id} className="border-t border-slate-100 align-top">
+                    <tr key={r.id} className="border-t border-border-subtle align-top">
                       <td className="px-3 py-2 font-mono text-xs">{r.created_at}</td>
                       <td className="px-3 py-2 font-mono text-xs">{r.agent_code}</td>
                       <td className="px-3 py-2 font-mono text-xs">{r.status}</td>
                       <td className="px-3 py-2">
-                        <pre className="max-w-[560px] whitespace-pre-wrap text-[11px] text-slate-700">
+                        <pre className="max-w-[560px] whitespace-pre-wrap text-[11px] text-fg-muted">
                           {JSON.stringify(r.recommendation_json, null, 2)}
                         </pre>
                       </td>
@@ -404,7 +404,7 @@ export default function AiHubPage() {
                   ))}
                   {recommendations.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No recommendations.
                       </td>
                     </tr>
@@ -423,7 +423,7 @@ export default function AiHubPage() {
           <CardContent className="space-y-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">Status</label>
+                <label className="text-xs font-medium text-fg-muted">Status</label>
                 <select
                   className="ui-select"
                   value={actionFilterStatus}
@@ -459,24 +459,24 @@ export default function AiHubPage() {
                 </thead>
                 <tbody>
                   {actions.map((a) => (
-                    <tr key={a.id} className="border-t border-slate-100 align-top">
+                    <tr key={a.id} className="border-t border-border-subtle align-top">
                       <td className="px-3 py-2 font-mono text-xs">{a.created_at}</td>
                       <td className="px-3 py-2 font-mono text-xs">{a.agent_code}</td>
                       <td className="px-3 py-2 font-mono text-xs">{a.status}</td>
                       <td className="px-3 py-2">
-                        <div className="text-xs text-slate-700">
+                        <div className="text-xs text-fg-muted">
                           <div className="font-mono">{a.approved_at ? `approved ${a.approved_at}` : ""}</div>
-                          <div className="font-mono text-slate-500">
+                          <div className="font-mono text-fg-subtle">
                             {a.queued_at ? `queued ${a.queued_at}` : ""}
                           </div>
                         </div>
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(a.attempt_count || 0)}</td>
                       <td className="px-3 py-2">
-                        <span className="text-xs text-slate-700">{a.error_message || ""}</span>
+                        <span className="text-xs text-fg-muted">{a.error_message || ""}</span>
                       </td>
                       <td className="px-3 py-2">
-                        <pre className="max-w-[520px] whitespace-pre-wrap text-[11px] text-slate-700">
+                        <pre className="max-w-[520px] whitespace-pre-wrap text-[11px] text-fg-muted">
                           {JSON.stringify(a.action_json, null, 2)}
                         </pre>
                       </td>
@@ -503,7 +503,7 @@ export default function AiHubPage() {
                   ))}
                   {actions.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={8}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
                         No actions.
                       </td>
                     </tr>
@@ -535,14 +535,14 @@ export default function AiHubPage() {
                 </thead>
                 <tbody>
                   {schedules.map((s) => (
-                    <tr key={s.job_code} className="border-t border-slate-100 align-top">
+                    <tr key={s.job_code} className="border-t border-border-subtle align-top">
                       <td className="px-3 py-2 font-mono text-xs">{s.job_code}</td>
                       <td className="px-3 py-2">{s.enabled ? "yes" : "no"}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(s.interval_seconds || 0)}</td>
                       <td className="px-3 py-2 font-mono text-xs">{s.next_run_at || ""}</td>
                       <td className="px-3 py-2 font-mono text-xs">{s.last_run_at || ""}</td>
                       <td className="px-3 py-2">
-                        <pre className="max-w-[420px] whitespace-pre-wrap text-[11px] text-slate-700">
+                        <pre className="max-w-[420px] whitespace-pre-wrap text-[11px] text-fg-muted">
                           {JSON.stringify(s.options_json, null, 2)}
                         </pre>
                       </td>
@@ -560,7 +560,7 @@ export default function AiHubPage() {
                   ))}
                   {schedules.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={7}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
                         No schedules found.
                       </td>
                     </tr>
@@ -587,12 +587,12 @@ export default function AiHubPage() {
                       <td className="px-3 py-2 font-mono text-xs">{r.job_code}</td>
                       <td className="px-3 py-2 font-mono text-xs">{r.status}</td>
                       <td className="px-3 py-2 font-mono text-xs">{r.finished_at || ""}</td>
-                      <td className="px-3 py-2 text-xs text-slate-700">{r.error_message || ""}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{r.error_message || ""}</td>
                     </tr>
                   ))}
                   {runs.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No runs yet.
                       </td>
                     </tr>
@@ -634,7 +634,7 @@ export default function AiHubPage() {
                   </DialogHeader>
                   <form onSubmit={createOrUpdateSetting} className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Agent Code</label>
+                      <label className="text-xs font-medium text-fg-muted">Agent Code</label>
                       <Input
                         value={newAgentCode}
                         onChange={(e) => setNewAgentCode(e.target.value)}
@@ -643,15 +643,15 @@ export default function AiHubPage() {
                       />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Max Amount USD</label>
+                      <label className="text-xs font-medium text-fg-muted">Max Amount USD</label>
                       <Input value={newMaxAmountUsd} onChange={(e) => setNewMaxAmountUsd(e.target.value)} />
                     </div>
                     <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-slate-700">Max/Day</label>
+                      <label className="text-xs font-medium text-fg-muted">Max/Day</label>
                       <Input value={newMaxActionsPerDay} onChange={(e) => setNewMaxActionsPerDay(e.target.value)} />
                     </div>
                     <div className="space-y-1 md:col-span-3 flex items-end justify-between gap-2">
-                      <label className="flex items-center gap-2 text-xs font-medium text-slate-700">
+                      <label className="flex items-center gap-2 text-xs font-medium text-fg-muted">
                         <input
                           type="checkbox"
                           checked={newAutoExecute}
@@ -706,7 +706,7 @@ export default function AiHubPage() {
                   ))}
                   {settings.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No settings yet.
                       </td>
                     </tr>

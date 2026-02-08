@@ -259,7 +259,7 @@ export default function PromotionsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -286,29 +286,29 @@ export default function PromotionsPage() {
                   <form onSubmit={createPromotion} className="grid grid-cols-1 gap-3">
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Code</label>
+                        <label className="text-xs font-medium text-fg-muted">Code</label>
                         <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="BULK10" />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Name</label>
+                        <label className="text-xs font-medium text-fg-muted">Name</label>
                         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Bulk discount 10%" />
                       </div>
                     </div>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Starts On</label>
+                        <label className="text-xs font-medium text-fg-muted">Starts On</label>
                         <Input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Ends On</label>
+                        <label className="text-xs font-medium text-fg-muted">Ends On</label>
                         <Input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Priority</label>
+                        <label className="text-xs font-medium text-fg-muted">Priority</label>
                         <Input value={priority} onChange={(e) => setPriority(e.target.value)} placeholder="0" />
                       </div>
                     </div>
-                    <label className="flex items-center gap-2 text-xs text-slate-700">
+                    <label className="flex items-center gap-2 text-xs text-fg-muted">
                       <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
                       Active
                     </label>
@@ -339,7 +339,7 @@ export default function PromotionsPage() {
                     <tr key={p.id} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{p.code}</td>
                       <td className="px-3 py-2">{p.name}</td>
-                      <td className="px-3 py-2 text-xs text-slate-600">
+                      <td className="px-3 py-2 text-xs text-fg-muted">
                         {(p.starts_on || "-") + " → " + (p.ends_on || "-")}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(p.priority || 0)}</td>
@@ -358,7 +358,7 @@ export default function PromotionsPage() {
                   ))}
                   {promos.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={6}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                         No promotions yet.
                       </td>
                     </tr>
@@ -378,29 +378,29 @@ export default function PromotionsPage() {
             <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Code</label>
+                  <label className="text-xs font-medium text-fg-muted">Code</label>
                   <Input value={editCode} onChange={(e) => setEditCode(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Name</label>
+                  <label className="text-xs font-medium text-fg-muted">Name</label>
                   <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Starts On</label>
+                  <label className="text-xs font-medium text-fg-muted">Starts On</label>
                   <Input type="date" value={editStartsOn} onChange={(e) => setEditStartsOn(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Ends On</label>
+                  <label className="text-xs font-medium text-fg-muted">Ends On</label>
                   <Input type="date" value={editEndsOn} onChange={(e) => setEditEndsOn(e.target.value)} />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Priority</label>
+                  <label className="text-xs font-medium text-fg-muted">Priority</label>
                   <Input value={editPriority} onChange={(e) => setEditPriority(e.target.value)} />
                 </div>
               </div>
-              <label className="flex items-center gap-2 text-xs text-slate-700">
+              <label className="flex items-center gap-2 text-xs text-fg-muted">
                 <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
                 Active
               </label>
@@ -445,7 +445,7 @@ export default function PromotionsPage() {
                     <th className="px-3 py-2">Item</th>
                     <th className="px-3 py-2 text-right">Min Qty</th>
                     <th className="px-3 py-2 text-right">Promo USD</th>
-                    <th className="px-3 py-2 text-right">Promo LBP</th>
+                    <th className="px-3 py-2 text-right">Promo LL</th>
                     <th className="px-3 py-2 text-right">Discount %</th>
                     <th className="px-3 py-2 text-right">Actions</th>
                   </tr>
@@ -468,7 +468,7 @@ export default function PromotionsPage() {
                   ))}
                   {promoItems.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={7}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
                         No promo rules yet.
                       </td>
                     </tr>
@@ -479,23 +479,23 @@ export default function PromotionsPage() {
 
             <form onSubmit={addPromotionItem} className="grid grid-cols-1 gap-3 md:grid-cols-8">
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">SKU</label>
+                <label className="text-xs font-medium text-fg-muted">SKU</label>
                 <Input value={addSku} onChange={(e) => onSkuChange(e.target.value)} placeholder="SKU-001" />
               </div>
               <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">Min Qty</label>
+                <label className="text-xs font-medium text-fg-muted">Min Qty</label>
                 <Input value={addMinQty} onChange={(e) => setAddMinQty(e.target.value)} placeholder="12" />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Promo Price USD</label>
+                <label className="text-xs font-medium text-fg-muted">Promo Price USD</label>
                 <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" />
               </div>
               <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Promo Price LBP</label>
+                <label className="text-xs font-medium text-fg-muted">Promo Price LL</label>
                 <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
               </div>
               <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">Discount Pct</label>
+                <label className="text-xs font-medium text-fg-muted">Discount Pct</label>
                 <Input value={addDisc} onChange={(e) => setAddDisc(e.target.value)} placeholder="0.10" />
               </div>
               <div className="md:col-span-8 flex justify-end">
@@ -508,4 +508,3 @@ export default function PromotionsPage() {
         </Dialog>
       </div>);
 }
-

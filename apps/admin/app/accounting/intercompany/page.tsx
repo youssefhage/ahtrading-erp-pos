@@ -112,7 +112,7 @@ export default function IntercompanyPage() {
             <CardDescription>API errors will show here.</CardDescription>
           </CardHeader>
           <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
           </CardContent>
         </Card>
       ) : null}
@@ -125,7 +125,7 @@ export default function IntercompanyPage() {
         <CardContent className="space-y-3">
           <form onSubmit={settle} className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">From (payer)</label>
+              <label className="text-xs font-medium text-fg-muted">From (payer)</label>
               <select className="ui-select" value={fromCompanyId} onChange={(e) => setFromCompanyId(e.target.value)}>
                 <option value="">Select...</option>
                 {companies.map((c) => (
@@ -136,7 +136,7 @@ export default function IntercompanyPage() {
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">To (receiver)</label>
+              <label className="text-xs font-medium text-fg-muted">To (receiver)</label>
               <select className="ui-select" value={toCompanyId} onChange={(e) => setToCompanyId(e.target.value)}>
                 <option value="">Select...</option>
                 {companies.map((c) => (
@@ -147,7 +147,7 @@ export default function IntercompanyPage() {
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Method</label>
+              <label className="text-xs font-medium text-fg-muted">Method</label>
               <select className="ui-select" value={method} onChange={(e) => setMethod(e.target.value as any)}>
                 <option value="bank">Bank</option>
                 <option value="cash">Cash</option>
@@ -155,15 +155,15 @@ export default function IntercompanyPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Amount USD</label>
+              <label className="text-xs font-medium text-fg-muted">Amount USD</label>
               <Input value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Amount LBP</label>
+              <label className="text-xs font-medium text-fg-muted">Amount LL</label>
               <Input value={amountLbp} onChange={(e) => setAmountLbp(e.target.value)} />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-slate-700">Exchange Rate</label>
+              <label className="text-xs font-medium text-fg-muted">Exchange Rate</label>
               <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} />
             </div>
 
@@ -213,7 +213,7 @@ export default function IntercompanyPage() {
               ))}
               {docs.length === 0 ? (
                 <tr>
-                  <td className="px-3 py-6 text-center text-slate-500" colSpan={6}>
+                  <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                     No intercompany documents.
                   </td>
                 </tr>
@@ -236,7 +236,7 @@ export default function IntercompanyPage() {
                 <th className="px-3 py-2">From</th>
                 <th className="px-3 py-2">To</th>
                 <th className="px-3 py-2 text-right">USD</th>
-                <th className="px-3 py-2 text-right">LBP</th>
+                <th className="px-3 py-2 text-right">LL</th>
                 <th className="px-3 py-2 text-right">Rate</th>
               </tr>
             </thead>
@@ -253,7 +253,7 @@ export default function IntercompanyPage() {
               ))}
               {settlements.length === 0 ? (
                 <tr>
-                  <td className="px-3 py-6 text-center text-slate-500" colSpan={6}>
+                  <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                     No settlements.
                   </td>
                 </tr>
@@ -265,4 +265,3 @@ export default function IntercompanyPage() {
     </div>
   );
 }
-

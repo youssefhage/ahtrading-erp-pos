@@ -144,7 +144,7 @@ export default function BankAccountsPage() {
               <CardDescription>API errors will show here.</CardDescription>
             </CardHeader>
             <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
+              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
             </CardContent>
           </Card>
         ) : null}
@@ -170,23 +170,23 @@ export default function BankAccountsPage() {
                   </DialogHeader>
                   <form onSubmit={createAccount} className="grid grid-cols-1 gap-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-700">Name</label>
+                      <label className="text-xs font-medium text-fg-muted">Name</label>
                       <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Bank - USD" />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">Currency</label>
+                        <label className="text-xs font-medium text-fg-muted">Currency</label>
                         <select
                           className="ui-select"
                           value={currency}
                           onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}
                         >
                           <option value="USD">USD</option>
-                          <option value="LBP">LBP</option>
+                          <option value="LBP">LL</option>
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-slate-700">GL Account Code</label>
+                        <label className="text-xs font-medium text-fg-muted">GL Account Code</label>
                         <Input value={glCode} onChange={(e) => setGlCode(e.target.value)} placeholder="e.g. 100100" list="coaCodes" />
                         <datalist id="coaCodes">
                           {coa.slice(0, 2000).map((a) => (
@@ -196,13 +196,13 @@ export default function BankAccountsPage() {
                           ))}
                         </datalist>
                         {coaByCode.get(glCode.trim()) ? (
-                          <p className="text-xs text-slate-500">{coaByCode.get(glCode.trim())?.name_en || "OK"}</p>
+                          <p className="text-xs text-fg-subtle">{coaByCode.get(glCode.trim())?.name_en || "OK"}</p>
                         ) : (
-                          <p className="text-xs text-slate-500">Pick a valid GL account.</p>
+                          <p className="text-xs text-fg-subtle">Pick a valid GL account.</p>
                         )}
                       </div>
                     </div>
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <label className="flex items-center gap-2 text-sm text-fg-muted">
                       <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
                       Active
                     </label>
@@ -234,7 +234,7 @@ export default function BankAccountsPage() {
                       <td className="px-3 py-2 text-xs">{a.currency}</td>
                       <td className="px-3 py-2 text-xs">
                         <span className="font-mono">{a.account_code}</span>{" "}
-                        <span className="text-slate-500">{a.name_en || ""}</span>
+                        <span className="text-fg-subtle">{a.name_en || ""}</span>
                       </td>
                       <td className="px-3 py-2 text-xs">{a.is_active ? "yes" : "no"}</td>
                       <td className="px-3 py-2 text-right">
@@ -246,7 +246,7 @@ export default function BankAccountsPage() {
                   ))}
                   {accounts.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
                         No bank accounts yet.
                       </td>
                     </tr>
@@ -265,32 +265,32 @@ export default function BankAccountsPage() {
             </DialogHeader>
             <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Name</label>
+                <label className="text-xs font-medium text-fg-muted">Name</label>
                 <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">Currency</label>
+                  <label className="text-xs font-medium text-fg-muted">Currency</label>
                   <select
                     className="ui-select"
                     value={editCurrency}
                     onChange={(e) => setEditCurrency(e.target.value as "USD" | "LBP")}
                   >
                     <option value="USD">USD</option>
-                    <option value="LBP">LBP</option>
+                    <option value="LBP">LL</option>
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-700">GL Account Code</label>
+                  <label className="text-xs font-medium text-fg-muted">GL Account Code</label>
                   <Input value={editGlCode} onChange={(e) => setEditGlCode(e.target.value)} list="coaCodes" />
                   {coaByCode.get(editGlCode.trim()) ? (
-                    <p className="text-xs text-slate-500">{coaByCode.get(editGlCode.trim())?.name_en || "OK"}</p>
+                    <p className="text-xs text-fg-subtle">{coaByCode.get(editGlCode.trim())?.name_en || "OK"}</p>
                   ) : (
-                    <p className="text-xs text-slate-500">Pick a valid GL account.</p>
+                    <p className="text-xs text-fg-subtle">Pick a valid GL account.</p>
                   )}
                 </div>
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
+              <label className="flex items-center gap-2 text-sm text-fg-muted">
                 <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
                 Active
               </label>
