@@ -758,7 +758,55 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
                 """,
                 (company_id, order_id),
             )
-            return {"order": po, "lines": cur.fetchall()}
+            lines = cur.fetchall()
+
+            # 3-way match starter: ordered vs received vs invoiced (qty only, v1).
+            cur.execute(
+                """
+                SELECT l.purchase_order_line_id, COALESCE(SUM(l.qty), 0) AS received_qty
+                FROM goods_receipt_lines l
+                JOIN goods_receipts r
+                  ON r.company_id = l.company_id AND r.id = l.goods_receipt_id
+                WHERE l.company_id = %s
+                  AND r.status = 'posted'
+                  AND r.purchase_order_id = %s
+                  AND l.purchase_order_line_id IS NOT NULL
+                GROUP BY l.purchase_order_line_id
+                """,
+                (company_id, order_id),
+            )
+            received_by_line = {str(r["purchase_order_line_id"]): Decimal(str(r["received_qty"] or 0)) for r in cur.fetchall()}
+
+            cur.execute(
+                """
+                SELECT grl.purchase_order_line_id, COALESCE(SUM(sil.qty), 0) AS invoiced_qty
+                FROM supplier_invoice_lines sil
+                JOIN supplier_invoices si
+                  ON si.company_id = sil.company_id AND si.id = sil.supplier_invoice_id
+                JOIN goods_receipt_lines grl
+                  ON grl.company_id = sil.company_id AND grl.id = sil.goods_receipt_line_id
+                JOIN goods_receipts r
+                  ON r.company_id = grl.company_id AND r.id = grl.goods_receipt_id
+                WHERE sil.company_id = %s
+                  AND si.status = 'posted'
+                  AND r.purchase_order_id = %s
+                  AND grl.purchase_order_line_id IS NOT NULL
+                GROUP BY grl.purchase_order_line_id
+                """,
+                (company_id, order_id),
+            )
+            invoiced_by_line = {str(r["purchase_order_line_id"]): Decimal(str(r["invoiced_qty"] or 0)) for r in cur.fetchall()}
+
+            for ln in lines:
+                ordered = Decimal(str(ln.get("qty") or 0))
+                received = received_by_line.get(str(ln["id"]), Decimal("0"))
+                invoiced = invoiced_by_line.get(str(ln["id"]), Decimal("0"))
+                ln["received_qty"] = received
+                ln["invoiced_qty"] = invoiced
+                ln["open_to_receive_qty"] = max(Decimal("0"), ordered - received)
+                ln["open_to_invoice_qty"] = max(Decimal("0"), received - invoiced)
+
+            return {"order": po, "lines": lines}
 
 
 @router.post("/orders", dependencies=[Depends(require_permission("purchases:write"))])

@@ -31,6 +31,10 @@ type PurchaseOrderLine = {
   id: string;
   item_id: string;
   qty: string | number;
+  received_qty?: string | number;
+  invoiced_qty?: string | number;
+  open_to_receive_qty?: string | number;
+  open_to_invoice_qty?: string | number;
   unit_cost_usd: string | number;
   unit_cost_lbp: string | number;
   line_total_usd: string | number;
@@ -448,14 +452,20 @@ function PurchaseOrdersPageInner() {
                             <thead className="ui-thead">
                               <tr>
                                 <th className="px-3 py-2">Item</th>
-                                <th className="px-3 py-2 text-right">Qty</th>
+                                <th className="px-3 py-2 text-right">Ordered</th>
+                                <th className="px-3 py-2 text-right">Received</th>
+                                <th className="px-3 py-2 text-right">Invoiced</th>
+                                <th className="px-3 py-2 text-right">To Receive</th>
                               </tr>
                             </thead>
                             <tbody>
                               {(detail.lines || []).map((l) => (
                                 <tr key={l.id} className="ui-tr-hover">
                                   <td className="px-3 py-2">{itemById.get(l.item_id)?.sku || l.item_id}</td>
-                                  <td className="px-3 py-2 text-right">{Number(l.qty || 0).toFixed(2)}</td>
+                                  <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.qty || 0).toFixed(2)}</td>
+                                  <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.received_qty || 0).toFixed(2)}</td>
+                                  <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.invoiced_qty || 0).toFixed(2)}</td>
+                                  <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.open_to_receive_qty || 0).toFixed(2)}</td>
                                 </tr>
                               ))}
                             </tbody>

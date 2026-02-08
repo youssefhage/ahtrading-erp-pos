@@ -322,7 +322,8 @@ Procurement workflow:
     - `purchase_orders.expected_delivery_date`, `purchase_orders.supplier_ref`, `purchase_orders.requested_*`, `purchase_orders.approved_*`
     - `goods_receipts.supplier_ref`, `goods_receipts.received_at/received_by_user_id`
 - PO to GR to Invoice matching (3-way match):
-  - quantities matched, price variance, hold/unhold controls
+  - Implemented v1 starter: PO detail now includes ordered vs received vs invoiced quantities (qty-only).
+  - Still missing: price variance detection and hold/unhold controls.
 
 Costs:
 - Landed cost allocation (freight, customs, handling)
