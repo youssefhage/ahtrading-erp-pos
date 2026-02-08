@@ -290,6 +290,7 @@ Dimensions:
 Close and controls:
 - Stronger journal immutability rules (prevent edits after posting).
 - Audit trail coverage is partial (audit_logs exists but not used for every business mutation).
+  - Progress (2026-02-08): added audit logs for Users/roles/permissions mutations and Config mutations (tax codes, exchange rates, account defaults, payment method mappings), plus an Admin audit feed page.
 
 ### Banking / Reconciliation
 
@@ -373,6 +374,7 @@ Missing useful data / controls:
 - MFA (optional but recommended for admin users).
 - “User profile” fields (name, phone) and deactivation reason/time.
 - Audit logs coverage is partial; many mutations do not write `audit_logs`.
+  - Progress (2026-02-08): Users/config now write audit logs; remaining gaps are mainly document lifecycle + master data + approvals.
 
 ### Reporting
 
