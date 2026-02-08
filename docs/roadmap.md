@@ -1,5 +1,33 @@
 # Roadmap
 
+## Current Status (2026-02-08)
+
+We have a working end-to-end POS + ERP foundation (RLS, outbox worker, dual-currency, GL posting, Admin UI).
+
+The immediate focus is to reduce operational drift and productize the Admin UI:
+- Platform audits and execution backlog:
+  - `docs/audits/platform-audit-2026-02-07.md`
+  - `docs/audits/platform-audit-2026-02-08-deep-dive.md`
+- Admin UI/UX phased plan:
+  - `docs/admin-ui-ux-audit.md`
+
+## Near-Term Focus (Next 2-4 Weeks)
+
+1) Ops reliability and observability
+- Worker/job health surfaced in Admin (heartbeat + failed runs + last activity)
+- Structured logging + correlation ids
+- Restore drills + post-restore verification checklist (already started)
+
+2) Admin UI: Document-first rebuild
+- Continue converting high-usage modules to document routes:
+  - Sales Invoices, Supplier Invoices (started)
+  - Purchase Orders, Goods Receipts, Items, Customers
+- Centralize error parsing + consistent empty/error states
+
+3) Data integrity and auditability
+- Expand audit trail coverage and surface timeline per document in Admin
+- Close remaining “free-string” validation drift (keep inputs strict)
+
 ## Phase 0: Foundation
 - Define COA templates (Lebanese + IFRS stub + custom template tooling)
 - Dual-currency data model finalized
