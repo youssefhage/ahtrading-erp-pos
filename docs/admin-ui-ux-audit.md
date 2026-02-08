@@ -70,6 +70,9 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
   - Introduce a reusable `Combobox` (async search, keyboard friendly).
   - Add server endpoints for “typeahead search” (items/suppliers) if needed.
   - Default behavior: show recent items, then search.
+- Executed (v1):
+  - Sales Invoice Draft and Supplier Invoice Draft now use a keyboard-friendly searchable Item Picker (SKU/name/barcode), show UOM by default, and auto-fill unit price/cost.
+  - Added `GET /pricing/catalog` so Admin can fetch “effective prices” (default price list fallback) without needing POS device auth.
 
 4) Automation / AI features still read like internal tooling
 - Problem:
