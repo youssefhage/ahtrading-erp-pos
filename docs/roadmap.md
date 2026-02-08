@@ -30,6 +30,9 @@ Core platform is live-quality in the areas that cause real-world breakage:
     - Telegram webhook receiver exists (off-by-default) to support “send invoice → create draft”.
   - AI governance:
     - Company setting `company_settings.key='ai'` / `allow_external_processing` can disable external AI processing while keeping “draft + attachment” working.
+- Admin UX speed upgrades (daily operator quality-of-life):
+  - Added `GET /pricing/catalog` (effective prices + barcodes) for Admin.
+  - Sales Invoice Draft + Supplier Invoice Draft: searchable item picking (SKU/name/barcode), UOM shown by default, and unit price/cost auto-fill (editable).
 
 Canonical execution documents:
 - `/Users/Youssef/oDocuments/Business/Codex POS/docs/audits/platform-audit-2026-02-07.md`
