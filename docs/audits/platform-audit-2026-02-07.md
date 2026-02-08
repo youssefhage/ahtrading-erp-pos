@@ -68,6 +68,7 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
     - The original file is always attached to the draft invoice (auditability/rollback).
     - Draft editor and list UX improvements:
       - Draft edit screen shows attachments inline (View/Download) so users can reconcile while editing.
+      - Draft edit screen supports uploading additional attachments (supporting docs, scans, credit notes, etc.).
       - Supplier invoice list shows an attachment count badge (paperclip) for quick scanning.
     - Supplier-provided item code/name are preserved on invoice lines and a supplier→item alias table is populated for future matching.
     - Import robustness:
