@@ -28,6 +28,8 @@ type InvoiceLineDraft = {
   batch_no: string;
   expiry_date: string;
   goods_receipt_line_id?: string | null;
+  supplier_item_code?: string | null;
+  supplier_item_name?: string | null;
 };
 
   type InvoiceDetail = {
@@ -51,6 +53,8 @@ type InvoiceLineDraft = {
     batch_no: string | null;
     expiry_date: string | null;
     goods_receipt_line_id?: string | null;
+    supplier_item_code?: string | null;
+    supplier_item_name?: string | null;
   }>;
 };
 
@@ -69,6 +73,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importAutoCreateSupplier, setImportAutoCreateSupplier] = useState(true);
+  const [importAutoCreateItems, setImportAutoCreateItems] = useState(true);
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [items, setItems] = useState<Item[]>([]);
@@ -131,7 +138,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             unit_cost_lbp: String(l.unit_cost_lbp || 0),
             batch_no: String(l.batch_no || ""),
             expiry_date: String(l.expiry_date || ""),
-            goods_receipt_line_id: (l.goods_receipt_line_id as any) || null
+            goods_receipt_line_id: (l.goods_receipt_line_id as any) || null,
+            supplier_item_code: (l.supplier_item_code as any) || null,
+            supplier_item_name: (l.supplier_item_name as any) || null
           }))
         );
       } else {
@@ -180,7 +189,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         unit_cost_usd: String(toNum(addUsd)),
         unit_cost_lbp: String(toNum(addLbp)),
         batch_no: addBatchNo || "",
-        expiry_date: addExpiry || ""
+        expiry_date: addExpiry || "",
+        supplier_item_code: null,
+        supplier_item_name: null
       }
     ]);
     setAddSku("");
@@ -209,6 +220,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       unit_cost_lbp: number;
       batch_no?: string;
       expiry_date?: string;
+      supplier_item_code?: string | null;
+      supplier_item_name?: string | null;
     }> = [];
     for (let i = 0; i < (lines || []).length; i++) {
       const l = lines[i];
@@ -230,7 +243,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         unit_cost_usd: unitUsd,
         unit_cost_lbp: unitLbp,
         batch_no: (l.batch_no || "").trim() || undefined,
-        expiry_date: (l.expiry_date || "").trim() || undefined
+        expiry_date: (l.expiry_date || "").trim() || undefined,
+        supplier_item_code: (l.supplier_item_code || null) as any,
+        supplier_item_name: (l.supplier_item_name || null) as any
       });
     }
 
@@ -270,6 +285,41 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
   const title = props.mode === "edit" ? "Edit Draft Supplier Invoice" : "Create Draft Supplier Invoice";
 
+  async function importFromFile(e: React.FormEvent) {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const input = form.querySelector<HTMLInputElement>("input[name='import_file']");
+    const f = input?.files?.[0];
+    if (!f) return setStatus("Pick a file to import.");
+
+    setImporting(true);
+    setStatus("Uploading and extracting...");
+    try {
+      const fd = new FormData();
+      fd.set("file", f);
+      fd.set("exchange_rate", exchangeRate || "0");
+      if (taxCodeId) fd.set("tax_code_id", taxCodeId);
+      fd.set("auto_create_supplier", importAutoCreateSupplier ? "true" : "false");
+      fd.set("auto_create_items", importAutoCreateItems ? "true" : "false");
+
+      const raw = await fetch("/api/purchases/invoices/drafts/import-file", { method: "POST", body: fd, credentials: "include" });
+      if (!raw.ok) throw new Error(await raw.text());
+      const res = (await raw.json()) as { id: string; invoice_no: string; ai_extracted: boolean; warnings?: string[] };
+      if (Array.isArray(res.warnings) && res.warnings.length) {
+        setStatus(`Imported with warnings:\n${res.warnings.slice(0, 10).join("\n")}`);
+      } else {
+        setStatus("");
+      }
+      router.push(`/purchasing/supplier-invoices/${res.id}/edit`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setImporting(false);
+      if (input) input.value = "";
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -292,6 +342,53 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
           </CardHeader>
           <CardContent>
             <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {props.mode === "create" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>AI Import</CardTitle>
+            <CardDescription>Upload a supplier invoice image/PDF. We attach the original and try to fill the draft automatically.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={importFromFile} className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="md:col-span-2 space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Invoice Image/PDF (max 5MB)</label>
+                  <input
+                    name="import_file"
+                    type="file"
+                    accept="image/*,application/pdf"
+                    disabled={importing || loading}
+                    className="block w-full text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
+                  <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={importing || loading} />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-xs text-fg-muted">
+                  <input type="checkbox" checked={importAutoCreateSupplier} onChange={(e) => setImportAutoCreateSupplier(e.target.checked)} />
+                  Auto-create supplier if missing
+                </label>
+                <label className="flex items-center gap-2 text-xs text-fg-muted">
+                  <input type="checkbox" checked={importAutoCreateItems} onChange={(e) => setImportAutoCreateItems(e.target.checked)} />
+                  Auto-create items if missing
+                </label>
+                <div className="flex items-center gap-2">
+                  <Button type="submit" disabled={importing || loading}>
+                    {importing ? "Importing..." : "Import"}
+                  </Button>
+                </div>
+              </div>
+              <p className="text-[11px] text-fg-subtle">
+                The uploaded file is always attached to the draft invoice so you can audit it later.
+              </p>
+            </form>
           </CardContent>
         </Card>
       ) : null}
@@ -452,9 +549,18 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                           <tr key={`${l.item_id}-${idx}`} className="ui-tr-hover">
                             <td className="px-3 py-2">
                               {it ? (
-                                <span>
-                                  <span className="font-mono text-xs">{it.sku}</span> · {it.name}
-                                </span>
+                                <div>
+                                  <div>
+                                    <span className="font-mono text-xs">{it.sku}</span> · {it.name}
+                                  </div>
+                                  {l.supplier_item_code || l.supplier_item_name ? (
+                                    <div className="mt-1 text-[10px] text-fg-subtle">
+                                      Supplier:{" "}
+                                      <span className="font-mono">{l.supplier_item_code || "-"}</span>
+                                      {l.supplier_item_name ? <span> · {l.supplier_item_name}</span> : null}
+                                    </div>
+                                  ) : null}
+                                </div>
                               ) : (
                                 <span className="font-mono text-xs">{l.item_id}</span>
                               )}

@@ -1,18 +1,74 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from decimal import Decimal
 from datetime import date, timedelta
 import uuid
+import os
+import re
+import tempfile
+import subprocess
+import hashlib
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
 import json
 from ..journal_utils import auto_balance_journal
 from ..validation import DocStatus, PaymentMethod, CurrencyCode
+from ..ai.purchase_invoice_import import (
+    openai_extract_purchase_invoice_from_image,
+    openai_extract_purchase_invoice_from_text,
+)
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
+
+def _norm_code(s: Optional[str]) -> Optional[str]:
+    if not s:
+        return None
+    t = (s or "").strip().upper()
+    t = re.sub(r"\s+", "", t)
+    t = re.sub(r"[^A-Z0-9._\\-/]", "", t)
+    return t or None
+
+
+def _norm_name(s: Optional[str]) -> Optional[str]:
+    if not s:
+        return None
+    t = (s or "").strip().lower()
+    t = re.sub(r"[^a-z0-9]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t or None
+
+
+def _default_exchange_rate(cur, company_id: str) -> Decimal:
+    cur.execute(
+        """
+        SELECT rate
+        FROM exchange_rates
+        WHERE company_id = %s
+        ORDER BY rate_date DESC
+        LIMIT 1
+        """,
+        (company_id,),
+    )
+    r = cur.fetchone()
+    if r and r.get("rate") is not None:
+        try:
+            ex = Decimal(str(r["rate"] or 0))
+            if ex > 0:
+                return ex
+        except Exception:
+            pass
+    # Safe fallback (matches Admin UI default).
+    return Decimal("90000")
+
+
+def _clean_item_name(raw: str) -> str:
+    t = (raw or "").strip()
+    t = re.sub(r"\s+", " ", t)
+    # Basic cleanup: don't aggressively title-case (brands/codes can be uppercase).
+    return t[:200] if t else "New Item"
 
 def _safe_journal_no(prefix: str, base: str) -> str:
     base = (base or "").strip().replace(" ", "-")
@@ -140,6 +196,8 @@ def _compute_costed_lines(lines_in, exchange_rate: Decimal):
                 'line_total_lbp': line_total_lbp,
                 'batch_no': getattr(ln, 'batch_no', None),
                 'expiry_date': getattr(ln, 'expiry_date', None),
+                'supplier_item_code': getattr(ln, 'supplier_item_code', None),
+                'supplier_item_name': getattr(ln, 'supplier_item_name', None),
                 # Optional upstream document link fields (3-way matching).
                 'purchase_order_line_id': getattr(ln, 'purchase_order_line_id', None),
                 'goods_receipt_line_id': getattr(ln, 'goods_receipt_line_id', None),
@@ -425,6 +483,9 @@ class SupplierInvoiceDraftLineIn(BaseModel):
     unit_cost_lbp: Decimal = Decimal("0")
     batch_no: Optional[str] = None
     expiry_date: Optional[date] = None
+    # Preserve supplier-side identifiers/names when known (used by AI import + matching).
+    supplier_item_code: Optional[str] = None
+    supplier_item_name: Optional[str] = None
 
 
 class SupplierInvoiceDraftIn(BaseModel):
@@ -480,6 +541,558 @@ class SupplierPaymentIn(BaseModel):
     auth_code: Optional[str] = None
     provider: Optional[str] = None
     settlement_currency: Optional[CurrencyCode] = None
+
+
+@router.post("/invoices/drafts/import-file", dependencies=[Depends(require_permission("purchases:write"))])
+def import_supplier_invoice_draft_from_file(
+    file: UploadFile = File(...),
+    exchange_rate: Optional[Decimal] = Form(None),
+    tax_code_id: Optional[str] = Form(None),
+    auto_create_supplier: bool = Form(True),
+    auto_create_items: bool = Form(True),
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    """
+    Create a draft Supplier Invoice from an uploaded image/PDF.
+    - Always stores the file as a document attachment on the created draft invoice.
+    - Best-effort AI extraction when OPENAI_API_KEY is configured.
+    - Preserves supplier-provided item names/codes on invoice lines for future matching.
+    """
+    raw = file.file.read() or b""
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="attachment too large (max 5MB in v1)")
+
+    filename = (file.filename or "purchase-invoice").strip() or "purchase-invoice"
+    content_type = (file.content_type or "application/octet-stream").strip() or "application/octet-stream"
+    tax_code_id = (tax_code_id or "").strip() or None
+
+    warnings: list[str] = []
+    extracted: dict | None = None
+    attachment_id = None
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+
+        # Phase 1: create the draft invoice + attach the file (always).
+        with conn.transaction():
+            with conn.cursor() as cur:
+                ex = Decimal(str(exchange_rate or 0)) if exchange_rate is not None else _default_exchange_rate(cur, company_id)
+                if ex <= 0:
+                    ex = _default_exchange_rate(cur, company_id)
+
+                invoice_no = _next_doc_no(cur, company_id, "PI")
+                inv_date = date.today()
+                due_date = inv_date
+
+                cur.execute(
+                    """
+                    INSERT INTO supplier_invoices
+                      (id, company_id, invoice_no, supplier_ref, supplier_id, goods_receipt_id, status,
+                       total_usd, total_lbp, exchange_rate, source_event_id,
+                       invoice_date, due_date, tax_code_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, NULL, NULL, NULL, 'draft',
+                       0, 0, %s, NULL,
+                       %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (company_id, invoice_no, ex, inv_date, due_date, tax_code_id),
+                )
+                invoice_id = cur.fetchone()["id"]
+
+                sha = hashlib.sha256(raw).hexdigest() if raw else None
+                cur.execute(
+                    """
+                    INSERT INTO document_attachments
+                      (id, company_id, entity_type, entity_id, filename, content_type, size_bytes, sha256, bytes, uploaded_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, 'supplier_invoice', %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (company_id, invoice_id, filename, content_type, len(raw), sha, raw, user["user_id"]),
+                )
+                attachment_id = cur.fetchone()["id"]
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_file_uploaded', 'supplier_invoice', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        invoice_id,
+                        json.dumps({"invoice_no": invoice_no, "attachment_id": str(attachment_id), "filename": filename, "content_type": content_type}),
+                    ),
+                )
+
+        # Phase 2: best-effort extraction + draft filling.
+        try:
+            if os.environ.get("OPENAI_API_KEY"):
+                if content_type.lower().startswith("image/"):
+                    extracted = openai_extract_purchase_invoice_from_image(raw=raw, content_type=content_type, filename=filename)
+                elif content_type.lower() == "application/pdf":
+                    # Best-effort PDF text extraction (works for text-based PDFs).
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as f:
+                        f.write(raw)
+                        f.flush()
+                        try:
+                            proc = subprocess.run(
+                                ["pdftotext", "-layout", f.name, "-"],
+                                capture_output=True,
+                                timeout=12,
+                                check=False,
+                            )
+                            pdf_text = (proc.stdout or b"").decode("utf-8", errors="replace").strip()
+                            if proc.returncode != 0:
+                                warnings.append("pdftotext failed (PDF may be image-only).")
+                            elif not pdf_text:
+                                warnings.append("PDF text extraction returned empty text (PDF may be image-only).")
+                            else:
+                                extracted = openai_extract_purchase_invoice_from_text(text=pdf_text, filename=filename)
+                        except FileNotFoundError:
+                            warnings.append("pdftotext is not installed; PDF import needs poppler-utils.")
+                else:
+                    warnings.append("Unsupported content type for AI extraction (use image/* or application/pdf).")
+            else:
+                warnings.append("OPENAI_API_KEY is not configured; created draft + attached file only.")
+        except Exception as ex:
+            warnings.append(f"AI extraction failed: {ex}")
+            extracted = None
+
+        if extracted:
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    # Exchange rate: user-provided > extracted > default.
+                    ex = Decimal(str(exchange_rate or 0)) if exchange_rate is not None else Decimal("0")
+                    try:
+                        ex2 = extracted.get("invoice", {}).get("exchange_rate")
+                        if ex <= 0 and ex2 is not None:
+                            ex = Decimal(str(ex2 or 0))
+                    except Exception:
+                        pass
+                    if ex <= 0:
+                        ex = _default_exchange_rate(cur, company_id)
+
+                    supplier_id = None
+                    supplier_created = False
+                    supplier_name = (extracted.get("supplier", {}) or {}).get("name")
+                    supplier_name = (supplier_name or "").strip() or None
+
+                    if supplier_name:
+                        # Match supplier by exact name, then ILIKE.
+                        cur.execute(
+                            "SELECT id FROM suppliers WHERE company_id=%s AND lower(name)=lower(%s) ORDER BY created_at ASC LIMIT 1",
+                            (company_id, supplier_name),
+                        )
+                        r = cur.fetchone()
+                        if r:
+                            supplier_id = r["id"]
+                        else:
+                            cur.execute(
+                                "SELECT id FROM suppliers WHERE company_id=%s AND name ILIKE %s ORDER BY created_at ASC LIMIT 1",
+                                (company_id, f"%{supplier_name}%"),
+                            )
+                            r = cur.fetchone()
+                            supplier_id = r["id"] if r else None
+
+                    if not supplier_id and supplier_name and auto_create_supplier:
+                        # Require suppliers:write only when we need to create.
+                        require_permission("suppliers:write")(company_id=company_id, user=user)
+                        vat_no = ((extracted.get("supplier", {}) or {}).get("vat_no") or "").strip() or None
+                        phone = ((extracted.get("supplier", {}) or {}).get("phone") or "").strip() or None
+                        email = ((extracted.get("supplier", {}) or {}).get("email") or "").strip() or None
+                        cur.execute(
+                            """
+                            INSERT INTO suppliers
+                              (id, company_id, name, phone, email, payment_terms_days, party_type, vat_no, is_active)
+                            VALUES
+                              (gen_random_uuid(), %s, %s, %s, %s, 0, 'business', %s, true)
+                            RETURNING id
+                            """,
+                            (company_id, supplier_name, phone, email, vat_no),
+                        )
+                        supplier_id = cur.fetchone()["id"]
+                        supplier_created = True
+                        cur.execute(
+                            """
+                            INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                            VALUES (gen_random_uuid(), %s, %s, 'supplier_create_ai', 'supplier', %s, %s::jsonb)
+                            """,
+                            (company_id, user["user_id"], supplier_id, json.dumps({"name": supplier_name, "source": "purchase_invoice_import"})),
+                        )
+
+                    inv = extracted.get("invoice", {}) or {}
+                    supplier_ref = (inv.get("supplier_ref") or inv.get("invoice_no") or "").strip() or None
+                    inv_date = None
+                    due_date = None
+                    try:
+                        if inv.get("invoice_date"):
+                            inv_date = date.fromisoformat(str(inv.get("invoice_date"))[:10])
+                    except Exception:
+                        warnings.append("invoice_date could not be parsed; kept today.")
+                    try:
+                        if inv.get("due_date"):
+                            due_date = date.fromisoformat(str(inv.get("due_date"))[:10])
+                    except Exception:
+                        warnings.append("due_date could not be parsed; will compute from terms.")
+
+                    if not inv_date:
+                        inv_date = date.today()
+
+                    if not due_date and supplier_id:
+                        cur.execute(
+                            "SELECT payment_terms_days FROM suppliers WHERE company_id=%s AND id=%s",
+                            (company_id, supplier_id),
+                        )
+                        srow = cur.fetchone()
+                        terms = int(srow.get("payment_terms_days") or 0) if srow else 0
+                        due_date = inv_date + timedelta(days=terms) if terms > 0 else inv_date
+                    if not due_date:
+                        due_date = inv_date
+
+                    # Fill header.
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoices
+                        SET supplier_id = %s,
+                            supplier_ref = %s,
+                            exchange_rate = %s,
+                            invoice_date = %s,
+                            due_date = %s
+                        WHERE company_id = %s AND id = %s
+                        """,
+                        (supplier_id, supplier_ref, ex, inv_date, due_date, company_id, invoice_id),
+                    )
+
+                    # Insert lines (delete any existing just in case).
+                    cur.execute("DELETE FROM supplier_invoice_lines WHERE company_id=%s AND supplier_invoice_id=%s", (company_id, invoice_id))
+
+                    created_items = 0
+                    price_changes: list[dict] = []
+                    for idx, ln in enumerate(extracted.get("lines") or []):
+                        qty = Decimal(str(ln.get("qty") or 0))
+                        unit_price = Decimal(str(ln.get("unit_price") or 0))
+                        if qty <= 0 or unit_price <= 0:
+                            continue
+
+                        line_currency = (ln.get("currency") or inv.get("currency") or (extracted.get("totals", {}) or {}).get("currency") or "").strip().upper()
+                        if line_currency not in {"USD", "LBP"}:
+                            line_currency = "USD"  # safe default (we keep the raw supplier name/code anyway)
+
+                        unit_usd = unit_price if line_currency == "USD" else (unit_price / ex if ex else Decimal("0"))
+                        unit_lbp = unit_price if line_currency == "LBP" else (unit_price * ex)
+                        unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
+                        line_total_usd = qty * unit_usd
+                        line_total_lbp = qty * unit_lbp
+
+                        supplier_item_code = (ln.get("supplier_item_code") or "").strip() or None
+                        supplier_item_name = (ln.get("supplier_item_name") or "").strip() or None
+                        ncode = _norm_code(supplier_item_code)
+                        nname = _norm_name(supplier_item_name)
+
+                        item_id = None
+                        if supplier_id and ncode:
+                            cur.execute(
+                                """
+                                SELECT item_id
+                                FROM supplier_item_aliases
+                                WHERE company_id=%s AND supplier_id=%s AND normalized_code=%s
+                                ORDER BY last_seen_at DESC
+                                LIMIT 1
+                                """,
+                                (company_id, supplier_id, ncode),
+                            )
+                            r = cur.fetchone()
+                            item_id = r["item_id"] if r else None
+
+                        if not item_id and ncode:
+                            cur.execute("SELECT id FROM items WHERE company_id=%s AND upper(sku)=upper(%s) LIMIT 1", (company_id, ncode))
+                            r = cur.fetchone()
+                            item_id = r["id"] if r else None
+                            if not item_id:
+                                cur.execute(
+                                    "SELECT item_id FROM item_barcodes WHERE company_id=%s AND barcode=%s ORDER BY is_primary DESC LIMIT 1",
+                                    (company_id, ncode),
+                                )
+                                r = cur.fetchone()
+                                item_id = r["item_id"] if r else None
+
+                        if not item_id and nname:
+                            # Very lightweight matching: direct substring on name.
+                            cur.execute(
+                                "SELECT id FROM items WHERE company_id=%s AND lower(name) LIKE %s ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+                                (company_id, f"%{nname}%"),
+                            )
+                            r = cur.fetchone()
+                            item_id = r["id"] if r else None
+
+                        if not item_id and auto_create_items:
+                            require_permission("items:write")(company_id=company_id, user=user)
+                            # SKU: prefer supplier code if it looks usable; otherwise generate.
+                            sku = None
+                            if ncode:
+                                sku = ncode[:64]
+                                cur.execute("SELECT 1 FROM items WHERE company_id=%s AND upper(sku)=upper(%s) LIMIT 1", (company_id, sku))
+                                if cur.fetchone():
+                                    sku = None
+                            if not sku:
+                                sku = f"AUTO-{uuid.uuid4().hex[:8].upper()}"
+                            name = _clean_item_name(supplier_item_name or supplier_item_code or "New Item")
+                            cur.execute(
+                                """
+                                INSERT INTO items (id, company_id, sku, barcode, name, item_type, tags, unit_of_measure, tax_code_id, reorder_point, reorder_qty, is_active)
+                                VALUES (gen_random_uuid(), %s, %s, NULL, %s, 'stocked', NULL, 'EA', NULL, 0, 0, true)
+                                RETURNING id
+                                """,
+                                (company_id, sku, name),
+                            )
+                            item_id = cur.fetchone()["id"]
+                            created_items += 1
+                            cur.execute(
+                                """
+                                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                                VALUES (gen_random_uuid(), %s, %s, 'item_create_ai', 'item', %s, %s::jsonb)
+                                """,
+                                (company_id, user["user_id"], item_id, json.dumps({"sku": sku, "name": name, "source": "purchase_invoice_import"})),
+                            )
+
+                        if not item_id:
+                            warnings.append(f"line {idx+1}: could not match/create item (missing items:write?)")
+                            continue
+
+                        # Persist supplier->item mapping and last cost when possible.
+                        if supplier_id:
+                            # Capture price deltas before updating last_cost.
+                            try:
+                                cur.execute(
+                                    """
+                                    SELECT last_cost_usd, last_cost_lbp
+                                    FROM item_suppliers
+                                    WHERE company_id=%s AND item_id=%s AND supplier_id=%s
+                                    """,
+                                    (company_id, item_id, supplier_id),
+                                )
+                                prev = cur.fetchone()
+                                prev_usd = Decimal(str(prev.get("last_cost_usd") or 0)) if prev else Decimal("0")
+                                prev_lbp = Decimal(str(prev.get("last_cost_lbp") or 0)) if prev else Decimal("0")
+                                if prev_usd > 0 and unit_usd > prev_usd * Decimal("1.05"):
+                                    pct = (unit_usd - prev_usd) / prev_usd
+                                    # Best-effort selling price lookup (for margin impact).
+                                    cur.execute(
+                                        """
+                                        SELECT price_usd, price_lbp
+                                        FROM item_prices
+                                        WHERE item_id = %s
+                                          AND effective_from <= CURRENT_DATE
+                                          AND (effective_to IS NULL OR effective_to >= CURRENT_DATE)
+                                        ORDER BY effective_from DESC
+                                        LIMIT 1
+                                        """,
+                                        (item_id,),
+                                    )
+                                    pr = cur.fetchone() or {}
+                                    sell_usd = Decimal(str(pr.get("price_usd") or 0))
+                                    margin_before = ((sell_usd - prev_usd) / sell_usd) if sell_usd > 0 else None
+                                    margin_after = ((sell_usd - unit_usd) / sell_usd) if sell_usd > 0 else None
+                                    price_changes.append(
+                                        {
+                                            "item_id": str(item_id),
+                                            "supplier_item_code": supplier_item_code,
+                                            "supplier_item_name": supplier_item_name,
+                                            "prev_unit_cost_usd": str(prev_usd),
+                                            "new_unit_cost_usd": str(unit_usd),
+                                            "pct_increase": float(pct),
+                                            "sell_price_usd": str(sell_usd) if sell_usd > 0 else None,
+                                            "margin_before": (float(margin_before) if margin_before is not None else None),
+                                            "margin_after": (float(margin_after) if margin_after is not None else None),
+                                        }
+                                    )
+                                elif prev_lbp > 0 and unit_lbp > prev_lbp * Decimal("1.05"):
+                                    pct = (unit_lbp - prev_lbp) / prev_lbp
+                                    price_changes.append(
+                                        {
+                                            "item_id": str(item_id),
+                                            "supplier_item_code": supplier_item_code,
+                                            "supplier_item_name": supplier_item_name,
+                                            "prev_unit_cost_lbp": str(prev_lbp),
+                                            "new_unit_cost_lbp": str(unit_lbp),
+                                            "pct_increase": float(pct),
+                                        }
+                                    )
+                            except Exception:
+                                pass
+
+                            cur.execute(
+                                """
+                                INSERT INTO item_suppliers (id, company_id, item_id, supplier_id, is_primary, lead_time_days, min_order_qty, last_cost_usd, last_cost_lbp)
+                                VALUES (gen_random_uuid(), %s, %s, %s, false, 0, 0, %s, %s)
+                                ON CONFLICT (company_id, item_id, supplier_id) DO UPDATE
+                                SET last_cost_usd = EXCLUDED.last_cost_usd,
+                                    last_cost_lbp = EXCLUDED.last_cost_lbp
+                                """,
+                                (company_id, item_id, supplier_id, unit_usd, unit_lbp),
+                            )
+
+                            if ncode or nname:
+                                if ncode:
+                                    cur.execute(
+                                        """
+                                        INSERT INTO supplier_item_aliases
+                                          (id, company_id, supplier_id, item_id,
+                                           supplier_item_code, supplier_item_name,
+                                           normalized_code, normalized_name,
+                                           last_unit_cost_usd, last_unit_cost_lbp, last_seen_at)
+                                        VALUES
+                                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                                        ON CONFLICT (company_id, supplier_id, normalized_code)
+                                        WHERE normalized_code IS NOT NULL AND normalized_code <> ''
+                                        DO UPDATE SET item_id = EXCLUDED.item_id,
+                                                      supplier_item_name = COALESCE(EXCLUDED.supplier_item_name, supplier_item_aliases.supplier_item_name),
+                                                      normalized_name = COALESCE(EXCLUDED.normalized_name, supplier_item_aliases.normalized_name),
+                                                      last_unit_cost_usd = EXCLUDED.last_unit_cost_usd,
+                                                      last_unit_cost_lbp = EXCLUDED.last_unit_cost_lbp,
+                                                      last_seen_at = now()
+                                        """,
+                                        (company_id, supplier_id, item_id, supplier_item_code, supplier_item_name, ncode, nname, unit_usd, unit_lbp),
+                                    )
+                                else:
+                                    # No stable code; keep a history row (name-only matching can evolve later).
+                                    cur.execute(
+                                        """
+                                        INSERT INTO supplier_item_aliases
+                                          (id, company_id, supplier_id, item_id,
+                                           supplier_item_code, supplier_item_name,
+                                           normalized_code, normalized_name,
+                                           last_unit_cost_usd, last_unit_cost_lbp, last_seen_at)
+                                        VALUES
+                                          (gen_random_uuid(), %s, %s, %s, %s, %s, NULL, %s, %s, %s, now())
+                                        """,
+                                        (company_id, supplier_id, item_id, supplier_item_code, supplier_item_name, nname, unit_usd, unit_lbp),
+                                    )
+
+                        cur.execute(
+                            """
+                            INSERT INTO supplier_invoice_lines
+                              (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
+                               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                               supplier_item_code, supplier_item_name)
+                            VALUES
+                              (gen_random_uuid(), %s, %s, NULL, %s, NULL, %s,
+                               %s, %s, %s, %s,
+                               %s, %s)
+                            """,
+                            (
+                                company_id,
+                                invoice_id,
+                                item_id,
+                                qty,
+                                unit_usd,
+                                unit_lbp,
+                                line_total_usd,
+                                line_total_lbp,
+                                supplier_item_code,
+                                supplier_item_name,
+                            ),
+                        )
+
+                    if price_changes:
+                        key = f"pi:{invoice_id}"
+                        cur.execute(
+                            """
+                            SELECT 1
+                            FROM ai_recommendations
+                            WHERE company_id=%s
+                              AND agent_code='AI_PURCHASE_INVOICE_INSIGHTS'
+                              AND status='pending'
+                              AND recommendation_json->>'key'=%s
+                            """,
+                            (company_id, key),
+                        )
+                        if not cur.fetchone():
+                            rec_payload = {
+                                "kind": "purchase_invoice_insights",
+                                "key": key,
+                                "invoice_id": str(invoice_id),
+                                "supplier_id": (str(supplier_id) if supplier_id else None),
+                                "invoice_no": inv.get("invoice_no") or None,
+                                "supplier_ref": supplier_ref,
+                                "price_changes": price_changes,
+                                "suggestions": [
+                                    "Review selling prices for impacted items (margin may have changed).",
+                                    "If you price-protect key wholesale clients, consider notifying them proactively.",
+                                    "If the increase is temporary, consider alternative suppliers or negotiated terms.",
+                                ],
+                            }
+                            cur.execute(
+                                """
+                                INSERT INTO ai_recommendations (id, company_id, agent_code, recommendation_json, status)
+                                VALUES (gen_random_uuid(), %s, 'AI_PURCHASE_INVOICE_INSIGHTS', %s::jsonb, 'pending')
+                                """,
+                                (company_id, json.dumps(rec_payload)),
+                            )
+
+                    # Recompute totals + tax.
+                    cur.execute(
+                        """
+                        SELECT COALESCE(SUM(line_total_usd),0) AS base_usd, COALESCE(SUM(line_total_lbp),0) AS base_lbp
+                        FROM supplier_invoice_lines
+                        WHERE company_id = %s AND supplier_invoice_id = %s
+                        """,
+                        (company_id, invoice_id),
+                    )
+                    sums = cur.fetchone() or {}
+                    base_usd = Decimal(str(sums.get("base_usd") or 0))
+                    base_lbp = Decimal(str(sums.get("base_lbp") or 0))
+
+                    tax_rate = Decimal("0")
+                    if tax_code_id:
+                        cur.execute("SELECT rate FROM tax_codes WHERE company_id=%s AND id=%s", (company_id, tax_code_id))
+                        r = cur.fetchone()
+                        if r:
+                            tax_rate = Decimal(str(r["rate"] or 0))
+                    tax_lbp = base_lbp * tax_rate
+                    tax_usd = (tax_lbp / ex) if ex else Decimal("0")
+                    total_usd = base_usd + tax_usd
+                    total_lbp = base_lbp + tax_lbp
+
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoices
+                        SET total_usd=%s, total_lbp=%s, exchange_rate=%s
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (total_usd, total_lbp, ex, company_id, invoice_id),
+                    )
+
+                    cur.execute(
+                        """
+                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                        VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_ai_filled', 'supplier_invoice', %s, %s::jsonb)
+                        """,
+                        (
+                            company_id,
+                            user["user_id"],
+                            invoice_id,
+                            json.dumps(
+                                {
+                                    "supplier_id": (str(supplier_id) if supplier_id else None),
+                                    "supplier_created": supplier_created,
+                                    "created_items": created_items,
+                                    "warnings": warnings,
+                                }
+                            ),
+                        ),
+                    )
+
+        return {
+            "id": invoice_id,
+            "invoice_no": invoice_no,
+            "attachment_id": attachment_id,
+            "ai_extracted": bool(extracted),
+            "warnings": warnings,
+        }
 
 @router.get("/payments", dependencies=[Depends(require_permission("purchases:read"))])
 def list_supplier_payments(
@@ -689,7 +1302,8 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
                 """
                 SELECT l.id, l.goods_receipt_line_id, l.item_id, it.sku AS item_sku, it.name AS item_name,
                        l.qty, l.unit_cost_usd, l.unit_cost_lbp, l.line_total_usd, l.line_total_lbp,
-                       l.batch_id, b.batch_no, b.expiry_date, b.status AS batch_status
+                       l.batch_id, b.batch_no, b.expiry_date, b.status AS batch_status,
+                       l.supplier_item_code, l.supplier_item_name
                 FROM supplier_invoice_lines l
                 LEFT JOIN batches b ON b.id = l.batch_id
                 LEFT JOIN items it
@@ -2326,9 +2940,10 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                         """
                         INSERT INTO supplier_invoice_lines
                           (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                           supplier_item_code, supplier_item_name)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             company_id,
@@ -2341,6 +2956,8 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                             ln["unit_cost_lbp"],
                             ln["line_total_usd"],
                             ln["line_total_lbp"],
+                            ((ln.get("supplier_item_code") or "").strip() or None) if isinstance(ln.get("supplier_item_code"), str) else ln.get("supplier_item_code"),
+                            ((ln.get("supplier_item_name") or "").strip() or None) if isinstance(ln.get("supplier_item_name"), str) else ln.get("supplier_item_name"),
                         ),
                     )
 
@@ -2407,9 +3024,10 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                             """
                             INSERT INTO supplier_invoice_lines
                               (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
-                               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                               supplier_item_code, supplier_item_name)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """,
                             (
                                 company_id,
@@ -2422,6 +3040,8 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                                 ln['unit_cost_lbp'],
                                 ln['line_total_usd'],
                                 ln['line_total_lbp'],
+                                ((ln.get("supplier_item_code") or "").strip() or None) if isinstance(ln.get("supplier_item_code"), str) else ln.get("supplier_item_code"),
+                                ((ln.get("supplier_item_name") or "").strip() or None) if isinstance(ln.get("supplier_item_name"), str) else ln.get("supplier_item_name"),
                             ),
                         )
                 else:

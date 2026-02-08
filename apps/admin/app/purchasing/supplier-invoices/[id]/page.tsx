@@ -43,6 +43,8 @@ type InvoiceLine = {
   item_id: string;
   item_sku?: string | null;
   item_name?: string | null;
+  supplier_item_code?: string | null;
+  supplier_item_name?: string | null;
   qty: string | number;
   unit_cost_usd: string | number;
   unit_cost_lbp: string | number;
@@ -52,6 +54,24 @@ type InvoiceLine = {
   batch_no: string | null;
   expiry_date: string | null;
   batch_status?: string | null;
+};
+
+type AttachmentRow = {
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256?: string | null;
+  uploaded_at: string;
+  uploaded_by_user_id?: string | null;
+};
+
+type AiRecRow = {
+  id: string;
+  agent_code: string;
+  status: string;
+  recommendation_json: any;
+  created_at: string;
 };
 
 type SupplierPayment = {
@@ -103,6 +123,8 @@ function SupplierInvoiceShowInner() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
+  const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
+  const [aiInsight, setAiInsight] = useState<AiRecRow | null>(null);
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodMapping[]>([]);
 
@@ -139,10 +161,30 @@ function SupplierInvoiceShowInner() {
     try {
       const [det, pm] = await Promise.all([
         apiGet<InvoiceDetail>(`/purchases/invoices/${id}`),
-        apiGet<{ methods: PaymentMethodMapping[] }>("/config/payment-methods").catch(() => ({ methods: [] as PaymentMethodMapping[] }))
+        apiGet<{ methods: PaymentMethodMapping[] }>("/config/payment-methods").catch(() => ({ methods: [] as PaymentMethodMapping[] })),
       ]);
       setDetail(det);
       setPaymentMethods(pm.methods || []);
+
+      // Attachments are optional; don't block the page if attachment permissions are missing.
+      try {
+        const a = await apiGet<{ attachments: AttachmentRow[] }>(`/attachments?entity_type=supplier_invoice&entity_id=${encodeURIComponent(id)}`);
+        setAttachments(a.attachments || []);
+      } catch {
+        setAttachments([]);
+      }
+
+      // AI insights are optional; don't block if ai:read is missing.
+      try {
+        const ai = await apiGet<{ recommendations: AiRecRow[] }>(
+          "/ai/recommendations?status=pending&agent_code=AI_PURCHASE_INVOICE_INSIGHTS&limit=200"
+        );
+        const hit = (ai.recommendations || []).find((r) => String((r as any)?.recommendation_json?.invoice_id || "") === String(id));
+        setAiInsight(hit || null);
+      } catch {
+        setAiInsight(null);
+      }
+
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -393,7 +435,7 @@ function SupplierInvoiceShowInner() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-	              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
 	                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
 	                  <p className="text-xs text-fg-muted">Supplier</p>
 	                  <p className="text-sm font-medium text-foreground">{detail.invoice.supplier_name || detail.invoice.supplier_id || "-"}</p>
@@ -425,6 +467,101 @@ function SupplierInvoiceShowInner() {
                   <p className="text-sm font-medium text-foreground">{detail.invoice.status}</p>
                 </div>
               </div>
+
+              {attachments.length ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Attachments</CardTitle>
+                    <CardDescription>Original documents linked to this invoice.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="ui-table-wrap">
+                      <table className="ui-table">
+                        <thead className="ui-thead">
+                          <tr>
+                            <th className="px-3 py-2">File</th>
+                            <th className="px-3 py-2">Type</th>
+                            <th className="px-3 py-2">Uploaded</th>
+                            <th className="px-3 py-2 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {attachments.slice(0, 10).map((a) => (
+                            <tr key={a.id} className="border-t border-border-subtle">
+                              <td className="px-3 py-2">
+                                <div className="text-xs font-medium text-foreground">{a.filename}</div>
+                                <div className="font-mono text-[10px] text-fg-subtle">{a.id}</div>
+                              </td>
+                              <td className="px-3 py-2 font-mono text-xs text-fg-muted">{a.content_type}</td>
+                              <td className="px-3 py-2 font-mono text-xs text-fg-muted">{fmtIso(a.uploaded_at)}</td>
+                              <td className="px-3 py-2 text-right">
+                                <div className="flex justify-end gap-2">
+                                  <Button asChild size="sm" variant="outline">
+                                    <a href={`/api/attachments/${a.id}/view`} target="_blank" rel="noreferrer">
+                                      View
+                                    </a>
+                                  </Button>
+                                  <Button asChild size="sm" variant="outline">
+                                    <a href={`/api/attachments/${a.id}/download`} target="_blank" rel="noreferrer">
+                                      Download
+                                    </a>
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
+
+              {aiInsight ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">AI: Price Impact</CardTitle>
+                    <CardDescription>Signals detected from this invoice (review recommended).</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="ui-table-wrap">
+                      <table className="ui-table">
+                        <thead className="ui-thead">
+                          <tr>
+                            <th className="px-3 py-2">Item</th>
+                            <th className="px-3 py-2 text-right">Prev</th>
+                            <th className="px-3 py-2 text-right">New</th>
+                            <th className="px-3 py-2 text-right">% +</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(((aiInsight as any).recommendation_json?.price_changes as any[]) || []).slice(0, 10).map((c, idx) => (
+                            <tr key={String(c.item_id || idx)} className="border-t border-border-subtle align-top">
+                              <td className="px-3 py-2 text-xs">
+                                <div className="font-mono text-[10px] text-fg-subtle">{c.item_id}</div>
+                                <div className="text-xs text-foreground">
+                                  {c.supplier_item_code ? <span className="font-mono">{c.supplier_item_code}</span> : null}
+                                  {c.supplier_item_name ? <span>{c.supplier_item_code ? " · " : ""}{c.supplier_item_name}</span> : null}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{c.prev_unit_cost_usd || c.prev_unit_cost_lbp || "-"}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{c.new_unit_cost_usd || c.new_unit_cost_lbp || "-"}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">
+                                {typeof c.pct_increase === "number" ? `${(c.pct_increase * 100).toFixed(1)}%` : "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex justify-end">
+                      <Button asChild variant="outline" size="sm">
+                        <a href="/automation/ai-hub">Open AI Hub</a>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
 
               {detail.invoice.is_on_hold ? (
                 <Card>
@@ -465,9 +602,17 @@ function SupplierInvoiceShowInner() {
                           <tr key={l.id} className="ui-tr-hover">
                             <td className="px-3 py-2">
                               {l.item_sku || l.item_name ? (
-                                <span>
-                                  <span className="font-mono text-xs">{l.item_sku || "-"}</span> · {l.item_name || "-"}
-                                </span>
+                                <div>
+                                  <div>
+                                    <span className="font-mono text-xs">{l.item_sku || "-"}</span> · {l.item_name || "-"}
+                                  </div>
+                                  {l.supplier_item_code || l.supplier_item_name ? (
+                                    <div className="mt-1 text-[10px] text-fg-subtle">
+                                      Supplier: <span className="font-mono">{l.supplier_item_code || "-"}</span>
+                                      {l.supplier_item_name ? <span> · {l.supplier_item_name}</span> : null}
+                                    </div>
+                                  ) : null}
+                                </div>
                               ) : (
                                 <span className="font-mono text-xs">{l.item_id}</span>
                               )}
