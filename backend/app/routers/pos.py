@@ -331,6 +331,7 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
 @router.get("/catalog/delta")
 def catalog_delta(
     since: datetime,
+    since_id: Optional[uuid.UUID] = None,
     limit: int = 5000,
     company_id: Optional[uuid.UUID] = None,
     device=Depends(require_device),
@@ -356,78 +357,104 @@ def catalog_delta(
             default_pl_id = srow["id"] if srow else None
             cur.execute(
                 """
-                SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure,
-                       COALESCE(plp.price_usd, p.price_usd) AS price_usd,
-                       COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
-                       COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes,
-                       GREATEST(
-                         i.updated_at,
-                         COALESCE(pm.last_price_created_at, i.updated_at),
-                         COALESCE(plm.last_pl_price_created_at, i.updated_at),
-                         COALESCE(bm.last_barcode_updated_at, i.updated_at)
-                       ) AS changed_at
-                FROM items i
-                LEFT JOIN LATERAL (
-                    SELECT price_usd, price_lbp
-                    FROM price_list_items pli
-                    WHERE pli.company_id = i.company_id
-                      AND pli.price_list_id = %s::uuid
-                      AND pli.item_id = i.id
-                      AND pli.effective_from <= CURRENT_DATE
-                      AND (pli.effective_to IS NULL OR pli.effective_to >= CURRENT_DATE)
-                    ORDER BY pli.effective_from DESC, pli.created_at DESC, pli.id DESC
-                    LIMIT 1
-                ) plp ON (%s::uuid IS NOT NULL)
-                LEFT JOIN LATERAL (
-                    SELECT price_usd, price_lbp
-                    FROM item_prices ip
-                    WHERE ip.item_id = i.id
-                      AND ip.effective_from <= CURRENT_DATE
-                      AND (ip.effective_to IS NULL OR ip.effective_to >= CURRENT_DATE)
-                    ORDER BY ip.effective_from DESC, ip.created_at DESC
-                    LIMIT 1
-                ) p ON true
-                LEFT JOIN LATERAL (
-                    SELECT MAX(created_at) AS last_price_created_at
-                    FROM item_prices ip
-                    WHERE ip.item_id = i.id
-                ) pm ON true
-                LEFT JOIN LATERAL (
-                    SELECT MAX(created_at) AS last_pl_price_created_at
-                    FROM price_list_items pli
-                    WHERE pli.company_id = i.company_id
-                      AND pli.price_list_id = %s::uuid
-                      AND pli.item_id = i.id
-                ) plm ON true
-                LEFT JOIN LATERAL (
-                    SELECT MAX(updated_at) AS last_barcode_updated_at
-                    FROM item_barcodes b
-                    WHERE b.company_id = i.company_id AND b.item_id = i.id
-                ) bm ON true
-                LEFT JOIN LATERAL (
-                    SELECT jsonb_agg(
-                        jsonb_build_object(
-                          'id', b.id,
-                          'barcode', b.barcode,
-                          'qty_factor', b.qty_factor,
-                          'label', b.label,
-                          'is_primary', b.is_primary
-                        )
-                        ORDER BY b.is_primary DESC, b.created_at ASC
-                    ) AS barcodes
-                    FROM item_barcodes b
-                    WHERE b.company_id = i.company_id AND b.item_id = i.id
-                ) bc ON true
-                WHERE i.updated_at > %s OR COALESCE(pm.last_price_created_at, 'epoch'::timestamptz) > %s
-                   OR COALESCE(bm.last_barcode_updated_at, 'epoch'::timestamptz) > %s
-                   OR COALESCE(plm.last_pl_price_created_at, 'epoch'::timestamptz) > %s
-                ORDER BY i.sku
+                WITH items_with_changed_at AS (
+                  SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure,
+                         COALESCE(plp.price_usd, p.price_usd) AS price_usd,
+                         COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
+                         COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes,
+                         GREATEST(
+                           i.updated_at,
+                           COALESCE(pm.last_price_created_at, i.updated_at),
+                           COALESCE(plm.last_pl_price_created_at, i.updated_at),
+                           COALESCE(bm.last_barcode_updated_at, i.updated_at)
+                         ) AS changed_at
+                  FROM items i
+                  LEFT JOIN LATERAL (
+                      SELECT price_usd, price_lbp
+                      FROM price_list_items pli
+                      WHERE pli.company_id = i.company_id
+                        AND pli.price_list_id = %s::uuid
+                        AND pli.item_id = i.id
+                        AND pli.effective_from <= CURRENT_DATE
+                        AND (pli.effective_to IS NULL OR pli.effective_to >= CURRENT_DATE)
+                      ORDER BY pli.effective_from DESC, pli.created_at DESC, pli.id DESC
+                      LIMIT 1
+                  ) plp ON (%s::uuid IS NOT NULL)
+                  LEFT JOIN LATERAL (
+                      SELECT price_usd, price_lbp
+                      FROM item_prices ip
+                      WHERE ip.item_id = i.id
+                        AND ip.effective_from <= CURRENT_DATE
+                        AND (ip.effective_to IS NULL OR ip.effective_to >= CURRENT_DATE)
+                      ORDER BY ip.effective_from DESC, ip.created_at DESC
+                      LIMIT 1
+                  ) p ON true
+                  LEFT JOIN LATERAL (
+                      SELECT MAX(created_at) AS last_price_created_at
+                      FROM item_prices ip
+                      WHERE ip.item_id = i.id
+                  ) pm ON true
+                  LEFT JOIN LATERAL (
+                      SELECT MAX(created_at) AS last_pl_price_created_at
+                      FROM price_list_items pli
+                      WHERE pli.company_id = i.company_id
+                        AND pli.price_list_id = %s::uuid
+                        AND pli.item_id = i.id
+                  ) plm ON true
+                  LEFT JOIN LATERAL (
+                      SELECT MAX(updated_at) AS last_barcode_updated_at
+                      FROM item_barcodes b
+                      WHERE b.company_id = i.company_id AND b.item_id = i.id
+                  ) bm ON true
+                  LEFT JOIN LATERAL (
+                      SELECT jsonb_agg(
+                          jsonb_build_object(
+                            'id', b.id,
+                            'barcode', b.barcode,
+                            'qty_factor', b.qty_factor,
+                            'label', b.label,
+                            'is_primary', b.is_primary
+                          )
+                          ORDER BY b.is_primary DESC, b.created_at ASC
+                      ) AS barcodes
+                      FROM item_barcodes b
+                      WHERE b.company_id = i.company_id AND b.item_id = i.id
+                  ) bc ON true
+                  WHERE i.updated_at > %s OR COALESCE(pm.last_price_created_at, 'epoch'::timestamptz) > %s
+                     OR COALESCE(bm.last_barcode_updated_at, 'epoch'::timestamptz) > %s
+                     OR COALESCE(plm.last_pl_price_created_at, 'epoch'::timestamptz) > %s
+                )
+                SELECT *
+                FROM items_with_changed_at
+                WHERE changed_at > %s
+                   OR (%s::uuid IS NOT NULL AND changed_at = %s AND id > %s)
+                ORDER BY changed_at ASC, id ASC
                 LIMIT %s
                 """,
-                (default_pl_id, default_pl_id, default_pl_id, since, since, since, since, limit),
+                (
+                    default_pl_id,
+                    default_pl_id,
+                    default_pl_id,
+                    since,
+                    since,
+                    since,
+                    since,
+                    since,
+                    since_id,
+                    since,
+                    since_id,
+                    limit,
+                ),
             )
             rows = cur.fetchall()
-    return {"items": rows, "next_cursor": datetime.utcnow().isoformat()}
+    if rows:
+        last = rows[-1]
+        next_cursor = last["changed_at"].isoformat()
+        next_cursor_id = str(last["id"])
+    else:
+        next_cursor = since.isoformat()
+        next_cursor_id = str(since_id) if since_id else None
+    return {"items": rows, "next_cursor": next_cursor, "next_cursor_id": next_cursor_id}
 
 
 @router.get("/config")
@@ -951,6 +978,7 @@ def customers_catalog(device=Depends(require_device)):
 @router.get("/customers/catalog/delta")
 def customers_catalog_delta(
     since: datetime,
+    since_id: Optional[uuid.UUID] = None,
     limit: int = 5000,
     device=Depends(require_device),
 ):
@@ -971,14 +999,22 @@ def customers_catalog_delta(
                        price_list_id,
                        updated_at AS changed_at
                 FROM customers
-                WHERE company_id = %s AND updated_at > %s
-                ORDER BY updated_at ASC
+                WHERE company_id = %s
+                  AND (updated_at > %s OR (%s::uuid IS NOT NULL AND updated_at = %s AND id > %s))
+                ORDER BY updated_at ASC, id ASC
                 LIMIT %s
                 """,
-                (device["company_id"], since, limit),
+                (device["company_id"], since, since_id, since, since_id, limit),
             )
             rows = cur.fetchall()
-    return {"customers": rows, "next_cursor": datetime.utcnow().isoformat()}
+    if rows:
+        last = rows[-1]
+        next_cursor = last["changed_at"].isoformat()
+        next_cursor_id = str(last["id"])
+    else:
+        next_cursor = since.isoformat()
+        next_cursor_id = str(since_id) if since_id else None
+    return {"customers": rows, "next_cursor": next_cursor, "next_cursor_id": next_cursor_id}
 
 @router.get("/promotions/catalog")
 def promotions_catalog(device=Depends(require_device)):
@@ -1019,6 +1055,7 @@ def promotions_catalog(device=Depends(require_device)):
 @router.get("/promotions/delta")
 def promotions_delta(
     since: datetime,
+    since_id: Optional[uuid.UUID] = None,
     limit: int = 2000,
     device=Depends(require_device),
 ):
@@ -1041,7 +1078,8 @@ def promotions_delta(
                   WHERE p.company_id = %s AND p.is_active = true
                   GROUP BY p.id
                   HAVING GREATEST(p.updated_at, COALESCE(MAX(pi.updated_at), p.updated_at)) > %s
-                  ORDER BY changed_at ASC
+                      OR (%s::uuid IS NOT NULL AND GREATEST(p.updated_at, COALESCE(MAX(pi.updated_at), p.updated_at)) = %s AND p.id > %s)
+                  ORDER BY changed_at ASC, p.id ASC
                   LIMIT %s
                 )
                 SELECT p.id, p.code, p.name, p.starts_on, p.ends_on, p.is_active, p.priority, p.updated_at,
@@ -1063,12 +1101,19 @@ def promotions_delta(
                 LEFT JOIN promotion_items pi
                   ON pi.company_id = p.company_id AND pi.promotion_id = p.id
                 GROUP BY p.id, cp.changed_at
-                ORDER BY cp.changed_at ASC
+                ORDER BY cp.changed_at ASC, p.id ASC
                 """,
-                (device["company_id"], since, limit),
+                (device["company_id"], since, since_id, since, since_id, limit),
             )
             rows = cur.fetchall()
-    return {"promotions": rows, "next_cursor": datetime.utcnow().isoformat()}
+    if rows:
+        last = rows[-1]
+        next_cursor = last["changed_at"].isoformat()
+        next_cursor_id = str(last["id"])
+    else:
+        next_cursor = since.isoformat()
+        next_cursor_id = str(since_id) if since_id else None
+    return {"promotions": rows, "next_cursor": next_cursor, "next_cursor_id": next_cursor_id}
 
 
 @router.post("/cashiers/verify")
