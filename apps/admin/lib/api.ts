@@ -5,6 +5,18 @@ export type LoginResponse = {
   active_company_id?: string | null;
 };
 
+export class ApiError extends Error {
+  status: number;
+  body: unknown;
+
+  constructor(status: number, message: string, body: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+}
+
 const storageKeys = {
   companyId: "ahtrading.companyId",
   companies: "ahtrading.companies"
@@ -53,10 +65,45 @@ function headers(extra?: Record<string, string>) {
   return { ...h, ...(extra || {}) };
 }
 
+function extractJsonMessage(body: unknown): string {
+  if (!body || typeof body !== "object") return "";
+  const b = body as Record<string, unknown>;
+  const detail = b["detail"];
+  if (typeof detail === "string" && detail.trim()) return detail.trim();
+  const err = b["error"];
+  if (typeof err === "string" && err.trim()) return err.trim();
+  const msg = b["message"];
+  if (typeof msg === "string" && msg.trim()) return msg.trim();
+  return "";
+}
+
 async function handle(res: Response) {
   if (res.ok) return res;
-  const text = await res.text();
-  throw new Error(text || `Request failed: ${res.status}`);
+
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
+  let body: unknown = null;
+  let message = "";
+
+  if (ct.includes("application/json")) {
+    try {
+      body = await res.json();
+      message = extractJsonMessage(body);
+      if (!message) message = JSON.stringify(body);
+    } catch {
+      body = await res.text().catch(() => "");
+      if (typeof body === "string") message = body;
+    }
+  } else {
+    body = await res.text().catch(() => "");
+    if (typeof body === "string") message = body;
+  }
+
+  message = String(message || "").trim();
+  if (!message) message = `Request failed: ${res.status}`;
+  // Include status code (keeps logs/actionability high in the UI).
+  if (!message.startsWith("HTTP ")) message = `HTTP ${res.status}: ${message}`;
+
+  throw new ApiError(res.status, message, body);
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
