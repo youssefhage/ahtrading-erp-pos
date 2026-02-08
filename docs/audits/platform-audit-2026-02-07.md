@@ -97,6 +97,10 @@ Finding:
 Recommended fix:
 - Return `next_cursor` = max `changed_at` from rows, plus stable ordering and a tie-breaker (id).
 
+Status (2026-02-08):
+- Verified POS delta endpoints (`/pos/*/delta`) use `(changed_at, id)` ordering and return `next_cursor`/`next_cursor_id` from the last row observed (not `utcnow`).
+- Keep this as a standard for any future delta endpoints outside the POS router.
+
 ## Module Review: Implemented vs Missing Useful Data
 
 This section focuses on “variables” (fields/columns) and missing metadata that make the platform robust in real operations.
