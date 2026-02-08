@@ -147,6 +147,7 @@ Goal: reduce overwhelm and make navigation faster.
 ### Phase 1: Visual System Consistency (2-4 days)
 
 - Convert all remaining `slate-*`/`bg-white` to semantic tokens.
+- Extended design-token lint to also block Tailwind `sky-*` palette usage in TS/TSX (use `primary` tokens instead).
 - Implement `Page`, `PageHeader`, `Toolbar`, `EmptyState`.
 - Normalize tables and forms.
 
@@ -172,4 +173,3 @@ Goal: reduce overwhelm and make navigation faster.
 - Each document has one place to view "everything related to it".
 - Theme looks coherent across pages.
 - "Errors" become rare, and when they happen they tell the user what to do next.
-
