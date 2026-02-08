@@ -123,6 +123,7 @@ function iconForHref(href: string) {
     "/system/config": Settings2,
     "/system/branches": GitBranch,
     "/system/warehouses": Warehouse,
+    "/system/warehouse-locations": Warehouse,
     "/system/users": UserRoundCog,
     "/system/roles-permissions": ShieldCheck,
   };
@@ -239,6 +240,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Config", href: "/system/config" },
       { label: "Branches", href: "/system/branches" },
       { label: "Warehouses", href: "/system/warehouses" },
+      { label: "Warehouse Locations", href: "/system/warehouse-locations" },
       { label: "Users", href: "/system/users" },
       { label: "Audit Logs", href: "/system/audit-logs" },
       { label: "Roles", href: "/system/roles-permissions" }

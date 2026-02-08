@@ -794,6 +794,40 @@ def _expected_cash(
     sales_usd = Decimal(str(row["usd"] or 0))
     sales_lbp = Decimal(str(row["lbp"] or 0))
 
+    refunds_usd = Decimal("0")
+    refunds_lbp = Decimal("0")
+    if shift_id:
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(total_usd), 0) AS usd,
+                   COALESCE(SUM(total_lbp), 0) AS lbp
+            FROM sales_returns
+            WHERE company_id = %s
+              AND shift_id = %s
+              AND status = 'posted'
+              AND refund_method = ANY(%s)
+            """,
+            (company_id, shift_id, cash_methods),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(total_usd), 0) AS usd,
+                   COALESCE(SUM(total_lbp), 0) AS lbp
+            FROM sales_returns
+            WHERE company_id = %s
+              AND device_id = %s
+              AND created_at >= %s
+              AND status = 'posted'
+              AND refund_method = ANY(%s)
+            """,
+            (company_id, device_id, opened_at, cash_methods),
+        )
+    rrow = cur.fetchone()
+    if rrow:
+        refunds_usd = Decimal(str(rrow["usd"] or 0))
+        refunds_lbp = Decimal(str(rrow["lbp"] or 0))
+
     movements_usd = Decimal("0")
     movements_lbp = Decimal("0")
     if shift_id:
@@ -812,8 +846,8 @@ def _expected_cash(
             movements_usd = Decimal(str(m["usd"] or 0))
             movements_lbp = Decimal(str(m["lbp"] or 0))
 
-    expected_usd = Decimal(str(opening_cash_usd or 0)) + sales_usd + movements_usd
-    expected_lbp = Decimal(str(opening_cash_lbp or 0)) + sales_lbp + movements_lbp
+    expected_usd = Decimal(str(opening_cash_usd or 0)) + sales_usd + movements_usd - refunds_usd
+    expected_lbp = Decimal(str(opening_cash_lbp or 0)) + sales_lbp + movements_lbp - refunds_lbp
     return expected_usd, expected_lbp
 
 
@@ -873,6 +907,119 @@ def close_shift(shift_id: str, data: ShiftCloseIn, device=Depends(require_device
                 ),
             )
             return {"shift": cur.fetchone()}
+
+
+@router.get("/shifts/{shift_id}/cash-reconciliation", dependencies=[Depends(require_permission("pos:manage"))])
+def shift_cash_reconciliation(shift_id: str, company_id: str = Depends(get_company_id), _auth=Depends(require_company_access)):
+    """
+    Admin drill-down: expected vs counted cash for a shift, including sales, refunds and cash movements.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, device_id, status, opened_at,
+                       opening_cash_usd, opening_cash_lbp,
+                       closed_at,
+                       closing_cash_usd, closing_cash_lbp,
+                       expected_cash_usd, expected_cash_lbp,
+                       variance_usd, variance_lbp,
+                       notes
+                FROM pos_shifts
+                WHERE company_id=%s AND id=%s
+                """,
+                (company_id, shift_id),
+            )
+            sh = cur.fetchone()
+            if not sh:
+                raise HTTPException(status_code=404, detail="shift not found")
+
+            cur.execute(
+                """
+                SELECT method
+                FROM payment_method_mappings
+                WHERE company_id = %s AND role_code = 'CASH'
+                """,
+                (company_id,),
+            )
+            cash_methods = [r["method"] for r in cur.fetchall()] or []
+
+            sales_usd = Decimal("0")
+            sales_lbp = Decimal("0")
+            refunds_usd = Decimal("0")
+            refunds_lbp = Decimal("0")
+            if cash_methods:
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(sp.amount_usd), 0) AS usd,
+                           COALESCE(SUM(sp.amount_lbp), 0) AS lbp
+                    FROM sales_payments sp
+                    JOIN sales_invoices si ON si.id = sp.invoice_id
+                    WHERE si.company_id = %s AND si.shift_id = %s AND sp.method = ANY(%s)
+                    """,
+                    (company_id, shift_id, cash_methods),
+                )
+                row = cur.fetchone() or {}
+                sales_usd = Decimal(str(row.get("usd") or 0))
+                sales_lbp = Decimal(str(row.get("lbp") or 0))
+
+                cur.execute(
+                    """
+                    SELECT COALESCE(SUM(total_usd), 0) AS usd,
+                           COALESCE(SUM(total_lbp), 0) AS lbp
+                    FROM sales_returns
+                    WHERE company_id = %s
+                      AND shift_id = %s
+                      AND status = 'posted'
+                      AND refund_method = ANY(%s)
+                    """,
+                    (company_id, shift_id, cash_methods),
+                )
+                row = cur.fetchone() or {}
+                refunds_usd = Decimal(str(row.get("usd") or 0))
+                refunds_lbp = Decimal(str(row.get("lbp") or 0))
+
+            cur.execute(
+                """
+                SELECT movement_type,
+                       COALESCE(SUM(amount_usd), 0) AS usd,
+                       COALESCE(SUM(amount_lbp), 0) AS lbp
+                FROM pos_cash_movements
+                WHERE company_id=%s AND shift_id=%s
+                GROUP BY movement_type
+                ORDER BY movement_type
+                """,
+                (company_id, shift_id),
+            )
+            movements = cur.fetchall()
+
+            net_mov_usd = Decimal("0")
+            net_mov_lbp = Decimal("0")
+            for m in movements:
+                t = (m.get("movement_type") or "").strip().lower()
+                sign = Decimal("1") if t == "cash_in" else Decimal("-1")
+                net_mov_usd += sign * Decimal(str(m.get("usd") or 0))
+                net_mov_lbp += sign * Decimal(str(m.get("lbp") or 0))
+
+            opening_usd = Decimal(str(sh.get("opening_cash_usd") or 0))
+            opening_lbp = Decimal(str(sh.get("opening_cash_lbp") or 0))
+            expected_usd = opening_usd + sales_usd + net_mov_usd - refunds_usd
+            expected_lbp = opening_lbp + sales_lbp + net_mov_lbp - refunds_lbp
+
+            return {
+                "shift": sh,
+                "cash_methods": cash_methods,
+                "sales_cash_usd": sales_usd,
+                "sales_cash_lbp": sales_lbp,
+                "refunds_cash_usd": refunds_usd,
+                "refunds_cash_lbp": refunds_lbp,
+                "cash_movements": movements,
+                "cash_movements_net_usd": net_mov_usd,
+                "cash_movements_net_lbp": net_mov_lbp,
+                "expected_computed_usd": expected_usd,
+                "expected_computed_lbp": expected_lbp,
+            }
 
 
 class CashMovementIn(BaseModel):

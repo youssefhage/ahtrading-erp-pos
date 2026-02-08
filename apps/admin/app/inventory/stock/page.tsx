@@ -13,7 +13,12 @@ type StockRow = {
   batch_id?: string | null;
   batch_no?: string | null;
   expiry_date?: string | null;
+  qty_in?: string | number;
+  qty_out?: string | number;
   qty_on_hand: string | number;
+  reserved_qty?: string | number;
+  qty_available?: string | number;
+  incoming_qty?: string | number;
 };
 
 type Item = { id: string; sku: string; name: string };
@@ -88,6 +93,54 @@ export default function StockPage() {
         return "text-foreground";
       },
     });
+    if (!byBatch) {
+      cols.push({
+        id: "reserved_qty",
+        header: "Reserved",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number((r as any).reserved_qty || 0),
+        cell: (r) => Number((r as any).reserved_qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 }),
+        cellClassName: (r) => {
+          const n = Number((r as any).reserved_qty || 0);
+          if (n > 0) return "text-amber-700 dark:text-amber-200";
+          return "text-fg-subtle";
+        },
+      });
+      cols.push({
+        id: "qty_available",
+        header: "Available",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number((r as any).qty_available ?? (Number((r as any).qty_on_hand || 0) - Number((r as any).reserved_qty || 0))),
+        cell: (r) => {
+          const v = Number((r as any).qty_available ?? (Number((r as any).qty_on_hand || 0) - Number((r as any).reserved_qty || 0)));
+          return v.toLocaleString("en-US", { maximumFractionDigits: 3 });
+        },
+        cellClassName: (r) => {
+          const v = Number((r as any).qty_available ?? (Number((r as any).qty_on_hand || 0) - Number((r as any).reserved_qty || 0)));
+          if (v < 0) return "text-red-600";
+          if (v === 0) return "text-fg-subtle";
+          return "text-foreground";
+        },
+      });
+      cols.push({
+        id: "incoming_qty",
+        header: "Incoming",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number((r as any).incoming_qty || 0),
+        cell: (r) => Number((r as any).incoming_qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 }),
+        cellClassName: (r) => {
+          const n = Number((r as any).incoming_qty || 0);
+          if (n > 0) return "text-emerald-700 dark:text-emerald-200";
+          return "text-fg-subtle";
+        },
+      });
+    }
     return cols;
   }, [byBatch]);
 

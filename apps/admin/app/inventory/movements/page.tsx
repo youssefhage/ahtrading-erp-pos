@@ -14,6 +14,7 @@ type MoveRow = {
   id: string;
   item_id: string;
   warehouse_id: string;
+  location_id?: string | null;
   batch_id: string | null;
   qty_in: string | number;
   qty_out: string | number;
@@ -147,6 +148,7 @@ export default function InventoryMovementsPage() {
                     <th className="px-3 py-2">Created</th>
                     <th className="px-3 py-2">Item</th>
                     <th className="px-3 py-2">Warehouse</th>
+                    <th className="px-3 py-2">Location</th>
                     <th className="px-3 py-2 text-right">In</th>
                     <th className="px-3 py-2 text-right">Out</th>
                     <th className="px-3 py-2 text-right">Unit USD</th>
@@ -171,6 +173,9 @@ export default function InventoryMovementsPage() {
                           )}
                         </td>
                         <td className="px-3 py-2">{wh?.name || m.warehouse_id}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-fg-muted">
+                          {m.location_id ? String(m.location_id).slice(0, 8) : "-"}
+                        </td>
                         <td className="px-3 py-2 text-right font-mono text-xs">
                           {Number(m.qty_in || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
                         </td>
@@ -192,7 +197,7 @@ export default function InventoryMovementsPage() {
                   })}
                   {moves.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={9}>
                         No moves.
                       </td>
                     </tr>

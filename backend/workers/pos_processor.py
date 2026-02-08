@@ -128,6 +128,53 @@ def fetch_inventory_policy(cur, company_id: str) -> dict:
     return {"allow_negative_stock": allow_negative_stock}
 
 
+def resolve_allow_negative_stock(cur, company_id: str, item_id: str, warehouse_id: Optional[str]) -> bool:
+    """
+    Resolve the effective negative stock policy for an outbound allocation.
+
+    Precedence:
+    1) warehouses.allow_negative_stock (when not NULL)
+    2) items.allow_negative_stock (when not NULL)
+    3) company_settings key='inventory'.allow_negative_stock (default True for backward compatibility)
+    """
+    inv_policy = fetch_inventory_policy(cur, company_id)
+    default_allow = bool(inv_policy.get("allow_negative_stock"))
+
+    if not item_id:
+        return default_allow
+
+    if warehouse_id:
+        cur.execute(
+            """
+            SELECT i.allow_negative_stock AS item_allow,
+                   w.allow_negative_stock AS wh_allow
+            FROM items i
+            LEFT JOIN warehouses w
+              ON w.company_id = i.company_id AND w.id = %s
+            WHERE i.company_id = %s AND i.id = %s
+            """,
+            (warehouse_id, company_id, item_id),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT i.allow_negative_stock AS item_allow,
+                   NULL::boolean AS wh_allow
+            FROM items i
+            WHERE i.company_id = %s AND i.id = %s
+            """,
+            (company_id, item_id),
+        )
+    row = cur.fetchone() or {}
+    wh_allow = row.get("wh_allow")
+    if wh_allow is not None:
+        return bool(wh_allow)
+    item_allow = row.get("item_allow")
+    if item_allow is not None:
+        return bool(item_allow)
+    return default_allow
+
+
 def apply_loyalty_points(
     cur,
     company_id: str,
@@ -749,10 +796,11 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     inv_policy = fetch_inventory_policy(cur, company_id)
     allow_negative_stock_default = bool(inv_policy.get("allow_negative_stock"))
     warehouse_min_days_default = 0
+    warehouse_allow_negative = None
     if warehouse_id:
         cur.execute(
             """
-            SELECT min_shelf_life_days_for_sale_default
+            SELECT min_shelf_life_days_for_sale_default, allow_negative_stock
             FROM warehouses
             WHERE company_id=%s AND id=%s
             """,
@@ -761,6 +809,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         wrow = cur.fetchone()
         if wrow:
             warehouse_min_days_default = int(wrow.get("min_shelf_life_days_for_sale_default") or 0)
+            warehouse_allow_negative = wrow.get("allow_negative_stock")
     item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
     item_policy = {}
     if item_ids:
@@ -786,7 +835,12 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             min_exp = invoice_date
         allow_unbatched = not (bool(pol.get("track_batches")) or bool(pol.get("track_expiry")) or min_days > 0)
         item_allow_negative = pol.get("allow_negative_stock")
-        allow_negative_stock = allow_negative_stock_default if item_allow_negative is None else bool(item_allow_negative)
+        if warehouse_allow_negative is not None:
+            allow_negative_stock = bool(warehouse_allow_negative)
+        elif item_allow_negative is not None:
+            allow_negative_stock = bool(item_allow_negative)
+        else:
+            allow_negative_stock = allow_negative_stock_default
 
         unit_cost_usd = Decimal(str(l.get("_resolved_unit_cost_usd", 0) or 0))
         unit_cost_lbp = Decimal(str(l.get("_resolved_unit_cost_lbp", 0) or 0))

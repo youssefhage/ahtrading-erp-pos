@@ -19,6 +19,7 @@ type PurchaseOrderRow = {
   id: string;
   order_no: string | null;
   supplier_id: string | null;
+  warehouse_id?: string | null;
   supplier_ref?: string | null;
   expected_delivery_date?: string | null;
   status: string;
@@ -79,6 +80,7 @@ function PurchaseOrdersPageInner() {
   const [draftSaving, setDraftSaving] = useState(false);
 
   const [draftSupplierId, setDraftSupplierId] = useState("");
+  const [draftWarehouseId, setDraftWarehouseId] = useState("");
   const [draftExchangeRate, setDraftExchangeRate] = useState("90000");
   const [draftSupplierRef, setDraftSupplierRef] = useState("");
   const [draftExpectedDeliveryDate, setDraftExpectedDeliveryDate] = useState("");
@@ -156,6 +158,7 @@ function PurchaseOrdersPageInner() {
   function openNewDraft() {
     setDraftEditId("");
     setDraftSupplierId("");
+    setDraftWarehouseId(warehouses[0]?.id || "");
     setDraftExchangeRate("90000");
     setDraftSupplierRef("");
     setDraftExpectedDeliveryDate("");
@@ -168,6 +171,7 @@ function PurchaseOrdersPageInner() {
     if (detail.order.status !== "draft") return;
     setDraftEditId(detail.order.id);
     setDraftSupplierId(detail.order.supplier_id || "");
+    setDraftWarehouseId(detail.order.warehouse_id || warehouses[0]?.id || "");
     setDraftExchangeRate(String(detail.order.exchange_rate || 0));
     setDraftSupplierRef(String(detail.order.supplier_ref || ""));
     setDraftExpectedDeliveryDate(String(detail.order.expected_delivery_date || ""));
@@ -197,6 +201,7 @@ function PurchaseOrdersPageInner() {
   async function saveDraft(e: React.FormEvent) {
     e.preventDefault();
     if (!draftSupplierId) return setStatus("supplier is required");
+    if (!draftWarehouseId) return setStatus("warehouse is required");
     const ex = toNum(draftExchangeRate);
     if (!ex) return setStatus("exchange_rate is required");
 
@@ -207,6 +212,7 @@ function PurchaseOrdersPageInner() {
     try {
       const payload = {
         supplier_id: draftSupplierId,
+        warehouse_id: draftWarehouseId,
         exchange_rate: ex,
         supplier_ref: draftSupplierRef.trim() || undefined,
         expected_delivery_date: draftExpectedDeliveryDate.trim() || undefined,
@@ -517,7 +523,7 @@ function PurchaseOrdersPageInner() {
             </DialogHeader>
 
             <form onSubmit={saveDraft} className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">Supplier</label>
                   <select className="ui-select" value={draftSupplierId} onChange={(e) => setDraftSupplierId(e.target.value)}>
@@ -525,6 +531,17 @@ function PurchaseOrdersPageInner() {
                     {suppliers.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Warehouse</label>
+                  <select className="ui-select" value={draftWarehouseId} onChange={(e) => setDraftWarehouseId(e.target.value)}>
+                    <option value="">Select warehouse...</option>
+                    {warehouses.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
                       </option>
                     ))}
                   </select>

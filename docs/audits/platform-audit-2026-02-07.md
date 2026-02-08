@@ -49,7 +49,10 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
     - Structured return reasons table exists and returns can store `reason_id/reason/condition` (header + line-level).
   - Purchasing workflow metadata expanded:
     - Purchase orders support `supplier_ref`, `expected_delivery_date`, and requested/approved attribution.
+    - Purchase orders now store `warehouse_id` (required for incoming/committed inventory reporting).
     - Goods receipts support `supplier_ref` and `received_at/received_by`.
+  - Purchasing matching controls expanded:
+    - Supplier invoices now support hold/unhold (manual) and auto-hold on suspicious 3-way match variance during posting.
 
 Remaining work in this audit is mostly “business robustness” (expiry/lot operations, document metadata completeness, richer audit timelines for all mutations, and deeper ERP workflows).
 
@@ -239,12 +242,16 @@ Missing (practical operations gaps):
 Operational control:
 - Negative stock policy (block vs allow):
   - Implemented v1: company default via `company_settings key='inventory'` (`allow_negative_stock`) + per-item override (`items.allow_negative_stock`).
-  - Still missing: per-warehouse override (if needed).
-- Reserved/committed quantities (orders, allocations)
+  - Implemented v1: per-warehouse override (`warehouses.allow_negative_stock` nullable; NULL means inherit).
+- Reserved/committed quantities (orders, allocations):
+  - Implemented v1: draft sales invoices can explicitly reserve stock (`sales_invoices.reserve_stock`).
+  - Inventory stock summary now returns `reserved_qty`, `qty_available`, and `incoming_qty` (from posted POs minus posted receipts).
 - Cycle counts / stock counts:
   - Implemented v1 (posts variances to GL) and now supports batch/expiry-tracked items (per-batch counts via `batch_id` / `batch_no+expiry_date`).
 - Bin/location support (if warehouses are large):
   - location_id on stock moves and batch placement
+  - Implemented v1: `warehouse_locations` master table + optional `stock_moves.location_id` + Admin management page (`System → Warehouse Locations`).
+  - Still missing: end-to-end placement workflows (receiving UI, pick/pack confirmation, intra-warehouse moves).
 
 Traceability:
 - Stock move “reason codes” (structured) vs free-text:
@@ -323,7 +330,7 @@ Procurement workflow:
     - `goods_receipts.supplier_ref`, `goods_receipts.received_at/received_by_user_id`
 - PO to GR to Invoice matching (3-way match):
   - Implemented v1 starter: PO detail now includes ordered vs received vs invoiced quantities (qty-only).
-  - Still missing: price variance detection and hold/unhold controls.
+  - Implemented v1: price variance detection (auto-hold on post) + manual hold/unhold controls for supplier invoices.
 
 Costs:
 - Landed cost allocation (freight, customs, handling)
@@ -354,7 +361,8 @@ Dimensions:
 - Document attachments are implemented (`document_attachments` table; bytes stored in Postgres in v1).
 
 Close and controls:
-- Stronger journal immutability rules (prevent edits after posting).
+- Stronger journal immutability rules (prevent edits after posting):
+  - Implemented v1: DB triggers block UPDATE/DELETE on `gl_journals` and `gl_entries` (use reversal/void journals instead).
 - Audit trail coverage is partial (audit_logs exists but not used for every business mutation).
   - Progress (2026-02-08): added audit logs for Users/roles/permissions mutations and Config mutations (tax codes, exchange rates, account defaults, payment method mappings), plus an Admin audit feed page.
 
@@ -452,7 +460,8 @@ Implemented:
 Missing useful reports (especially for expiry and operations):
 - Expiry monitoring exists (alerts UI + expiry write-off endpoint), but a richer dashboard/reporting view is still needed:
   - “expiring in N days” by warehouse/batch, and operational write-off drill-downs.
-- Cash reconciliation report per shift (expected vs counted) with drill-down.
+- Cash reconciliation report per shift (expected vs counted) with drill-down:
+  - Implemented v1: shift cash reconciliation now includes cash sales + cash refunds + cash movements, and Admin shows a breakdown.
 - AR/AP aging (docs folders exist in Admin UI, but ensure API + SQL views match).
 - Margin reporting: sales by item with COGS:
   - Implemented API v1: `GET /reports/sales/margin-by-item` (filters: date range + optional warehouse/branch).

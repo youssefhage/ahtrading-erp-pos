@@ -29,6 +29,7 @@ type InvoiceDetail = {
     warehouse_id: string | null;
     invoice_date?: string | null;
     due_date?: string | null;
+    reserve_stock?: boolean;
     exchange_rate: string | number;
   };
   lines: Array<{
@@ -71,6 +72,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [invoiceDate, setInvoiceDate] = useState(() => todayIso());
   const [autoDueDate, setAutoDueDate] = useState(true);
   const [dueDate, setDueDate] = useState(() => todayIso());
+  const [reserveStock, setReserveStock] = useState(false);
   const [exchangeRate, setExchangeRate] = useState("0");
 
   const [lines, setLines] = useState<Array<{ item_id: string; qty: string; unit_price_usd: string; unit_price_lbp: string }>>([]);
@@ -116,6 +118,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         setInvoiceDate(String(det.invoice.invoice_date || todayIso()).slice(0, 10));
         setAutoDueDate(false);
         setDueDate(String(det.invoice.due_date || det.invoice.invoice_date || todayIso()).slice(0, 10));
+        setReserveStock(Boolean(det.invoice.reserve_stock));
         setExchangeRate(String(det.invoice.exchange_rate || 0));
         setLines(
           (det.lines || []).map((l) => ({
@@ -130,6 +133,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         setInvoiceDate(todayIso());
         setAutoDueDate(true);
         setDueDate(todayIso());
+        setReserveStock(false);
         setExchangeRate("0");
         setLines([]);
       }
@@ -214,6 +218,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         warehouse_id: warehouseId,
         invoice_date: invoiceDate || undefined,
         due_date: dueDate || undefined,
+        reserve_stock: reserveStock,
         exchange_rate: ex,
         pricing_currency: "USD",
         settlement_currency: "USD",
@@ -326,6 +331,12 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
                 <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={loading} />
+              </div>
+              <div className="md:col-span-2 flex items-end">
+                <label className="flex items-center gap-2 text-xs text-fg-muted">
+                  <input type="checkbox" checked={reserveStock} onChange={(e) => setReserveStock(e.target.checked)} />
+                  Reserve stock while draft (affects availability reporting)
+                </label>
               </div>
             </div>
 

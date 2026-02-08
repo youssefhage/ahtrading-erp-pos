@@ -334,6 +334,7 @@ def list_sales_invoices(
             select_sql = f"""
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name,
                        i.status, i.total_usd, i.total_lbp, i.warehouse_id, w.name AS warehouse_name,
+                       i.reserve_stock,
                        i.branch_id,
                        i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at,
                        i.invoice_date, i.due_date, i.created_at
@@ -361,6 +362,7 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
                 """
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
                        i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
+                       i.reserve_stock,
                        i.pricing_currency, i.settlement_currency,
                        i.branch_id,
                        i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at, i.receipt_meta,
@@ -429,6 +431,7 @@ class SalesInvoiceDraftIn(BaseModel):
     invoice_no: Optional[str] = None
     invoice_date: Optional[date] = None
     due_date: Optional[date] = None
+    reserve_stock: bool = False
     exchange_rate: Decimal = Decimal("0")
     pricing_currency: CurrencyCode = "USD"
     settlement_currency: CurrencyCode = "USD"
@@ -441,6 +444,7 @@ class SalesInvoiceDraftUpdateIn(BaseModel):
     invoice_no: Optional[str] = None
     invoice_date: Optional[date] = None
     due_date: Optional[date] = None
+    reserve_stock: Optional[bool] = None
     exchange_rate: Optional[Decimal] = None
     pricing_currency: Optional[CurrencyCode] = None
     settlement_currency: Optional[CurrencyCode] = None
@@ -582,9 +586,9 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                     """
                     INSERT INTO sales_invoices
                       (id, company_id, invoice_no, customer_id, status, total_usd, total_lbp,
-                       warehouse_id, exchange_rate, pricing_currency, settlement_currency, invoice_date, due_date)
+                       warehouse_id, reserve_stock, exchange_rate, pricing_currency, settlement_currency, invoice_date, due_date)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -594,6 +598,7 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                         base_usd,
                         base_lbp,
                         data.warehouse_id,
+                        bool(data.reserve_stock),
                         data.exchange_rate,
                         data.pricing_currency,
                         data.settlement_currency,
@@ -904,13 +909,14 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                 if inv["doc_subtype"] != "opening_balance":
                     # Inventory policy controls whether we allow overselling (negative stock) for untracked items.
                     inv_policy = pos_processor.fetch_inventory_policy(cur, company_id)
-                    allow_negative_stock = bool(inv_policy.get("allow_negative_stock"))
+                    allow_negative_stock_default = bool(inv_policy.get("allow_negative_stock"))
 
                     # Warehouse-level expiry policy: enforce a default minimum shelf-life window for allocations.
                     warehouse_min_days_default = 0
+                    warehouse_allow_negative = None
                     cur.execute(
                         """
-                        SELECT min_shelf_life_days_for_sale_default
+                        SELECT min_shelf_life_days_for_sale_default, allow_negative_stock
                         FROM warehouses
                         WHERE company_id=%s AND id=%s
                         """,
@@ -919,6 +925,7 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     wrow = cur.fetchone()
                     if wrow:
                         warehouse_min_days_default = int(wrow.get("min_shelf_life_days_for_sale_default") or 0)
+                        warehouse_allow_negative = wrow.get("allow_negative_stock")
 
                     # Fetch item tracking policy so FEFO allocation doesn't create "unbatched" remainder for tracked items.
                     item_ids = sorted({str(l["item_id"]) for l in (lines or []) if l.get("item_id")})
@@ -950,7 +957,12 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                             min_exp = inv_date
                         allow_unbatched = not (bool(pol.get("track_batches")) or bool(pol.get("track_expiry")) or min_days > 0)
                         item_allow_negative = pol.get("allow_negative_stock")
-                        allow_negative_for_item = allow_negative_stock if item_allow_negative is None else bool(item_allow_negative)
+                        if warehouse_allow_negative is not None:
+                            allow_negative_for_item = bool(warehouse_allow_negative)
+                        elif item_allow_negative is not None:
+                            allow_negative_for_item = bool(item_allow_negative)
+                        else:
+                            allow_negative_for_item = allow_negative_stock_default
                         allocations = pos_processor.allocate_fefo_batches(
                             cur,
                             company_id,

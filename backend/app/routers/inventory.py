@@ -58,6 +58,7 @@ def _get_or_create_batch(cur, company_id: str, item_id: str, batch_no: Optional[
 class StockAdjustIn(BaseModel):
     item_id: str
     warehouse_id: str
+    location_id: Optional[str] = None
     batch_id: Optional[str] = None
     batch_no: Optional[str] = None
     expiry_date: Optional[date] = None
@@ -120,24 +121,76 @@ def stock_summary(
                 """
             else:
                 sql = """
-                    SELECT item_id, warehouse_id,
-                           SUM(qty_in) AS qty_in,
-                           SUM(qty_out) AS qty_out,
-                           SUM(qty_in) - SUM(qty_out) AS qty_on_hand
-                    FROM stock_moves
-                    WHERE company_id = %s
+                    WITH on_hand AS (
+                      SELECT item_id, warehouse_id,
+                             SUM(qty_in) AS qty_in,
+                             SUM(qty_out) AS qty_out,
+                             SUM(qty_in) - SUM(qty_out) AS qty_on_hand
+                      FROM stock_moves
+                      WHERE company_id = %s
+                      GROUP BY item_id, warehouse_id
+                    ),
+                    reserved AS (
+                      SELECT l.item_id, i.warehouse_id,
+                             COALESCE(SUM(l.qty), 0) AS reserved_qty
+                      FROM sales_invoice_lines l
+                      JOIN sales_invoices i ON i.id = l.invoice_id
+                      WHERE i.company_id = %s
+                        AND i.status = 'draft'
+                        AND COALESCE(i.reserve_stock, false) = true
+                      GROUP BY l.item_id, i.warehouse_id
+                    ),
+                    incoming AS (
+                      SELECT pol.item_id, po.warehouse_id,
+                             GREATEST(
+                               COALESCE(SUM(pol.qty), 0) -
+                               COALESCE(SUM(CASE WHEN gr.status = 'posted' THEN grl.qty ELSE 0 END), 0),
+                               0
+                             ) AS incoming_qty
+                      FROM purchase_order_lines pol
+                      JOIN purchase_orders po
+                        ON po.company_id = pol.company_id AND po.id = pol.purchase_order_id
+                      LEFT JOIN goods_receipt_lines grl
+                        ON grl.company_id = pol.company_id AND grl.purchase_order_line_id = pol.id
+                      LEFT JOIN goods_receipts gr
+                        ON gr.company_id = grl.company_id AND gr.id = grl.goods_receipt_id
+                      WHERE po.company_id = %s
+                        AND po.status = 'posted'
+                      GROUP BY pol.item_id, po.warehouse_id
+                    )
+                    SELECT o.item_id, o.warehouse_id,
+                           o.qty_in, o.qty_out,
+                           o.qty_on_hand,
+                           COALESCE(r.reserved_qty, 0) AS reserved_qty,
+                           (o.qty_on_hand - COALESCE(r.reserved_qty, 0)) AS qty_available,
+                           COALESCE(inc.incoming_qty, 0) AS incoming_qty
+                    FROM on_hand o
+                    LEFT JOIN reserved r
+                      ON r.item_id = o.item_id AND r.warehouse_id = o.warehouse_id
+                    LEFT JOIN incoming inc
+                      ON inc.item_id = o.item_id AND inc.warehouse_id = o.warehouse_id
+                    WHERE 1=1
                 """
             params = [company_id]
+            if not by_batch:
+                # CTEs each need company_id.
+                params = [company_id, company_id, company_id]
             if item_id:
-                sql += " AND item_id = %s"
+                if by_batch:
+                    sql += " AND sm.item_id = %s"
+                else:
+                    sql += " AND o.item_id = %s"
                 params.append(item_id)
             if warehouse_id:
-                sql += " AND warehouse_id = %s"
+                if by_batch:
+                    sql += " AND sm.warehouse_id = %s"
+                else:
+                    sql += " AND o.warehouse_id = %s"
                 params.append(warehouse_id)
             if by_batch:
                 sql += " GROUP BY sm.item_id, sm.warehouse_id, sm.batch_id, b.batch_no, b.expiry_date"
             else:
-                sql += " GROUP BY item_id, warehouse_id"
+                sql += " ORDER BY o.item_id, o.warehouse_id"
             cur.execute(sql, params)
             return {"stock": cur.fetchall()}
 
@@ -196,16 +249,17 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                 cur.execute(
                     """
                     INSERT INTO stock_moves
-                      (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
+                      (id, company_id, item_id, warehouse_id, location_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                        source_type, source_id, created_by_user_id, reason)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_adjustment', NULL, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_adjustment', NULL, %s, %s)
                     RETURNING id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp
                     """,
                     (
                         company_id,
                         data.item_id,
                         data.warehouse_id,
+                        data.location_id,
                         batch_id,
                         data.qty_in,
                         data.qty_out,
@@ -645,6 +699,8 @@ class StockTransferIn(BaseModel):
     item_id: str
     from_warehouse_id: str
     to_warehouse_id: str
+    from_location_id: Optional[str] = None
+    to_location_id: Optional[str] = None
     qty: Decimal
     unit_cost_usd: Decimal = Decimal("0")
     unit_cost_lbp: Decimal = Decimal("0")
@@ -908,8 +964,7 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
                 )
                 pol = cur.fetchone() or {}
                 tracked = bool(pol.get("track_batches")) or bool(pol.get("track_expiry")) or int(pol.get("min_shelf_life_days_for_sale") or 0) > 0
-                inv_policy = pos_processor.fetch_inventory_policy(cur, company_id)
-                allow_negative_stock = bool(inv_policy.get("allow_negative_stock"))
+                allow_negative_stock = pos_processor.resolve_allow_negative_stock(cur, company_id, data.item_id, data.from_warehouse_id)
                 transfer_date = date.today()
                 min_days = int(pol.get("min_shelf_life_days_for_sale") or 0)
                 min_exp = (transfer_date + timedelta(days=min_days)) if min_days > 0 else None
@@ -934,16 +989,17 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
                     cur.execute(
                         """
                         INSERT INTO stock_moves
-                          (id, company_id, item_id, warehouse_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
+                          (id, company_id, item_id, warehouse_id, location_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                            source_type, source_id, created_by_user_id, reason)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL, %s, %s)
                         RETURNING id
                         """,
                         (
                             company_id,
                             data.item_id,
                             data.from_warehouse_id,
+                            data.from_location_id,
                             batch_id,
                             q,
                             unit_cost_usd,
@@ -958,16 +1014,17 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
                     cur.execute(
                         """
                         INSERT INTO stock_moves
-                          (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
+                          (id, company_id, item_id, warehouse_id, location_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
                            source_type, source_id, created_by_user_id, reason)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL, %s, %s)
                         RETURNING id
                         """,
                         (
                             company_id,
                             data.item_id,
                             data.to_warehouse_id,
+                            data.to_location_id,
                             batch_id,
                             q,
                             unit_cost_usd,
@@ -1242,7 +1299,7 @@ def list_stock_moves(
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
             sql = """
-                SELECT id, item_id, warehouse_id, batch_id, move_date,
+                SELECT id, item_id, warehouse_id, location_id, batch_id, move_date,
                        qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
                        source_type, source_id, created_at
                 FROM stock_moves

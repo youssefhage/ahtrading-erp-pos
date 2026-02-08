@@ -337,6 +337,7 @@ class PurchaseOrderLine(BaseModel):
 
 class PurchaseOrderIn(BaseModel):
     supplier_id: str
+    warehouse_id: str
     order_no: Optional[str] = None
     supplier_ref: Optional[str] = None
     expected_delivery_date: Optional[date] = None
@@ -356,6 +357,7 @@ class PurchaseOrderDraftLineIn(BaseModel):
 
 class PurchaseOrderDraftIn(BaseModel):
     supplier_id: str
+    warehouse_id: str
     order_no: Optional[str] = None
     supplier_ref: Optional[str] = None
     expected_delivery_date: Optional[date] = None
@@ -366,6 +368,7 @@ class PurchaseOrderDraftIn(BaseModel):
 
 class PurchaseOrderDraftUpdateIn(BaseModel):
     supplier_id: Optional[str] = None
+    warehouse_id: Optional[str] = None
     order_no: Optional[str] = None
     supplier_ref: Optional[str] = None
     expected_delivery_date: Optional[date] = None
@@ -725,18 +728,18 @@ def list_purchase_orders(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, order_no, supplier_id, supplier_ref, expected_delivery_date,
-                       requested_by_user_id, requested_at, approved_by_user_id, approved_at,
-                       status, total_usd, total_lbp, created_at
-                FROM purchase_orders
-                WHERE company_id = %s
-                ORDER BY created_at DESC
-                """,
-                (company_id,),
-            )
-            return {"orders": cur.fetchall()}
+                cur.execute(
+                    """
+                    SELECT id, order_no, supplier_id, warehouse_id, supplier_ref, expected_delivery_date,
+                           requested_by_user_id, requested_at, approved_by_user_id, approved_at,
+                           status, total_usd, total_lbp, created_at
+                    FROM purchase_orders
+                    WHERE company_id = %s
+                    ORDER BY created_at DESC
+                    """,
+                    (company_id,),
+                )
+                return {"orders": cur.fetchall()}
 
 @router.get("/orders/{order_id}", dependencies=[Depends(require_permission("purchases:read"))])
 def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id)):
@@ -745,7 +748,7 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, order_no, supplier_id, supplier_ref, expected_delivery_date,
+                SELECT id, order_no, supplier_id, warehouse_id, supplier_ref, expected_delivery_date,
                        requested_by_user_id, requested_at, approved_by_user_id, approved_at,
                        status, total_usd, total_lbp, exchange_rate, created_at
                 FROM purchase_orders
@@ -818,61 +821,71 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
 
 @router.post("/orders", dependencies=[Depends(require_permission("purchases:write"))])
 def create_purchase_order(data: PurchaseOrderIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    if not data.warehouse_id:
+        raise HTTPException(status_code=400, detail="warehouse_id is required")
     total_usd = sum([l.line_total_usd for l in data.lines])
     total_lbp = sum([l.line_total_lbp for l in data.lines])
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                order_no = data.order_no
-                if not order_no:
-                    order_no = _next_doc_no(cur, company_id, "PO")
-            cur.execute(
-                """
-                INSERT INTO purchase_orders
-                  (id, company_id, order_no, supplier_id, status, total_usd, total_lbp, exchange_rate,
-                   supplier_ref, expected_delivery_date,
-                   requested_by_user_id, requested_at, approved_by_user_id, approved_at)
-                VALUES
-                  (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s,
-                   %s, %s,
-                   %s, now(), %s, now())
-                RETURNING id
-                """,
-                (
-                    company_id,
-                    order_no,
-                    data.supplier_id,
-                    total_usd,
-                    total_lbp,
-                    data.exchange_rate,
-                    (data.supplier_ref or "").strip() or None,
-                    data.expected_delivery_date,
-                    user["user_id"],
-                    user["user_id"],
-                ),
-            )
-            po_id = cur.fetchone()["id"]
-            for l in data.lines:
+                order_no = (data.order_no or "").strip() or _next_doc_no(cur, company_id, "PO")
                 cur.execute(
                     """
-                    INSERT INTO purchase_order_lines
-                      (id, company_id, purchase_order_id, item_id, qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                    INSERT INTO purchase_orders
+                      (id, company_id, order_no, supplier_id, warehouse_id, status, total_usd, total_lbp, exchange_rate,
+                       supplier_ref, expected_delivery_date,
+                       requested_by_user_id, requested_at, approved_by_user_id, approved_at)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, 'posted', %s, %s, %s,
+                       %s, %s,
+                       %s, now(), %s, now())
+                    RETURNING id
                     """,
                     (
                         company_id,
-                        po_id,
-                        l.item_id,
-                        l.qty,
-                        l.unit_cost_usd,
-                        l.unit_cost_lbp,
-                        l.line_total_usd,
-                        l.line_total_lbp,
+                        order_no,
+                        data.supplier_id,
+                        data.warehouse_id,
+                        total_usd,
+                        total_lbp,
+                        data.exchange_rate,
+                        (data.supplier_ref or "").strip() or None,
+                        data.expected_delivery_date,
+                        user["user_id"],
+                        user["user_id"],
                     ),
                 )
-            return {"id": po_id, "order_no": order_no}
+                po_id = cur.fetchone()["id"]
+
+                for l in data.lines:
+                    cur.execute(
+                        """
+                        INSERT INTO purchase_order_lines
+                          (id, company_id, purchase_order_id, item_id, qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            company_id,
+                            po_id,
+                            l.item_id,
+                            l.qty,
+                            l.unit_cost_usd,
+                            l.unit_cost_lbp,
+                            l.line_total_usd,
+                            l.line_total_lbp,
+                        ),
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'purchase_order_created', 'purchase_order', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], po_id, json.dumps({"order_no": order_no, "warehouse_id": data.warehouse_id}, default=str)),
+                )
+                return {"id": po_id, "order_no": order_no}
 
 
 @router.patch("/orders/{order_id}", dependencies=[Depends(require_permission("purchases:write"))])
@@ -909,6 +922,8 @@ def update_purchase_order_status(order_id: str, data: PurchaseOrderStatusUpdate,
 
 @router.post("/orders/drafts", dependencies=[Depends(require_permission("purchases:write"))])
 def create_purchase_order_draft(data: PurchaseOrderDraftIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    if not data.warehouse_id:
+        raise HTTPException(status_code=400, detail="warehouse_id is required")
     normalized, base_usd, base_lbp = _compute_costed_lines(data.lines, data.exchange_rate)
 
     with get_conn() as conn:
@@ -918,11 +933,11 @@ def create_purchase_order_draft(data: PurchaseOrderDraftIn, company_id: str = De
                 cur.execute(
                     """
                     INSERT INTO purchase_orders
-                      (id, company_id, order_no, supplier_id, status, total_usd, total_lbp, exchange_rate,
+                      (id, company_id, order_no, supplier_id, warehouse_id, status, total_usd, total_lbp, exchange_rate,
                        supplier_ref, expected_delivery_date,
                        requested_by_user_id, requested_at)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, 'draft', %s, %s, %s,
+                      (gen_random_uuid(), %s, %s, %s, %s, 'draft', %s, %s, %s,
                        %s, %s,
                        %s, now())
                     RETURNING id
@@ -931,6 +946,7 @@ def create_purchase_order_draft(data: PurchaseOrderDraftIn, company_id: str = De
                         company_id,
                         (data.order_no or None),
                         data.supplier_id,
+                        data.warehouse_id,
                         base_usd,
                         base_lbp,
                         data.exchange_rate,
@@ -984,7 +1000,7 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, status, supplier_id, supplier_ref, expected_delivery_date, exchange_rate
+                    SELECT id, status, supplier_id, warehouse_id, supplier_ref, expected_delivery_date, exchange_rate
                     FROM purchase_orders
                     WHERE company_id = %s AND id = %s
                     """,
@@ -997,6 +1013,9 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
                     raise HTTPException(status_code=400, detail="only draft orders can be edited")
 
                 supplier_id = patch.get("supplier_id") or row["supplier_id"]
+                warehouse_id = patch.get("warehouse_id") or row.get("warehouse_id")
+                if not warehouse_id:
+                    raise HTTPException(status_code=400, detail="warehouse_id is required")
                 supplier_ref = patch.get("supplier_ref") if patch.get("supplier_ref") is not None else row.get("supplier_ref")
                 if isinstance(supplier_ref, str):
                     supplier_ref = supplier_ref.strip() or None
@@ -1046,6 +1065,7 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
                     """
                     UPDATE purchase_orders
                     SET supplier_id=%s,
+                        warehouse_id=%s,
                         order_no=COALESCE(%s, order_no),
                         supplier_ref=%s,
                         expected_delivery_date=%s,
@@ -1054,7 +1074,7 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
                         total_lbp=%s
                     WHERE company_id = %s AND id = %s
                     """,
-                    (supplier_id, patch.get("order_no"), supplier_ref, expected_delivery_date, exchange_rate, base_usd, base_lbp, company_id, order_id),
+                    (supplier_id, warehouse_id, patch.get("order_no"), supplier_ref, expected_delivery_date, exchange_rate, base_usd, base_lbp, company_id, order_id),
                 )
 
                 cur.execute(

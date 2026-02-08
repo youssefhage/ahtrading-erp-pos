@@ -43,6 +43,20 @@ type CashMovementRow = {
   created_at: string;
 };
 
+type CashRecon = {
+  shift: ShiftRow;
+  cash_methods: string[];
+  sales_cash_usd: string | number;
+  sales_cash_lbp: string | number;
+  refunds_cash_usd: string | number;
+  refunds_cash_lbp: string | number;
+  cash_movements: Array<{ movement_type: string; usd: string | number; lbp: string | number }>;
+  cash_movements_net_usd: string | number;
+  cash_movements_net_lbp: string | number;
+  expected_computed_usd: string | number;
+  expected_computed_lbp: string | number;
+};
+
 export default function PosShiftsPage() {
   const [status, setStatus] = useState("");
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
@@ -50,6 +64,7 @@ export default function PosShiftsPage() {
 
   const [selectedShiftId, setSelectedShiftId] = useState<string>("");
   const [movements, setMovements] = useState<CashMovementRow[]>([]);
+  const [recon, setRecon] = useState<CashRecon | null>(null);
   const [movementsLimit, setMovementsLimit] = useState("200");
 
   const deviceById = useMemo(() => new Map(devices.map((d) => [d.id, d])), [devices]);
@@ -73,6 +88,7 @@ export default function PosShiftsPage() {
   async function loadMovements(shiftId: string) {
     if (!shiftId) {
       setMovements([]);
+      setRecon(null);
       return;
     }
     setStatus("Loading cash movements...");
@@ -81,11 +97,16 @@ export default function PosShiftsPage() {
       qs.set("shift_id", shiftId);
       const n = Number(movementsLimit || 200);
       qs.set("limit", Number.isFinite(n) ? String(n) : "200");
-      const res = await apiGet<{ movements: CashMovementRow[] }>(`/pos/cash-movements/admin?${qs.toString()}`);
+      const [res, rec] = await Promise.all([
+        apiGet<{ movements: CashMovementRow[] }>(`/pos/cash-movements/admin?${qs.toString()}`),
+        apiGet<CashRecon>(`/pos/shifts/${encodeURIComponent(shiftId)}/cash-reconciliation`)
+      ]);
       setMovements(res.movements || []);
+      setRecon(rec || null);
       setStatus("");
     } catch (err) {
       setMovements([]);
+      setRecon(null);
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
@@ -188,6 +209,58 @@ export default function PosShiftsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            {recon ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Cash Reconciliation</CardTitle>
+                  <CardDescription>
+                    Cash methods:{" "}
+                    <span className="font-mono text-xs">
+                      {(recon.cash_methods || []).length ? recon.cash_methods.join(", ") : "none"}
+                    </span>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                    <div className="text-xs text-fg-muted">Opening</div>
+                    <div className="mt-1 font-mono text-sm">
+                      USD {Number(recon.shift.opening_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                    <div className="text-xs text-fg-muted">Cash Sales</div>
+                    <div className="mt-1 font-mono text-sm">
+                      USD {Number(recon.sales_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                    <div className="text-xs text-fg-muted">Cash Refunds</div>
+                    <div className="mt-1 font-mono text-sm">
+                      USD {Number(recon.refunds_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                    <div className="text-xs text-fg-muted">Cash Movements (net)</div>
+                    <div className="mt-1 font-mono text-sm">
+                      USD {Number(recon.cash_movements_net_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                    <div className="text-xs text-fg-muted">Expected (computed)</div>
+                    <div className="mt-1 font-mono text-sm">
+                      USD {Number(recon.expected_computed_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                    <div className="text-xs text-fg-muted">Closing (counted)</div>
+                    <div className="mt-1 font-mono text-sm">
+                      USD {Number(recon.shift.closing_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div className="w-full md:w-56">
                 <label className="text-xs font-medium text-fg-muted">Limit</label>

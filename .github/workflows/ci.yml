@@ -92,6 +92,11 @@ jobs:
           docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='purchase_orders' AND column_name='expected_delivery_date' LIMIT 1;"
           docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='goods_receipts' AND column_name='received_at' LIMIT 1;"
           docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='supplier_invoices' AND column_name='is_on_hold' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='purchase_orders' AND column_name='warehouse_id' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='sales_invoices' AND column_name='reserve_stock' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='warehouses' AND column_name='allow_negative_stock' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='stock_moves' AND column_name='location_id' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.tables WHERE table_name='warehouse_locations' LIMIT 1;"
       - name: Run Playwright tests
         working-directory: apps/admin
         env:

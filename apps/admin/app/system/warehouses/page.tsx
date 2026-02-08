@@ -13,6 +13,7 @@ type WarehouseRow = {
   name: string;
   location: string | null;
   min_shelf_life_days_for_sale_default: number | string;
+  allow_negative_stock?: boolean | null;
 };
 
 export default function WarehousesPage() {
@@ -23,6 +24,7 @@ export default function WarehousesPage() {
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [minShelfLifeDays, setMinShelfLifeDays] = useState("0");
+  const [allowNegative, setAllowNegative] = useState<"" | "allow" | "block">("");
   const [creating, setCreating] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -30,6 +32,7 @@ export default function WarehousesPage() {
   const [editName, setEditName] = useState("");
   const [editLocation, setEditLocation] = useState("");
   const [editMinShelfLifeDays, setEditMinShelfLifeDays] = useState("0");
+  const [editAllowNegative, setEditAllowNegative] = useState<"" | "allow" | "block">("");
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -65,11 +68,13 @@ export default function WarehousesPage() {
       await apiPost("/warehouses", {
         name: name.trim(),
         location: location.trim() || undefined,
-        min_shelf_life_days_for_sale_default: Math.floor(minDays)
+        min_shelf_life_days_for_sale_default: Math.floor(minDays),
+        allow_negative_stock: allowNegative ? (allowNegative === "allow") : undefined
       });
       setName("");
       setLocation("");
       setMinShelfLifeDays("0");
+      setAllowNegative("");
       setCreateOpen(false);
       await load();
       setStatus("");
@@ -86,6 +91,7 @@ export default function WarehousesPage() {
     setEditName(w.name);
     setEditLocation(w.location || "");
     setEditMinShelfLifeDays(String(Number(w.min_shelf_life_days_for_sale_default || 0)));
+    setEditAllowNegative(w.allow_negative_stock == null ? "" : (w.allow_negative_stock ? "allow" : "block"));
     setEditOpen(true);
   }
 
@@ -104,7 +110,8 @@ export default function WarehousesPage() {
       await apiPatch(`/warehouses/${encodeURIComponent(editId)}`, {
         name: editName.trim(),
         location: editLocation.trim() || null,
-        min_shelf_life_days_for_sale_default: Math.floor(minDays)
+        min_shelf_life_days_for_sale_default: Math.floor(minDays),
+        allow_negative_stock: editAllowNegative ? (editAllowNegative === "allow") : null
       });
       setEditOpen(false);
       await load();
@@ -166,6 +173,17 @@ export default function WarehousesPage() {
                         Enforces a minimum shelf-life window for FEFO allocation at sale-posting time (warehouse default).
                       </p>
                     </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-fg-muted">Negative Stock Override (optional)</label>
+                      <select className="ui-select" value={allowNegative} onChange={(e) => setAllowNegative(e.target.value as any)}>
+                        <option value="">Inherit</option>
+                        <option value="block">Block</option>
+                        <option value="allow">Allow</option>
+                      </select>
+                      <p className="text-xs text-fg-muted">
+                        When set, this overrides item/company negative-stock policy for this warehouse.
+                      </p>
+                    </div>
                     <div className="flex justify-end">
                       <Button type="submit" disabled={creating}>
                         {creating ? "..." : "Create"}
@@ -194,6 +212,14 @@ export default function WarehousesPage() {
                       <label className="text-xs font-medium text-fg-muted">Min Shelf-Life Days For Sale (default)</label>
                       <Input value={editMinShelfLifeDays} onChange={(e) => setEditMinShelfLifeDays(e.target.value)} inputMode="numeric" />
                     </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-fg-muted">Negative Stock Override (optional)</label>
+                      <select className="ui-select" value={editAllowNegative} onChange={(e) => setEditAllowNegative(e.target.value as any)}>
+                        <option value="">Inherit</option>
+                        <option value="block">Block</option>
+                        <option value="allow">Allow</option>
+                      </select>
+                    </div>
                     <div className="flex justify-end gap-2">
                       <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
                         Cancel
@@ -213,6 +239,7 @@ export default function WarehousesPage() {
                     <th className="px-3 py-2">Name</th>
                     <th className="px-3 py-2">Location</th>
                     <th className="px-3 py-2 text-right">Min Shelf-Life Days</th>
+                    <th className="px-3 py-2">Negative Stock</th>
                     <th className="px-3 py-2">Warehouse ID</th>
                     <th className="px-3 py-2 text-right">Actions</th>
                   </tr>
@@ -223,6 +250,9 @@ export default function WarehousesPage() {
                       <td className="px-3 py-2">{w.name}</td>
                       <td className="px-3 py-2">{w.location || "-"}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(w.min_shelf_life_days_for_sale_default || 0)}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">
+                        {w.allow_negative_stock == null ? "inherit" : w.allow_negative_stock ? "allow" : "block"}
+                      </td>
                       <td className="px-3 py-2 font-mono text-xs">{w.id}</td>
                       <td className="px-3 py-2 text-right">
                         <Button variant="outline" size="sm" onClick={() => openEdit(w)}>
@@ -233,7 +263,7 @@ export default function WarehousesPage() {
                   ))}
                   {warehouses.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                         No warehouses.
                       </td>
                     </tr>
