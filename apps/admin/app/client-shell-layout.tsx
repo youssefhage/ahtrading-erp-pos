@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 
 const PUBLIC_PREFIXES = ["/login", "/company/select"];
+// Public utility routes that just flip client-side UI settings (no auth gating here).
+const PUBLIC_PREFIXES_EXTRA = ["/lite", "/full", "/light", "/dark"];
 
 const TITLE_BY_PATH: Record<string, string> = {
   "/dashboard": "Dashboard",
@@ -56,7 +58,9 @@ const TITLE_BY_PATH: Record<string, string> = {
 
 function isPublicPath(pathname: string) {
   if (pathname === "/") return true;
-  return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
+  return [...PUBLIC_PREFIXES, ...PUBLIC_PREFIXES_EXTRA].some(
+    (p) => pathname === p || pathname.startsWith(p + "/")
+  );
 }
 
 function titleForPath(pathname: string) {
