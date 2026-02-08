@@ -7,6 +7,8 @@ from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission
 from ..deps import get_current_user
 import json
+import os
+from ..ai.item_naming import heuristic_item_name_suggestions, openai_item_name_suggestions
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -393,6 +395,27 @@ class ItemBarcodeUpdate(BaseModel):
     label: Optional[str] = None
     is_primary: Optional[bool] = None
 
+
+class ItemNameSuggestIn(BaseModel):
+    raw_name: str
+    count: int = 3
+
+
+@router.post("/name-suggestions", dependencies=[Depends(require_permission("items:write"))])
+def suggest_item_names(data: ItemNameSuggestIn):
+    raw = (data.raw_name or "").strip()
+    n = max(1, min(int(data.count or 3), 6))
+    if not raw:
+        raise HTTPException(status_code=400, detail="raw_name is required")
+
+    # Prefer an LLM if configured; otherwise fall back to deterministic normalization.
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            return {"suggestions": openai_item_name_suggestions(raw, count=n)}
+        except Exception:
+            # Never fail the UI due to naming suggestions.
+            pass
+    return {"suggestions": heuristic_item_name_suggestions(raw)[:n]}
 
 @router.get("/{item_id}/barcodes", dependencies=[Depends(require_permission("items:read"))])
 def list_item_barcodes(item_id: str, company_id: str = Depends(get_company_id)):

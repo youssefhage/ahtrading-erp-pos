@@ -104,6 +104,8 @@ export default function ItemsPage() {
   const [editName, setEditName] = useState("");
   const [editItemType, setEditItemType] = useState<"stocked" | "service" | "bundle">("stocked");
   const [editTags, setEditTags] = useState("");
+  const [nameSuggestions, setNameSuggestions] = useState<Array<{ name: string; reason?: string }>>([]);
+  const [suggestingName, setSuggestingName] = useState(false);
   const [editUom, setEditUom] = useState("");
   const [editBarcode, setEditBarcode] = useState("");
   const [editTaxCodeId, setEditTaxCodeId] = useState("");
@@ -411,6 +413,7 @@ export default function ItemsPage() {
   function openEdit(item: Item) {
     setEditItem(item);
     setEditName(item.name || "");
+    setNameSuggestions([]);
     setEditItemType((item.item_type as any) || "stocked");
     setEditTags(Array.isArray(item.tags) ? item.tags.join(", ") : "");
     setEditUom(item.unit_of_measure || "");
@@ -431,6 +434,23 @@ export default function ItemsPage() {
     setEditImageAttachmentId((item.image_attachment_id as any) || "");
     setEditImageAlt((item.image_alt as any) || "");
     setEditOpen(true);
+  }
+
+  async function suggestBetterName() {
+    const raw = (editName || "").trim();
+    if (!raw) return;
+    setSuggestingName(true);
+    setStatus("Suggesting name...");
+    try {
+      const res = await apiPost<{ suggestions: Array<{ name: string; reason?: string }> }>("/items/name-suggestions", { raw_name: raw, count: 4 });
+      setNameSuggestions(res.suggestions || []);
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSuggestingName(false);
+    }
   }
 
   async function uploadItemImage(file: File) {
@@ -1012,8 +1032,38 @@ export default function ItemsPage() {
                 <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="text-xs font-medium text-fg-muted">Name</label>
+                        <Button type="button" size="sm" variant="outline" onClick={suggestBetterName} disabled={suggestingName || !editName.trim()}>
+                          {suggestingName ? "..." : "AI Suggest"}
+                        </Button>
+                      </div>
+                      <Input
+                        value={editName}
+                        onChange={(e) => {
+                          setEditName(e.target.value);
+                          if (nameSuggestions.length) setNameSuggestions([]);
+                        }}
+                      />
+                      {nameSuggestions.length ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {nameSuggestions.slice(0, 4).map((s, idx) => (
+                            <Button
+                              key={`${s.name}-${idx}`}
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setEditName(s.name);
+                                setNameSuggestions([]);
+                              }}
+                              title={s.reason || ""}
+                            >
+                              {s.name}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-fg-muted">Item Type</label>
