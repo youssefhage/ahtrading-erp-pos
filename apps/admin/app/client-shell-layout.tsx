@@ -6,7 +6,7 @@ import { AppShell } from "@/components/app-shell";
 
 const PUBLIC_PREFIXES = ["/login", "/company/select"];
 // Public utility routes that just flip client-side UI settings (no auth gating here).
-const PUBLIC_PREFIXES_EXTRA = ["/lite", "/full", "/light", "/dark", "/v2"];
+const PUBLIC_PREFIXES_EXTRA = ["/lite", "/full", "/light", "/dark"];
 
 const TITLE_BY_PATH: Record<string, string> = {
   "/dashboard": "Dashboard",

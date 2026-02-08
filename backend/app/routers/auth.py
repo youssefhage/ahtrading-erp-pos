@@ -6,7 +6,7 @@ import uuid
 import secrets
 from ..config import settings
 from ..db import get_admin_conn, get_conn, set_company_context
-from ..deps import get_session, SESSION_COOKIE_NAME, get_current_user, get_company_id
+from ..deps import get_session, SESSION_COOKIE_NAME
 from ..security import hash_password, verify_password, needs_rehash, hash_session_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -153,26 +153,3 @@ def select_company(data: SelectCompanyIn, session=Depends(get_session)):
                 )
 
     return {"ok": True, "active_company_id": str(data.company_id)}
-
-
-@router.get("/permissions")
-def list_my_permissions(company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    """
-    Return permission codes for the current user in the active company.
-    Used by Admin v2 to gate navigation and actions.
-    """
-    with get_conn() as conn:
-        set_company_context(conn, company_id)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT DISTINCT p.code
-                FROM user_roles ur
-                JOIN role_permissions rp ON rp.role_id = ur.role_id
-                JOIN permissions p ON p.id = rp.permission_id
-                WHERE ur.user_id = %s AND ur.company_id = %s
-                ORDER BY p.code
-                """,
-                (user["user_id"], company_id),
-            )
-            return {"permissions": [r["code"] for r in cur.fetchall()]}

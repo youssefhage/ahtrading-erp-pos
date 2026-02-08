@@ -290,7 +290,6 @@ run_migration "057_document_attachments" "backend/db/migrations/057_document_att
 run_migration "058_gl_dimensions_pos_attribution" "backend/db/migrations/058_gl_dimensions_pos_attribution.sql"
 run_migration "059_account_role_shrinkage" "backend/db/migrations/059_account_role_shrinkage.sql"
 run_migration "060_customer_loyalty_ledger_unique" "backend/db/migrations/060_customer_loyalty_ledger_unique.sql"
-run_migration "061_admin_list_indexes" "backend/db/migrations/061_admin_list_indexes.sql"
 
 run_migration "seed_coa_lebanon" "backend/db/seeds/seed_coa_lebanon.sql"
 run_migration "seed_coa_ifrs_stub" "backend/db/seeds/seed_coa_ifrs_stub.sql"

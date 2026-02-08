@@ -239,130 +239,21 @@ def list_sales_payments(
             return {"payments": cur.fetchall()}
 
 @router.get("/invoices", dependencies=[Depends(require_permission("sales:read"))])
-def list_sales_invoices(
-    limit: Optional[int] = None,
-    offset: Optional[int] = None,
-    sort: Optional[str] = None,
-    dir: Optional[str] = None,
-    q: Optional[str] = None,
-    status: Optional[str] = None,
-    customer_id: Optional[str] = None,
-    warehouse_id: Optional[str] = None,
-    date_from: Optional[date] = None,
-    date_to: Optional[date] = None,
-    company_id: str = Depends(get_company_id),
-):
-    """
-    Sales invoices list.
-
-    Backwards compatible:
-    - If no query params are provided, returns legacy full list as {"invoices": [...]}.
-    - If list controls are provided, returns {"data": [...], "total": N} and also includes
-      {"invoices": [...]} for transitional clients.
-    """
-    admin_mode = any(
-        v is not None and v != ""
-        for v in (limit, offset, sort, dir, q, status, customer_id, warehouse_id, date_from, date_to)
-    )
-    if admin_mode:
-        if limit is None:
-            limit = 25
-        if offset is None:
-            offset = 0
-        if limit <= 0 or limit > 200:
-            raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
-        if offset < 0:
-            raise HTTPException(status_code=400, detail="offset must be >= 0")
-
-        sort_map = {
-            "created_at": "i.created_at",
-            "invoice_date": "i.invoice_date",
-            "invoice_no": "i.invoice_no",
-            "status": "i.status",
-            "total_usd": "i.total_usd",
-            "total_lbp": "i.total_lbp",
-            "customer_name": "c.name",
-            "warehouse_name": "w.name",
-        }
-        sort_sql = sort_map.get(sort or "", "i.created_at")
-        dir_sql = "DESC"
-        if (dir or "").lower() in {"asc", "desc"}:
-            dir_sql = (dir or "").upper()
-
+def list_sales_invoices(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            if not admin_mode:
-                cur.execute(
-                    """
-                    SELECT i.id, i.invoice_no, i.customer_id, i.status, i.total_usd, i.total_lbp, i.warehouse_id,
-                           i.invoice_date, i.due_date, i.created_at,
-                           COALESCE(c.name, 'Walk-in') AS customer_name,
-                           COALESCE(w.name, '') AS warehouse_name
-                    FROM sales_invoices i
-                    LEFT JOIN customers c ON c.id = i.customer_id
-                    LEFT JOIN warehouses w ON w.id = i.warehouse_id
-                    WHERE i.company_id = %s
-                    ORDER BY i.created_at DESC
-                    """,
-                    (company_id,),
-                )
-                return {"invoices": cur.fetchall()}
-
-            where = ["i.company_id = %s"]
-            params: list = [company_id]
-
-            if status:
-                where.append("i.status = %s")
-                params.append(status)
-            if customer_id:
-                where.append("i.customer_id = %s")
-                params.append(customer_id)
-            if warehouse_id:
-                where.append("i.warehouse_id = %s")
-                params.append(warehouse_id)
-            if date_from:
-                where.append("i.invoice_date >= %s")
-                params.append(date_from)
-            if date_to:
-                where.append("i.invoice_date <= %s")
-                params.append(date_to)
-            if q:
-                needle = f"%{q.strip()}%"
-                where.append("(i.invoice_no ILIKE %s OR c.name ILIKE %s OR i.id::text ILIKE %s)")
-                params.extend([needle, needle, needle])
-
-            where_sql = " AND ".join(where)
-
             cur.execute(
-                f"""
-                SELECT COUNT(*)::int AS total
-                FROM sales_invoices i
-                LEFT JOIN customers c ON c.id = i.customer_id
-                LEFT JOIN warehouses w ON w.id = i.warehouse_id
-                WHERE {where_sql}
+                """
+                SELECT id, invoice_no, customer_id, status, total_usd, total_lbp, warehouse_id,
+                       invoice_date, due_date, created_at
+                FROM sales_invoices
+                WHERE company_id = %s
+                ORDER BY created_at DESC
                 """,
-                params,
+                (company_id,),
             )
-            total = int(cur.fetchone()["total"])
-
-            cur.execute(
-                f"""
-                SELECT i.id, i.invoice_no, i.customer_id, i.status, i.total_usd, i.total_lbp, i.warehouse_id,
-                       i.invoice_date, i.due_date, i.created_at,
-                       COALESCE(c.name, 'Walk-in') AS customer_name,
-                       COALESCE(w.name, '') AS warehouse_name
-                FROM sales_invoices i
-                LEFT JOIN customers c ON c.id = i.customer_id
-                LEFT JOIN warehouses w ON w.id = i.warehouse_id
-                WHERE {where_sql}
-                ORDER BY {sort_sql} {dir_sql}
-                LIMIT %s OFFSET %s
-                """,
-                [*params, limit, offset],
-            )
-            rows = cur.fetchall()
-            return {"data": rows, "total": total, "invoices": rows}
+            return {"invoices": cur.fetchall()}
 
 @router.get("/invoices/{invoice_id}", dependencies=[Depends(require_permission("sales:read"))])
 def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)):
@@ -371,16 +262,12 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT i.id, i.invoice_no, i.customer_id, i.status,
-                       i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id,
-                       i.pricing_currency, i.settlement_currency,
-                       i.invoice_date, i.due_date, i.created_at,
-                       COALESCE(c.name, 'Walk-in') AS customer_name,
-                       COALESCE(w.name, '') AS warehouse_name
-                FROM sales_invoices i
-                LEFT JOIN customers c ON c.id = i.customer_id
-                LEFT JOIN warehouses w ON w.id = i.warehouse_id
-                WHERE i.company_id = %s AND i.id = %s
+                SELECT id, invoice_no, customer_id, status,
+                       total_usd, total_lbp, exchange_rate, warehouse_id,
+                       pricing_currency, settlement_currency,
+                       invoice_date, due_date, created_at
+                FROM sales_invoices
+                WHERE company_id = %s AND id = %s
                 """,
                 (company_id, invoice_id),
             )
@@ -390,13 +277,12 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
 
             cur.execute(
                 """
-                SELECT l.id, l.item_id, i.sku AS item_sku, i.name AS item_name, l.qty,
-                       l.unit_price_usd, l.unit_price_lbp,
-                       l.line_total_usd, l.line_total_lbp
-                FROM sales_invoice_lines l
-                JOIN items i ON i.id = l.item_id
-                WHERE l.invoice_id = %s
-                ORDER BY l.id
+                SELECT id, item_id, qty,
+                       unit_price_usd, unit_price_lbp,
+                       line_total_usd, line_total_lbp
+                FROM sales_invoice_lines
+                WHERE invoice_id = %s
+                ORDER BY id
                 """,
                 (invoice_id,),
             )
