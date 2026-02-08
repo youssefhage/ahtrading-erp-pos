@@ -42,6 +42,12 @@ def verify_device_token(token: str, token_hash: Optional[str]) -> bool:
     return hash_device_token(token) == token_hash
 
 
+def hash_session_token(token: str) -> str:
+    # Store sessions as a one-way hash so a DB leak doesn't immediately grant access.
+    # Prefix prevents "hash-as-token" replay when supporting legacy plaintext sessions.
+    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def hash_pin(pin: str) -> str:
     # Use bcrypt (same as user passwords). Safe to sync to POS devices for offline verification.
     return _pwd_context.hash(pin)

@@ -1354,6 +1354,11 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--init-db", action="store_true", help="Initialize local SQLite schema and exit")
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("POS_HOST", "127.0.0.1"),
+        help="HTTP host to bind (default: 127.0.0.1). Use 0.0.0.0 only if you explicitly want LAN exposure.",
+    )
     parser.add_argument("--port", type=int, default=int(os.environ.get("POS_PORT", "7070")), help="HTTP port (default: 7070)")
     args = parser.parse_args()
 
@@ -1363,8 +1368,10 @@ def main():
         return
 
     init_db()
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
-    print(f"POS Agent running on http://localhost:{args.port}")
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    # Print localhost for convenience when bound locally; otherwise print the explicit host.
+    public_host = "localhost" if args.host in {"127.0.0.1", "localhost"} else args.host
+    print(f"POS Agent running on http://{public_host}:{args.port}")
     server.serve_forever()
 
 

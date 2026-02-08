@@ -3,10 +3,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 import uuid
+import secrets
 from ..config import settings
 from ..db import get_admin_conn, get_conn, set_company_context
 from ..deps import get_session, SESSION_COOKIE_NAME
-from ..security import hash_password, verify_password, needs_rehash
+from ..security import hash_password, verify_password, needs_rehash, hash_session_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 SESSION_DAYS = 7
@@ -46,7 +47,8 @@ def login(data: LoginIn):
                     (hash_password(data.password), user["id"]),
                 )
 
-            token = str(uuid.uuid4())
+            # Use a strong random token and store only a one-way hash in the DB.
+            token = secrets.token_urlsafe(32)
             expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
             cur.execute(
                 """
@@ -65,7 +67,7 @@ def login(data: LoginIn):
                 INSERT INTO auth_sessions (id, user_id, token, expires_at, active_company_id)
                 VALUES (gen_random_uuid(), %s, %s, %s, %s)
                 """,
-                (user["id"], token, expires, active_company_id),
+                (user["id"], hash_session_token(token), expires, active_company_id),
             )
 
             resp = JSONResponse(
@@ -108,9 +110,9 @@ def logout(session=Depends(get_session)):
                 """
                 UPDATE auth_sessions
                 SET is_active = false
-                WHERE token = %s
+                WHERE token = %s OR (token = %s AND token NOT LIKE 'sha256:%')
                 """,
-                (token,),
+                (hash_session_token(token), token),
             )
             resp = JSONResponse({"ok": True})
             resp.delete_cookie(key=SESSION_COOKIE_NAME, path="/")

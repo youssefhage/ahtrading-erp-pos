@@ -282,6 +282,7 @@ run_migration "049_purchasing_doc_links" "backend/db/migrations/049_purchasing_d
 run_migration "050_cancel_metadata_and_party_codes" "backend/db/migrations/050_cancel_metadata_and_party_codes.sql"
 run_migration "051_opening_stock_role_and_inv_adj_default" "backend/db/migrations/051_opening_stock_role_and_inv_adj_default.sql"
 run_migration "052_opening_balances_doc_subtype" "backend/db/migrations/052_opening_balances_doc_subtype.sql"
+run_migration "053_pos_shifts_one_open_per_device" "backend/db/migrations/053_pos_shifts_one_open_per_device.sql"
 
 run_migration "seed_coa_lebanon" "backend/db/seeds/seed_coa_lebanon.sql"
 run_migration "seed_account_roles" "backend/db/seeds/seed_account_roles.sql"

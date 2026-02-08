@@ -1,6 +1,6 @@
 from fastapi import Header, HTTPException, Depends, Cookie
 from .db import get_conn, get_admin_conn, set_company_context
-from .security import verify_device_token
+from .security import verify_device_token, hash_session_token
 from datetime import datetime, timezone
 from typing import Optional
 import uuid
@@ -22,8 +22,10 @@ def get_session(
     cookie_token: Optional[str] = Cookie(None, alias=SESSION_COOKIE_NAME),
 ):
     token = _extract_session_token(authorization, cookie_token)
+    token_hash = hash_session_token(token)
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # New sessions are stored hashed (sha256:...). Legacy sessions were plaintext.
             cur.execute(
                 """
                 SELECT s.id AS session_id, s.user_id, u.email, s.expires_at, s.is_active, s.active_company_id
@@ -31,9 +33,21 @@ def get_session(
                 JOIN users u ON u.id = s.user_id
                 WHERE s.token = %s
                 """,
-                (token,),
+                (token_hash,),
             )
             row = cur.fetchone()
+            if not row:
+                # Legacy fallback: only match plaintext rows, never hashed rows.
+                cur.execute(
+                    """
+                    SELECT s.id AS session_id, s.user_id, u.email, s.expires_at, s.is_active, s.active_company_id
+                    FROM auth_sessions s
+                    JOIN users u ON u.id = s.user_id
+                    WHERE s.token = %s AND s.token NOT LIKE 'sha256:%'
+                    """,
+                    (token,),
+                )
+                row = cur.fetchone()
             now = datetime.now(timezone.utc)
             if not row or not row["is_active"] or row["expires_at"] < now:
                 raise HTTPException(status_code=401, detail="invalid token")
