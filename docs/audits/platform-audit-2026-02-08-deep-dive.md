@@ -89,7 +89,8 @@ Residual work:
 - Added API endpoints to revoke sessions:
   - `POST /auth/logout-all` (current user)
   - `POST /users/{user_id}/sessions/revoke` (admin, company-scoped)
-- Consider adding a bulk "revoke all users" endpoint for incident response.
+- Added a bulk revoke endpoint for incident response:
+  - `POST /users/sessions/revoke-all` (admin, company-scoped)
 - Consider revoking sessions on role/permission changes too.
 
 ### 2) Worker Scheduling Errors Were Silent

@@ -203,3 +203,26 @@ def revoke_user_sessions(user_id: str, company_id: str = Depends(get_company_id)
                 (user_id,),
             )
             return {"ok": True, "revoked": cur.rowcount}
+
+
+@router.post("/sessions/revoke-all", dependencies=[Depends(require_permission("users:write"))])
+def revoke_all_company_sessions(company_id: str = Depends(get_company_id)):
+    """
+    Company-admin incident-response operation: revoke all sessions for all users that belong to this company.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE auth_sessions
+                SET is_active = false
+                WHERE user_id IN (
+                  SELECT DISTINCT user_id
+                  FROM user_roles
+                  WHERE company_id = %s
+                )
+                """,
+                (company_id,),
+            )
+            return {"ok": True, "revoked": cur.rowcount}
