@@ -2,6 +2,11 @@ from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from psycopg import errors as pg_errors
+import json
+import sys
+import time
+import uuid
+from datetime import datetime
 from .routers.pos import router as pos_router
 from .routers.companies import router as companies_router
 from .routers.branches import router as branches_router
@@ -30,6 +35,10 @@ from .config import settings
 from .deps import require_company_access
 
 app = FastAPI(title="AH Trading ERP/POS API", version="0.1.0")
+
+def _json_log(level: str, event: str, **fields):
+    rec = {"ts": datetime.utcnow().isoformat(), "level": level, "event": event, **fields}
+    print(json.dumps(rec, default=str), file=sys.stderr)
 
 # Map common DB constraint/cast errors to 4xx so clients get actionable responses
 # instead of generic 500s.
@@ -64,6 +73,47 @@ def _check_violation(_req: Request, exc: Exception):
     if settings.env in {"local", "dev"}:
         content["error"] = str(exc)
     return JSONResponse(status_code=400, content=content)
+
+# Correlation id + basic structured request logging.
+@app.middleware("http")
+async def _request_logging(request: Request, call_next):
+    rid = (request.headers.get("X-Request-Id") or "").strip() or uuid.uuid4().hex
+    request.state.request_id = rid
+    started = time.time()
+    path = request.url.path
+    method = request.method
+    client_ip = (request.client.host if request.client else None)
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        dur_ms = int((time.time() - started) * 1000)
+        _json_log(
+            "error",
+            "http.request.error",
+            request_id=rid,
+            method=method,
+            path=path,
+            client_ip=client_ip,
+            duration_ms=dur_ms,
+            error=str(exc),
+        )
+        raise
+
+    response.headers["X-Request-Id"] = rid
+    if path != "/health":
+        dur_ms = int((time.time() - started) * 1000)
+        _json_log(
+            "info",
+            "http.request",
+            request_id=rid,
+            method=method,
+            path=path,
+            status_code=response.status_code,
+            client_ip=client_ip,
+            duration_ms=dur_ms,
+        )
+    return response
 
 # Dev CORS: Admin app runs on a different port during development.
 app.add_middleware(

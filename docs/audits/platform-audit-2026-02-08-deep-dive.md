@@ -105,7 +105,9 @@ Executed (2026-02-08):
 - Updated `backend/workers/worker_service.py` to log scheduling exceptions to stderr with a traceback.
 
 Residual work:
-- Add structured logging (JSON logs) and consistent correlation ids.
+- Added basic structured JSON logs and request correlation ids:
+  - API emits `X-Request-Id` and logs `http.request` JSON lines.
+  - Worker emits JSON logs for key error events.
 - Added a DB heartbeat row (`worker_heartbeats`) written by the worker, plus:
   - `GET /config/worker-heartbeats` (direct)
   - `GET /ai/copilot/overview` now includes worker heartbeat + background job health for the Admin Ops view.

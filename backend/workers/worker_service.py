@@ -14,6 +14,7 @@ import json
 import time
 import sys
 import traceback
+from datetime import datetime
 from typing import Any
 from decimal import Decimal
 
@@ -58,6 +59,10 @@ DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
 }
 
 WORKER_NAME = "outbox-worker"
+
+def _json_log(level: str, event: str, **fields):
+    rec = {"ts": datetime.utcnow().isoformat(), "level": level, "event": event, **fields}
+    print(json.dumps(rec, default=str), file=sys.stderr)
 
 
 def list_company_ids(db_url: str):
@@ -256,7 +261,7 @@ def main():
                     did_work = True
             except Exception as ex:
                 # Never crash the worker loop due to outbox processing errors.
-                print(f"[worker] outbox processing error for company {cid}: {ex}", file=sys.stderr)
+                _json_log("error", "worker.outbox.error", company_id=cid, error=str(ex))
                 traceback.print_exc(file=sys.stderr)
                 outbox_error = str(ex)
 
@@ -267,7 +272,7 @@ def main():
             except Exception as ex:
                 # Never crash the worker loop due to background scheduling issues.
                 # But do log so we can see it in Docker/Dokploy logs.
-                print(f"[worker] background scheduling error for company {cid}: {ex}", file=sys.stderr)
+                _json_log("error", "worker.jobs.error", company_id=cid, error=str(ex))
                 traceback.print_exc(file=sys.stderr)
                 jobs_error = str(ex)
 
@@ -283,7 +288,7 @@ def main():
                     },
                 )
             except Exception as ex:
-                print(f"[worker] heartbeat write failed for company {cid}: {ex}", file=sys.stderr)
+                _json_log("error", "worker.heartbeat.error", company_id=cid, error=str(ex))
                 traceback.print_exc(file=sys.stderr)
 
         if args.once:
