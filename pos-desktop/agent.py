@@ -144,6 +144,18 @@ def _verify_admin_pin(cfg: dict, pin: str) -> bool:
     except Exception:
         return False
 
+def _public_config(cfg: dict) -> dict:
+    """
+    Return a config payload safe to expose via the local HTTP API.
+
+    Even if the agent is LAN-exposed intentionally, we never want to leak the
+    backend device token or admin PIN hash via unauthenticated GET requests.
+    """
+    safe = dict(cfg or {})
+    safe.pop("device_token", None)
+    safe.pop("admin_pin_hash", None)
+    return safe
+
 def init_db():
     if not os.path.exists(SCHEMA_PATH):
         raise RuntimeError(f"Missing schema file: {SCHEMA_PATH}")
@@ -1261,11 +1273,32 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(raw)
 
     def handle_api_get(self, parsed):
+        client_ip = (self.client_address[0] if self.client_address else "")
+        cfg = load_config()
+
+        # Guard read endpoints when the agent is LAN-exposed (or explicitly required).
+        # This prevents leaking sensitive data like device tokens/config to the local network.
+        if parsed.path != "/api/health" and _admin_pin_required(client_ip, cfg):
+            if not (cfg.get("admin_pin_hash") or "").strip():
+                json_response(
+                    self,
+                    {
+                        "error": "pos_auth_required",
+                        "hint": "Set admin PIN (localhost): POST /api/admin/pin/set, then unlock with POST /api/auth/pin.",
+                    },
+                    status=503,
+                )
+                return
+            token = (self.headers.get("X-POS-Session") or "").strip()
+            if not _validate_admin_session(token):
+                json_response(self, {"error": "pos_auth_required"}, status=401)
+                return
+
         if parsed.path == '/api/health':
             json_response(self, {'ok': True})
             return
         if parsed.path == '/api/config':
-            json_response(self, load_config())
+            json_response(self, _public_config(cfg))
             return
         if parsed.path == '/api/items':
             json_response(self, {'items': get_items()})

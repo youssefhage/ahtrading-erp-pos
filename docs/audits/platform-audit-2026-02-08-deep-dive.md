@@ -179,3 +179,5 @@ Risks to watch:
   - `backend/app/routers/banking.py`
   - `backend/app/routers/pricing.py`
 - Fixed a runtime bug in `/purchases/payments` where the supplier payment journal referenced an undefined `exchange_rate` variable (now uses 0, consistent with customer payments).
+- POS agent: prevent LAN token leakage by gating GET `/api/*` behind the local PIN session when LAN-exposed, and always redacting secrets from `/api/config` responses:
+  - `pos-desktop/agent.py`
