@@ -32,6 +32,12 @@ Recommended fix:
 - Add a simple local auth gate (PIN session, shared secret, or OS-local-only binding).
 - Consider requiring cashier verification before creating sale/return events.
 
+Executed (2026-02-08):
+- POS agent now binds to `127.0.0.1` by default (LAN exposure requires explicit `--host 0.0.0.0` or `POS_HOST=0.0.0.0`).
+- When LAN-exposed (or when `require_admin_pin=true`), GET + POST `/api/*` are gated behind a local admin PIN session (`X-POS-Session`).
+- Removed wildcard CORS and reject disallowed `Origin` headers for `/api/*` to mitigate browser-based localhost/LAN attacks.
+- `/receipt/last` is now loopback-only (never served over LAN).
+
 ### 2) Auth Sessions: Plaintext Token Storage + Weak Token Shape
 
 Finding:

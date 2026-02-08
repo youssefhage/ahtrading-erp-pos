@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError
 import secrets
 from datetime import timedelta
+from typing import Optional
 
 import bcrypt
 
@@ -76,6 +77,91 @@ def db_connect():
 def _is_loopback(ip: str) -> bool:
     ip = (ip or "").strip()
     return ip in {"127.0.0.1", "::1", "localhost"}
+
+def _parse_host_header(host_header: str) -> tuple[Optional[str], Optional[int]]:
+    host_header = (host_header or "").strip()
+    if not host_header:
+        return None, None
+    # Host header is typically "host:port" for non-default ports.
+    if host_header.startswith("[") and "]" in host_header:
+        # IPv6: "[::1]:7070"
+        host_part, _, port_part = host_header.partition("]:")
+        host = host_part.lstrip("[")
+        port = None
+        try:
+            port = int(port_part) if port_part else None
+        except Exception:
+            port = None
+        return host, port
+    if ":" in host_header:
+        host, _, port_part = host_header.rpartition(":")
+        try:
+            return host, int(port_part)
+        except Exception:
+            return host, None
+    return host_header, None
+
+def _parse_origin(origin: str) -> tuple[Optional[str], Optional[int], Optional[str]]:
+    origin = (origin or "").strip()
+    if not origin:
+        return None, None, None
+    try:
+        u = urlparse(origin)
+        return u.hostname, (u.port or None), u.scheme
+    except Exception:
+        return None, None, None
+
+def _origin_is_trusted(origin: str, host_header: str) -> bool:
+    """
+    Local HTTP agents are a classic target for browser-based attacks.
+    Rule: if a browser sends an Origin header, only accept it if it is:
+      - loopback (localhost/127.0.0.1/::1), OR
+      - same-origin as the request Host header (so the agent-served UI works).
+    Non-browser clients usually omit Origin; those are handled separately.
+    """
+    oh, op, scheme = _parse_origin(origin)
+    if not oh or scheme not in {"http", "https"}:
+        return False
+    if oh in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    hh, hp = _parse_host_header(host_header)
+    if not hh:
+        return False
+    # If the agent is accessed via LAN IP/hostname and serves its own UI, allow same-origin.
+    if oh == hh and (hp is None or op is None or hp == op):
+        return True
+    return False
+
+def _reject_if_disallowed_origin(handler) -> bool:
+    """
+    If Origin is present and not trusted, reject early to mitigate CSRF and
+    cross-site localhost attacks.
+    """
+    origin = (handler.headers.get("Origin") or "").strip()
+    if not origin:
+        return False
+    host_header = (handler.headers.get("Host") or "").strip()
+    if _origin_is_trusted(origin, host_header):
+        return False
+    text_response(handler, "Forbidden", status=403)
+    return True
+
+def _maybe_send_cors_headers(handler):
+    """
+    Only emit CORS headers for trusted origins. We avoid wildcard CORS to prevent
+    arbitrary websites from reading data from the local agent.
+    """
+    origin = (handler.headers.get("Origin") or "").strip()
+    if not origin:
+        return
+    host_header = (handler.headers.get("Host") or "").strip()
+    if not _origin_is_trusted(origin, host_header):
+        return
+    handler.send_header("Access-Control-Allow-Origin", origin)
+    handler.send_header("Vary", "Origin")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type,X-POS-Session")
+    handler.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+    handler.send_header("Access-Control-Max-Age", "600")
 
 
 def _admin_pin_required(client_ip: str, cfg: dict) -> bool:
@@ -209,9 +295,7 @@ def json_response(handler, payload, status=200):
     body = json.dumps(payload).encode('utf-8')
     handler.send_response(status)
     handler.send_header('Content-Type', 'application/json')
-    handler.send_header('Access-Control-Allow-Origin', '*')
-    handler.send_header('Access-Control-Allow-Headers', 'Content-Type,X-POS-Session')
-    handler.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+    _maybe_send_cors_headers(handler)
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -219,9 +303,7 @@ def json_response(handler, payload, status=200):
 def text_response(handler, body, status=200, content_type='text/plain'):
     handler.send_response(status)
     handler.send_header('Content-Type', content_type)
-    handler.send_header('Access-Control-Allow-Origin', '*')
-    handler.send_header('Access-Control-Allow-Headers', 'Content-Type,X-POS-Session')
-    handler.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+    _maybe_send_cors_headers(handler)
     handler.end_headers()
     handler.wfile.write(body.encode('utf-8'))
 
@@ -1237,19 +1319,28 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
 
 class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
+        if _reject_if_disallowed_origin(self):
+            return
         self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type,X-POS-Session')
-        self.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+        _maybe_send_cors_headers(self)
         self.end_headers()
 
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/receipt/last":
+            # Never serve printable receipts over LAN; keep this loopback-only.
+            client_ip = (self.client_address[0] if self.client_address else "")
+            if not _is_loopback(client_ip):
+                text_response(self, "Forbidden", status=403)
+                return
+            if _reject_if_disallowed_origin(self):
+                return
             row = get_last_receipt()
             text_response(self, _receipt_html(row), status=200, content_type="text/html")
             return
         if parsed.path.startswith('/api/'):
+            if _reject_if_disallowed_origin(self):
+                return
             self.handle_api_get(parsed)
             return
         path = parsed.path
@@ -1261,6 +1352,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
         if parsed.path.startswith('/api/'):
+            if _reject_if_disallowed_origin(self):
+                return
             self.handle_api_post(parsed)
             return
         text_response(self, 'Not found', status=404)

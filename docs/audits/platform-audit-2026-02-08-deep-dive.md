@@ -181,5 +181,9 @@ Risks to watch:
 - Fixed a runtime bug in `/purchases/payments` where the supplier payment journal referenced an undefined `exchange_rate` variable (now uses 0, consistent with customer payments).
 - POS agent: prevent LAN token leakage by gating GET `/api/*` behind the local PIN session when LAN-exposed, and always redacting secrets from `/api/config` responses:
   - `pos-desktop/agent.py`
+- POS agent: mitigate browser-based localhost/LAN abuse by:
+  - Removing wildcard CORS (`Access-Control-Allow-Origin: *`) and only emitting CORS headers for trusted origins.
+  - Rejecting disallowed `Origin` headers for `/api/*` requests (CSRF/cross-site protection).
+  - Restricting `/receipt/last` to loopback-only (never served over LAN).
 - Worker: prevent crashes by logging (and continuing) when outbox processing fails for a company:
   - `backend/workers/worker_service.py`
