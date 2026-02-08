@@ -22,6 +22,11 @@ type InvoiceRow = {
   supplier_name?: string | null;
   goods_receipt_id?: string | null;
   goods_receipt_no?: string | null;
+  is_on_hold?: boolean;
+  hold_reason?: string | null;
+  hold_details?: unknown;
+  held_at?: string | null;
+  released_at?: string | null;
   status: string;
   total_usd: string | number;
   total_lbp: string | number;
@@ -118,6 +123,8 @@ function SupplierInvoiceShowInner() {
   const [cancelDraftReason, setCancelDraftReason] = useState("");
   const [cancelDrafting, setCancelDrafting] = useState(false);
 
+  const [holdBusy, setHoldBusy] = useState(false);
+
   const methodChoices = useMemo(() => {
     const base = ["cash", "bank", "card", "transfer", "other"];
     const fromConfig = paymentMethods.map((m) => m.method);
@@ -153,6 +160,10 @@ function SupplierInvoiceShowInner() {
   async function openPostDialog() {
     if (!detail) return;
     if (detail.invoice.status !== "draft") return;
+    if (detail.invoice.is_on_hold) {
+      setStatus("Invoice is on hold. Unhold it before posting.");
+      return;
+    }
     if (!(detail.lines || []).length) {
       setStatus("Cannot post: add at least one line to this draft first.");
       return;
@@ -208,6 +219,38 @@ function SupplierInvoiceShowInner() {
       setStatus(message);
     } finally {
       setPostSubmitting(false);
+    }
+  }
+
+  async function unholdInvoice() {
+    if (!detail) return;
+    setHoldBusy(true);
+    setStatus("Unholding...");
+    try {
+      await apiPost(`/purchases/invoices/${detail.invoice.id}/unhold`, {});
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setHoldBusy(false);
+    }
+  }
+
+  async function holdInvoice() {
+    if (!detail) return;
+    setHoldBusy(true);
+    setStatus("Holding...");
+    try {
+      await apiPost(`/purchases/invoices/${detail.invoice.id}/hold`, { reason: "Manual hold" });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setHoldBusy(false);
     }
   }
 
@@ -294,6 +337,15 @@ function SupplierInvoiceShowInner() {
                   <CardDescription>
                     <span className="font-mono text-xs">{detail.invoice.invoice_no || "(draft)"}</span> ·{" "}
                     <span className="text-xs">{detail.invoice.status}</span>
+                    {detail.invoice.is_on_hold ? (
+                      <>
+                        {" "}
+                        ·{" "}
+                        <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-200">
+                          HOLD{detail.invoice.hold_reason ? `: ${detail.invoice.hold_reason}` : ""}
+                        </span>
+                      </>
+                    ) : null}
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -302,6 +354,15 @@ function SupplierInvoiceShowInner() {
                       <Button asChild variant="outline">
                         <Link href={`/purchasing/supplier-invoices/${encodeURIComponent(detail.invoice.id)}/edit`}>Edit Draft</Link>
                       </Button>
+                      {detail.invoice.is_on_hold ? (
+                        <Button variant="outline" onClick={unholdInvoice} disabled={holdBusy}>
+                          {holdBusy ? "..." : "Unhold"}
+                        </Button>
+                      ) : (
+                        <Button variant="outline" onClick={holdInvoice} disabled={holdBusy}>
+                          {holdBusy ? "..." : "Hold"}
+                        </Button>
+                      )}
                       <Button variant="outline" onClick={openPostDialog}>
                         Post Draft
                       </Button>
@@ -364,6 +425,23 @@ function SupplierInvoiceShowInner() {
                   <p className="text-sm font-medium text-foreground">{detail.invoice.status}</p>
                 </div>
               </div>
+
+              {detail.invoice.is_on_hold ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Hold Details</CardTitle>
+                    <CardDescription>Posting and paying are blocked until you unhold.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="text-xs text-fg-muted">
+                      Reason: <span className="font-mono">{detail.invoice.hold_reason || "-"}</span>
+                    </div>
+                    <pre className="max-h-64 overflow-auto rounded-md border border-border-subtle bg-bg-sunken/40 p-3 text-[11px] text-fg-muted">
+{JSON.stringify(detail.invoice.hold_details ?? {}, null, 2)}
+                    </pre>
+                  </CardContent>
+                </Card>
+              ) : null}
 
               <Card>
                 <CardHeader>

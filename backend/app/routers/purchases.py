@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from decimal import Decimal
@@ -452,6 +453,10 @@ class SupplierInvoicePostIn(BaseModel):
     posting_date: Optional[date] = None
     payments: Optional[List[PaymentBlock]] = None
 
+class InvoiceHoldIn(BaseModel):
+    reason: Optional[str] = None
+    details: Optional[dict] = None
+
 
 class SupplierInvoiceDraftFromReceiptIn(BaseModel):
     invoice_no: Optional[str] = None
@@ -639,6 +644,7 @@ def list_supplier_invoices(
             select_sql = f"""
                 SELECT i.id, i.invoice_no, i.supplier_ref, i.supplier_id, s.name AS supplier_name,
                        i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
+                       i.is_on_hold, i.hold_reason,
                        i.status, i.total_usd, i.total_lbp, i.tax_code_id, i.invoice_date, i.due_date, i.created_at
                 {base_sql}
                 ORDER BY {sort_sql} {dir_sql}
@@ -662,6 +668,7 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
                 """
                 SELECT i.id, i.invoice_no, i.supplier_ref, i.supplier_id, s.name AS supplier_name,
                        i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
+                       i.is_on_hold, i.hold_reason, i.hold_details, i.held_at, i.released_at,
                        i.status, i.total_usd, i.total_lbp, i.exchange_rate, i.tax_code_id, i.invoice_date, i.due_date, i.created_at
                 FROM supplier_invoices i
                 LEFT JOIN goods_receipts gr
@@ -2514,7 +2521,7 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, invoice_no, supplier_id, goods_receipt_id, status, exchange_rate, invoice_date, due_date, tax_code_id,
+                    SELECT id, invoice_no, supplier_id, goods_receipt_id, status, is_on_hold, exchange_rate, invoice_date, due_date, tax_code_id,
                            COALESCE(doc_subtype,'standard') AS doc_subtype
                     FROM supplier_invoices
                     WHERE company_id = %s AND id = %s
@@ -2542,6 +2549,10 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                     return {"ok": True, "journal_id": j["id"]}
                 if inv['status'] != 'draft':
                     raise HTTPException(status_code=400, detail='only draft invoices can be posted')
+
+                # Manual/auto hold gate.
+                if bool(inv.get("is_on_hold")):
+                    raise HTTPException(status_code=409, detail="invoice is on hold (unhold to post)")
 
                 inv_date = data.posting_date or inv['invoice_date'] or date.today()
                 assert_period_open(cur, company_id, inv_date)
@@ -2651,6 +2662,131 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                                     status_code=400,
                                     detail=f"invoiced qty exceeds received qty for receipt line {gr_line_id}",
                                 )
+
+                    # Price variance detection (v1) against PO/GR costs. If we detect suspicious variance,
+                    # we put the invoice on hold and return 409 so a human can review + unhold.
+                    # We only run this when we have receipt-linked lines (goods_receipt_line_id).
+                    gr_line_ids = sorted({ln.get("goods_receipt_line_id") for ln in lines if ln.get("goods_receipt_line_id")})
+                    if gr_line_ids:
+                        cur.execute(
+                            """
+                            SELECT grl.id AS goods_receipt_line_id,
+                                   grl.qty AS received_qty,
+                                   grl.unit_cost_usd AS gr_unit_cost_usd,
+                                   grl.unit_cost_lbp AS gr_unit_cost_lbp,
+                                   grl.purchase_order_line_id,
+                                   pol.unit_cost_usd AS po_unit_cost_usd,
+                                   pol.unit_cost_lbp AS po_unit_cost_lbp,
+                                   it.sku AS item_sku,
+                                   it.name AS item_name
+                            FROM goods_receipt_lines grl
+                            LEFT JOIN purchase_order_lines pol
+                              ON pol.company_id = grl.company_id AND pol.id = grl.purchase_order_line_id
+                            LEFT JOIN items it
+                              ON it.company_id = grl.company_id AND it.id = grl.item_id
+                            WHERE grl.company_id = %s
+                              AND grl.id = ANY(%s::uuid[])
+                            """,
+                            (company_id, gr_line_ids),
+                        )
+                        grmeta = {str(r["goods_receipt_line_id"]): r for r in cur.fetchall()}
+
+                        qty_by_gr_line: dict[str, Decimal] = {}
+                        for ln in lines:
+                            if not ln.get("goods_receipt_line_id"):
+                                continue
+                            gid = str(ln["goods_receipt_line_id"])
+                            qty_by_gr_line[gid] = qty_by_gr_line.get(gid, Decimal("0")) + Decimal(str(ln["qty"] or 0))
+
+                        flagged = []
+                        # Thresholds: keep intentionally conservative to avoid noisy holds.
+                        pct_threshold = Decimal("0.15")  # 15%
+                        abs_usd_threshold = Decimal("25")  # $25 per unit difference
+                        for ln in lines:
+                            gid = ln.get("goods_receipt_line_id")
+                            if not gid:
+                                continue
+                            meta = grmeta.get(str(gid)) or {}
+                            exp_usd = Decimal(str(meta.get("po_unit_cost_usd") or meta.get("gr_unit_cost_usd") or 0))
+                            exp_lbp = Decimal(str(meta.get("po_unit_cost_lbp") or meta.get("gr_unit_cost_lbp") or 0))
+                            act_usd = Decimal(str(ln.get("unit_cost_usd") or 0))
+                            act_lbp = Decimal(str(ln.get("unit_cost_lbp") or 0))
+                            item_sku = meta.get("item_sku")
+                            item_name = meta.get("item_name")
+
+                            # Qty variance: invoices should not exceed the received qty for that receipt line
+                            # (already enforced above), but we still capture it for hold details.
+                            qty_inv = qty_by_gr_line.get(str(gid), Decimal("0"))
+                            qty_recv = Decimal(str(meta.get("received_qty") or 0))
+                            qty_var = qty_inv - qty_recv
+
+                            usd_var = act_usd - exp_usd
+                            lbp_var = act_lbp - exp_lbp
+                            pct_var = None
+                            if exp_usd:
+                                try:
+                                    pct_var = abs(usd_var) / abs(exp_usd)
+                                except Exception:
+                                    pct_var = None
+
+                            noisy = False
+                            if exp_usd and pct_var is not None and pct_var >= pct_threshold and abs(usd_var) >= abs_usd_threshold:
+                                noisy = True
+                            # Fallback: if only LBP is used, still flag large absolute differences.
+                            if not noisy and exp_usd == 0 and exp_lbp and abs(lbp_var) >= Decimal("2500000"):
+                                noisy = True
+                            if qty_var > Decimal("0.000001"):
+                                noisy = True
+
+                            if noisy:
+                                flagged.append(
+                                    {
+                                        "goods_receipt_line_id": str(gid),
+                                        "item_id": str(ln.get("item_id")),
+                                        "item_sku": item_sku,
+                                        "item_name": item_name,
+                                        "expected_unit_cost_usd": str(exp_usd),
+                                        "expected_unit_cost_lbp": str(exp_lbp),
+                                        "actual_unit_cost_usd": str(act_usd),
+                                        "actual_unit_cost_lbp": str(act_lbp),
+                                        "unit_variance_usd": str(usd_var),
+                                        "unit_variance_lbp": str(lbp_var),
+                                        "pct_variance_usd": (str(pct_var) if pct_var is not None else None),
+                                        "received_qty": str(qty_recv),
+                                        "invoiced_qty": str(qty_inv),
+                                    }
+                                )
+
+                        if flagged:
+                            details = {
+                                "kind": "ap_variance",
+                                "count": len(flagged),
+                                "thresholds": {"pct": str(pct_threshold), "abs_usd": str(abs_usd_threshold)},
+                                "lines": flagged[:50],
+                            }
+                            cur.execute(
+                                """
+                                UPDATE supplier_invoices
+                                SET is_on_hold = true,
+                                    hold_reason = %s,
+                                    hold_details = %s::jsonb,
+                                    held_by_user_id = %s,
+                                    held_at = now()
+                                WHERE company_id=%s AND id=%s
+                                """,
+                                ("AP variance detected (review required)", json.dumps(details), user["user_id"], company_id, invoice_id),
+                            )
+                            cur.execute(
+                                """
+                                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                                VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_hold_auto', 'supplier_invoice', %s, %s::jsonb)
+                                """,
+                                (company_id, user["user_id"], invoice_id, json.dumps(details)),
+                            )
+                            return JSONResponse(
+                                status_code=409,
+                                content={"error": "invoice placed on hold due to AP variance (review + unhold to post)", "details": details},
+                            )
 
                 base_usd = sum([Decimal(str(l['line_total_usd'])) for l in lines])
                 base_lbp = sum([Decimal(str(l['line_total_lbp'])) for l in lines])
@@ -2797,7 +2933,11 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                 cur.execute(
                     """
                     UPDATE supplier_invoices
-                    SET status='posted', total_usd=%s, total_lbp=%s, invoice_date=%s
+                    SET status='posted',
+                        is_on_hold=false,
+                        total_usd=%s,
+                        total_lbp=%s,
+                        invoice_date=%s
                     WHERE company_id=%s AND id=%s
                     """,
                     (total_usd, total_lbp, inv_date, company_id, invoice_id),
@@ -2926,6 +3066,94 @@ def cancel_supplier_invoice(invoice_id: str, data: SupplierInvoiceCancelIn, comp
                     (company_id, user["user_id"], invoice_id, json.dumps({"invoice_no": inv["invoice_no"], "journal_id": str(void_journal_id), "reason": reason})),
                 )
                 return {"ok": True, "journal_id": void_journal_id}
+
+
+@router.post("/invoices/{invoice_id}/hold", dependencies=[Depends(require_permission("purchases:write"))])
+def hold_supplier_invoice(invoice_id: str, data: InvoiceHoldIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    reason = (data.reason or "").strip() or "Manual hold"
+    details = data.details or {}
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, status, is_on_hold
+                    FROM supplier_invoices
+                    WHERE company_id=%s AND id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, invoice_id),
+                )
+                inv = cur.fetchone()
+                if not inv:
+                    raise HTTPException(status_code=404, detail="invoice not found")
+                if inv["status"] != "draft":
+                    raise HTTPException(status_code=400, detail="only draft invoices can be held")
+                if inv.get("is_on_hold"):
+                    return {"ok": True}
+                cur.execute(
+                    """
+                    UPDATE supplier_invoices
+                    SET is_on_hold=true,
+                        hold_reason=%s,
+                        hold_details=%s::jsonb,
+                        held_by_user_id=%s,
+                        held_at=now()
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (reason, json.dumps(details), user["user_id"], company_id, invoice_id),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_hold', 'supplier_invoice', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], invoice_id, json.dumps({"reason": reason, "details": details})),
+                )
+                return {"ok": True}
+
+
+@router.post("/invoices/{invoice_id}/unhold", dependencies=[Depends(require_permission("purchases:write"))])
+def unhold_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, status, is_on_hold
+                    FROM supplier_invoices
+                    WHERE company_id=%s AND id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, invoice_id),
+                )
+                inv = cur.fetchone()
+                if not inv:
+                    raise HTTPException(status_code=404, detail="invoice not found")
+                if inv["status"] != "draft":
+                    raise HTTPException(status_code=400, detail="only draft invoices can be unheld")
+                if not inv.get("is_on_hold"):
+                    return {"ok": True}
+                cur.execute(
+                    """
+                    UPDATE supplier_invoices
+                    SET is_on_hold=false,
+                        released_by_user_id=%s,
+                        released_at=now()
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (user["user_id"], company_id, invoice_id),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_unhold', 'supplier_invoice', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], invoice_id, json.dumps({})),
+                )
+                return {"ok": True}
 
 
 @router.post("/invoices/{invoice_id}/cancel-draft", dependencies=[Depends(require_permission("purchases:write"))])
@@ -3246,7 +3474,7 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
 
                 cur.execute(
                     """
-                    SELECT id, supplier_id
+                    SELECT id, supplier_id, status, is_on_hold
                     FROM supplier_invoices
                     WHERE company_id = %s AND id = %s
                     """,
@@ -3255,6 +3483,10 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                 inv = cur.fetchone()
                 if not inv:
                     raise HTTPException(status_code=404, detail="supplier invoice not found")
+                if inv.get("status") != "posted":
+                    raise HTTPException(status_code=400, detail="payments require a posted supplier invoice")
+                if inv.get("is_on_hold"):
+                    raise HTTPException(status_code=409, detail="invoice is on hold (unhold to pay)")
 
                 # Require mapping so methods are consistent and GL accounts are resolvable.
                 cur.execute(

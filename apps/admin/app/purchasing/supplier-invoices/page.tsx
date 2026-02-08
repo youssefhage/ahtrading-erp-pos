@@ -18,6 +18,8 @@ type InvoiceRow = {
   supplier_name?: string | null;
   goods_receipt_id?: string | null;
   goods_receipt_no?: string | null;
+  is_on_hold?: boolean;
+  hold_reason?: string | null;
   status: string;
   total_usd: string | number;
   total_lbp: string | number;
@@ -156,6 +158,13 @@ function SupplierInvoicesListInner() {
                     <td className="px-3 py-2 data-mono text-xs">{inv.goods_receipt_no || "-"}</td>
                     <td className="px-3 py-2">
                       <StatusChip value={inv.status} />
+                      {inv.is_on_hold ? (
+                        <div className="mt-1">
+                          <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-200">
+                            HOLD{inv.hold_reason ? `: ${inv.hold_reason}` : ""}
+                          </span>
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2 text-xs text-fg-muted">
                       <div>

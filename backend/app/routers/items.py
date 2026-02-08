@@ -82,7 +82,7 @@ def list_items(company_id: str = Depends(get_company_id)):
 
 
 @router.post("", dependencies=[Depends(require_permission("items:write"))])
-def create_item(data: ItemIn, company_id: str = Depends(get_company_id)):
+def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
@@ -140,6 +140,13 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id)):
                         (company_id, item_id, barcode),
                     )
 
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_create', 'item', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], item_id, json.dumps(data.model_dump(), default=str)),
+                )
                 return {"id": item_id}
 
 
@@ -257,7 +264,7 @@ class ItemUpdate(BaseModel):
 
 
 @router.patch("/{item_id}", dependencies=[Depends(require_permission("items:write"))])
-def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_company_id)):
+def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     fields = []
     params = []
     # Use exclude_unset so clients can explicitly clear nullable fields (e.g. tax_code_id).
@@ -319,6 +326,13 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
                             (company_id, item_id),
                         )
 
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_update', 'item', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], item_id, json.dumps(data.model_dump(exclude_unset=True), default=str)),
+                )
                 return {"ok": True}
 
 
