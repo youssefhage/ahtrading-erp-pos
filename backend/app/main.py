@@ -33,6 +33,7 @@ from .routers.promotions import router as promotions_router
 from .routers.auth import router as auth_router
 from .config import settings
 from .deps import require_company_access
+from .db import get_admin_conn
 
 app = FastAPI(title="AH Trading ERP/POS API", version="0.1.0")
 
@@ -153,10 +154,21 @@ app.include_router(promotions_router, dependencies=[Depends(require_company_acce
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "env": settings.env,
-    }
+    try:
+        with get_admin_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 AS ok")
+                cur.fetchone()
+        return {
+            "status": "ok",
+            "env": settings.env,
+            "db": "ok",
+        }
+    except Exception as exc:
+        content = {"status": "degraded", "env": settings.env, "db": "down"}
+        if settings.env in {"local", "dev"}:
+            content["error"] = str(exc)
+        return JSONResponse(status_code=503, content=content)
 
 @app.get("/meta")
 def meta():
