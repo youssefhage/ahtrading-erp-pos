@@ -72,6 +72,9 @@ Evidence:
 Recommended fix:
 - Add partial unique index: `(company_id, device_id) WHERE status='open'`.
 
+Executed (2026-02-08):
+- Added DB partial unique index `ux_pos_shifts_one_open_per_device` via `backend/db/migrations/053_pos_shifts_one_open_per_device.sql`.
+
 ### 2) Validation Drift: Too Many “Free Strings” For Enums/Status
 
 Finding:
@@ -80,6 +83,10 @@ Finding:
 
 Recommended fix:
 - Use Pydantic `Literal[...]` / Enums for: currency codes, rate_type, doc_status, payment methods (or validated set per company), movement types, etc.
+
+Executed (2026-02-08):
+- Added shared validation types in `backend/app/validation.py` (currency/rate/status/payment method, etc.) and applied them across core routers.
+- Added FastAPI exception handlers to map common Postgres errors to 4xx/409 to reduce 500s as a backstop.
 
 ### 3) Delta Sync Cursors Are Not Based On “Last Seen Change”
 
