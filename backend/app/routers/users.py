@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from ..db import get_conn, set_company_context
-from ..deps import get_company_id, require_permission
+from ..deps import get_company_id, require_permission, get_current_user
 from ..security import hash_password
+import json
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -40,8 +41,9 @@ def list_users(company_id: str = Depends(get_company_id)):
 
 
 @router.post("", dependencies=[Depends(require_permission("users:write"))])
-def create_user(data: UserIn, company_id: str = Depends(get_company_id)):
+def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
+        set_company_context(conn, company_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -51,7 +53,15 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id)):
                 """,
                 (data.email, hash_password(data.password)),
             )
-            return {"id": cur.fetchone()["id"]}
+            uid = cur.fetchone()["id"]
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'users.create', 'user', %s, %s::jsonb)
+                """,
+                (company_id, user["user_id"], uid, json.dumps({"email": data.email})),
+            )
+            return {"id": uid}
 
 
 @router.get("/roles", dependencies=[Depends(require_permission("users:read"))])
@@ -72,7 +82,7 @@ def list_roles(company_id: str = Depends(get_company_id)):
 
 
 @router.post("/roles", dependencies=[Depends(require_permission("users:write"))])
-def create_role(data: RoleIn, company_id: str = Depends(get_company_id)):
+def create_role(data: RoleIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -84,11 +94,19 @@ def create_role(data: RoleIn, company_id: str = Depends(get_company_id)):
                 """,
                 (company_id, data.name),
             )
-            return {"id": cur.fetchone()["id"]}
+            rid = cur.fetchone()["id"]
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'users.role.create', 'role', %s, %s::jsonb)
+                """,
+                (company_id, user["user_id"], rid, json.dumps({"name": data.name})),
+            )
+            return {"id": rid}
 
 
 @router.post("/roles/assign", dependencies=[Depends(require_permission("users:write"))])
-def assign_role(data: RoleAssignIn, company_id: str = Depends(get_company_id)):
+def assign_role(data: RoleAssignIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -112,6 +130,13 @@ def assign_role(data: RoleAssignIn, company_id: str = Depends(get_company_id)):
                 WHERE user_id = %s
                 """,
                 (data.user_id,),
+            )
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'users.role.assign', 'user', %s, %s::jsonb)
+                """,
+                (company_id, user["user_id"], data.user_id, json.dumps({"role_id": data.role_id})),
             )
             return {"ok": True}
 
@@ -154,7 +179,7 @@ def list_role_permissions(role_id: str, company_id: str = Depends(get_company_id
 
 
 @router.post("/roles/permissions", dependencies=[Depends(require_permission("users:write"))])
-def assign_role_permission(data: RolePermissionIn, company_id: str = Depends(get_company_id)):
+def assign_role_permission(data: RolePermissionIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -192,11 +217,23 @@ def assign_role_permission(data: RolePermissionIn, company_id: str = Depends(get
                 """,
                 (company_id, data.role_id),
             )
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'users.role_permission.assign', 'role', %s, %s::jsonb)
+                """,
+                (
+                    company_id,
+                    user["user_id"],
+                    data.role_id,
+                    json.dumps({"permission_code": data.permission_code}),
+                ),
+            )
             return {"ok": True}
 
 
 @router.post("/{user_id}/sessions/revoke", dependencies=[Depends(require_permission("users:write"))])
-def revoke_user_sessions(user_id: str, company_id: str = Depends(get_company_id)):
+def revoke_user_sessions(user_id: str, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     """
     Company-admin operation: revoke all auth sessions for a user in this company.
     """
@@ -224,11 +261,19 @@ def revoke_user_sessions(user_id: str, company_id: str = Depends(get_company_id)
                 """,
                 (user_id,),
             )
-            return {"ok": True, "revoked": cur.rowcount}
+            revoked = cur.rowcount
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'users.sessions.revoke', 'user', %s, %s::jsonb)
+                """,
+                (company_id, user["user_id"], user_id, json.dumps({"revoked": revoked})),
+            )
+            return {"ok": True, "revoked": revoked}
 
 
 @router.post("/sessions/revoke-all", dependencies=[Depends(require_permission("users:write"))])
-def revoke_all_company_sessions(company_id: str = Depends(get_company_id)):
+def revoke_all_company_sessions(company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     """
     Company-admin incident-response operation: revoke all sessions for all users that belong to this company.
     """
@@ -247,4 +292,12 @@ def revoke_all_company_sessions(company_id: str = Depends(get_company_id)):
                 """,
                 (company_id,),
             )
-            return {"ok": True, "revoked": cur.rowcount}
+            revoked = cur.rowcount
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'users.sessions.revoke_all', 'company', %s, %s::jsonb)
+                """,
+                (company_id, user["user_id"], company_id, json.dumps({"revoked": revoked})),
+            )
+            return {"ok": True, "revoked": revoked}

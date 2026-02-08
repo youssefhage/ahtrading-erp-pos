@@ -3,8 +3,9 @@ from pydantic import BaseModel
 from datetime import date
 from decimal import Decimal
 from ..db import get_conn, set_company_context
-from ..deps import get_company_id, require_permission
+from ..deps import get_company_id, require_permission, get_current_user
 from ..validation import CurrencyCode, PaymentMethod, RateType, TaxType
+import json
 
 router = APIRouter(prefix="/config", tags=["config"])
 
@@ -62,7 +63,7 @@ def list_tax_codes(company_id: str = Depends(get_company_id)):
 
 
 @router.post("/tax-codes", dependencies=[Depends(require_permission("config:write"))])
-def create_tax_code(data: TaxCodeIn, company_id: str = Depends(get_company_id)):
+def create_tax_code(data: TaxCodeIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -74,7 +75,27 @@ def create_tax_code(data: TaxCodeIn, company_id: str = Depends(get_company_id)):
                 """,
                 (company_id, data.name, data.rate, data.tax_type, data.reporting_currency),
             )
-            return {"id": cur.fetchone()["id"]}
+            tid = cur.fetchone()["id"]
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'config.tax_code.create', 'tax_code', %s, %s::jsonb)
+                """,
+                (
+                    company_id,
+                    user["user_id"],
+                    tid,
+                    json.dumps(
+                        {
+                            "name": data.name,
+                            "rate": str(data.rate),
+                            "tax_type": data.tax_type,
+                            "reporting_currency": data.reporting_currency,
+                        }
+                    ),
+                ),
+            )
+            return {"id": tid}
 
 
 @router.get("/exchange-rates", dependencies=[Depends(require_permission("config:read"))])
@@ -93,7 +114,7 @@ def list_exchange_rates(company_id: str = Depends(get_company_id)):
 
 
 @router.post("/exchange-rates", dependencies=[Depends(require_permission("config:write"))])
-def create_exchange_rate(data: ExchangeRateIn, company_id: str = Depends(get_company_id)):
+def create_exchange_rate(data: ExchangeRateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -107,7 +128,20 @@ def create_exchange_rate(data: ExchangeRateIn, company_id: str = Depends(get_com
                 """,
                 (company_id, data.rate_date, data.rate_type, data.usd_to_lbp),
             )
-            return {"id": cur.fetchone()["id"]}
+            rid = cur.fetchone()["id"]
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'config.exchange_rate.upsert', 'exchange_rate', %s, %s::jsonb)
+                """,
+                (
+                    company_id,
+                    user["user_id"],
+                    rid,
+                    json.dumps({"rate_date": str(data.rate_date), "rate_type": data.rate_type, "usd_to_lbp": str(data.usd_to_lbp)}),
+                ),
+            )
+            return {"id": rid}
 
 
 @router.get("/account-defaults", dependencies=[Depends(require_permission("config:read"))])
@@ -129,7 +163,7 @@ def list_account_defaults(company_id: str = Depends(get_company_id)):
 
 
 @router.post("/account-defaults", dependencies=[Depends(require_permission("config:write"))])
-def set_account_default(data: AccountDefaultIn, company_id: str = Depends(get_company_id)):
+def set_account_default(data: AccountDefaultIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -150,6 +184,18 @@ def set_account_default(data: AccountDefaultIn, company_id: str = Depends(get_co
                 ON CONFLICT (company_id, role_code) DO UPDATE SET account_id = EXCLUDED.account_id
                 """,
                 (company_id, data.role_code, acc["id"]),
+            )
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'config.account_default.set', 'company', %s, %s::jsonb)
+                """,
+                (
+                    company_id,
+                    user["user_id"],
+                    company_id,
+                    json.dumps({"role_code": data.role_code, "account_code": data.account_code}),
+                ),
             )
             return {"ok": True}
 
@@ -172,7 +218,7 @@ def list_payment_methods(company_id: str = Depends(get_company_id)):
 
 
 @router.post("/payment-methods", dependencies=[Depends(require_permission("config:write"))])
-def upsert_payment_method(data: PaymentMethodMappingIn, company_id: str = Depends(get_company_id)):
+def upsert_payment_method(data: PaymentMethodMappingIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     method = (data.method or "").strip().lower()
     if not method:
         raise HTTPException(status_code=400, detail="method is required")
@@ -193,6 +239,18 @@ def upsert_payment_method(data: PaymentMethodMappingIn, company_id: str = Depend
                 SET role_code = EXCLUDED.role_code
                 """,
                 (company_id, method, data.role_code),
+            )
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'config.payment_method.upsert', 'company', %s, %s::jsonb)
+                """,
+                (
+                    company_id,
+                    user["user_id"],
+                    company_id,
+                    json.dumps({"method": method, "role_code": data.role_code}),
+                ),
             )
             return {"ok": True}
 
