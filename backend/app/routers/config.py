@@ -195,3 +195,23 @@ def upsert_payment_method(data: PaymentMethodMappingIn, company_id: str = Depend
                 (company_id, method, data.role_code),
             )
             return {"ok": True}
+
+
+@router.get("/worker-heartbeats", dependencies=[Depends(require_permission("config:read"))])
+def worker_heartbeats(company_id: str = Depends(get_company_id)):
+    """
+    Ops endpoint: surface per-company worker liveness for the Admin UI.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT worker_name, last_seen_at, details
+                FROM worker_heartbeats
+                WHERE company_id = %s
+                ORDER BY worker_name
+                """,
+                (company_id,),
+            )
+            return {"heartbeats": cur.fetchall()}

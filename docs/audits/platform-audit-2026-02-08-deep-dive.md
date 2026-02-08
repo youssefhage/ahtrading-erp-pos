@@ -105,7 +105,7 @@ Executed (2026-02-08):
 
 Residual work:
 - Add structured logging (JSON logs) and consistent correlation ids.
-- Add a “worker heartbeat” or health endpoint / DB heartbeat row.
+- Added a DB heartbeat row (`worker_heartbeats`) written by the worker, plus `GET /config/worker-heartbeats` for Admin surfacing.
 
 ## P2 (Important, Not Urgent)
 

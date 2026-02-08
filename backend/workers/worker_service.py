@@ -57,12 +57,31 @@ DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
     "AI_EXECUTOR": {"interval_seconds": 60, "options_json": {"limit": 20}},
 }
 
+WORKER_NAME = "outbox-worker"
+
 
 def list_company_ids(db_url: str):
     with psycopg.connect(db_url, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM companies ORDER BY created_at ASC")
             return [str(r["id"]) for r in cur.fetchall()]
+
+def record_worker_heartbeat(db_url: str, company_id: str, details: dict):
+    # Persist a per-company heartbeat so the Admin UI can show "worker alive" without log access.
+    with psycopg.connect(db_url, row_factory=dict_row) as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                set_company_context(cur, company_id)
+                details_json = json.dumps(details or {})
+                cur.execute(
+                    """
+                    INSERT INTO worker_heartbeats (company_id, worker_name, last_seen_at, details)
+                    VALUES (%s, %s, now(), %s::jsonb)
+                    ON CONFLICT (company_id, worker_name)
+                    DO UPDATE SET last_seen_at = now(), details = EXCLUDED.details
+                    """,
+                    (company_id, WORKER_NAME, details_json),
+                )
 
 
 def ensure_default_job_schedules(conn, company_id: str):
@@ -227,6 +246,10 @@ def main():
         company_ids = args.companies or list_company_ids(args.db)
         did_work = False
         for cid in company_ids:
+            processed = 0
+            jobs_ran = 0
+            outbox_error = None
+            jobs_error = None
             try:
                 processed = process_events(args.db, cid, args.limit, max_attempts=args.max_attempts)
                 if processed:
@@ -235,6 +258,7 @@ def main():
                 # Never crash the worker loop due to outbox processing errors.
                 print(f"[worker] outbox processing error for company {cid}: {ex}", file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
+                outbox_error = str(ex)
 
             try:
                 jobs_ran = run_due_jobs(args.db, cid, max_jobs=3)
@@ -244,6 +268,22 @@ def main():
                 # Never crash the worker loop due to background scheduling issues.
                 # But do log so we can see it in Docker/Dokploy logs.
                 print(f"[worker] background scheduling error for company {cid}: {ex}", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
+                jobs_error = str(ex)
+
+            try:
+                record_worker_heartbeat(
+                    args.db,
+                    cid,
+                    {
+                        "processed": processed,
+                        "jobs_ran": jobs_ran,
+                        "outbox_error": outbox_error,
+                        "jobs_error": jobs_error,
+                    },
+                )
+            except Exception as ex:
+                print(f"[worker] heartbeat write failed for company {cid}: {ex}", file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
 
         if args.once:
