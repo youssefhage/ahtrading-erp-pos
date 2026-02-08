@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
@@ -78,7 +78,7 @@ function SalesPaymentsPageInner() {
     return merged;
   }, [paymentMethods]);
 
-  async function loadBase() {
+  const loadBase = useCallback(async () => {
     const [cust, inv, pm] = await Promise.all([
       apiGet<{ customers: Customer[] }>("/customers"),
       apiGet<{ invoices: InvoiceRow[] }>("/sales/invoices"),
@@ -93,9 +93,9 @@ function SalesPaymentsPageInner() {
     } catch {
       setBankAccounts([]);
     }
-  }
+  }, []);
 
-  async function loadPayments() {
+  const loadPayments = useCallback(async () => {
     setStatus("Loading...");
     try {
       const qs = new URLSearchParams();
@@ -111,9 +111,9 @@ function SalesPaymentsPageInner() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, [invoiceId, customerId, dateFrom, dateTo]);
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setStatus("Loading...");
     try {
       await loadBase();
@@ -123,27 +123,25 @@ function SalesPaymentsPageInner() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, [loadBase, loadPayments]);
 
   useEffect(() => {
     loadAll();
-  }, []);
+  }, [loadAll]);
 
   useEffect(() => {
     // Allow deep-linking from invoice detail into payments.
-    if (qsCustomerId && !customerId) setCustomerId(qsCustomerId);
-    if (qsInvoiceId && !invoiceId) setInvoiceId(qsInvoiceId);
+    if (qsCustomerId) setCustomerId((prev) => prev || qsCustomerId);
+    if (qsInvoiceId) setInvoiceId((prev) => prev || qsInvoiceId);
     if (qsRecord === "1" && qsInvoiceId) {
       setPayInvoiceId(qsInvoiceId);
       setCreateOpen(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qsInvoiceId, qsCustomerId, qsRecord]);
 
   useEffect(() => {
     loadPayments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId, invoiceId, dateFrom, dateTo]);
+  }, [loadPayments]);
 
   async function createPayment(e: React.FormEvent) {
     e.preventDefault();

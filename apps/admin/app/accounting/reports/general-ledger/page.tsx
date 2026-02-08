@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiBase, apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,7 @@ export default function GeneralLedgerPage() {
     return s ? `?${s}` : "";
   }, [startDate, endDate]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const res = await apiGet<{ gl: GlRow[] }>(`/reports/gl${query}`);
@@ -47,11 +47,11 @@ export default function GeneralLedgerPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, [query]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   async function downloadCsv() {
     setStatus("Downloading CSV...");
@@ -164,4 +164,3 @@ export default function GeneralLedgerPage() {
         </Card>
       </div>);
 }
-

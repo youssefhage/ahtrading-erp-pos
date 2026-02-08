@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -72,7 +72,7 @@ export default function SupplierPaymentsPage() {
     return merged;
   }, [paymentMethods]);
 
-  async function loadBase() {
+  const loadBase = useCallback(async () => {
     const [sup, inv, pm] = await Promise.all([
       apiGet<{ suppliers: Supplier[] }>("/suppliers"),
       apiGet<{ invoices: InvoiceRow[] }>("/purchases/invoices"),
@@ -87,9 +87,9 @@ export default function SupplierPaymentsPage() {
     } catch {
       setBankAccounts([]);
     }
-  }
+  }, []);
 
-  async function loadPayments() {
+  const loadPayments = useCallback(async () => {
     setStatus("Loading...");
     try {
       const qs = new URLSearchParams();
@@ -105,9 +105,9 @@ export default function SupplierPaymentsPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, [supplierInvoiceId, supplierId, dateFrom, dateTo]);
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setStatus("Loading...");
     try {
       await loadBase();
@@ -117,16 +117,15 @@ export default function SupplierPaymentsPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, [loadBase, loadPayments]);
 
   useEffect(() => {
     loadAll();
-  }, []);
+  }, [loadAll]);
 
   useEffect(() => {
     loadPayments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supplierId, supplierInvoiceId, dateFrom, dateTo]);
+  }, [loadPayments]);
 
   async function createPayment(e: React.FormEvent) {
     e.preventDefault();

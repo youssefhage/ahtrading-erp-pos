@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -80,7 +80,7 @@ export default function SalesReturnsPage() {
     });
   }, [returns, q, invoiceById, whById]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const [r, inv, wh, it] = await Promise.all([
@@ -98,9 +98,9 @@ export default function SalesReturnsPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
 
-  async function loadDetail(id: string) {
+  const loadDetail = useCallback(async (id: string) => {
     if (!id) {
       setDetail(null);
       return;
@@ -115,16 +115,15 @@ export default function SalesReturnsPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
-
-  useEffect(() => {
-    load();
   }, []);
 
   useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
     loadDetail(returnId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [returnId]);
+  }, [returnId, loadDetail]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

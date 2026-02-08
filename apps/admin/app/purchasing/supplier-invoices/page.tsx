@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -179,7 +179,7 @@ function SupplierInvoicesPageInner() {
     return merged;
   }, [paymentMethods]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const [inv, s, i, tc, pm] = await Promise.all([
@@ -199,9 +199,9 @@ function SupplierInvoicesPageInner() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
 
-  async function loadDetail(id: string) {
+  const loadDetail = useCallback(async (id: string) => {
     if (!id) {
       setDetail(null);
       return;
@@ -216,23 +216,20 @@ function SupplierInvoicesPageInner() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
-
-  useEffect(() => {
-    load();
   }, []);
 
   useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
     if (!qsInvoiceId) return;
-    if (qsInvoiceId === invoiceId) return;
-    setInvoiceId(qsInvoiceId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setInvoiceId((prev) => (prev === qsInvoiceId ? prev : qsInvoiceId));
   }, [qsInvoiceId]);
 
   useEffect(() => {
     loadDetail(invoiceId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [invoiceId]);
+  }, [invoiceId, loadDetail]);
 
   function openNewDraft() {
     setDraftEditId("");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -61,7 +61,7 @@ export default function StockPage() {
     });
   }, [rows, itemById, whById, q]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const [stock, itemsRes, whRes] = await Promise.all([
@@ -77,11 +77,11 @@ export default function StockPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, [byBatch]);
 
   useEffect(() => {
     load();
-  }, [byBatch]);
+  }, [load]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

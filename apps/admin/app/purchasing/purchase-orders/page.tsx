@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -92,7 +92,7 @@ function PurchaseOrdersPageInner() {
     });
   }, [orders, q, statusFilter, supplierById]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const [o, s, i, w] = await Promise.all([
@@ -110,9 +110,9 @@ function PurchaseOrdersPageInner() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
 
-  async function loadDetail(id: string) {
+  const loadDetail = useCallback(async (id: string) => {
     if (!id) {
       setDetail(null);
       return;
@@ -127,23 +127,20 @@ function PurchaseOrdersPageInner() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
-
-  useEffect(() => {
-    load();
   }, []);
 
   useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
     if (!qsOrderId) return;
-    if (qsOrderId === orderId) return;
-    setOrderId(qsOrderId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setOrderId((prev) => (prev === qsOrderId ? prev : qsOrderId));
   }, [qsOrderId]);
 
   useEffect(() => {
     loadDetail(orderId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId]);
+  }, [orderId, loadDetail]);
 
   function openNewDraft() {
     setDraftEditId("");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,7 @@ export default function RolesPermissionsPage() {
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const [r, p] = await Promise.all([
@@ -43,9 +43,9 @@ export default function RolesPermissionsPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
 
-  async function loadRolePerms(roleId: string) {
+  const loadRolePerms = useCallback(async (roleId: string) => {
     if (!roleId) {
       setRolePerms([]);
       return;
@@ -62,11 +62,11 @@ export default function RolesPermissionsPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (!selectedRoleId && roles.length) setSelectedRoleId(roles[0]?.id || "");
@@ -75,8 +75,7 @@ export default function RolesPermissionsPage() {
 
   useEffect(() => {
     loadRolePerms(selectedRoleId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRoleId]);
+  }, [selectedRoleId, loadRolePerms]);
 
   async function createRole(e: React.FormEvent) {
     e.preventDefault();

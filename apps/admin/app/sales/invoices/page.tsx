@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -177,7 +177,7 @@ function SalesInvoicesPageInner() {
     return merged;
   }, [paymentMethods]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const [inv, cust, it, pm] = await Promise.all([
@@ -193,7 +193,8 @@ function SalesInvoicesPageInner() {
       try {
         const wh = await apiGet<{ warehouses: Warehouse[] }>("/warehouses");
         setWarehouses(wh.warehouses || []);
-        if (!draftWarehouseId && (wh.warehouses || []).length) setDraftWarehouseId(wh.warehouses[0].id);
+        const firstWhId = (wh.warehouses || [])[0]?.id || "";
+        if (firstWhId) setDraftWarehouseId((prev) => prev || firstWhId);
       } catch {
         setWarehouses([]);
       }
@@ -208,9 +209,9 @@ function SalesInvoicesPageInner() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
 
-  async function loadDetail(id: string) {
+  const loadDetail = useCallback(async (id: string) => {
     if (!id) {
       setDetail(null);
       return;
@@ -225,23 +226,21 @@ function SalesInvoicesPageInner() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
-
-  useEffect(() => {
-    load();
   }, []);
 
   useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
     if (!qsInvoiceId) return;
-    if (qsInvoiceId === invoiceId) return;
-    setInvoiceId(qsInvoiceId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Use functional update so this effect doesn't need to depend on `invoiceId`.
+    setInvoiceId((prev) => (prev === qsInvoiceId ? prev : qsInvoiceId));
   }, [qsInvoiceId]);
 
   useEffect(() => {
     loadDetail(invoiceId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [invoiceId]);
+  }, [invoiceId, loadDetail]);
 
   function openNewDraft() {
     setDraftEditId("");

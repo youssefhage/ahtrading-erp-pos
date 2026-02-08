@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -120,7 +120,7 @@ export default function JournalsPage() {
     return { dUsd, cUsd, dLbp, cLbp, diffUsd: dUsd - cUsd, diffLbp: dLbp - cLbp };
   }, [lines]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const params = new URLSearchParams();
@@ -139,7 +139,7 @@ export default function JournalsPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, [q, startDate, endDate, sourceType]);
 
   async function loadDetail(id: string) {
     if (!id) {
@@ -157,7 +157,7 @@ export default function JournalsPage() {
     }
   }
 
-  async function primeExchangeRate(nextDate: string, nextRateType: string) {
+  const primeExchangeRate = useCallback(async (nextDate: string, nextRateType: string) => {
     try {
       const res = await apiGet<{ rates: RateRow[] }>("/config/exchange-rates");
       const rates = res.rates || [];
@@ -168,16 +168,16 @@ export default function JournalsPage() {
     } catch {
       // Keep whatever is already in the input.
     }
-  }
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (!createOpen) return;
     primeExchangeRate(journalDate, rateType);
-  }, [createOpen]);
+  }, [createOpen, journalDate, rateType, primeExchangeRate]);
 
   function updateLine(idx: number, patch: Partial<LineDraft>) {
     setLines((prev) => {

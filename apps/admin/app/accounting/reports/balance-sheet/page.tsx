@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,7 @@ export default function BalanceSheetPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [asOf, setAsOf] = useState(todayIso());
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const params = new URLSearchParams();
@@ -49,11 +49,11 @@ export default function BalanceSheetPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, [asOf]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -151,4 +151,3 @@ export default function BalanceSheetPage() {
         </Card>
       </div>);
 }
-

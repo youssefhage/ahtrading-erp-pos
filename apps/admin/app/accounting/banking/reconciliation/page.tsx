@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -97,7 +97,7 @@ export default function BankingReconciliationPage() {
     setCoaAccounts(res.accounts || []);
   }
 
-  async function loadTxns() {
+  const loadTxns = useCallback(async () => {
     setStatus("Loading...");
     try {
       const qs = new URLSearchParams();
@@ -113,7 +113,7 @@ export default function BankingReconciliationPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, [bankAccountId, matched, dateFrom, dateTo]);
 
   useEffect(() => {
     (async () => {
@@ -128,7 +128,7 @@ export default function BankingReconciliationPage() {
 
   useEffect(() => {
     loadTxns();
-  }, [bankAccountId, matched, dateFrom, dateTo]);
+  }, [loadTxns]);
 
   async function createTxn(e: React.FormEvent) {
     e.preventDefault();

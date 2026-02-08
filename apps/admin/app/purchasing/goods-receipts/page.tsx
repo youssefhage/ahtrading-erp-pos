@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -131,7 +131,7 @@ function GoodsReceiptsPageInner() {
     });
   }, [receipts, q, statusFilter, supplierById, whById]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const [r, s, i, w, tc] = await Promise.all([
@@ -151,9 +151,9 @@ function GoodsReceiptsPageInner() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
 
-  async function loadDetail(id: string) {
+  const loadDetail = useCallback(async (id: string) => {
     if (!id) {
       setDetail(null);
       return;
@@ -168,23 +168,21 @@ function GoodsReceiptsPageInner() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
-
-  useEffect(() => {
-    load();
   }, []);
 
   useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
     if (!qsReceiptId) return;
-    if (qsReceiptId === receiptId) return;
-    setReceiptId(qsReceiptId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Functional update avoids depending on `receiptId`.
+    setReceiptId((prev) => (prev === qsReceiptId ? prev : qsReceiptId));
   }, [qsReceiptId]);
 
   useEffect(() => {
     loadDetail(receiptId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [receiptId]);
+  }, [receiptId, loadDetail]);
 
   function openNewDraft() {
     setDraftEditId("");

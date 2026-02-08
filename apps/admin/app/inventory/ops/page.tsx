@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -95,7 +95,7 @@ export default function InventoryOpsPage() {
 
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const [i, w] = await Promise.all([
@@ -104,18 +104,21 @@ export default function InventoryOpsPage() {
       ]);
       setItems(i.items || []);
       setWarehouses(w.warehouses || []);
-      if (!openingWarehouseId && (w.warehouses || []).length) setOpeningWarehouseId(w.warehouses[0].id);
-      if (!cycleWarehouseId && (w.warehouses || []).length) setCycleWarehouseId(w.warehouses[0].id);
+      const firstWhId = (w.warehouses || [])[0]?.id || "";
+      if (firstWhId) {
+        setOpeningWarehouseId((prev) => prev || firstWhId);
+        setCycleWarehouseId((prev) => prev || firstWhId);
+      }
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   function addCycleLine() {
     setCycleLines((prev) => [...prev, { item_id: "", counted_qty: "0" }]);
