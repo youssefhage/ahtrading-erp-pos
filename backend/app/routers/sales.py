@@ -9,6 +9,7 @@ from ..period_locks import assert_period_open
 import json
 import uuid
 from backend.workers import pos_processor
+from ..journal_utils import auto_balance_journal
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
@@ -239,21 +240,93 @@ def list_sales_payments(
             return {"payments": cur.fetchall()}
 
 @router.get("/invoices", dependencies=[Depends(require_permission("sales:read"))])
-def list_sales_invoices(company_id: str = Depends(get_company_id)):
+def list_sales_invoices(
+    company_id: str = Depends(get_company_id),
+    limit: Optional[int] = None,
+    offset: int = 0,
+    q: Optional[str] = None,
+    status: Optional[str] = None,
+    customer_id: Optional[str] = None,
+    warehouse_id: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    sort: Optional[str] = None,
+    dir: Optional[str] = None,
+):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
+            if limit is not None and (limit <= 0 or limit > 500):
+                raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+            if offset < 0:
+                raise HTTPException(status_code=400, detail="offset must be >= 0")
+
+            sort_allow = {
+                "created_at": "i.created_at",
+                "invoice_date": "i.invoice_date",
+                "invoice_no": "i.invoice_no",
+                "status": "i.status",
+                "total_usd": "i.total_usd",
+                "total_lbp": "i.total_lbp",
+            }
+            sort_sql = sort_allow.get((sort or "").strip() or "created_at", "i.created_at")
+            dir_sql = "ASC" if (dir or "").lower() == "asc" else "DESC"
+
+            base_sql = """
+                FROM sales_invoices i
+                LEFT JOIN customers c
+                  ON c.company_id = i.company_id AND c.id = i.customer_id
+                LEFT JOIN warehouses w
+                  ON w.company_id = i.company_id AND w.id = i.warehouse_id
+                WHERE i.company_id = %s
+            """
+            params: list = [company_id]
+
+            if status:
+                base_sql += " AND i.status = %s"
+                params.append(status)
+            if customer_id:
+                base_sql += " AND i.customer_id = %s"
+                params.append(customer_id)
+            if warehouse_id:
+                base_sql += " AND i.warehouse_id = %s"
+                params.append(warehouse_id)
+            if date_from:
+                base_sql += " AND i.created_at::date >= %s"
+                params.append(date_from)
+            if date_to:
+                base_sql += " AND i.created_at::date <= %s"
+                params.append(date_to)
+            if q:
+                needle = f"%{q.strip()}%"
+                base_sql += """
+                  AND (
+                    COALESCE(i.invoice_no, '') ILIKE %s
+                    OR COALESCE(c.name, '') ILIKE %s
+                    OR COALESCE(w.name, '') ILIKE %s
+                    OR i.id::text ILIKE %s
+                  )
                 """
-                SELECT id, invoice_no, customer_id, status, total_usd, total_lbp, warehouse_id,
-                       invoice_date, due_date, created_at
-                FROM sales_invoices
-                WHERE company_id = %s
-                ORDER BY created_at DESC
-                """,
-                (company_id,),
-            )
-            return {"invoices": cur.fetchall()}
+                params.extend([needle, needle, needle, needle])
+
+            select_sql = f"""
+                SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name,
+                       i.status, i.total_usd, i.total_lbp, i.warehouse_id, w.name AS warehouse_name,
+                       i.invoice_date, i.due_date, i.created_at
+                {base_sql}
+                ORDER BY {sort_sql} {dir_sql}
+            """
+
+            # Backwards compatibility: if no pagination params are provided, return the full legacy list.
+            if limit is None:
+                cur.execute(select_sql, params)
+                return {"invoices": cur.fetchall()}
+
+            cur.execute(f"SELECT COUNT(*)::int AS total {base_sql}", params)
+            total = cur.fetchone()["total"]
+
+            cur.execute(select_sql + " LIMIT %s OFFSET %s", params + [limit, offset])
+            return {"invoices": cur.fetchall(), "total": total, "limit": limit, "offset": offset}
 
 @router.get("/invoices/{invoice_id}", dependencies=[Depends(require_permission("sales:read"))])
 def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)):
@@ -262,12 +335,16 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, invoice_no, customer_id, status,
-                       total_usd, total_lbp, exchange_rate, warehouse_id,
-                       pricing_currency, settlement_currency,
-                       invoice_date, due_date, created_at
-                FROM sales_invoices
-                WHERE company_id = %s AND id = %s
+                SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
+                       i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
+                       i.pricing_currency, i.settlement_currency,
+                       i.invoice_date, i.due_date, i.created_at
+                FROM sales_invoices i
+                LEFT JOIN customers c
+                  ON c.company_id = i.company_id AND c.id = i.customer_id
+                LEFT JOIN warehouses w
+                  ON w.company_id = i.company_id AND w.id = i.warehouse_id
+                WHERE i.company_id = %s AND i.id = %s
                 """,
                 (company_id, invoice_id),
             )
@@ -277,14 +354,16 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
 
             cur.execute(
                 """
-                SELECT id, item_id, qty,
+                SELECT l.id, l.item_id, it.sku AS item_sku, it.name AS item_name, l.qty,
                        unit_price_usd, unit_price_lbp,
                        line_total_usd, line_total_lbp
-                FROM sales_invoice_lines
-                WHERE invoice_id = %s
-                ORDER BY id
+                FROM sales_invoice_lines l
+                LEFT JOIN items it
+                  ON it.company_id = %s AND it.id = l.item_id
+                WHERE l.invoice_id = %s
+                ORDER BY l.id
                 """,
-                (invoice_id,),
+                (company_id, invoice_id),
             )
             lines = cur.fetchall()
 
@@ -797,6 +876,24 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                 total_cost_lbp = Decimal("0")
                 resolved_lines = []
                 if inv["doc_subtype"] != "opening_balance":
+                    # Inventory policy controls whether we allow overselling (negative stock) for untracked items.
+                    inv_policy = pos_processor.fetch_inventory_policy(cur, company_id)
+                    allow_negative_stock = bool(inv_policy.get("allow_negative_stock"))
+
+                    # Fetch item tracking policy so FEFO allocation doesn't create "unbatched" remainder for tracked items.
+                    item_ids = sorted({str(l["item_id"]) for l in (lines or []) if l.get("item_id")})
+                    item_policy = {}
+                    if item_ids:
+                        cur.execute(
+                            """
+                            SELECT id, track_batches, track_expiry, min_shelf_life_days_for_sale
+                            FROM items
+                            WHERE company_id=%s AND id = ANY(%s::uuid[])
+                            """,
+                            (company_id, item_ids),
+                        )
+                        item_policy = {str(r["id"]): r for r in cur.fetchall()}
+
                     for l in lines:
                         qty = Decimal(str(l["qty"] or 0))
                         unit_cost_usd, unit_cost_lbp = pos_processor.get_avg_cost(cur, company_id, l["item_id"], inv["warehouse_id"])
@@ -806,17 +903,30 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
 
                     # Stock moves (FEFO allocation).
                     for l in resolved_lines:
-                        allocations = pos_processor.allocate_fefo_batches(cur, company_id, l["item_id"], inv["warehouse_id"], Decimal(str(l["qty"] or 0)))
+                        pol = item_policy.get(str(l["item_id"])) or {}
+                        min_days = int(pol.get("min_shelf_life_days_for_sale") or 0)
+                        min_exp = (inv_date + timedelta(days=min_days)) if min_days > 0 else None
+                        allow_unbatched = not (bool(pol.get("track_batches")) or bool(pol.get("track_expiry")) or min_days > 0)
+                        allocations = pos_processor.allocate_fefo_batches(
+                            cur,
+                            company_id,
+                            l["item_id"],
+                            inv["warehouse_id"],
+                            Decimal(str(l["qty"] or 0)),
+                            min_expiry_date=min_exp,
+                            allow_unbatched_remainder=allow_unbatched,
+                            allow_negative_stock=allow_negative_stock,
+                        )
                         for batch_id, q in allocations:
                             cur.execute(
                                 """
                                 INSERT INTO stock_moves
-                                  (id, company_id, item_id, warehouse_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp,
+                                  (id, company_id, item_id, warehouse_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                                    source_type, source_id)
                                 VALUES
-                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'sales_invoice', %s)
+                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'sales_invoice', %s)
                                 """,
-                                (company_id, l["item_id"], inv["warehouse_id"], batch_id, q, l["_unit_cost_usd"], l["_unit_cost_lbp"], invoice_id),
+                                (company_id, l["item_id"], inv["warehouse_id"], batch_id, q, l["_unit_cost_usd"], l["_unit_cost_lbp"], inv_date, invoice_id),
                             )
 
                 # Tax line.
@@ -973,6 +1083,12 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     (total_usd, total_lbp, due_date, company_id, invoice_id),
                 )
 
+                # Ensure journal is balanced (handles tiny rounding drift).
+                try:
+                    auto_balance_journal(cur, company_id, journal_id, warehouse_id=inv.get("warehouse_id"))
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
@@ -1066,10 +1182,10 @@ def cancel_sales_invoice(invoice_id: str, data: SalesInvoiceCancelIn, company_id
                             cur.execute(
                                 """
                                 INSERT INTO stock_moves
-                                  (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
+                                  (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                                    source_type, source_id)
                                 VALUES
-                                  (gen_random_uuid(), %s, %s, %s, %s, %s, 0, %s, %s, 'sales_invoice_cancel', %s)
+                                  (gen_random_uuid(), %s, %s, %s, %s, %s, 0, %s, %s, %s, 'sales_invoice_cancel', %s)
                                 """,
                                 (
                                     company_id,
@@ -1079,6 +1195,7 @@ def cancel_sales_invoice(invoice_id: str, data: SalesInvoiceCancelIn, company_id
                                     q_out,
                                     m["unit_cost_usd"],
                                     m["unit_cost_lbp"],
+                                    cancel_date,
                                     invoice_id,
                                 ),
                             )

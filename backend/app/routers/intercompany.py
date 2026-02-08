@@ -105,10 +105,10 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                     cur.execute(
                         """
                         INSERT INTO stock_moves
-                          (id, company_id, item_id, warehouse_id, qty_out, unit_cost_usd, unit_cost_lbp,
+                          (id, company_id, item_id, warehouse_id, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                            source_type, source_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'intercompany_issue', %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'intercompany_issue', %s)
                         """,
                         (
                             data.issue_company_id,

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional, List
 import json
@@ -8,6 +8,8 @@ import uuid
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
+from backend.workers import pos_processor
+from ..journal_utils import auto_balance_journal
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -56,6 +58,9 @@ def _get_or_create_batch(cur, company_id: str, item_id: str, batch_no: Optional[
 class StockAdjustIn(BaseModel):
     item_id: str
     warehouse_id: str
+    batch_id: Optional[str] = None
+    batch_no: Optional[str] = None
+    expiry_date: Optional[date] = None
     qty_in: Decimal = Decimal("0")
     qty_out: Decimal = Decimal("0")
     unit_cost_usd: Decimal = Decimal("0")
@@ -151,6 +156,27 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
         with conn.transaction():
             with conn.cursor() as cur:
                 assert_period_open(cur, company_id, date.today())
+                # Enforce batch capture for tracked items.
+                cur.execute(
+                    """
+                    SELECT track_batches, track_expiry
+                    FROM items
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (company_id, data.item_id),
+                )
+                it = cur.fetchone() or {}
+                tracked = bool(it.get("track_batches")) or bool(it.get("track_expiry"))
+                batch_id = data.batch_id
+                if tracked:
+                    # Resolve/create batch using provided batch_id or (batch_no, expiry_date).
+                    if not batch_id:
+                        batch_id = _get_or_create_batch(cur, company_id, data.item_id, data.batch_no, data.expiry_date)
+                    if not batch_id:
+                        raise HTTPException(status_code=400, detail="batch_id (or batch_no/expiry_date) is required for tracked items")
+                else:
+                    batch_id = batch_id or None
+
                 unit_cost_usd = data.unit_cost_usd
                 unit_cost_lbp = data.unit_cost_lbp
                 if unit_cost_usd == 0 and unit_cost_lbp == 0:
@@ -170,20 +196,22 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                 cur.execute(
                     """
                     INSERT INTO stock_moves
-                      (id, company_id, item_id, warehouse_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
+                      (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                        source_type, source_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'inventory_adjustment', NULL)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_adjustment', NULL)
                     RETURNING id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp
                     """,
                     (
                         company_id,
                         data.item_id,
                         data.warehouse_id,
+                        batch_id,
                         data.qty_in,
                         data.qty_out,
                         unit_cost_usd,
                         unit_cost_lbp,
+                        date.today(),
                     ),
                 )
                 move = cur.fetchone()
@@ -254,6 +282,11 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                         (journal_id, inventory, amt_usd, amt_lbp, data.warehouse_id),
                     )
 
+                try:
+                    auto_balance_journal(cur, company_id, journal_id, warehouse_id=data.warehouse_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
@@ -323,15 +356,15 @@ def expiry_writeoff(data: ExpiryWriteoffIn, company_id: str = Depends(get_compan
                     """
                     INSERT INTO stock_moves
                       (id, company_id, item_id, warehouse_id, batch_id,
-                       qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
+                       qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                        source_type, source_id)
                     VALUES
                       (gen_random_uuid(), %s, %s, %s, %s,
-                       0, %s, %s, %s,
+                       0, %s, %s, %s, %s,
                        'expiry_writeoff', NULL)
                     RETURNING id
                     """,
-                    (company_id, data.item_id, data.warehouse_id, batch_id, data.qty_out, unit_cost_usd, unit_cost_lbp),
+                    (company_id, data.item_id, data.warehouse_id, batch_id, data.qty_out, unit_cost_usd, unit_cost_lbp, date.today()),
                 )
                 move_id = cur.fetchone()["id"]
 
@@ -388,6 +421,11 @@ def expiry_writeoff(data: ExpiryWriteoffIn, company_id: str = Depends(get_compan
                     """,
                     (journal_id, inventory, amt_usd, amt_lbp, data.warehouse_id),
                 )
+
+                try:
+                    auto_balance_journal(cur, company_id, journal_id, warehouse_id=data.warehouse_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -512,14 +550,14 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
                         """
                         INSERT INTO stock_moves
                           (id, company_id, item_id, warehouse_id, batch_id,
-                           qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
+                           qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                            source_type, source_id)
                         VALUES
                           (gen_random_uuid(), %s, %s, %s, %s,
-                           %s, 0, %s, %s,
+                           %s, 0, %s, %s, %s,
                            'opening_stock', %s)
                         """,
-                        (company_id, item_id, data.warehouse_id, batch_id, qty, unit_usd, unit_lbp, import_id),
+                        (company_id, item_id, data.warehouse_id, batch_id, qty, unit_usd, unit_lbp, posting_date, import_id),
                     )
 
                     total_usd += qty * unit_usd
@@ -556,6 +594,11 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
                     """,
                     (journal_id, opening_offset, total_usd, total_lbp),
                 )
+
+                try:
+                    auto_balance_journal(cur, company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -594,6 +637,8 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                # Keep inventory movements aligned with accounting period locks (even though we don't post GL here).
+                assert_period_open(cur, company_id, date.today())
                 # If cost not provided, use current moving-average cost from source warehouse.
                 unit_cost_usd = data.unit_cost_usd
                 unit_cost_lbp = data.unit_cost_lbp
@@ -611,33 +656,63 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
                         unit_cost_usd = Decimal(str(row["avg_cost_usd"] or 0))
                         unit_cost_lbp = Decimal(str(row["avg_cost_lbp"] or 0))
 
-                # Stock out (from)
+                # Preserve batch integrity by allocating from source batches (FEFO).
                 cur.execute(
                     """
-                    INSERT INTO stock_moves
-                      (id, company_id, item_id, warehouse_id, qty_out, unit_cost_usd, unit_cost_lbp,
-                       source_type, source_id)
-                    VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL)
-                    RETURNING id
+                    SELECT track_batches, track_expiry, min_shelf_life_days_for_sale
+                    FROM items
+                    WHERE company_id=%s AND id=%s
                     """,
-                    (company_id, data.item_id, data.from_warehouse_id, data.qty, unit_cost_usd, unit_cost_lbp),
+                    (company_id, data.item_id),
                 )
-                out_id = cur.fetchone()["id"]
+                pol = cur.fetchone() or {}
+                tracked = bool(pol.get("track_batches")) or bool(pol.get("track_expiry")) or int(pol.get("min_shelf_life_days_for_sale") or 0) > 0
+                inv_policy = pos_processor.fetch_inventory_policy(cur, company_id)
+                allow_negative_stock = bool(inv_policy.get("allow_negative_stock"))
+                transfer_date = date.today()
+                min_days = int(pol.get("min_shelf_life_days_for_sale") or 0)
+                min_exp = (transfer_date + timedelta(days=min_days)) if min_days > 0 else None
 
-                # Stock in (to)
-                cur.execute(
-                    """
-                    INSERT INTO stock_moves
-                      (id, company_id, item_id, warehouse_id, qty_in, unit_cost_usd, unit_cost_lbp,
-                       source_type, source_id)
-                    VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL)
-                    RETURNING id
-                    """,
-                    (company_id, data.item_id, data.to_warehouse_id, data.qty, unit_cost_usd, unit_cost_lbp),
+                allocations = pos_processor.allocate_fefo_batches(
+                    cur,
+                    company_id,
+                    data.item_id,
+                    data.from_warehouse_id,
+                    data.qty,
+                    min_expiry_date=min_exp,
+                    allow_unbatched_remainder=not tracked,
+                    allow_negative_stock=allow_negative_stock,
                 )
-                in_id = cur.fetchone()["id"]
+
+                # Stock out (from)
+                out_id = None
+                in_id = None
+                for batch_id, q in allocations:
+                    cur.execute(
+                        """
+                        INSERT INTO stock_moves
+                          (id, company_id, item_id, warehouse_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
+                           source_type, source_id)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL)
+                        RETURNING id
+                        """,
+                        (company_id, data.item_id, data.from_warehouse_id, batch_id, q, unit_cost_usd, unit_cost_lbp, transfer_date),
+                    )
+                    out_id = out_id or cur.fetchone()["id"]
+
+                    cur.execute(
+                        """
+                        INSERT INTO stock_moves
+                          (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
+                           source_type, source_id)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL)
+                        RETURNING id
+                        """,
+                        (company_id, data.item_id, data.to_warehouse_id, batch_id, q, unit_cost_usd, unit_cost_lbp, transfer_date),
+                    )
+                    in_id = in_id or cur.fetchone()["id"]
 
                 cur.execute(
                     """
@@ -702,6 +777,19 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                 inv_adj = defaults.get("INV_ADJ")
 
                 for line in data.lines:
+                    # Cycle count v1 does not support per-batch counts; block tracked items to avoid corrupting batch on-hand.
+                    cur.execute(
+                        """
+                        SELECT track_batches, track_expiry
+                        FROM items
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (company_id, line.item_id),
+                    )
+                    it = cur.fetchone() or {}
+                    if bool(it.get("track_batches")) or bool(it.get("track_expiry")):
+                        raise HTTPException(status_code=400, detail="cycle count does not support batch/expiry-tracked items yet; use stock adjustment per batch")
+
                     cur.execute(
                         """
                         SELECT COALESCE(SUM(qty_in) - SUM(qty_out), 0) AS qty_on_hand
@@ -737,10 +825,10 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                     cur.execute(
                         """
                         INSERT INTO stock_moves
-                          (id, company_id, item_id, warehouse_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
+                          (id, company_id, item_id, warehouse_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                            source_type, source_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'cycle_count', NULL)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'cycle_count', NULL)
                         RETURNING id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp
                         """,
                         (
@@ -751,6 +839,7 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                             qty_out,
                             unit_cost_usd,
                             unit_cost_lbp,
+                            date.today(),
                         ),
                     )
                     move = cur.fetchone()
@@ -819,6 +908,11 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                             (journal_id, inventory, dec_usd, dec_lbp, data.warehouse_id),
                         )
 
+                    try:
+                        auto_balance_journal(cur, company_id, journal_id, warehouse_id=data.warehouse_id)
+                    except ValueError as e:
+                        raise HTTPException(status_code=400, detail=str(e))
+
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
@@ -844,7 +938,7 @@ def list_stock_moves(
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
             sql = """
-                SELECT id, item_id, warehouse_id, batch_id,
+                SELECT id, item_id, warehouse_id, batch_id, move_date,
                        qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
                        source_type, source_id, created_at
                 FROM stock_moves

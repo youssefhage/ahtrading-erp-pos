@@ -104,6 +104,29 @@ def fetch_loyalty_policy(cur, company_id: str) -> tuple[Decimal, Decimal]:
     return p_usd, p_lbp
 
 
+def fetch_inventory_policy(cur, company_id: str) -> dict:
+    """
+    Returns inventory policy JSON from company_settings key='inventory'.
+    Supported keys:
+    - allow_negative_stock: bool (default true for backward compatibility)
+    """
+    set_company_context(cur, company_id)
+    cur.execute(
+        """
+        SELECT value_json
+        FROM company_settings
+        WHERE company_id=%s AND key='inventory'
+        """,
+        (company_id,),
+    )
+    row = cur.fetchone()
+    v = (row or {}).get("value_json") or {}
+    allow = v.get("allow_negative_stock")
+    # Default to True to preserve existing behavior unless explicitly disabled.
+    allow_negative_stock = True if allow is None else bool(allow)
+    return {"allow_negative_stock": allow_negative_stock}
+
+
 def apply_loyalty_points(
     cur,
     company_id: str,
@@ -283,6 +306,7 @@ def allocate_fefo_batches(
     qty_out: Decimal,
     min_expiry_date: Optional[date] = None,
     allow_unbatched_remainder: bool = True,
+    allow_negative_stock: bool = True,
 ):
     """
     Allocates outbound quantity across batches in FEFO order (earliest expiry first).
@@ -341,6 +365,8 @@ def allocate_fefo_batches(
         remaining -= take
 
     if remaining > 0:
+        if not allow_negative_stock:
+            raise ValueError("insufficient stock for allocation (negative stock disabled)")
         if allow_unbatched_remainder:
             # Backward compatibility: if we don't have enough known batch stock,
             # keep the remainder unbatched.
@@ -587,6 +613,8 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     # Stock moves (FEFO batch allocation). If items are configured to require batch/expiry,
     # do not allow unbatched remainder.
     warehouse_id = payload.get("warehouse_id")
+    inv_policy = fetch_inventory_policy(cur, company_id)
+    allow_negative_stock = bool(inv_policy.get("allow_negative_stock"))
     item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
     item_policy = {}
     if item_ids:
@@ -635,15 +663,16 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 qty_out,
                 min_expiry_date=min_exp,
                 allow_unbatched_remainder=allow_unbatched,
+                allow_negative_stock=allow_negative_stock,
             )
         for batch_id, q in allocations:
             cur.execute(
                 """
                 INSERT INTO stock_moves
-                  (id, company_id, item_id, warehouse_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp,
+                  (id, company_id, item_id, warehouse_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                    source_type, source_id)
                 VALUES
-                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'sales_invoice', %s)
+                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'sales_invoice', %s)
                 """,
                 (
                     company_id,
@@ -653,6 +682,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                     q,
                     unit_cost_usd,
                     unit_cost_lbp,
+                    invoice_date,
                     invoice_id,
                 ),
             )
@@ -889,10 +919,10 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         cur.execute(
             """
             INSERT INTO stock_moves
-              (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp,
+              (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
                source_type, source_id)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'sales_return', %s)
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'sales_return', %s)
             """,
             (
                 company_id,
@@ -902,6 +932,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                 Decimal(str(l.get("qty", 0))),
                 unit_cost_usd,
                 unit_cost_lbp,
+                date.today(),
                 return_id,
             ),
         )
@@ -1233,10 +1264,10 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
         cur.execute(
             """
             INSERT INTO stock_moves
-              (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp,
+              (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
                source_type, source_id)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'goods_receipt', %s)
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s)
             """,
             (
                 company_id,

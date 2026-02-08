@@ -8,6 +8,7 @@ from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
 import json
+from ..journal_utils import auto_balance_journal
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
@@ -526,24 +527,87 @@ def get_goods_receipt(receipt_id: str, company_id: str = Depends(get_company_id)
 
 
 @router.get("/invoices", dependencies=[Depends(require_permission("purchases:read"))])
-def list_supplier_invoices(company_id: str = Depends(get_company_id)):
+def list_supplier_invoices(
+    company_id: str = Depends(get_company_id),
+    limit: Optional[int] = None,
+    offset: int = 0,
+    q: Optional[str] = None,
+    status: Optional[str] = None,
+    supplier_id: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    sort: Optional[str] = None,
+    dir: Optional[str] = None,
+):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT i.id, i.invoice_no, i.supplier_id,
-                       i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
-                       i.status, i.total_usd, i.total_lbp, i.tax_code_id, i.invoice_date, i.due_date, i.created_at
+            if limit is not None and (limit <= 0 or limit > 500):
+                raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+            if offset < 0:
+                raise HTTPException(status_code=400, detail="offset must be >= 0")
+
+            sort_allow = {
+                "created_at": "i.created_at",
+                "invoice_date": "i.invoice_date",
+                "invoice_no": "i.invoice_no",
+                "status": "i.status",
+                "total_usd": "i.total_usd",
+                "total_lbp": "i.total_lbp",
+            }
+            sort_sql = sort_allow.get((sort or "").strip() or "created_at", "i.created_at")
+            dir_sql = "ASC" if (dir or "").lower() == "asc" else "DESC"
+
+            base_sql = """
                 FROM supplier_invoices i
                 LEFT JOIN goods_receipts gr
                   ON gr.company_id = i.company_id AND gr.id = i.goods_receipt_id
+                LEFT JOIN suppliers s
+                  ON s.company_id = i.company_id AND s.id = i.supplier_id
                 WHERE i.company_id = %s
-                ORDER BY i.created_at DESC
-                """,
-                (company_id,),
-            )
-            return {"invoices": cur.fetchall()}
+            """
+            params: list = [company_id]
+
+            if status:
+                base_sql += " AND i.status = %s"
+                params.append(status)
+            if supplier_id:
+                base_sql += " AND i.supplier_id = %s"
+                params.append(supplier_id)
+            if date_from:
+                base_sql += " AND i.created_at::date >= %s"
+                params.append(date_from)
+            if date_to:
+                base_sql += " AND i.created_at::date <= %s"
+                params.append(date_to)
+            if q:
+                needle = f"%{q.strip()}%"
+                base_sql += """
+                  AND (
+                    COALESCE(i.invoice_no, '') ILIKE %s
+                    OR COALESCE(s.name, '') ILIKE %s
+                    OR COALESCE(gr.receipt_no, '') ILIKE %s
+                    OR i.id::text ILIKE %s
+                  )
+                """
+                params.extend([needle, needle, needle, needle])
+
+            select_sql = f"""
+                SELECT i.id, i.invoice_no, i.supplier_id, s.name AS supplier_name,
+                       i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
+                       i.status, i.total_usd, i.total_lbp, i.tax_code_id, i.invoice_date, i.due_date, i.created_at
+                {base_sql}
+                ORDER BY {sort_sql} {dir_sql}
+            """
+
+            if limit is None:
+                cur.execute(select_sql, params)
+                return {"invoices": cur.fetchall()}
+
+            cur.execute(f"SELECT COUNT(*)::int AS total {base_sql}", params)
+            total = cur.fetchone()["total"]
+            cur.execute(select_sql + " LIMIT %s OFFSET %s", params + [limit, offset])
+            return {"invoices": cur.fetchall(), "total": total, "limit": limit, "offset": offset}
 
 @router.get("/invoices/{invoice_id}", dependencies=[Depends(require_permission("purchases:read"))])
 def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_id)):
@@ -552,12 +616,14 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT i.id, i.invoice_no, i.supplier_id,
+                SELECT i.id, i.invoice_no, i.supplier_id, s.name AS supplier_name,
                        i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
                        i.status, i.total_usd, i.total_lbp, i.exchange_rate, i.tax_code_id, i.invoice_date, i.due_date, i.created_at
                 FROM supplier_invoices i
                 LEFT JOIN goods_receipts gr
                   ON gr.company_id = i.company_id AND gr.id = i.goods_receipt_id
+                LEFT JOIN suppliers s
+                  ON s.company_id = i.company_id AND s.id = i.supplier_id
                 WHERE i.company_id = %s AND i.id = %s
                 """,
                 (company_id, invoice_id),
@@ -567,10 +633,13 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
                 raise HTTPException(status_code=404, detail="invoice not found")
             cur.execute(
                 """
-                SELECT l.id, l.goods_receipt_line_id, l.item_id, l.qty, l.unit_cost_usd, l.unit_cost_lbp, l.line_total_usd, l.line_total_lbp,
+                SELECT l.id, l.goods_receipt_line_id, l.item_id, it.sku AS item_sku, it.name AS item_name,
+                       l.qty, l.unit_cost_usd, l.unit_cost_lbp, l.line_total_usd, l.line_total_lbp,
                        l.batch_id, b.batch_no, b.expiry_date
                 FROM supplier_invoice_lines l
                 LEFT JOIN batches b ON b.id = l.batch_id
+                LEFT JOIN items it
+                  ON it.company_id = l.company_id AND it.id = l.item_id
                 WHERE l.company_id = %s AND l.supplier_invoice_id = %s
                 ORDER BY l.id
                 """,
@@ -872,12 +941,15 @@ def post_purchase_order(order_id: str, company_id: str = Depends(get_company_id)
                     SELECT id, status, order_no
                     FROM purchase_orders
                     WHERE company_id = %s AND id = %s
+                    FOR UPDATE
                     """,
                     (company_id, order_id),
                 )
                 row = cur.fetchone()
                 if not row:
                     raise HTTPException(status_code=404, detail="order not found")
+                if row["status"] == "posted":
+                    return {"ok": True, "order_no": row.get("order_no")}
                 if row["status"] != "draft":
                     raise HTTPException(status_code=400, detail="only draft orders can be posted")
 
@@ -1197,10 +1269,10 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                     cur.execute(
                         """
                         INSERT INTO stock_moves
-                          (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp,
+                          (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
                            source_type, source_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'goods_receipt', %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s)
                         """,
                         (
                             company_id,
@@ -1452,12 +1524,34 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                     SELECT id, status, receipt_no, supplier_id, warehouse_id, exchange_rate
                     FROM goods_receipts
                     WHERE company_id = %s AND id = %s
+                    FOR UPDATE
                     """,
                     (company_id, receipt_id),
                 )
                 rec = cur.fetchone()
                 if not rec:
                     raise HTTPException(status_code=404, detail="receipt not found")
+                if rec["status"] == "posted":
+                    # Idempotency for client retries.
+                    cur.execute(
+                        "SELECT 1 FROM stock_moves WHERE company_id=%s AND source_type='goods_receipt' AND source_id=%s LIMIT 1",
+                        (company_id, receipt_id),
+                    )
+                    has_moves = bool(cur.fetchone())
+                    cur.execute(
+                        """
+                        SELECT id
+                        FROM gl_journals
+                        WHERE company_id=%s AND source_type='goods_receipt' AND source_id=%s
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        (company_id, receipt_id),
+                    )
+                    j = cur.fetchone()
+                    if not has_moves or not j:
+                        raise HTTPException(status_code=409, detail="receipt is posted but missing stock moves or GL journal")
+                    return {"ok": True, "receipt_no": rec.get("receipt_no"), "journal_id": (j["id"] if j else None)}
                 if rec["status"] != "draft":
                     raise HTTPException(status_code=400, detail="only draft receipts can be posted")
 
@@ -1465,6 +1559,20 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                 assert_period_open(cur, company_id, posting_date)
 
                 receipt_no = (rec["receipt_no"] or "").strip() or _next_doc_no(cur, company_id, "GR")
+
+                # Safety: must not have prior posting artifacts.
+                cur.execute(
+                    "SELECT 1 FROM gl_journals WHERE company_id=%s AND source_type='goods_receipt' AND source_id=%s LIMIT 1",
+                    (company_id, receipt_id),
+                )
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="receipt already has a GL journal")
+                cur.execute(
+                    "SELECT 1 FROM stock_moves WHERE company_id=%s AND source_type='goods_receipt' AND source_id=%s LIMIT 1",
+                    (company_id, receipt_id),
+                )
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="receipt already has stock moves")
 
                 cur.execute(
                     """
@@ -1486,10 +1594,10 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                     cur.execute(
                         """
                         INSERT INTO stock_moves
-                          (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp,
+                          (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
                            source_type, source_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'goods_receipt', %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'goods_receipt', %s)
                         """,
                         (
                             company_id,
@@ -1499,6 +1607,7 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                             l["qty"],
                             l["unit_cost_usd"],
                             l["unit_cost_lbp"],
+                            posting_date,
                             receipt_id,
                         ),
                     )
@@ -1535,6 +1644,10 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                     """,
                     (journal_id, grni, total_usd, total_lbp, rec["warehouse_id"]),
                 )
+                try:
+                    auto_balance_journal(cur, company_id, journal_id, warehouse_id=rec["warehouse_id"])
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -1638,10 +1751,10 @@ def cancel_goods_receipt(receipt_id: str, data: GoodsReceiptCancelIn, company_id
                         cur.execute(
                             """
                             INSERT INTO stock_moves
-                              (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
+                              (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
                                source_type, source_id)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, 0, %s, %s, %s, 'goods_receipt_cancel', %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, 0, %s, %s, %s, %s, 'goods_receipt_cancel', %s)
                             """,
                             (
                                 company_id,
@@ -1651,6 +1764,7 @@ def cancel_goods_receipt(receipt_id: str, data: GoodsReceiptCancelIn, company_id
                                 q_in,
                                 m["unit_cost_usd"],
                                 m["unit_cost_lbp"],
+                                cancel_date,
                                 receipt_id,
                             ),
                         )
@@ -1852,8 +1966,8 @@ def create_supplier_invoice_draft_from_receipt(
                 total_usd = base_usd + tax_usd
                 total_lbp = base_lbp + tax_lbp
 
+                # Drafts can be created even if the period is locked; posting enforces the lock.
                 inv_date = data.invoice_date or date.today()
-                assert_period_open(cur, company_id, inv_date)
 
                 invoice_no = (data.invoice_no or "").strip() or None
                 if not invoice_no:
@@ -1966,8 +2080,7 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                assert_period_open(cur, company_id, inv_date)
-
+                # Drafts can be created even if the period is locked; posting enforces the lock.
                 if not invoice_no:
                     # Drafts can be created without a vendor reference; invoice_no is our internal doc number.
                     invoice_no = _next_doc_no(cur, company_id, "PI")
@@ -2081,8 +2194,6 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                 due_date = patch.get('due_date') or inv['due_date']
                 tax_code_id = patch.get('tax_code_id') if 'tax_code_id' in patch else inv.get('tax_code_id')
                 goods_receipt_id = patch.get("goods_receipt_id") if "goods_receipt_id" in patch else inv.get("goods_receipt_id")
-
-                assert_period_open(cur, company_id, inv_date)
 
                 if 'lines' in patch:
                     normalized, base_usd, base_lbp = _compute_costed_lines(data.lines or [], exchange_rate)
@@ -2231,17 +2342,50 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                            COALESCE(doc_subtype,'standard') AS doc_subtype
                     FROM supplier_invoices
                     WHERE company_id = %s AND id = %s
+                    FOR UPDATE
                     """,
                     (company_id, invoice_id),
                 )
                 inv = cur.fetchone()
                 if not inv:
                     raise HTTPException(status_code=404, detail='invoice not found')
+                if inv["status"] == "posted":
+                    cur.execute(
+                        """
+                        SELECT id
+                        FROM gl_journals
+                        WHERE company_id=%s AND source_type='supplier_invoice' AND source_id=%s
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        (company_id, invoice_id),
+                    )
+                    j = cur.fetchone()
+                    if not j:
+                        raise HTTPException(status_code=409, detail="invoice is posted but missing GL journal")
+                    return {"ok": True, "journal_id": j["id"]}
                 if inv['status'] != 'draft':
                     raise HTTPException(status_code=400, detail='only draft invoices can be posted')
 
                 inv_date = data.posting_date or inv['invoice_date'] or date.today()
                 assert_period_open(cur, company_id, inv_date)
+
+                # Safety: must not have prior posting artifacts.
+                cur.execute(
+                    "SELECT 1 FROM gl_journals WHERE company_id=%s AND source_type='supplier_invoice' AND source_id=%s LIMIT 1",
+                    (company_id, invoice_id),
+                )
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="invoice already has a GL journal")
+                cur.execute(
+                    "SELECT 1 FROM tax_lines WHERE company_id=%s AND source_type='supplier_invoice' AND source_id=%s LIMIT 1",
+                    (company_id, invoice_id),
+                )
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="invoice already has tax lines")
+                cur.execute("SELECT 1 FROM supplier_payments WHERE supplier_invoice_id=%s LIMIT 1", (invoice_id,))
+                if cur.fetchone():
+                    raise HTTPException(status_code=400, detail="invoice already has payments")
 
                 cur.execute(
                     """
@@ -2419,6 +2563,10 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                     """,
                     (journal_id, ap, total_usd, total_lbp),
                 )
+                try:
+                    auto_balance_journal(cur, company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 payment_accounts = _fetch_payment_method_accounts(cur, company_id)
                 for p in data.payments or []:
@@ -2465,6 +2613,10 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                         """,
                         (pay_journal, pay_account, amount_usd, amount_lbp),
                     )
+                    try:
+                        auto_balance_journal(cur, company_id, pay_journal)
+                    except ValueError as e:
+                        raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """
@@ -2768,10 +2920,12 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
 
                 defaults = _fetch_account_defaults(cur, company_id)
                 ap = defaults.get("AP")
-                grni = defaults.get("GRNI")
+                purchases_exp = defaults.get("PURCHASES_EXPENSE")
                 vat_rec = defaults.get("VAT_RECOVERABLE")
-                if not (ap and grni):
-                    raise HTTPException(status_code=400, detail="Missing AP/GRNI account defaults")
+                if not ap:
+                    raise HTTPException(status_code=400, detail="Missing AP account default")
+                if not purchases_exp:
+                    raise HTTPException(status_code=400, detail="Missing PURCHASES_EXPENSE account default for direct supplier invoices")
 
                 cur.execute(
                     """
@@ -2788,9 +2942,9 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                 cur.execute(
                     """
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                    VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'GRNI clearing')
+                    VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Purchases expense')
                     """,
-                    (journal_id, grni, base_usd, base_lbp),
+                    (journal_id, purchases_exp, base_usd, base_lbp),
                 )
 
                 if data.tax and (tax_usd != 0 or tax_lbp != 0) and not vat_rec:
@@ -2811,6 +2965,10 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                     """,
                     (journal_id, ap, total_usd, total_lbp),
                 )
+                try:
+                    auto_balance_journal(cur, company_id, journal_id)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 # Optional immediate payments (posts separate payment journals like /purchases/payments).
                 payment_accounts = _fetch_payment_method_accounts(cur, company_id)
@@ -2858,6 +3016,10 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                         """,
                         (pay_journal, pay_account, amount_usd, amount_lbp),
                     )
+                    try:
+                        auto_balance_journal(cur, company_id, pay_journal)
+                    except ValueError as e:
+                        raise HTTPException(status_code=400, detail=str(e))
 
                 cur.execute(
                     """

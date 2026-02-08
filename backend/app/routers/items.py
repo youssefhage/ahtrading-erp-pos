@@ -29,6 +29,8 @@ class ItemIn(BaseModel):
     default_shelf_life_days: Optional[int] = None
     min_shelf_life_days_for_sale: Optional[int] = None
     expiry_warning_days: Optional[int] = None
+    image_attachment_id: Optional[str] = None
+    image_alt: Optional[str] = None
 
 
 class BulkItemIn(BaseModel):
@@ -63,6 +65,7 @@ def list_items(company_id: str = Depends(get_company_id)):
                        i.is_active, i.category_id, i.brand, i.short_name, i.description,
                        i.track_batches, i.track_expiry,
                        i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
+                       i.image_attachment_id, i.image_alt,
                        COALESCE(bc.cnt, 0) AS barcode_count
                 FROM items i
                 LEFT JOIN LATERAL (
@@ -88,11 +91,13 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id)):
                     INSERT INTO items
                       (id, company_id, sku, barcode, name, unit_of_measure, tax_code_id, reorder_point, reorder_qty,
                        is_active, category_id, brand, short_name, description,
-                       track_batches, track_expiry, default_shelf_life_days, min_shelf_life_days_for_sale, expiry_warning_days)
+                       track_batches, track_expiry, default_shelf_life_days, min_shelf_life_days_for_sale, expiry_warning_days,
+                       image_attachment_id, image_alt)
                     VALUES
                       (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s,
                        %s, %s, %s, %s, %s,
-                       %s, %s, %s, %s, %s)
+                       %s, %s, %s, %s, %s,
+                       %s, %s)
                     RETURNING id
                     """,
                     (
@@ -114,6 +119,8 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id)):
                         data.default_shelf_life_days,
                         data.min_shelf_life_days_for_sale,
                         data.expiry_warning_days,
+                        data.image_attachment_id,
+                        (data.image_alt or "").strip() or None,
                     ),
                 )
                 item_id = cur.fetchone()["id"]
@@ -239,6 +246,8 @@ class ItemUpdate(BaseModel):
     default_shelf_life_days: Optional[int] = None
     min_shelf_life_days_for_sale: Optional[int] = None
     expiry_warning_days: Optional[int] = None
+    image_attachment_id: Optional[str] = None
+    image_alt: Optional[str] = None
 
 
 @router.patch("/{item_id}", dependencies=[Depends(require_permission("items:write"))])
@@ -250,7 +259,7 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
         fields.append(f"{k} = %s")
         if k == "barcode" and isinstance(v, str):
             params.append(v.strip() or None)
-        elif k in {"brand", "short_name", "description"} and isinstance(v, str):
+        elif k in {"brand", "short_name", "description", "image_alt"} and isinstance(v, str):
             params.append(v.strip() or None)
         else:
             params.append(v)

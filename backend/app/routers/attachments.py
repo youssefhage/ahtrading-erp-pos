@@ -112,3 +112,31 @@ def download_attachment(
             headers = {"Content-Disposition": f'attachment; filename="{row["filename"]}"'}
             return Response(content=data, media_type=row["content_type"], headers=headers)
 
+
+@router.get("/{attachment_id}/view")
+def view_attachment(
+    attachment_id: str,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    """
+    Inline view endpoint intended for images/previews in UIs.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT entity_type, filename, content_type, bytes
+                FROM document_attachments
+                WHERE company_id = %s AND id = %s
+                """,
+                (company_id, attachment_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="attachment not found")
+            require_permission(_permission_for_entity(row["entity_type"], write=False))(company_id=company_id, user=user)
+            data = row["bytes"] or b""
+            headers = {"Content-Disposition": f'inline; filename="{row["filename"]}"'}
+            return Response(content=data, media_type=row["content_type"], headers=headers)
