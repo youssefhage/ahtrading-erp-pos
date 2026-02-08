@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from backend.app.validation import CurrencyCode, RateType, PaymentMethod, DocStatus, BankDirection
+from backend.app.validation import CurrencyCode, RateType, PaymentMethod, DocStatus, BankDirection, TaxType, AiActionStatus, AiRecommendationStatus, AiRecommendationDecisionStatus
 
 
 class _M(BaseModel):
@@ -9,15 +9,33 @@ class _M(BaseModel):
     method: PaymentMethod
     status: DocStatus
     direction: BankDirection
+    tax_type: TaxType
+    ai_action: AiActionStatus
+    ai_rec: AiRecommendationStatus
+    ai_decision: AiRecommendationDecisionStatus
 
 
 def test_validation_types_normalize_case():
-    m = _M(currency="usd", rate_type="MARKET", method=" Cash ", status="POSTED", direction="Inflow")
+    m = _M(
+        currency="usd",
+        rate_type="MARKET",
+        method=" Cash ",
+        status="POSTED",
+        direction="Inflow",
+        tax_type="VAT",
+        ai_action="Queued",
+        ai_rec="PENDING",
+        ai_decision="APPROVED",
+    )
     assert m.currency == "USD"
     assert m.rate_type == "market"
     assert m.method == "cash"
     assert m.status == "posted"
     assert m.direction == "inflow"
+    assert m.tax_type == "vat"
+    assert m.ai_action == "queued"
+    assert m.ai_rec == "pending"
+    assert m.ai_decision == "approved"
 
 
 def test_payment_method_rejects_spaces_and_weird_chars():
@@ -27,4 +45,3 @@ def test_payment_method_rejects_spaces_and_weird_chars():
         assert False, "expected validation error"
     except Exception:
         pass
-

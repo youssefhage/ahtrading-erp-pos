@@ -45,6 +45,7 @@ Recommended approach: bootstrap once, then set `BOOTSTRAP_ADMIN=0`.
 
 - Ensure Dokploy (or the VPS) is taking automated backups of the Postgres volume backing `pgdata`.
 - Do a restore drill before go-live.
+  - See: `docs/deploy/restore-drill.md`
 
 ## POS Offline (12h Worst Case)
 
@@ -53,4 +54,3 @@ Registers should:
 - Re-sync whenever internet returns (outbox submission is idempotent).
 
 If you require strict “shift open/close” tracking during outages, we should add offline shift open/close events (currently shift open/close calls the backend directly).
-

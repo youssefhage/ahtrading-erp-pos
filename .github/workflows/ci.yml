@@ -73,6 +73,14 @@ jobs:
           docker compose ps
           docker compose logs --no-color --tail=200
           exit 1
+      - name: Schema smoke (migrations applied)
+        run: |
+          # Ensure a few load-bearing columns/indexes exist after init_db runs.
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM schema_migrations LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='stock_moves' AND column_name='move_date' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='items' AND column_name='image_attachment_id' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='gl_journals' AND column_name='exchange_rate' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM pg_indexes WHERE indexname='idx_stock_moves_company_item_wh_move_date' LIMIT 1;"
       - name: Run Playwright tests
         working-directory: apps/admin
         env:

@@ -5,12 +5,13 @@ from typing import Any, Optional
 from datetime import datetime
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
+from ..validation import AiActionStatus, AiRecommendationStatus, AiRecommendationDecisionStatus
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 
 class RecommendationDecision(BaseModel):
-    status: str
+    status: AiRecommendationDecisionStatus
 
 
 class AgentSetting(BaseModel):
@@ -33,7 +34,7 @@ class JobScheduleIn(BaseModel):
 
 @router.get("/recommendations", dependencies=[Depends(require_permission("ai:read"))])
 def list_recommendations(
-    status: Optional[str] = None,
+    status: Optional[AiRecommendationStatus] = None,
     agent_code: Optional[str] = None,
     limit: int = 500,
     company_id: str = Depends(get_company_id),
@@ -106,6 +107,7 @@ def decide_recommendation(
     company_id: str = Depends(get_company_id),
     user=Depends(get_current_user),
 ):
+    # Validated by Pydantic, but keep as a guardrail if this endpoint is called without schema validation.
     if data.status not in {"approved", "rejected", "executed"}:
         raise HTTPException(status_code=400, detail="invalid status")
     with get_conn() as conn:
@@ -207,7 +209,7 @@ def decide_recommendation(
 
 @router.get("/actions", dependencies=[Depends(require_permission("ai:read"))])
 def list_actions(
-    status: Optional[str] = None,
+    status: Optional[AiActionStatus] = None,
     agent_code: Optional[str] = None,
     limit: int = 200,
     company_id: str = Depends(get_company_id),

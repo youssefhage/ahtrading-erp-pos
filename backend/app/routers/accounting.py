@@ -8,6 +8,7 @@ import json
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
 from ..period_locks import assert_period_open
+from ..validation import RateType
 
 
 router = APIRouter(prefix="/accounting", tags=["accounting"])
@@ -32,7 +33,7 @@ def _sign(v: Decimal) -> int:
     return 0
 
 
-def _fetch_exchange_rate(cur, company_id: str, rate_date: date, rate_type: str) -> Decimal:
+def _fetch_exchange_rate(cur, company_id: str, rate_date: date, rate_type: RateType) -> Decimal:
     cur.execute(
         """
         SELECT usd_to_lbp
@@ -94,7 +95,7 @@ class JournalLineIn(BaseModel):
 
 class ManualJournalIn(BaseModel):
     journal_date: date
-    rate_type: str = "market"
+    rate_type: RateType = "market"
     exchange_rate: Optional[Decimal] = None
     memo: Optional[str] = None
     lines: List[JournalLineIn]
@@ -160,7 +161,7 @@ class OpeningArRowIn(BaseModel):
 
 
 class OpeningArImportIn(BaseModel):
-    rate_type: str = "market"
+    rate_type: RateType = "market"
     exchange_rate: Optional[Decimal] = None
     rows: List[OpeningArRowIn]
 
@@ -176,7 +177,7 @@ class OpeningApRowIn(BaseModel):
 
 
 class OpeningApImportIn(BaseModel):
-    rate_type: str = "market"
+    rate_type: RateType = "market"
     exchange_rate: Optional[Decimal] = None
     rows: List[OpeningApRowIn]
 

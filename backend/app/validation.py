@@ -34,3 +34,20 @@ PaymentMethod = Annotated[
 
 BankDirection = Annotated[Literal["inflow", "outflow"], BeforeValidator(_to_lower_str)]
 
+# Tax (v1)
+TaxType = Annotated[Literal["vat"], BeforeValidator(_to_lower_str)]
+
+
+# AI (v1)
+AiRecommendationStatus = Annotated[
+    Literal["pending", "approved", "rejected", "executed"],
+    BeforeValidator(_to_lower_str),
+]
+AiRecommendationDecisionStatus = Annotated[
+    Literal["approved", "rejected", "executed"],
+    BeforeValidator(_to_lower_str),
+]
+AiActionStatus = Annotated[
+    Literal["queued", "approved", "blocked", "executed", "canceled", "failed"],
+    BeforeValidator(_to_lower_str),
+]
