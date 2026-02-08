@@ -43,13 +43,13 @@ Files:
 
 ### A) Admin App Dependency Vulnerability (High)
 
-`npm audit --omit=dev` reports a high severity vulnerability in `next` with the currently pinned major version.
+Previously, `npm audit --omit=dev` reported a high severity vulnerability in `next`.
 
 Folder:
 - `apps/admin`
 
 Recommended remediation:
-- Plan an upgrade to a patched Next.js version (this is a breaking change if it requires a major bump).
+- Upgraded Next.js to `16.1.6` and `npm audit --omit=dev` is now clean.
 
 ### B) React Hook Exhaustive Deps Warnings (Low)
 
@@ -60,5 +60,4 @@ Folder:
 
 ### C) Python venv pip Wrapper Broken (Low / Ops)
 
-`.venv/bin/pip` has a stale interpreter path; use `./.venv/bin/python -m pip ...` or recreate the venv.
-
+`.venv/bin/pip` previously had a stale interpreter path; upgrading `pip` regenerated the wrapper with the correct path.
