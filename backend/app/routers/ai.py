@@ -62,6 +62,32 @@ def list_recommendations(
             return {"recommendations": cur.fetchall()}
 
 
+@router.get("/recommendations/summary", dependencies=[Depends(require_permission("ai:read"))])
+def recommendations_summary(
+    status: Optional[AiRecommendationStatus] = None,
+    agent_code: Optional[str] = None,
+    company_id: str = Depends(get_company_id),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            sql = """
+                SELECT agent_code, status, COUNT(*)::int AS count
+                FROM ai_recommendations
+                WHERE company_id = %s
+            """
+            params: list[Any] = [company_id]
+            if status:
+                sql += " AND status = %s"
+                params.append(status)
+            if agent_code:
+                sql += " AND agent_code = %s"
+                params.append(agent_code)
+            sql += " GROUP BY agent_code, status ORDER BY agent_code, status"
+            cur.execute(sql, params)
+            return {"rows": cur.fetchall()}
+
+
 @router.get("/settings", dependencies=[Depends(require_permission("ai:read"))])
 def list_settings(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:

@@ -31,10 +31,19 @@ type ReorderRow = {
   qty_on_hand: string | number;
 };
 
+type AiRecRow = {
+  id: string;
+  agent_code: string;
+  status: string;
+  recommendation_json: any;
+  created_at: string;
+};
+
 export default function InventoryAlertsPage() {
   const [status, setStatus] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [aiExpiryOps, setAiExpiryOps] = useState<AiRecRow[]>([]);
 
   const [days, setDays] = useState("30");
   const [expiry, setExpiry] = useState<ExpiryRow[]>([]);
@@ -63,11 +72,21 @@ export default function InventoryAlertsPage() {
     setReorder(res.rows || []);
   }
 
+  async function loadAi() {
+    // AI is optional: don't block the alerts page if ai:read is missing.
+    try {
+      const ai = await apiGet<{ recommendations: AiRecRow[] }>("/ai/recommendations?status=pending&agent_code=AI_EXPIRY_OPS&limit=12");
+      setAiExpiryOps(ai.recommendations || []);
+    } catch {
+      setAiExpiryOps([]);
+    }
+  }
+
   async function loadAll() {
     setStatus("Loading...");
     try {
       await loadBase();
-      await Promise.all([loadExpiry(), loadReorder()]);
+      await Promise.all([loadExpiry(), loadReorder(), loadAi()]);
       setStatus("");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -95,6 +114,52 @@ export default function InventoryAlertsPage() {
             </CardHeader>
             <CardContent>
               <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
+          </CardContent>
+        </Card>
+        ) : null}
+
+        {aiExpiryOps.length ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">AI: Expiry Ops</CardTitle>
+              <CardDescription>{aiExpiryOps.length} pending suggestions (batches expiring soon with stock on hand).</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="ui-table-wrap">
+                <table className="ui-table">
+                  <thead className="ui-thead">
+                    <tr>
+                      <th className="px-3 py-2">Expiry</th>
+                      <th className="px-3 py-2">Item</th>
+                      <th className="px-3 py-2">Warehouse</th>
+                      <th className="px-3 py-2">Batch</th>
+                      <th className="px-3 py-2 text-right">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {aiExpiryOps.slice(0, 8).map((r) => {
+                      const j = (r as any).recommendation_json || {};
+                      return (
+                        <tr key={r.id} className="border-t border-border-subtle align-top">
+                          <td className="px-3 py-2 font-mono text-xs text-fg-muted">{String(j.expiry_date || "").slice(0, 10) || "-"}</td>
+                          <td className="px-3 py-2">
+                            <div className="font-mono text-xs">{j.sku || "-"}</div>
+                            <div className="text-xs text-fg-muted">{j.item_name || ""}</div>
+                          </td>
+                          <td className="px-3 py-2 text-xs">{j.warehouse_name || j.warehouse_id || "-"}</td>
+                          <td className="px-3 py-2 font-mono text-xs">{j.batch_no || "-"}</td>
+                          <td className="px-3 py-2 text-right font-mono text-xs">{String(j.qty_on_hand || "0")}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex justify-end">
+                <Button asChild variant="outline" size="sm">
+                  <a href="/automation/ai-hub">Open AI Hub</a>
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ) : null}

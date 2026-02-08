@@ -53,6 +53,16 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
     - Goods receipts support `supplier_ref` and `received_at/received_by`.
   - Purchasing matching controls expanded:
     - Supplier invoices now support hold/unhold (manual) and auto-hold on suspicious 3-way match variance during posting.
+  - AI embedded insights (practical “assist” layer in core screens):
+    - Added deterministic, SQL-driven recommendation agents:
+      - `AI_DATA_HYGIENE` (items missing key master data such as barcode, tax code, shelf-life, primary supplier)
+      - `AI_AP_GUARD` (supplier invoices on hold; invoices due soon with outstanding balances)
+      - `AI_EXPIRY_OPS` (batches expiring soon with stock on hand + operational suggestions)
+    - Embedded “AI Insights” cards in Admin (non-blocking if `ai:read` is missing):
+      - Items: `AI_DATA_HYGIENE`
+      - Supplier Invoices: `AI_AP_GUARD`
+      - Inventory Alerts: `AI_EXPIRY_OPS`
+      - Dashboard: pending AI recommendation counts (via `GET /ai/recommendations/summary`)
 
 Remaining work in this audit is mostly “business robustness” (expiry/lot operations, document metadata completeness, richer audit timelines for all mutations, and deeper ERP workflows).
 
@@ -470,6 +480,8 @@ Missing useful reports (especially for expiry and operations):
 
 Implemented:
 - Tables exist for events, recommendations, actions; executor has governance gates (auto_execute, caps).
+- Added embedded “AI Insights” across core operational modules (items/AP/expiry) using deterministic agents (no auto-actions).
+- Added `GET /ai/recommendations/summary` to support lightweight “pending AI” counts in the Admin dashboard.
 
 Missing useful data / controls:
 - Stronger “approval” workflow states (requested, approved, queued, executed, rejected) with reasons.

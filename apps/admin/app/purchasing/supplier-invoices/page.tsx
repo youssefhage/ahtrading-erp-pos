@@ -29,6 +29,14 @@ type InvoiceRow = {
   created_at: string;
 };
 
+type AiRecRow = {
+  id: string;
+  agent_code: string;
+  status: string;
+  recommendation_json: any;
+  created_at: string;
+};
+
 function fmtIso(iso?: string | null) {
   return String(iso || "").slice(0, 10) || "-";
 }
@@ -38,6 +46,7 @@ function SupplierInvoicesListInner() {
 
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+  const [aiApGuard, setAiApGuard] = useState<AiRecRow[]>([]);
 
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
@@ -64,6 +73,14 @@ function SupplierInvoicesListInner() {
       const res = await apiGet<{ invoices: InvoiceRow[]; total?: number }>(`/purchases/invoices?${params.toString()}`);
       setInvoices(res.invoices || []);
       setTotal(typeof res.total === "number" ? res.total : null);
+
+      // AI is optional: don't block the list if the user lacks ai:read.
+      try {
+        const ai = await apiGet<{ recommendations: AiRecRow[] }>("/ai/recommendations?status=pending&agent_code=AI_AP_GUARD&limit=12");
+        setAiApGuard(ai.recommendations || []);
+      } catch {
+        setAiApGuard([]);
+      }
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -85,6 +102,9 @@ function SupplierInvoicesListInner() {
   const canPrev = page > 0;
   const canNext = total == null ? invoices.length === pageSize : offset + invoices.length < total;
 
+  const aiHold = aiApGuard.filter((r) => (r as any)?.recommendation_json?.kind === "supplier_invoice_hold");
+  const aiDue = aiApGuard.filter((r) => (r as any)?.recommendation_json?.kind === "supplier_invoice_due_soon");
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? (
@@ -95,6 +115,66 @@ function SupplierInvoicesListInner() {
           </CardHeader>
           <CardContent>
             <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {aiApGuard.length ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">AI: AP Guard</CardTitle>
+            <CardDescription>
+              {aiHold.length ? `${aiHold.length} on hold` : "0 on hold"} · {aiDue.length ? `${aiDue.length} due soon` : "0 due soon"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
+                  <tr>
+                    <th className="px-3 py-2">Type</th>
+                    <th className="px-3 py-2">Invoice</th>
+                    <th className="px-3 py-2">Supplier</th>
+                    <th className="px-3 py-2">Detail</th>
+                    <th className="px-3 py-2">Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aiApGuard.slice(0, 8).map((r) => {
+                    const j = (r as any).recommendation_json || {};
+                    const kind = String(j.kind || "");
+                    return (
+                      <tr key={r.id} className="border-t border-border-subtle align-top">
+                        <td className="px-3 py-2 font-mono text-xs text-fg-muted">{kind || "-"}</td>
+                        <td className="px-3 py-2">
+                          <div className="data-mono text-xs text-foreground">{j.invoice_no || "(draft)"}</div>
+                          {j.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {j.supplier_ref}</div> : null}
+                        </td>
+                        <td className="px-3 py-2 text-xs">{j.supplier_name || j.supplier_id || "-"}</td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">
+                          {kind === "supplier_invoice_hold" ? (
+                            <span>{j.hold_reason || "On hold"}</span>
+                          ) : kind === "supplier_invoice_due_soon" ? (
+                            <span>
+                              Due: <span className="font-mono text-xs">{fmtIso(j.due_date)}</span> · Outstanding USD{" "}
+                              <span className="font-mono text-xs">{String(j.outstanding_usd || "0")}</span>
+                            </span>
+                          ) : (
+                            <span className="font-mono text-xs">{j.key || "-"}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs text-fg-muted">{r.created_at}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end">
+              <Button asChild variant="outline" size="sm">
+                <a href="/automation/ai-hub">Open AI Hub</a>
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : null}

@@ -73,6 +73,14 @@ type ItemSupplierLinkRow = {
   last_cost_lbp: string | number;
 };
 
+type AiRecRow = {
+  id: string;
+  agent_code: string;
+  status: string;
+  recommendation_json: any;
+  created_at: string;
+};
+
 export default function ItemsPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
@@ -148,6 +156,7 @@ export default function ItemsPage() {
   const [editLastCostUsd, setEditLastCostUsd] = useState("0");
   const [editLastCostLbp, setEditLastCostLbp] = useState("0");
   const [savingLink, setSavingLink] = useState(false);
+  const [aiHygiene, setAiHygiene] = useState<AiRecRow[]>([]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -174,6 +183,16 @@ export default function ItemsPage() {
       setItems(res.items || []);
       setTaxCodes(tc.tax_codes || []);
       setCategories(cats.categories || []);
+
+      // AI is optional: don't block the Items page if the user lacks ai:read or if AI endpoints fail.
+      try {
+        const ai = await apiGet<{ recommendations: AiRecRow[] }>(
+          "/ai/recommendations?status=pending&agent_code=AI_DATA_HYGIENE&limit=10"
+        );
+        setAiHygiene(ai.recommendations || []);
+      } catch {
+        setAiHygiene([]);
+      }
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -688,22 +707,70 @@ export default function ItemsPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>API errors will show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+	        {status ? (
+	          <Card>
+	            <CardHeader>
+	              <CardTitle>Status</CardTitle>
+	              <CardDescription>API errors will show here.</CardDescription>
+	            </CardHeader>
+	            <CardContent>
+	              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
+	            </CardContent>
+	          </Card>
+	        ) : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Catalog</CardTitle>
-            <CardDescription>{items.length} items</CardDescription>
+	        {aiHygiene.length ? (
+	          <Card>
+	            <CardHeader>
+	              <CardTitle className="text-base">AI: Data Hygiene</CardTitle>
+	              <CardDescription>
+	                {aiHygiene.length} pending suggestions (items missing key master data).
+	              </CardDescription>
+	            </CardHeader>
+	            <CardContent className="space-y-2">
+	              <div className="ui-table-wrap">
+	                <table className="ui-table">
+	                  <thead className="ui-thead">
+	                    <tr>
+	                      <th className="px-3 py-2">Item</th>
+	                      <th className="px-3 py-2">Issues</th>
+	                      <th className="px-3 py-2">Created</th>
+	                    </tr>
+	                  </thead>
+	                  <tbody>
+	                    {aiHygiene.slice(0, 8).map((r) => {
+	                      const j = (r as any).recommendation_json || {};
+	                      const issues = Array.isArray(j.issues) ? j.issues : [];
+	                      const issueCodes = issues.map((x: any) => x?.code).filter(Boolean);
+	                      return (
+	                        <tr key={r.id} className="border-t border-border-subtle align-top">
+	                          <td className="px-3 py-2">
+	                            <div className="font-mono text-xs">{j.sku || j.entity_id || "-"}</div>
+	                            <div className="text-xs text-fg-muted">{j.name || ""}</div>
+	                          </td>
+	                          <td className="px-3 py-2 font-mono text-xs text-fg-muted">
+	                            {issueCodes.length ? issueCodes.join(", ") : String(issues.length || 0)}
+	                          </td>
+	                          <td className="px-3 py-2 font-mono text-xs text-fg-muted">{r.created_at}</td>
+	                        </tr>
+	                      );
+	                    })}
+	                  </tbody>
+	                </table>
+	              </div>
+	              <div className="flex justify-end">
+	                <Button asChild variant="outline" size="sm">
+	                  <a href="/automation/ai-hub">Open AI Hub</a>
+	                </Button>
+	              </div>
+	            </CardContent>
+	          </Card>
+	        ) : null}
+
+	        <Card>
+	          <CardHeader>
+	            <CardTitle>Catalog</CardTitle>
+	            <CardDescription>{items.length} items</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">

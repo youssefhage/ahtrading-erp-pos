@@ -194,9 +194,14 @@ import { cn } from "@/lib/utils";
 export default function DashboardPage() {
   const router = useRouter();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [aiSummary, setAiSummary] = useState<Record<string, number>>({});
   const [status, setStatus] = useState<string>("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  function aiCount(agentCode: string) {
+    return Number(aiSummary[agentCode] || 0);
+  }
 
   useEffect(() => {
     async function run() {
@@ -204,6 +209,19 @@ export default function DashboardPage() {
       try {
         const res = await apiGet<{ metrics: Metrics }>("/reports/metrics");
         setMetrics(res.metrics);
+
+        // AI is optional: don't block the dashboard if ai:read is missing.
+        try {
+          const ai = await apiGet<{ rows: { agent_code: string; status: string; count: number }[] }>(
+            "/ai/recommendations/summary?status=pending"
+          );
+          const next: Record<string, number> = {};
+          for (const r of ai.rows || []) next[String(r.agent_code)] = Number(r.count || 0);
+          setAiSummary(next);
+        } catch {
+          setAiSummary({});
+        }
+
         setLastUpdatedAt(new Date());
         setStatus("");
       } catch (err) {
@@ -219,6 +237,18 @@ export default function DashboardPage() {
     try {
       const res = await apiGet<{ metrics: Metrics }>("/reports/metrics");
       setMetrics(res.metrics);
+
+      try {
+        const ai = await apiGet<{ rows: { agent_code: string; status: string; count: number }[] }>(
+          "/ai/recommendations/summary?status=pending"
+        );
+        const next: Record<string, number> = {};
+        for (const r of ai.rows || []) next[String(r.agent_code)] = Number(r.count || 0);
+        setAiSummary(next);
+      } catch {
+        setAiSummary({});
+      }
+
       setLastUpdatedAt(new Date());
       setStatus("");
     } catch (err) {
@@ -384,6 +414,55 @@ export default function DashboardPage() {
                   >
                     {fmtNumber(metrics?.low_stock_count || 0)}
                   </span>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="transition-all duration-200 hover:border-border-strong hover:bg-bg-sunken/60">
+          <CardHeader className="pb-2">
+            <div className="flex items-start justify-between">
+              <div className="flex flex-col gap-1">
+                <CardTitle className="text-sm font-medium text-fg-muted">AI Insights</CardTitle>
+                <CardDescription className="text-xs">Pending recommendations</CardDescription>
+              </div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-sunken text-fg-muted">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {isLoading ? (
+              <>
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-full" />
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-fg-muted">Data Hygiene</span>
+                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_DATA_HYGIENE") > 0 ? "text-yellow-400" : "text-foreground")}>
+                    {aiCount("AI_DATA_HYGIENE")}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-fg-muted">AP Guard</span>
+                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_AP_GUARD") > 0 ? "text-yellow-400" : "text-foreground")}>
+                    {aiCount("AI_AP_GUARD")}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-fg-muted">Expiry Ops</span>
+                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_EXPIRY_OPS") > 0 ? "text-yellow-400" : "text-foreground")}>
+                    {aiCount("AI_EXPIRY_OPS")}
+                  </span>
+                </div>
+                <div className="pt-2">
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => router.push("/automation/ai-hub")}>
+                    Open AI Hub
+                  </Button>
                 </div>
               </>
             )}

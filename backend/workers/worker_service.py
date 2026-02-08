@@ -30,6 +30,9 @@ try:
     from .ai_shrinkage import run_shrinkage_agent
     from .ai_demand import run_demand_agent
     from .ai_anomaly import run_anomaly_agent
+    from .ai_data_hygiene import run_data_hygiene_agent
+    from .ai_ap_guard import run_ap_guard_agent
+    from .ai_expiry_ops import run_expiry_ops_agent
     from .ai_action_executor import run_executor
 except ImportError:  # pragma: no cover
     # Allow running as a script: `python3 backend/workers/worker_service.py`
@@ -41,6 +44,9 @@ except ImportError:  # pragma: no cover
     from ai_shrinkage import run_shrinkage_agent
     from ai_demand import run_demand_agent
     from ai_anomaly import run_anomaly_agent
+    from ai_data_hygiene import run_data_hygiene_agent
+    from ai_ap_guard import run_ap_guard_agent
+    from ai_expiry_ops import run_expiry_ops_agent
     from ai_action_executor import run_executor
 
 
@@ -49,6 +55,9 @@ DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
     "AI_PURCHASE": {"interval_seconds": 3600, "options_json": {}},
     "AI_DEMAND": {"interval_seconds": 86400, "options_json": {"window_days": 28, "review_days": 7, "safety_days": 3}},
     "AI_CRM": {"interval_seconds": 86400, "options_json": {"inactive_days": 60}},
+    "AI_DATA_HYGIENE": {"interval_seconds": 86400, "options_json": {"limit": 300}},
+    "AI_AP_GUARD": {"interval_seconds": 3600, "options_json": {"due_soon_days": 7, "limit": 200}},
+    "AI_EXPIRY_OPS": {"interval_seconds": 21600, "options_json": {"days": 30, "limit": 200}},
     "AI_PRICING": {
         "interval_seconds": 86400,
         "options_json": {"min_margin_pct": 0.05, "target_margin_pct": 0.15},
@@ -181,6 +190,20 @@ def execute_job(db_url: str, company_id: str, job_code: str, options: dict):
         inactive_days = int(options.get("inactive_days") or 60)
         run_crm_agent(db_url, company_id, inactive_days=inactive_days)
         return
+    if job_code == "AI_DATA_HYGIENE":
+        limit = int(options.get("limit") or 300)
+        run_data_hygiene_agent(db_url, company_id, limit=limit)
+        return
+    if job_code == "AI_AP_GUARD":
+        due_soon_days = int(options.get("due_soon_days") or 7)
+        limit = int(options.get("limit") or 200)
+        run_ap_guard_agent(db_url, company_id, due_soon_days=due_soon_days, limit=limit)
+        return
+    if job_code == "AI_EXPIRY_OPS":
+        days = int(options.get("days") or 30)
+        limit = int(options.get("limit") or 200)
+        run_expiry_ops_agent(db_url, company_id, days=days, limit=limit)
+        return
     if job_code == "AI_PRICING":
         min_margin_pct = Decimal(str(options.get("min_margin_pct") or "0.05"))
         target_margin_pct = Decimal(str(options.get("target_margin_pct") or "0.15"))
@@ -207,6 +230,7 @@ def execute_job(db_url: str, company_id: str, job_code: str, options: dict):
         limit = int(options.get("limit") or 20)
         run_executor(db_url, company_id, limit=limit)
         return
+    raise ValueError(f"unknown job_code: {job_code}")
 
 
 def run_due_jobs(db_url: str, company_id: str, max_jobs: int = 3) -> int:
