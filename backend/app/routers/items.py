@@ -9,6 +9,7 @@ from ..deps import get_current_user
 import json
 import os
 from ..ai.item_naming import heuristic_item_name_suggestions, openai_item_name_suggestions
+from ..ai.policy import is_external_ai_allowed
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -402,7 +403,7 @@ class ItemNameSuggestIn(BaseModel):
 
 
 @router.post("/name-suggestions", dependencies=[Depends(require_permission("items:write"))])
-def suggest_item_names(data: ItemNameSuggestIn):
+def suggest_item_names(data: ItemNameSuggestIn, company_id: str = Depends(get_company_id)):
     raw = (data.raw_name or "").strip()
     n = max(1, min(int(data.count or 3), 6))
     if not raw:
@@ -411,7 +412,11 @@ def suggest_item_names(data: ItemNameSuggestIn):
     # Prefer an LLM if configured; otherwise fall back to deterministic normalization.
     if os.environ.get("OPENAI_API_KEY"):
         try:
-            return {"suggestions": openai_item_name_suggestions(raw, count=n)}
+            with get_conn() as conn:
+                set_company_context(conn, company_id)
+                with conn.cursor() as cur:
+                    if is_external_ai_allowed(cur, company_id):
+                        return {"suggestions": openai_item_name_suggestions(raw, count=n)}
         except Exception:
             # Never fail the UI due to naming suggestions.
             pass

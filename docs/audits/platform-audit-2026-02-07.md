@@ -505,6 +505,7 @@ Implemented:
   - Generates `AI_PURCHASE_INVOICE_INSIGHTS` recommendations when it detects meaningful supplier cost increases.
 - AI-assisted item naming (v1):
   - `POST /items/name-suggestions` returns improved item-name suggestions for messy strings (LLM if configured; deterministic fallback).
+  - Company policy gate exists (`company_settings.key='ai'` / `allow_external_processing`) to disable external AI processing when desired.
 
 Missing useful data / controls:
 - Stronger “approval” workflow states (requested, approved, queued, executed, rejected) with reasons.

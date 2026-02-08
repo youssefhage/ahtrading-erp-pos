@@ -20,6 +20,7 @@ from ..ai.purchase_invoice_import import (
     openai_extract_purchase_invoice_from_image,
     openai_extract_purchase_invoice_from_text,
 )
+from ..ai.policy import is_external_ai_allowed
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
@@ -628,8 +629,12 @@ def import_supplier_invoice_draft_from_file(
                 )
 
         # Phase 2: best-effort extraction + draft filling.
+        with conn.cursor() as cur:
+            external_ai_allowed = is_external_ai_allowed(cur, company_id)
         try:
-            if os.environ.get("OPENAI_API_KEY"):
+            if not external_ai_allowed:
+                warnings.append("External AI processing is disabled for this company; created draft + attached file only.")
+            elif os.environ.get("OPENAI_API_KEY"):
                 if content_type.lower().startswith("image/"):
                     extracted = openai_extract_purchase_invoice_from_image(raw=raw, content_type=content_type, filename=filename)
                 elif content_type.lower() == "application/pdf":

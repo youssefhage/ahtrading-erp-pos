@@ -152,6 +152,10 @@ Risk:
 Recommendation:
 - Keep these features off-by-default unless `OPENAI_API_KEY` is configured.
 - Consider a company-level toggle (and audit log) for “Allow external AI processing”.
+
+Executed (2026-02-08):
+- Added a company-level AI policy setting (`company_settings.key='ai'` with `allow_external_processing`) surfaced in Admin (`System → Config`).
+- When disabled, invoice import and item naming skip external AI calls and return a warning (draft + attachments still work).
 - For a flawless UX, move extraction to an async background job:
   - Upload returns immediately (draft + attachment)
   - Worker fills the draft later and emits a recommendation with confidence/explainability

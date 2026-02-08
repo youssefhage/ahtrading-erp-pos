@@ -38,6 +38,10 @@ export default function ConfigPage() {
   const [pointsPerLbp, setPointsPerLbp] = useState("0");
   const [savingLoyalty, setSavingLoyalty] = useState(false);
 
+  // AI policy (company_settings.key='ai')
+  const [allowExternalAi, setAllowExternalAi] = useState(true);
+  const [savingAiPolicy, setSavingAiPolicy] = useState(false);
+
   // Tax code form
   const [taxName, setTaxName] = useState("");
   const [taxRate, setTaxRate] = useState("11");
@@ -103,6 +107,12 @@ export default function ConfigPage() {
     const v = (loyalty?.value_json || {}) as any;
     setPointsPerUsd(String(v?.points_per_usd ?? 0));
     setPointsPerLbp(String(v?.points_per_lbp ?? 0));
+  }, [settings]);
+
+  useEffect(() => {
+    const ai = settings.find((s) => s.key === "ai");
+    const v = (ai?.value_json || {}) as any;
+    setAllowExternalAi(Boolean(v?.allow_external_processing ?? true));
   }, [settings]);
 
   useEffect(() => {
@@ -238,6 +248,27 @@ export default function ConfigPage() {
       setStatus(message);
     } finally {
       setSavingLoyalty(false);
+    }
+  }
+
+  async function saveAi(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingAiPolicy(true);
+    setStatus("Saving AI policy...");
+    try {
+      await apiPost("/pricing/company-settings", {
+        key: "ai",
+        value_json: {
+          allow_external_processing: Boolean(allowExternalAi)
+        }
+      });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSavingAiPolicy(false);
     }
   }
 
@@ -381,6 +412,29 @@ export default function ConfigPage() {
                 </Button>
               </div>
             </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>AI Policy</CardTitle>
+            <CardDescription>
+              Controls whether the platform can send documents/names to external AI services (OpenAI) when configured.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <form onSubmit={saveAi} className="flex flex-wrap items-center justify-between gap-3">
+              <label className="flex items-center gap-2 text-sm text-fg-muted">
+                <input type="checkbox" checked={allowExternalAi} onChange={(e) => setAllowExternalAi(e.target.checked)} />
+                Allow external AI processing
+              </label>
+              <Button type="submit" disabled={savingAiPolicy}>
+                {savingAiPolicy ? "Saving..." : "Save AI Policy"}
+              </Button>
+            </form>
+            <p className="text-[11px] text-fg-subtle">
+              If disabled, AI import and AI naming will still work in “draft + attachment” mode, but without external extraction/suggestions.
+            </p>
           </CardContent>
         </Card>
 
