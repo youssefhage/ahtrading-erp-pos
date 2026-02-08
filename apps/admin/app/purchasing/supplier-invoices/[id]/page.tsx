@@ -17,6 +17,7 @@ type PaymentMethodMapping = { method: string; role_code: string; created_at: str
 type InvoiceRow = {
   id: string;
   invoice_no: string;
+  supplier_ref?: string | null;
   supplier_id: string | null;
   supplier_name?: string | null;
   goods_receipt_id?: string | null;
@@ -45,6 +46,7 @@ type InvoiceLine = {
   batch_id: string | null;
   batch_no: string | null;
   expiry_date: string | null;
+  batch_status?: string | null;
 };
 
 type SupplierPayment = {
@@ -52,6 +54,11 @@ type SupplierPayment = {
   method: string;
   amount_usd: string | number;
   amount_lbp: string | number;
+  reference?: string | null;
+  auth_code?: string | null;
+  provider?: string | null;
+  settlement_currency?: string | null;
+  captured_at?: string | null;
   created_at: string;
 };
 
@@ -325,15 +332,19 @@ function SupplierInvoiceShowInner() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                  <p className="text-xs text-fg-muted">Supplier</p>
-                  <p className="text-sm font-medium text-foreground">{detail.invoice.supplier_name || detail.invoice.supplier_id || "-"}</p>
-                </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                  <p className="text-xs text-fg-muted">Goods Receipt</p>
-                  <p className="text-sm data-mono text-foreground">{detail.invoice.goods_receipt_no || "-"}</p>
-                </div>
+	              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+	                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+	                  <p className="text-xs text-fg-muted">Supplier</p>
+	                  <p className="text-sm font-medium text-foreground">{detail.invoice.supplier_name || detail.invoice.supplier_id || "-"}</p>
+	                </div>
+	                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+	                  <p className="text-xs text-fg-muted">Supplier Ref</p>
+	                  <p className="text-sm data-mono text-foreground">{(detail.invoice.supplier_ref as any) || "-"}</p>
+	                </div>
+	                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+	                  <p className="text-xs text-fg-muted">Goods Receipt</p>
+	                  <p className="text-sm data-mono text-foreground">{detail.invoice.goods_receipt_no || "-"}</p>
+	                </div>
                 <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                   <p className="text-xs text-fg-muted">Dates</p>
                   <p className="text-sm data-mono text-foreground">Inv {fmtIso(detail.invoice.invoice_date)}</p>
@@ -386,7 +397,14 @@ function SupplierInvoiceShowInner() {
                             <td className="px-3 py-2 text-right font-mono text-xs">
                               {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
                             </td>
-                            <td className="px-3 py-2 font-mono text-xs">{l.batch_no || "-"}</td>
+                            <td className="px-3 py-2 font-mono text-xs">
+                              {l.batch_no || "-"}
+                              {l.batch_status && l.batch_status !== "available" ? (
+                                <span className="ml-2 rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">
+                                  {l.batch_status}
+                                </span>
+                              ) : null}
+                            </td>
                             <td className="px-3 py-2 font-mono text-xs">{fmtIso(l.expiry_date)}</td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
                               {fmtUsd(l.line_total_usd)}
@@ -412,15 +430,18 @@ function SupplierInvoiceShowInner() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                   <p className="text-sm font-medium text-foreground">Payments</p>
-                  <div className="mt-2 space-y-1 text-xs text-fg-muted">
-                    {detail.payments.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between gap-2">
-                        <span className="data-mono">{p.method}</span>
-                        <span className="data-mono">
-                          {fmtUsd(p.amount_usd)} / {fmtLbp(p.amount_lbp)}
-                        </span>
-                      </div>
-                    ))}
+	                  <div className="mt-2 space-y-1 text-xs text-fg-muted">
+	                    {detail.payments.map((p) => (
+	                      <div key={p.id} className="flex items-center justify-between gap-2">
+	                        <span className="data-mono">
+	                          {p.method}
+	                          {p.reference ? <span className="text-fg-subtle"> · {p.reference}</span> : null}
+	                        </span>
+	                        <span className="data-mono">
+	                          {fmtUsd(p.amount_usd)} / {fmtLbp(p.amount_lbp)}
+	                        </span>
+	                      </div>
+	                    ))}
                     {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
                   </div>
                 </div>

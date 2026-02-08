@@ -96,6 +96,7 @@ function iconForHref(href: string) {
     "/inventory/stock": Boxes,
     "/inventory/movements": ArrowLeftRight,
     "/inventory/alerts": BellRing,
+    "/inventory/batches": Boxes,
     "/inventory/ops": Workflow,
 
     "/accounting/journals": BookOpen,
@@ -195,6 +196,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Stock", href: "/inventory/stock" },
       { label: "Movements", href: "/inventory/movements" },
+      { label: "Batches", href: "/inventory/batches" },
       { label: "Alerts", href: "/inventory/alerts" }
     ]
   },

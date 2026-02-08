@@ -13,6 +13,7 @@ import { StatusChip } from "@/components/ui/status-chip";
 type InvoiceRow = {
   id: string;
   invoice_no: string;
+  supplier_ref?: string | null;
   supplier_id: string | null;
   supplier_name?: string | null;
   goods_receipt_id?: string | null;
@@ -99,7 +100,7 @@ function SupplierInvoicesListInner() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="w-full md:w-96">
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search invoice / supplier / GR..." />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search doc no / supplier ref / supplier / GR..." />
           </div>
           <select className="ui-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">All statuses</option>
@@ -148,6 +149,7 @@ function SupplierInvoicesListInner() {
                   >
                     <td className="px-3 py-2">
                       <div className="data-mono text-xs text-foreground">{inv.invoice_no || "(draft)"}</div>
+                      {inv.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {inv.supplier_ref}</div> : null}
                       <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
                     </td>
                     <td className="px-3 py-2">{inv.supplier_name || inv.supplier_id || "-"}</td>

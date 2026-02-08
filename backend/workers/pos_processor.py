@@ -4,6 +4,7 @@ import json
 from datetime import datetime, date, timedelta
 from typing import Optional
 from decimal import Decimal
+import uuid
 import psycopg
 from psycopg.rows import dict_row
 
@@ -242,6 +243,42 @@ def get_or_create_batch(cur, company_id: str, item_id: str, batch_no, expiry_dat
     )
     return cur.fetchone()["id"]
 
+
+def touch_batch_received_metadata(
+    cur,
+    company_id: str,
+    batch_id: Optional[str],
+    received_source_type: Optional[str],
+    received_source_id: Optional[str],
+    received_supplier_id: Optional[str],
+    received_at: Optional[datetime] = None,
+):
+    """
+    Best-effort enrichment: only fills fields that are currently NULL so we don't overwrite historical attribution.
+    """
+    if not batch_id:
+        return
+    if not received_source_type and not received_source_id and not received_supplier_id and not received_at:
+        return
+    cur.execute(
+        """
+        UPDATE batches
+        SET received_at = COALESCE(received_at, %s),
+            received_source_type = COALESCE(received_source_type, %s),
+            received_source_id = COALESCE(received_source_id, %s::uuid),
+            received_supplier_id = COALESCE(received_supplier_id, %s::uuid)
+        WHERE company_id = %s AND id = %s
+        """,
+        (
+            received_at or datetime.utcnow(),
+            received_source_type,
+            received_source_id,
+            received_supplier_id,
+            company_id,
+            batch_id,
+        ),
+    )
+
 def find_batch_id(cur, company_id: str, item_id: str, batch_no, expiry_date_raw):
     """
     Find an existing batch by (batch_no, expiry_date). Returns batch_id or None.
@@ -265,6 +302,7 @@ def find_batch_id(cur, company_id: str, item_id: str, batch_no, expiry_date_raw)
           AND item_id = %s
           AND batch_no IS NOT DISTINCT FROM %s
           AND expiry_date IS NOT DISTINCT FROM %s
+          AND status = 'available'
         ORDER BY created_at DESC
         LIMIT 1
         """,
@@ -326,6 +364,7 @@ def allocate_fefo_batches(
             WHERE sm.company_id = %s
               AND sm.item_id = %s
               AND sm.warehouse_id = %s
+              AND (sm.batch_id IS NULL OR b.status = 'available')
               AND (b.expiry_date IS NULL OR b.expiry_date >= %s)
             GROUP BY sm.batch_id, b.expiry_date
             HAVING (SUM(sm.qty_in) - SUM(sm.qty_out)) > 0
@@ -344,6 +383,7 @@ def allocate_fefo_batches(
             WHERE sm.company_id = %s
               AND sm.item_id = %s
               AND sm.warehouse_id = %s
+              AND (sm.batch_id IS NULL OR b.status = 'available')
             GROUP BY sm.batch_id, b.expiry_date
             HAVING (SUM(sm.qty_in) - SUM(sm.qty_out)) > 0
             ORDER BY b.expiry_date NULLS LAST, sm.batch_id
@@ -415,13 +455,42 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
 
     base_usd = Decimal("0")
     base_lbp = Decimal("0")
+    discount_total_usd = Decimal("0")
+    discount_total_lbp = Decimal("0")
     total_cost_usd = Decimal("0")
     total_cost_lbp = Decimal("0")
 
     for l in lines:
-        base_usd += Decimal(str(l.get("line_total_usd", 0)))
-        base_lbp += Decimal(str(l.get("line_total_lbp", 0)))
+        line_total_usd = Decimal(str(l.get("line_total_usd", 0)))
+        line_total_lbp = Decimal(str(l.get("line_total_lbp", 0)))
+        base_usd += line_total_usd
+        base_lbp += line_total_lbp
         qty = Decimal(str(l.get("qty", 0)))
+
+        # Optional commercial metadata (backward compatible).
+        pre_unit_usd = Decimal(str(l.get("pre_discount_unit_price_usd", 0) or 0))
+        pre_unit_lbp = Decimal(str(l.get("pre_discount_unit_price_lbp", 0) or 0))
+        unit_usd = Decimal(str(l.get("unit_price_usd", 0) or 0))
+        unit_lbp = Decimal(str(l.get("unit_price_lbp", 0) or 0))
+        disc_pct = Decimal(str(l.get("discount_pct", 0) or 0))
+        disc_usd = Decimal(str(l.get("discount_amount_usd", 0) or 0))
+        disc_lbp = Decimal(str(l.get("discount_amount_lbp", 0) or 0))
+
+        if disc_usd == 0 and disc_lbp == 0:
+            if pre_unit_usd or pre_unit_lbp:
+                disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * qty)
+                disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty)
+            elif disc_pct:
+                disc_usd = max(Decimal("0"), (unit_usd * qty) * disc_pct)
+                disc_lbp = max(Decimal("0"), (unit_lbp * qty) * disc_pct)
+
+        discount_total_usd += disc_usd
+        discount_total_lbp += disc_lbp
+        l["_resolved_discount_amount_usd"] = str(disc_usd)
+        l["_resolved_discount_amount_lbp"] = str(disc_lbp)
+        l["_resolved_discount_pct"] = str(disc_pct)
+        l["_resolved_pre_discount_unit_price_usd"] = str(pre_unit_usd)
+        l["_resolved_pre_discount_unit_price_lbp"] = str(pre_unit_lbp)
         unit_cost_usd = Decimal(str(l.get("unit_cost_usd", 0) or 0))
         unit_cost_lbp = Decimal(str(l.get("unit_cost_lbp", 0) or 0))
 
@@ -508,14 +577,42 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
 
     cashier_id = payload.get("cashier_id") or None
 
+    # Branch attribution (useful for reporting). For non-POS flows this may be NULL.
+    branch_id = None
+    cur.execute("SELECT branch_id FROM pos_devices WHERE id=%s", (device_id,))
+    drow = cur.fetchone()
+    if drow:
+        branch_id = drow.get("branch_id")
+
+    # Receipt printing metadata (optional; provided by POS/printer).
+    receipt_no = (payload.get("receipt_no") or None)
+    receipt_seq = payload.get("receipt_seq")
+    try:
+        receipt_seq = int(receipt_seq) if receipt_seq is not None and str(receipt_seq).strip() != "" else None
+    except Exception:
+        receipt_seq = None
+    receipt_printer = (payload.get("receipt_printer") or None)
+    receipt_printed_at = payload.get("receipt_printed_at") or None
+    if receipt_printed_at:
+        try:
+            receipt_printed_at = datetime.fromisoformat(str(receipt_printed_at).replace("Z", "+00:00"))
+        except Exception:
+            receipt_printed_at = None
+    receipt_meta = payload.get("receipt_meta") or None
+
     cur.execute(
         """
         INSERT INTO sales_invoices
-          (id, company_id, invoice_no, customer_id, status, total_usd, total_lbp, warehouse_id,
+          (id, company_id, invoice_no, customer_id, status, total_usd, total_lbp, subtotal_usd, subtotal_lbp,
+           discount_total_usd, discount_total_lbp, warehouse_id,
            exchange_rate, pricing_currency, settlement_currency, source_event_id, device_id, shift_id,
-           invoice_date, due_date, cashier_id)
+           invoice_date, due_date, cashier_id,
+           branch_id,
+           receipt_no, receipt_seq, receipt_printer, receipt_printed_at, receipt_meta)
         VALUES
-          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+           %s,
+           %s, %s, %s, %s, %s::jsonb)
         RETURNING id
         """,
         (
@@ -525,6 +622,10 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             "posted",
             total_usd,
             total_lbp,
+            base_usd,
+            base_lbp,
+            discount_total_usd,
+            discount_total_lbp,
             payload.get("warehouse_id"),
             exchange_rate,
             pricing_currency,
@@ -535,19 +636,37 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             invoice_date,
             due_date,
             cashier_id,
+            branch_id,
+            receipt_no,
+            receipt_seq,
+            receipt_printer,
+            receipt_printed_at,
+            json.dumps(receipt_meta) if isinstance(receipt_meta, (dict, list)) else (json.dumps({"value": receipt_meta}) if receipt_meta is not None else None),
         ),
     )
     invoice_id = cur.fetchone()["id"]
 
     for l in lines:
+        # Generate stable ids so downstream artifacts (stock moves, etc.) can link to document lines.
+        line_id = str(uuid.uuid4())
+        l["_invoice_line_id"] = line_id
         cur.execute(
             """
             INSERT INTO sales_invoice_lines
-              (id, invoice_id, item_id, qty, unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp)
+              (id, invoice_id, item_id, qty, unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp,
+               uom, qty_factor,
+               pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
+               discount_pct, discount_amount_usd, discount_amount_lbp,
+               applied_promotion_id, applied_promotion_item_id, applied_price_list_id)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s, %s, %s, %s,
+               %s, %s,
+               %s, %s,
+               %s, %s, %s,
+               %s, %s, %s)
             """,
             (
+                line_id,
                 invoice_id,
                 l.get("item_id"),
                 Decimal(str(l.get("qty", 0))),
@@ -555,6 +674,16 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 Decimal(str(l.get("unit_price_lbp", 0))),
                 Decimal(str(l.get("line_total_usd", 0))),
                 Decimal(str(l.get("line_total_lbp", 0))),
+                l.get("uom"),
+                Decimal(str(l.get("qty_factor", 1) or 1)),
+                Decimal(str(l.get("_resolved_pre_discount_unit_price_usd", 0) or 0)),
+                Decimal(str(l.get("_resolved_pre_discount_unit_price_lbp", 0) or 0)),
+                Decimal(str(l.get("_resolved_discount_pct", 0) or 0)),
+                Decimal(str(l.get("_resolved_discount_amount_usd", 0) or 0)),
+                Decimal(str(l.get("_resolved_discount_amount_lbp", 0) or 0)),
+                l.get("applied_promotion_id"),
+                l.get("applied_promotion_item_id"),
+                l.get("applied_price_list_id"),
             ),
         )
 
@@ -599,14 +728,18 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
         cur.execute(
             """
-            INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp)
-            VALUES (gen_random_uuid(), %s, %s, %s, %s)
+            INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at)
+            VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, now())
             """,
             (
                 invoice_id,
                 method,
                 amount_usd,
                 amount_lbp,
+                (p.get("reference") or None),
+                (p.get("auth_code") or None),
+                (p.get("provider") or None),
+                (p.get("settlement_currency") or settlement_currency or None),
             ),
         )
 
@@ -614,13 +747,26 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     # do not allow unbatched remainder.
     warehouse_id = payload.get("warehouse_id")
     inv_policy = fetch_inventory_policy(cur, company_id)
-    allow_negative_stock = bool(inv_policy.get("allow_negative_stock"))
+    allow_negative_stock_default = bool(inv_policy.get("allow_negative_stock"))
+    warehouse_min_days_default = 0
+    if warehouse_id:
+        cur.execute(
+            """
+            SELECT min_shelf_life_days_for_sale_default
+            FROM warehouses
+            WHERE company_id=%s AND id=%s
+            """,
+            (company_id, warehouse_id),
+        )
+        wrow = cur.fetchone()
+        if wrow:
+            warehouse_min_days_default = int(wrow.get("min_shelf_life_days_for_sale_default") or 0)
     item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
     item_policy = {}
     if item_ids:
         cur.execute(
             """
-            SELECT id, track_batches, track_expiry, min_shelf_life_days_for_sale
+            SELECT id, track_batches, track_expiry, min_shelf_life_days_for_sale, allow_negative_stock
             FROM items
             WHERE company_id=%s AND id = ANY(%s::uuid[])
             """,
@@ -633,9 +779,14 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         if not item_id or not warehouse_id:
             continue
         pol = item_policy.get(str(item_id)) or {}
-        min_days = int(pol.get("min_shelf_life_days_for_sale") or 0)
+        min_days = max(int(pol.get("min_shelf_life_days_for_sale") or 0), warehouse_min_days_default)
         min_exp = (invoice_date + timedelta(days=min_days)) if min_days > 0 else None
+        # If an item is expiry-tracked, never allocate from already-expired batches.
+        if bool(pol.get("track_expiry")) and not min_exp:
+            min_exp = invoice_date
         allow_unbatched = not (bool(pol.get("track_batches")) or bool(pol.get("track_expiry")) or min_days > 0)
+        item_allow_negative = pol.get("allow_negative_stock")
+        allow_negative_stock = allow_negative_stock_default if item_allow_negative is None else bool(item_allow_negative)
 
         unit_cost_usd = Decimal(str(l.get("_resolved_unit_cost_usd", 0) or 0))
         unit_cost_lbp = Decimal(str(l.get("_resolved_unit_cost_lbp", 0) or 0))
@@ -670,9 +821,11 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 """
                 INSERT INTO stock_moves
                   (id, company_id, item_id, warehouse_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
-                   source_type, source_id)
+                   source_type, source_id,
+                   created_by_device_id, created_by_cashier_id, reason, source_line_type, source_line_id)
                 VALUES
-                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'sales_invoice', %s)
+                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'sales_invoice', %s,
+                   %s, %s, %s, %s, %s)
                 """,
                 (
                     company_id,
@@ -684,6 +837,11 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                     unit_cost_lbp,
                     invoice_date,
                     invoice_id,
+                    device_id,
+                    cashier_id,
+                    "POS sale",
+                    "sales_invoice_line",
+                    l.get("_invoice_line_id"),
                 ),
             )
 
@@ -852,13 +1010,34 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
     refund_method = (payload.get("refund_method") or "").strip().lower() or None
     cashier_id = payload.get("cashier_id") or None
 
+    branch_id = None
+    cur.execute("SELECT branch_id FROM pos_devices WHERE id=%s", (device_id,))
+    drow = cur.fetchone()
+    if drow:
+        branch_id = drow.get("branch_id")
+
+    reason_id = payload.get("reason_id") or None
+    try:
+        if reason_id:
+            uuid.UUID(str(reason_id))
+    except Exception:
+        reason_id = None
+    reason_text = (payload.get("reason") or payload.get("return_reason") or None)
+    if isinstance(reason_text, str):
+        reason_text = reason_text.strip() or None
+    return_condition = (payload.get("return_condition") or None)
+    if isinstance(return_condition, str):
+        return_condition = return_condition.strip() or None
+
     cur.execute(
         """
         INSERT INTO sales_returns
           (id, company_id, return_no, invoice_id, status, total_usd, total_lbp, exchange_rate,
-           warehouse_id, device_id, shift_id, refund_method, source_event_id, cashier_id)
+           warehouse_id, device_id, shift_id, refund_method, source_event_id, cashier_id,
+           branch_id, reason_id, reason, return_condition)
         VALUES
-          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s, %s, %s, %s,
+           %s, %s, %s, %s)
         RETURNING id
         """,
         (
@@ -874,6 +1053,10 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             refund_method,
             event_id,
             cashier_id,
+            branch_id,
+            reason_id,
+            reason_text,
+            return_condition,
         ),
     )
     return_id = cur.fetchone()["id"]
@@ -916,13 +1099,19 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                 unit_cost_usd, unit_cost_lbp = mapped
             else:
                 unit_cost_usd, unit_cost_lbp = get_avg_cost(cur, company_id, l.get("item_id"), warehouse_id)
+
+        # Generate a stable return line id so stock moves can link to the specific line.
+        return_line_id = str(uuid.uuid4())
+        l["_return_line_id"] = return_line_id
         cur.execute(
             """
             INSERT INTO stock_moves
               (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
-               source_type, source_id)
+               source_type, source_id,
+               created_by_device_id, created_by_cashier_id, reason, source_line_type, source_line_id)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'sales_return', %s)
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'sales_return', %s,
+               %s, %s, %s, %s, %s)
             """,
             (
                 company_id,
@@ -934,6 +1123,11 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                 unit_cost_lbp,
                 date.today(),
                 return_id,
+                device_id,
+                payload.get("cashier_id") or None,
+                "POS return",
+                "sales_return_line",
+                return_line_id,
             ),
         )
 
@@ -948,16 +1142,27 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         if qty:
             unit_price_usd = Decimal(str(l.get("line_total_usd", 0))) / qty
             unit_price_lbp = Decimal(str(l.get("line_total_lbp", 0))) / qty
+        line_reason_id = l.get("reason_id") or None
+        try:
+            if line_reason_id:
+                uuid.UUID(str(line_reason_id))
+        except Exception:
+            line_reason_id = None
+        line_condition = (l.get("line_condition") or None) if l.get("line_condition") is not None else None
+        if isinstance(line_condition, str):
+            line_condition = line_condition.strip() or None
         cur.execute(
             """
             INSERT INTO sales_return_lines
               (id, company_id, sales_return_id, item_id, qty,
                unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp,
-               unit_cost_usd, unit_cost_lbp)
+               unit_cost_usd, unit_cost_lbp,
+               reason_id, line_condition)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
+                return_line_id,
                 company_id,
                 return_id,
                 l.get("item_id"),
@@ -968,6 +1173,8 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                 Decimal(str(l.get("line_total_lbp", 0))),
                 unit_cost_usd,
                 unit_cost_lbp,
+                line_reason_id,
+                line_condition,
             ),
         )
 
@@ -1208,6 +1415,10 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
 
     assert_period_open(cur, company_id, date.today())
 
+    supplier_ref = payload.get("supplier_ref") or None
+    if isinstance(supplier_ref, str):
+        supplier_ref = supplier_ref.strip() or None
+
     total_usd = Decimal("0")
     total_lbp = Decimal("0")
 
@@ -1218,15 +1429,18 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
     cur.execute(
         """
         INSERT INTO goods_receipts
-          (id, company_id, receipt_no, supplier_id, status, total_usd, total_lbp, exchange_rate, warehouse_id, source_event_id)
+          (id, company_id, receipt_no, supplier_id, supplier_ref, status,
+           total_usd, total_lbp, exchange_rate, warehouse_id, source_event_id,
+           received_at)
         VALUES
-          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s, now())
         RETURNING id
         """,
         (
             company_id,
             receipt_no,
             payload.get("supplier_id"),
+            supplier_ref,
             total_usd,
             total_lbp,
             Decimal(str(payload.get("exchange_rate", 0))),
@@ -1241,15 +1455,26 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
         if not l.get("item_id") or not warehouse_id:
             continue
         batch_id = get_or_create_batch(cur, company_id, l.get("item_id"), l.get("batch_no"), l.get("expiry_date"))
+        touch_batch_received_metadata(
+            cur,
+            company_id,
+            batch_id,
+            "goods_receipt",
+            str(gr_id),
+            str(payload.get("supplier_id") or "") or None,
+            received_at=datetime.utcnow(),
+        )
+        gr_line_id = str(uuid.uuid4())
         cur.execute(
             """
             INSERT INTO goods_receipt_lines
               (id, company_id, goods_receipt_id, item_id, batch_id, qty,
                unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
+                gr_line_id,
                 company_id,
                 gr_id,
                 l.get("item_id"),
@@ -1265,9 +1490,11 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
             """
             INSERT INTO stock_moves
               (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
-               source_type, source_id)
+               source_type, source_id,
+               created_by_device_id, created_by_cashier_id, reason, source_line_type, source_line_id)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s)
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s,
+               %s, %s, %s, %s, %s)
             """,
             (
                 company_id,
@@ -1278,6 +1505,11 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
                 Decimal(str(l.get("unit_cost_usd", 0))),
                 Decimal(str(l.get("unit_cost_lbp", 0))),
                 gr_id,
+                device_id,
+                payload.get("cashier_id") or None,
+                "POS goods receipt",
+                "goods_receipt_line",
+                gr_line_id,
             ),
         )
 
@@ -1401,15 +1633,16 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
     cur.execute(
         """
         INSERT INTO supplier_invoices
-          (id, company_id, invoice_no, supplier_id, status, total_usd, total_lbp, exchange_rate, source_event_id,
+          (id, company_id, invoice_no, supplier_ref, supplier_id, status, total_usd, total_lbp, exchange_rate, source_event_id,
            invoice_date, due_date)
         VALUES
-          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
             company_id,
             invoice_no,
+            (payload.get("supplier_ref") or None),
             supplier_id,
             total_usd,
             total_lbp,
@@ -1423,6 +1656,15 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
 
     for l in lines:
         batch_id = get_or_create_batch(cur, company_id, l.get("item_id"), l.get("batch_no"), l.get("expiry_date"))
+        touch_batch_received_metadata(
+            cur,
+            company_id,
+            batch_id,
+            "supplier_invoice",
+            str(inv_id),
+            str(supplier_id or "") or None,
+            received_at=datetime.utcnow(),
+        )
         cur.execute(
             """
             INSERT INTO supplier_invoice_lines

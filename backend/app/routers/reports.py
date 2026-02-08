@@ -633,7 +633,7 @@ def profit_and_loss(
             revenue_lbp = sum([r["amount_lbp"] for r in rows if r["kind"] == "revenue"])
             expense_usd = sum([r["amount_usd"] for r in rows if r["kind"] == "expense"])
             expense_lbp = sum([r["amount_lbp"] for r in rows if r["kind"] == "expense"])
-            return {
+    return {
                 "start_date": str(start_date),
                 "end_date": str(end_date),
                 "revenue_usd": revenue_usd,
@@ -642,6 +642,118 @@ def profit_and_loss(
                 "expense_lbp": expense_lbp,
                 "net_profit_usd": revenue_usd - expense_usd,
                 "net_profit_lbp": revenue_lbp - expense_lbp,
+                "rows": rows,
+    }
+
+
+@router.get("/sales/margin-by-item", dependencies=[Depends(require_permission("reports:read"))])
+def sales_margin_by_item(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    warehouse_id: Optional[str] = None,
+    branch_id: Optional[str] = None,
+    limit: int = 500,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Margin report (by item) using:
+    - Revenue from sales_invoice_lines (posted invoices)
+    - COGS from stock_moves emitted for those invoices (source_type='sales_invoice')
+    """
+    if limit <= 0 or limit > 2000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    today = date.today()
+    start_date = start_date or today.replace(day=1)
+    end_date = end_date or today
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH rev AS (
+                  SELECT l.item_id,
+                         COALESCE(SUM(l.qty), 0) AS qty_sold,
+                         COALESCE(SUM(l.line_total_usd), 0) AS revenue_usd,
+                         COALESCE(SUM(l.line_total_lbp), 0) AS revenue_lbp
+                  FROM sales_invoice_lines l
+                  JOIN sales_invoices i ON i.id = l.invoice_id
+                  WHERE i.company_id = %s
+                    AND i.status = 'posted'
+                    AND i.invoice_date BETWEEN %s AND %s
+                    AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
+                    AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
+                  GROUP BY l.item_id
+                ),
+                cogs AS (
+                  SELECT sm.item_id,
+                         COALESCE(SUM(sm.qty_out), 0) AS qty_out,
+                         COALESCE(SUM(sm.qty_out * sm.unit_cost_usd), 0) AS cogs_usd,
+                         COALESCE(SUM(sm.qty_out * sm.unit_cost_lbp), 0) AS cogs_lbp
+                  FROM stock_moves sm
+                  JOIN sales_invoices i
+                    ON i.company_id = sm.company_id AND i.id = sm.source_id
+                  WHERE sm.company_id = %s
+                    AND sm.source_type = 'sales_invoice'
+                    AND i.status = 'posted'
+                    AND i.invoice_date BETWEEN %s AND %s
+                    AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
+                    AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
+                  GROUP BY sm.item_id
+                )
+                SELECT it.id AS item_id,
+                       it.sku,
+                       it.name,
+                       COALESCE(rev.qty_sold, 0) AS qty_sold,
+                       COALESCE(rev.revenue_usd, 0) AS revenue_usd,
+                       COALESCE(rev.revenue_lbp, 0) AS revenue_lbp,
+                       COALESCE(cogs.cogs_usd, 0) AS cogs_usd,
+                       COALESCE(cogs.cogs_lbp, 0) AS cogs_lbp,
+                       (COALESCE(rev.revenue_usd, 0) - COALESCE(cogs.cogs_usd, 0)) AS margin_usd,
+                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(cogs.cogs_lbp, 0)) AS margin_lbp
+                FROM items it
+                LEFT JOIN rev ON rev.item_id = it.id
+                LEFT JOIN cogs ON cogs.item_id = it.id
+                WHERE it.company_id = %s
+                  AND (rev.item_id IS NOT NULL OR cogs.item_id IS NOT NULL)
+                ORDER BY COALESCE(rev.revenue_usd, 0) DESC, it.sku ASC
+                LIMIT %s
+                """,
+                (
+                    company_id,
+                    start_date,
+                    end_date,
+                    warehouse_id,
+                    warehouse_id,
+                    branch_id,
+                    branch_id,
+                    company_id,
+                    start_date,
+                    end_date,
+                    warehouse_id,
+                    warehouse_id,
+                    branch_id,
+                    branch_id,
+                    company_id,
+                    limit,
+                ),
+            )
+            rows = cur.fetchall()
+            # Derive margin % client-side to avoid division-by-zero edge cases in SQL.
+            for r in rows:
+                rev_usd = Decimal(str(r.get("revenue_usd") or 0))
+                rev_lbp = Decimal(str(r.get("revenue_lbp") or 0))
+                mar_usd = Decimal(str(r.get("margin_usd") or 0))
+                mar_lbp = Decimal(str(r.get("margin_lbp") or 0))
+                r["margin_pct_usd"] = (mar_usd / rev_usd) if rev_usd else None
+                r["margin_pct_lbp"] = (mar_lbp / rev_lbp) if rev_lbp else None
+            return {
+                "start_date": str(start_date),
+                "end_date": str(end_date),
+                "warehouse_id": warehouse_id,
+                "branch_id": branch_id,
                 "rows": rows,
             }
 

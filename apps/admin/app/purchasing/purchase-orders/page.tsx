@@ -19,6 +19,8 @@ type PurchaseOrderRow = {
   id: string;
   order_no: string | null;
   supplier_id: string | null;
+  supplier_ref?: string | null;
+  expected_delivery_date?: string | null;
   status: string;
   total_usd: string | number;
   total_lbp: string | number;
@@ -74,6 +76,8 @@ function PurchaseOrdersPageInner() {
 
   const [draftSupplierId, setDraftSupplierId] = useState("");
   const [draftExchangeRate, setDraftExchangeRate] = useState("90000");
+  const [draftSupplierRef, setDraftSupplierRef] = useState("");
+  const [draftExpectedDeliveryDate, setDraftExpectedDeliveryDate] = useState("");
   const [draftLines, setDraftLines] = useState<LineDraft[]>([]);
 
   const [receiveOpen, setReceiveOpen] = useState(false);
@@ -89,8 +93,9 @@ function PurchaseOrdersPageInner() {
       if (statusFilter && o.status !== statusFilter) return false;
       if (!needle) return true;
       const no = (o.order_no || "").toLowerCase();
+      const supRef = ((o.supplier_ref as string) || "").toLowerCase();
       const sup = o.supplier_id ? (supplierById.get(o.supplier_id)?.name || "").toLowerCase() : "";
-      return no.includes(needle) || sup.includes(needle) || o.id.toLowerCase().includes(needle);
+      return no.includes(needle) || supRef.includes(needle) || sup.includes(needle) || o.id.toLowerCase().includes(needle);
     });
   }, [orders, q, statusFilter, supplierById]);
 
@@ -148,6 +153,8 @@ function PurchaseOrdersPageInner() {
     setDraftEditId("");
     setDraftSupplierId("");
     setDraftExchangeRate("90000");
+    setDraftSupplierRef("");
+    setDraftExpectedDeliveryDate("");
     setDraftLines([]);
     setDraftOpen(true);
   }
@@ -158,6 +165,8 @@ function PurchaseOrdersPageInner() {
     setDraftEditId(detail.order.id);
     setDraftSupplierId(detail.order.supplier_id || "");
     setDraftExchangeRate(String(detail.order.exchange_rate || 0));
+    setDraftSupplierRef(String(detail.order.supplier_ref || ""));
+    setDraftExpectedDeliveryDate(String(detail.order.expected_delivery_date || ""));
     setDraftLines(
       (detail.lines || []).map((l) => ({
         item_id: l.item_id,
@@ -195,6 +204,8 @@ function PurchaseOrdersPageInner() {
       const payload = {
         supplier_id: draftSupplierId,
         exchange_rate: ex,
+        supplier_ref: draftSupplierRef.trim() || undefined,
+        expected_delivery_date: draftExpectedDeliveryDate.trim() || undefined,
         lines: validLines.map((l) => ({
           item_id: l.item_id,
           qty: toNum(l.qty),
@@ -321,7 +332,7 @@ function PurchaseOrdersPageInner() {
           <CardContent>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="w-full md:w-96">
-                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search order / supplier..." />
+                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search order / supplier / supplier ref..." />
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <select className="ui-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
@@ -355,7 +366,15 @@ function PurchaseOrdersPageInner() {
                             style={{ cursor: "pointer" }}
                             onClick={() => setOrderId(o.id)}
                           >
-                            <td className="px-3 py-2 font-medium">{o.order_no || "(draft)"}</td>
+                            <td className="px-3 py-2 font-medium">
+                              <div className="flex flex-col gap-0.5">
+                                <div>{o.order_no || "(draft)"}</div>
+                                {o.supplier_ref ? <div className="font-mono text-[11px] text-fg-muted">Ref: {o.supplier_ref}</div> : null}
+                                {o.expected_delivery_date ? (
+                                  <div className="font-mono text-[11px] text-fg-muted">ETA: {o.expected_delivery_date}</div>
+                                ) : null}
+                              </div>
+                            </td>
                             <td className="px-3 py-2">{supplierById.get(o.supplier_id || "")?.name || "-"}</td>
                             <td className="px-3 py-2">
                               <StatusChip value={o.status} />
@@ -385,6 +404,12 @@ function PurchaseOrdersPageInner() {
                           </div>
                           <div>
                             <span className="text-fg-subtle">Supplier:</span> {supplierById.get(detail.order.supplier_id || "")?.name || "-"}
+                          </div>
+                          <div>
+                            <span className="text-fg-subtle">Supplier Ref:</span> {(detail.order.supplier_ref as string) || "-"}
+                          </div>
+                          <div>
+                            <span className="text-fg-subtle">Expected Delivery:</span> {(detail.order.expected_delivery_date as string) || "-"}
                           </div>
                           <div>
                             <span className="text-fg-subtle">Exchange:</span> {Number(detail.order.exchange_rate || 0).toFixed(0)}
@@ -497,6 +522,22 @@ function PurchaseOrdersPageInner() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
                   <Input value={draftExchangeRate} onChange={(e) => setDraftExchangeRate(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-medium text-fg-muted">Supplier Ref (optional)</label>
+                  <Input value={draftSupplierRef} onChange={(e) => setDraftSupplierRef(e.target.value)} placeholder="Vendor PO reference" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Expected Delivery (optional)</label>
+                  <Input
+                    value={draftExpectedDeliveryDate}
+                    onChange={(e) => setDraftExpectedDeliveryDate(e.target.value)}
+                    placeholder="YYYY-MM-DD"
+                    inputMode="numeric"
+                  />
                 </div>
               </div>
 

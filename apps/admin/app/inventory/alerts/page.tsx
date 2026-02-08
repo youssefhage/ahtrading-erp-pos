@@ -16,6 +16,8 @@ type ExpiryRow = {
   batch_id: string;
   batch_no: string | null;
   expiry_date: string | null;
+  status?: string | null;
+  hold_reason?: string | null;
   qty_on_hand: string | number;
 };
 
@@ -120,15 +122,16 @@ export default function InventoryAlertsPage() {
             </div>
             <div className="ui-table-wrap">
               <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Expiry</th>
-                    <th className="px-3 py-2">Item</th>
-                    <th className="px-3 py-2">Warehouse</th>
-                    <th className="px-3 py-2">Batch</th>
-                    <th className="px-3 py-2 text-right">Qty</th>
-                  </tr>
-                </thead>
+	                <thead className="ui-thead">
+	                  <tr>
+	                    <th className="px-3 py-2">Expiry</th>
+	                    <th className="px-3 py-2">Item</th>
+	                    <th className="px-3 py-2">Warehouse</th>
+	                    <th className="px-3 py-2">Batch</th>
+	                    <th className="px-3 py-2">Status</th>
+	                    <th className="px-3 py-2 text-right">Qty</th>
+	                  </tr>
+	                </thead>
                 <tbody>
                   {expiry.map((r) => {
                     const it = itemById.get(r.item_id);
@@ -145,21 +148,27 @@ export default function InventoryAlertsPage() {
                             <span className="font-mono text-xs">{r.item_id}</span>
                           )}
                         </td>
-                        <td className="px-3 py-2">{wh?.name || r.warehouse_id}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{r.batch_no || "-"}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">
-                          {Number(r.qty_on_hand || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                        </td>
-                      </tr>
+	                        <td className="px-3 py-2">{wh?.name || r.warehouse_id}</td>
+	                        <td className="px-3 py-2 font-mono text-xs">{r.batch_no || "-"}</td>
+	                        <td className="px-3 py-2 text-xs">
+	                          <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">
+	                            {(r.status as any) || "available"}
+	                          </span>
+	                          {r.hold_reason ? <span className="ml-2 text-[10px] text-fg-subtle">{r.hold_reason}</span> : null}
+	                        </td>
+	                        <td className="px-3 py-2 text-right font-mono text-xs">
+	                          {Number(r.qty_on_hand || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+	                        </td>
+	                      </tr>
                     );
                   })}
-                  {expiry.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No expiring batches found.
-                      </td>
-                    </tr>
-                  ) : null}
+	                  {expiry.length === 0 ? (
+	                    <tr>
+	                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
+	                        No expiring batches found.
+	                      </td>
+	                    </tr>
+	                  ) : null}
                 </tbody>
               </table>
             </div>

@@ -10,11 +10,13 @@ router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 class WarehouseIn(BaseModel):
     name: str
     location: Optional[str] = None
+    min_shelf_life_days_for_sale_default: int = 0
 
 
 class WarehouseUpdate(BaseModel):
     name: Optional[str] = None
     location: Optional[str] = None
+    min_shelf_life_days_for_sale_default: Optional[int] = None
 
 
 @router.get("", dependencies=[Depends(require_permission("config:read"))])
@@ -24,7 +26,7 @@ def list_warehouses(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, location
+                SELECT id, name, location, min_shelf_life_days_for_sale_default
                 FROM warehouses
                 WHERE company_id = %s
                 ORDER BY name
@@ -36,22 +38,26 @@ def list_warehouses(company_id: str = Depends(get_company_id)):
 
 @router.post("", dependencies=[Depends(require_permission("config:write"))])
 def create_warehouse(data: WarehouseIn, company_id: str = Depends(get_company_id)):
+    if data.min_shelf_life_days_for_sale_default < 0:
+        raise HTTPException(status_code=400, detail="min_shelf_life_days_for_sale_default must be >= 0")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO warehouses (id, company_id, name, location)
-                VALUES (gen_random_uuid(), %s, %s, %s)
+                INSERT INTO warehouses (id, company_id, name, location, min_shelf_life_days_for_sale_default)
+                VALUES (gen_random_uuid(), %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (company_id, data.name, data.location),
+                (company_id, data.name, data.location, int(data.min_shelf_life_days_for_sale_default or 0)),
             )
             return {"id": cur.fetchone()["id"]}
 
 
 @router.patch("/{warehouse_id}", dependencies=[Depends(require_permission("config:write"))])
 def update_warehouse(warehouse_id: str, data: WarehouseUpdate, company_id: str = Depends(get_company_id)):
+    if data.min_shelf_life_days_for_sale_default is not None and data.min_shelf_life_days_for_sale_default < 0:
+        raise HTTPException(status_code=400, detail="min_shelf_life_days_for_sale_default must be >= 0")
     fields = []
     params = []
     for k, v in data.model_dump(exclude_none=True).items():
@@ -74,4 +80,3 @@ def update_warehouse(warehouse_id: str, data: WarehouseUpdate, company_id: str =
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="warehouse not found")
             return {"ok": True}
-

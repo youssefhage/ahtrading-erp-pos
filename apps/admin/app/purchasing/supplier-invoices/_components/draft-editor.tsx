@@ -30,17 +30,18 @@ type InvoiceLineDraft = {
   goods_receipt_line_id?: string | null;
 };
 
-type InvoiceDetail = {
-  invoice: {
-    id: string;
-    status: string;
-    supplier_id: string | null;
-    invoice_no: string;
-    exchange_rate: string | number;
-    tax_code_id?: string | null;
-    goods_receipt_id?: string | null;
-    invoice_date: string;
-    due_date: string;
+  type InvoiceDetail = {
+    invoice: {
+      id: string;
+      status: string;
+      supplier_id: string | null;
+      invoice_no: string;
+      supplier_ref?: string | null;
+      exchange_rate: string | number;
+      tax_code_id?: string | null;
+      goods_receipt_id?: string | null;
+      invoice_date: string;
+      due_date: string;
   };
   lines: Array<{
     item_id: string;
@@ -75,6 +76,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
   const [supplierId, setSupplierId] = useState("");
   const [invoiceNo, setInvoiceNo] = useState("");
+  const [supplierRef, setSupplierRef] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(() => todayIso());
   const [dueDate, setDueDate] = useState("");
   const [exchangeRate, setExchangeRate] = useState("90000");
@@ -115,6 +117,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
         setSupplierId(det.invoice.supplier_id || "");
         setInvoiceNo(det.invoice.invoice_no || "");
+        setSupplierRef(String((det.invoice as any).supplier_ref || ""));
         setInvoiceDate(String(det.invoice.invoice_date || todayIso()).slice(0, 10));
         setDueDate(String(det.invoice.due_date || "").slice(0, 10));
         setExchangeRate(String(det.invoice.exchange_rate || 0));
@@ -134,6 +137,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       } else {
         setSupplierId("");
         setInvoiceNo("");
+        setSupplierRef("");
         setInvoiceDate(todayIso());
         setDueDate("");
         setExchangeRate("90000");
@@ -236,6 +240,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       const payload = {
         supplier_id: supplierId,
         invoice_no: invoiceNo || undefined,
+        supplier_ref: supplierRef.trim() || undefined,
         exchange_rate: ex,
         invoice_date: invoiceDate || undefined,
         due_date: dueDate || undefined,
@@ -311,8 +316,16 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Invoice No (optional)</label>
-                <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} placeholder="Vendor ref or leave blank" disabled={loading} />
+                <label className="text-xs font-medium text-fg-muted">Internal Doc No (optional)</label>
+                <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} placeholder="Auto if blank (recommended)" disabled={loading} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs font-medium text-fg-muted">Supplier Ref (optional)</label>
+                <Input value={supplierRef} onChange={(e) => setSupplierRef(e.target.value)} placeholder="Vendor invoice number / reference" disabled={loading} />
+                <p className="text-[11px] text-fg-subtle">When set, we enforce uniqueness per supplier (helps avoid duplicate postings).</p>
               </div>
             </div>
 

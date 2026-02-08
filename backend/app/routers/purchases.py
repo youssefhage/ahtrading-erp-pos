@@ -9,7 +9,7 @@ from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
 import json
 from ..journal_utils import auto_balance_journal
-from ..validation import DocStatus, PaymentMethod
+from ..validation import DocStatus, PaymentMethod, CurrencyCode
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
@@ -202,6 +202,29 @@ def _get_or_create_batch(cur, company_id: str, item_id: str, batch_no: Optional[
     return cur.fetchone()["id"]
 
 
+def _touch_batch_received_metadata(
+    cur,
+    company_id: str,
+    batch_id: Optional[str],
+    received_source_type: Optional[str],
+    received_source_id: Optional[str],
+    received_supplier_id: Optional[str],
+):
+    if not batch_id:
+        return
+    cur.execute(
+        """
+        UPDATE batches
+        SET received_at = COALESCE(received_at, now()),
+            received_source_type = COALESCE(received_source_type, %s),
+            received_source_id = COALESCE(received_source_id, %s::uuid),
+            received_supplier_id = COALESCE(received_supplier_id, %s::uuid)
+        WHERE company_id = %s AND id = %s
+        """,
+        (received_source_type, received_source_id, received_supplier_id, company_id, batch_id),
+    )
+
+
 def _enforce_item_tracking(cur, company_id: str, item_id: str, batch_no: Optional[str], expiry_date: Optional[date], doc_label: str):
     """
     Enforce batch/expiry capture for items flagged as tracked.
@@ -267,6 +290,7 @@ class PaymentBlock(BaseModel):
 class GoodsReceiptIn(BaseModel):
     device_id: str
     supplier_id: str
+    supplier_ref: Optional[str] = None
     exchange_rate: Decimal
     warehouse_id: str
     lines: List[PurchaseLine]
@@ -274,6 +298,7 @@ class GoodsReceiptIn(BaseModel):
 class GoodsReceiptDirectIn(BaseModel):
     supplier_id: str
     receipt_no: Optional[str] = None
+    supplier_ref: Optional[str] = None
     exchange_rate: Decimal
     warehouse_id: str
     lines: List[PurchaseLine]
@@ -282,6 +307,7 @@ class SupplierInvoiceIn(BaseModel):
     device_id: str
     supplier_id: str
     invoice_no: Optional[str] = None
+    supplier_ref: Optional[str] = None
     exchange_rate: Decimal
     lines: List[PurchaseLine]
     tax: Optional[TaxBlock] = None
@@ -290,6 +316,7 @@ class SupplierInvoiceIn(BaseModel):
 class SupplierInvoiceDirectIn(BaseModel):
     supplier_id: str
     invoice_no: Optional[str] = None
+    supplier_ref: Optional[str] = None
     exchange_rate: Decimal
     invoice_date: Optional[date] = None
     due_date: Optional[date] = None
@@ -310,6 +337,8 @@ class PurchaseOrderLine(BaseModel):
 class PurchaseOrderIn(BaseModel):
     supplier_id: str
     order_no: Optional[str] = None
+    supplier_ref: Optional[str] = None
+    expected_delivery_date: Optional[date] = None
     exchange_rate: Decimal
     lines: List[PurchaseOrderLine]
 
@@ -327,6 +356,8 @@ class PurchaseOrderDraftLineIn(BaseModel):
 class PurchaseOrderDraftIn(BaseModel):
     supplier_id: str
     order_no: Optional[str] = None
+    supplier_ref: Optional[str] = None
+    expected_delivery_date: Optional[date] = None
     exchange_rate: Decimal
     # Allow creating an empty draft (header-first); posting will require lines.
     lines: List[PurchaseOrderDraftLineIn] = []
@@ -335,6 +366,8 @@ class PurchaseOrderDraftIn(BaseModel):
 class PurchaseOrderDraftUpdateIn(BaseModel):
     supplier_id: Optional[str] = None
     order_no: Optional[str] = None
+    supplier_ref: Optional[str] = None
+    expected_delivery_date: Optional[date] = None
     exchange_rate: Optional[Decimal] = None
     lines: Optional[List[PurchaseOrderDraftLineIn]] = None
 
@@ -352,6 +385,7 @@ class GoodsReceiptDraftLineIn(BaseModel):
 class GoodsReceiptDraftIn(BaseModel):
     supplier_id: str
     receipt_no: Optional[str] = None
+    supplier_ref: Optional[str] = None
     exchange_rate: Decimal
     warehouse_id: str
     purchase_order_id: Optional[str] = None
@@ -362,6 +396,7 @@ class GoodsReceiptDraftIn(BaseModel):
 class GoodsReceiptDraftUpdateIn(BaseModel):
     supplier_id: Optional[str] = None
     receipt_no: Optional[str] = None
+    supplier_ref: Optional[str] = None
     exchange_rate: Optional[Decimal] = None
     warehouse_id: Optional[str] = None
     purchase_order_id: Optional[str] = None
@@ -391,6 +426,7 @@ class SupplierInvoiceDraftLineIn(BaseModel):
 class SupplierInvoiceDraftIn(BaseModel):
     supplier_id: str
     invoice_no: Optional[str] = None
+    supplier_ref: Optional[str] = None  # vendor invoice reference (optional)
     exchange_rate: Decimal
     invoice_date: Optional[date] = None
     due_date: Optional[date] = None
@@ -403,6 +439,7 @@ class SupplierInvoiceDraftIn(BaseModel):
 class SupplierInvoiceDraftUpdateIn(BaseModel):
     supplier_id: Optional[str] = None
     invoice_no: Optional[str] = None
+    supplier_ref: Optional[str] = None
     exchange_rate: Optional[Decimal] = None
     invoice_date: Optional[date] = None
     due_date: Optional[date] = None
@@ -418,6 +455,7 @@ class SupplierInvoicePostIn(BaseModel):
 
 class SupplierInvoiceDraftFromReceiptIn(BaseModel):
     invoice_no: Optional[str] = None
+    supplier_ref: Optional[str] = None
     invoice_date: Optional[date] = None
     due_date: Optional[date] = None
     tax_code_id: Optional[str] = None
@@ -430,6 +468,10 @@ class SupplierPaymentIn(BaseModel):
     amount_lbp: Decimal = Decimal("0")
     payment_date: Optional[date] = None
     bank_account_id: Optional[str] = None
+    reference: Optional[str] = None
+    auth_code: Optional[str] = None
+    provider: Optional[str] = None
+    settlement_currency: Optional[CurrencyCode] = None
 
 @router.get("/payments", dependencies=[Depends(require_permission("purchases:read"))])
 def list_supplier_payments(
@@ -480,9 +522,9 @@ def list_goods_receipts(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT r.id, r.receipt_no, r.supplier_id, r.warehouse_id,
+                SELECT r.id, r.receipt_no, r.supplier_id, r.supplier_ref, r.warehouse_id,
                        r.purchase_order_id, po.order_no AS purchase_order_no,
-                       r.status, r.total_usd, r.total_lbp, r.created_at
+                       r.status, r.total_usd, r.total_lbp, r.received_at, r.created_at
                 FROM goods_receipts r
                 LEFT JOIN purchase_orders po
                   ON po.company_id = r.company_id AND po.id = r.purchase_order_id
@@ -500,9 +542,9 @@ def get_goods_receipt(receipt_id: str, company_id: str = Depends(get_company_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT r.id, r.receipt_no, r.supplier_id, r.warehouse_id,
+                SELECT r.id, r.receipt_no, r.supplier_id, r.supplier_ref, r.warehouse_id,
                        r.purchase_order_id, po.order_no AS purchase_order_no,
-                       r.status, r.total_usd, r.total_lbp, r.exchange_rate, r.created_at
+                       r.status, r.total_usd, r.total_lbp, r.exchange_rate, r.received_at, r.created_at
                 FROM goods_receipts r
                 LEFT JOIN purchase_orders po
                   ON po.company_id = r.company_id AND po.id = r.purchase_order_id
@@ -586,15 +628,16 @@ def list_supplier_invoices(
                 base_sql += """
                   AND (
                     COALESCE(i.invoice_no, '') ILIKE %s
+                    OR COALESCE(i.supplier_ref, '') ILIKE %s
                     OR COALESCE(s.name, '') ILIKE %s
                     OR COALESCE(gr.receipt_no, '') ILIKE %s
                     OR i.id::text ILIKE %s
                   )
                 """
-                params.extend([needle, needle, needle, needle])
+                params.extend([needle, needle, needle, needle, needle])
 
             select_sql = f"""
-                SELECT i.id, i.invoice_no, i.supplier_id, s.name AS supplier_name,
+                SELECT i.id, i.invoice_no, i.supplier_ref, i.supplier_id, s.name AS supplier_name,
                        i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
                        i.status, i.total_usd, i.total_lbp, i.tax_code_id, i.invoice_date, i.due_date, i.created_at
                 {base_sql}
@@ -617,7 +660,7 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT i.id, i.invoice_no, i.supplier_id, s.name AS supplier_name,
+                SELECT i.id, i.invoice_no, i.supplier_ref, i.supplier_id, s.name AS supplier_name,
                        i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
                        i.status, i.total_usd, i.total_lbp, i.exchange_rate, i.tax_code_id, i.invoice_date, i.due_date, i.created_at
                 FROM supplier_invoices i
@@ -636,7 +679,7 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
                 """
                 SELECT l.id, l.goods_receipt_line_id, l.item_id, it.sku AS item_sku, it.name AS item_name,
                        l.qty, l.unit_cost_usd, l.unit_cost_lbp, l.line_total_usd, l.line_total_lbp,
-                       l.batch_id, b.batch_no, b.expiry_date
+                       l.batch_id, b.batch_no, b.expiry_date, b.status AS batch_status
                 FROM supplier_invoice_lines l
                 LEFT JOIN batches b ON b.id = l.batch_id
                 LEFT JOIN items it
@@ -649,7 +692,7 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
             lines = cur.fetchall()
             cur.execute(
                 """
-                SELECT id, method, amount_usd, amount_lbp, created_at
+                SELECT id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at, created_at
                 FROM supplier_payments
                 WHERE supplier_invoice_id = %s
                 ORDER BY created_at ASC
@@ -677,7 +720,9 @@ def list_purchase_orders(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, order_no, supplier_id, status, total_usd, total_lbp, created_at
+                SELECT id, order_no, supplier_id, supplier_ref, expected_delivery_date,
+                       requested_by_user_id, requested_at, approved_by_user_id, approved_at,
+                       status, total_usd, total_lbp, created_at
                 FROM purchase_orders
                 WHERE company_id = %s
                 ORDER BY created_at DESC
@@ -693,7 +738,9 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, order_no, supplier_id, status, total_usd, total_lbp, exchange_rate, created_at
+                SELECT id, order_no, supplier_id, supplier_ref, expected_delivery_date,
+                       requested_by_user_id, requested_at, approved_by_user_id, approved_at,
+                       status, total_usd, total_lbp, exchange_rate, created_at
                 FROM purchase_orders
                 WHERE company_id = %s AND id = %s
                 """,
@@ -715,7 +762,7 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
 
 
 @router.post("/orders", dependencies=[Depends(require_permission("purchases:write"))])
-def create_purchase_order(data: PurchaseOrderIn, company_id: str = Depends(get_company_id)):
+def create_purchase_order(data: PurchaseOrderIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     total_usd = sum([l.line_total_usd for l in data.lines])
     total_lbp = sum([l.line_total_lbp for l in data.lines])
     with get_conn() as conn:
@@ -728,12 +775,27 @@ def create_purchase_order(data: PurchaseOrderIn, company_id: str = Depends(get_c
             cur.execute(
                 """
                 INSERT INTO purchase_orders
-                  (id, company_id, order_no, supplier_id, status, total_usd, total_lbp, exchange_rate)
+                  (id, company_id, order_no, supplier_id, status, total_usd, total_lbp, exchange_rate,
+                   supplier_ref, expected_delivery_date,
+                   requested_by_user_id, requested_at, approved_by_user_id, approved_at)
                 VALUES
-                  (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s)
+                  (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s,
+                   %s, %s,
+                   %s, now(), %s, now())
                 RETURNING id
                 """,
-                (company_id, order_no, data.supplier_id, total_usd, total_lbp, data.exchange_rate),
+                (
+                    company_id,
+                    order_no,
+                    data.supplier_id,
+                    total_usd,
+                    total_lbp,
+                    data.exchange_rate,
+                    (data.supplier_ref or "").strip() or None,
+                    data.expected_delivery_date,
+                    user["user_id"],
+                    user["user_id"],
+                ),
             )
             po_id = cur.fetchone()["id"]
             for l in data.lines:
@@ -801,12 +863,26 @@ def create_purchase_order_draft(data: PurchaseOrderDraftIn, company_id: str = De
                 cur.execute(
                     """
                     INSERT INTO purchase_orders
-                      (id, company_id, order_no, supplier_id, status, total_usd, total_lbp, exchange_rate)
+                      (id, company_id, order_no, supplier_id, status, total_usd, total_lbp, exchange_rate,
+                       supplier_ref, expected_delivery_date,
+                       requested_by_user_id, requested_at)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, 'draft', %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, 'draft', %s, %s, %s,
+                       %s, %s,
+                       %s, now())
                     RETURNING id
                     """,
-                    (company_id, (data.order_no or None), data.supplier_id, base_usd, base_lbp, data.exchange_rate),
+                    (
+                        company_id,
+                        (data.order_no or None),
+                        data.supplier_id,
+                        base_usd,
+                        base_lbp,
+                        data.exchange_rate,
+                        (data.supplier_ref or "").strip() or None,
+                        data.expected_delivery_date,
+                        user["user_id"],
+                    ),
                 )
                 order_id = cur.fetchone()["id"]
 
@@ -853,7 +929,7 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, status, supplier_id, exchange_rate
+                    SELECT id, status, supplier_id, supplier_ref, expected_delivery_date, exchange_rate
                     FROM purchase_orders
                     WHERE company_id = %s AND id = %s
                     """,
@@ -866,6 +942,10 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
                     raise HTTPException(status_code=400, detail="only draft orders can be edited")
 
                 supplier_id = patch.get("supplier_id") or row["supplier_id"]
+                supplier_ref = patch.get("supplier_ref") if patch.get("supplier_ref") is not None else row.get("supplier_ref")
+                if isinstance(supplier_ref, str):
+                    supplier_ref = supplier_ref.strip() or None
+                expected_delivery_date = patch.get("expected_delivery_date") if patch.get("expected_delivery_date") is not None else row.get("expected_delivery_date")
                 exchange_rate = patch.get("exchange_rate") if patch.get("exchange_rate") is not None else row["exchange_rate"]
 
                 if "lines" in patch:
@@ -912,12 +992,14 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
                     UPDATE purchase_orders
                     SET supplier_id=%s,
                         order_no=COALESCE(%s, order_no),
+                        supplier_ref=%s,
+                        expected_delivery_date=%s,
                         exchange_rate=%s,
                         total_usd=%s,
                         total_lbp=%s
                     WHERE company_id = %s AND id = %s
                     """,
-                    (supplier_id, patch.get("order_no"), exchange_rate, base_usd, base_lbp, company_id, order_id),
+                    (supplier_id, patch.get("order_no"), supplier_ref, expected_delivery_date, exchange_rate, base_usd, base_lbp, company_id, order_id),
                 )
 
                 cur.execute(
@@ -971,10 +1053,15 @@ def post_purchase_order(order_id: str, company_id: str = Depends(get_company_id)
                 cur.execute(
                     """
                     UPDATE purchase_orders
-                    SET status='posted', order_no=%s
+                    SET status='posted',
+                        order_no=%s,
+                        requested_by_user_id = COALESCE(requested_by_user_id, %s),
+                        requested_at = COALESCE(requested_at, now()),
+                        approved_by_user_id = COALESCE(approved_by_user_id, %s),
+                        approved_at = COALESCE(approved_at, now())
                     WHERE company_id = %s AND id = %s
                     """,
-                    (order_no, company_id, order_id),
+                    (order_no, user["user_id"], user["user_id"], company_id, order_id),
                 )
 
                 cur.execute(
@@ -1045,7 +1132,7 @@ def create_goods_receipt_draft_from_order(
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, supplier_id, exchange_rate, status, order_no
+                    SELECT id, supplier_id, supplier_ref, exchange_rate, status, order_no
                     FROM purchase_orders
                     WHERE company_id = %s AND id = %s
                     """,
@@ -1127,16 +1214,17 @@ def create_goods_receipt_draft_from_order(
                 cur.execute(
                     """
                     INSERT INTO goods_receipts
-                      (id, company_id, receipt_no, supplier_id, warehouse_id, purchase_order_id,
+                      (id, company_id, receipt_no, supplier_id, supplier_ref, warehouse_id, purchase_order_id,
                        status, total_usd, total_lbp, exchange_rate, source_event_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         company_id,
                         (data.receipt_no or None),
                         order["supplier_id"],
+                        (order.get("supplier_ref") or None),
                         data.warehouse_id,
                         order_id,
                         total_usd,
@@ -1225,21 +1313,24 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                 cur.execute(
                     """
                     INSERT INTO goods_receipts
-                      (id, company_id, receipt_no, supplier_id, warehouse_id, status,
-                       total_usd, total_lbp, exchange_rate, source_event_id)
+                      (id, company_id, receipt_no, supplier_id, supplier_ref, warehouse_id, status,
+                       total_usd, total_lbp, exchange_rate, source_event_id,
+                       received_by_user_id, received_at)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, 'posted', %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'posted', %s, %s, %s, %s, %s, now())
                     RETURNING id
                     """,
                     (
                         company_id,
                         receipt_no,
                         data.supplier_id,
+                        (data.supplier_ref or "").strip() or None,
                         data.warehouse_id,
                         total_usd,
                         total_lbp,
                         data.exchange_rate,
                         None,
+                        user["user_id"],
                     ),
                 )
                 receipt_id = cur.fetchone()["id"]
@@ -1247,15 +1338,18 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                 for idx, l in enumerate(data.lines):
                     exp = _enforce_item_tracking(cur, company_id, l.item_id, l.batch_no, l.expiry_date, f"line {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, exp)
+                    _touch_batch_received_metadata(cur, company_id, batch_id, "goods_receipt", str(receipt_id), str(data.supplier_id))
+                    line_id = str(uuid.uuid4())
                     cur.execute(
                         """
                         INSERT INTO goods_receipt_lines
                           (id, company_id, goods_receipt_id, item_id, batch_id, qty,
                            unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                          (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
+                            line_id,
                             company_id,
                             receipt_id,
                             l.item_id,
@@ -1271,9 +1365,11 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                         """
                         INSERT INTO stock_moves
                           (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
-                           source_type, source_id)
+                           source_type, source_id,
+                           created_by_user_id, reason, source_line_type, source_line_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s,
+                           %s, %s, %s, %s)
                         """,
                         (
                             company_id,
@@ -1284,6 +1380,10 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                             l.unit_cost_usd,
                             l.unit_cost_lbp,
                             receipt_id,
+                            user["user_id"],
+                            f"Goods receipt {receipt_no}",
+                            "goods_receipt_line",
+                            line_id,
                         ),
                     )
 
@@ -1349,16 +1449,17 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                 cur.execute(
                     """
                     INSERT INTO goods_receipts
-                      (id, company_id, receipt_no, supplier_id, warehouse_id, purchase_order_id, status,
+                      (id, company_id, receipt_no, supplier_id, supplier_ref, warehouse_id, purchase_order_id, status,
                        total_usd, total_lbp, exchange_rate, source_event_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         company_id,
                         (data.receipt_no or None),
                         data.supplier_id,
+                        (data.supplier_ref or "").strip() or None,
                         data.warehouse_id,
                         data.purchase_order_id,
                         base_usd,
@@ -1417,7 +1518,7 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, status, supplier_id, warehouse_id, exchange_rate, purchase_order_id
+                    SELECT id, status, supplier_id, supplier_ref, warehouse_id, exchange_rate, purchase_order_id
                     FROM goods_receipts
                     WHERE company_id = %s AND id = %s
                     """,
@@ -1430,6 +1531,9 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                     raise HTTPException(status_code=400, detail="only draft receipts can be edited")
 
                 supplier_id = patch.get("supplier_id") or row["supplier_id"]
+                supplier_ref = patch.get("supplier_ref") if patch.get("supplier_ref") is not None else row.get("supplier_ref")
+                if isinstance(supplier_ref, str):
+                    supplier_ref = supplier_ref.strip() or None
                 warehouse_id = patch.get("warehouse_id") or row["warehouse_id"]
                 purchase_order_id = patch.get("purchase_order_id") or row.get("purchase_order_id")
                 exchange_rate = patch.get("exchange_rate") if patch.get("exchange_rate") is not None else row["exchange_rate"]
@@ -1482,6 +1586,7 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                     """
                     UPDATE goods_receipts
                     SET supplier_id=%s,
+                        supplier_ref=%s,
                         warehouse_id=%s,
                         purchase_order_id=COALESCE(%s, purchase_order_id),
                         receipt_no=COALESCE(%s, receipt_no),
@@ -1492,6 +1597,7 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                     """,
                     (
                         supplier_id,
+                        supplier_ref,
                         warehouse_id,
                         purchase_order_id,
                         patch.get("receipt_no"),
@@ -1522,7 +1628,7 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, status, receipt_no, supplier_id, warehouse_id, exchange_rate
+                    SELECT id, status, receipt_no, supplier_id, supplier_ref, warehouse_id, exchange_rate
                     FROM goods_receipts
                     WHERE company_id = %s AND id = %s
                     FOR UPDATE
@@ -1592,13 +1698,16 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                 total_lbp = sum([Decimal(str(l["line_total_lbp"])) for l in lines])
 
                 for l in lines:
+                    _touch_batch_received_metadata(cur, company_id, l.get("batch_id"), "goods_receipt", str(receipt_id), str(rec.get("supplier_id") or "") or None)
                     cur.execute(
                         """
                         INSERT INTO stock_moves
                           (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
-                           source_type, source_id)
+                           source_type, source_id,
+                           created_by_user_id, reason, source_line_type, source_line_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'goods_receipt', %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'goods_receipt', %s,
+                           %s, %s, %s, %s)
                         """,
                         (
                             company_id,
@@ -1610,6 +1719,10 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                             l["unit_cost_lbp"],
                             posting_date,
                             receipt_id,
+                            user["user_id"],
+                            f"Goods receipt {receipt_no}",
+                            "goods_receipt_line",
+                            l["id"],
                         ),
                     )
 
@@ -1653,10 +1766,15 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                 cur.execute(
                     """
                     UPDATE goods_receipts
-                    SET status='posted', receipt_no=%s, total_usd=%s, total_lbp=%s
+                    SET status='posted',
+                        receipt_no=%s,
+                        total_usd=%s,
+                        total_lbp=%s,
+                        received_by_user_id = COALESCE(received_by_user_id, %s),
+                        received_at = COALESCE(received_at, now())
                     WHERE company_id = %s AND id = %s
                     """,
-                    (receipt_no, total_usd, total_lbp, company_id, receipt_id),
+                    (receipt_no, total_usd, total_lbp, user["user_id"], company_id, receipt_id),
                 )
 
                 cur.execute(
@@ -1753,9 +1871,9 @@ def cancel_goods_receipt(receipt_id: str, data: GoodsReceiptCancelIn, company_id
                             """
                             INSERT INTO stock_moves
                               (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
-                               source_type, source_id)
+                               source_type, source_id, created_by_user_id, reason)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, 0, %s, %s, %s, %s, 'goods_receipt_cancel', %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, 0, %s, %s, %s, %s, 'goods_receipt_cancel', %s, %s, %s)
                             """,
                             (
                                 company_id,
@@ -1767,6 +1885,8 @@ def cancel_goods_receipt(receipt_id: str, data: GoodsReceiptCancelIn, company_id
                                 m["unit_cost_lbp"],
                                 cancel_date,
                                 receipt_id,
+                                user["user_id"],
+                                (reason or f"Void goods receipt {rec.get('receipt_no') or str(receipt_id)[:8]}").strip() if reason is not None else None,
                             ),
                         )
 
@@ -1987,16 +2107,17 @@ def create_supplier_invoice_draft_from_receipt(
                 cur.execute(
                     """
                     INSERT INTO supplier_invoices
-                      (id, company_id, invoice_no, supplier_id, goods_receipt_id, status,
+                      (id, company_id, invoice_no, supplier_ref, supplier_id, goods_receipt_id, status,
                        total_usd, total_lbp, exchange_rate, source_event_id,
                        invoice_date, due_date, tax_code_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         company_id,
                         invoice_no,
+                        ((data.supplier_ref or "").strip() or None),
                         rec["supplier_id"],
                         receipt_id,
                         total_usd,
@@ -2099,15 +2220,16 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                 cur.execute(
                     """
                     INSERT INTO supplier_invoices
-                      (id, company_id, invoice_no, supplier_id, goods_receipt_id, status, total_usd, total_lbp, exchange_rate, source_event_id,
+                      (id, company_id, invoice_no, supplier_ref, supplier_id, goods_receipt_id, status, total_usd, total_lbp, exchange_rate, source_event_id,
                        invoice_date, due_date, tax_code_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
                         company_id,
                         invoice_no,
+                        ((data.supplier_ref or "").strip() or None),
                         data.supplier_id,
                         data.goods_receipt_id,
                         total_usd,
@@ -2124,6 +2246,7 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                 for idx, ln in enumerate(normalized or []):
                     exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
+                    _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(data.supplier_id))
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
@@ -2169,7 +2292,7 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, status, supplier_id, invoice_no, exchange_rate, invoice_date, due_date, tax_code_id, goods_receipt_id
+                    SELECT id, status, supplier_id, invoice_no, supplier_ref, exchange_rate, invoice_date, due_date, tax_code_id, goods_receipt_id
                     FROM supplier_invoices
                     WHERE company_id = %s AND id = %s
                     """,
@@ -2195,6 +2318,8 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                 due_date = patch.get('due_date') or inv['due_date']
                 tax_code_id = patch.get('tax_code_id') if 'tax_code_id' in patch else inv.get('tax_code_id')
                 goods_receipt_id = patch.get("goods_receipt_id") if "goods_receipt_id" in patch else inv.get("goods_receipt_id")
+                supplier_ref = (patch.get("supplier_ref") if "supplier_ref" in patch else inv.get("supplier_ref"))
+                supplier_ref = (supplier_ref or "").strip() or None
 
                 if 'lines' in patch:
                     normalized, base_usd, base_lbp = _compute_costed_lines(data.lines or [], exchange_rate)
@@ -2202,6 +2327,7 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                     for idx, ln in enumerate(normalized or []):
                         exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
                         batch_id = _get_or_create_batch(cur, company_id, ln['item_id'], ln.get('batch_no'), exp)
+                        _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(supplier_id or "") or None)
                         cur.execute(
                             """
                             INSERT INTO supplier_invoice_lines
@@ -2255,6 +2381,7 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                     UPDATE supplier_invoices
                     SET supplier_id=%s,
                         invoice_no=%s,
+                        supplier_ref=%s,
                         exchange_rate=%s,
                         invoice_date=%s,
                         due_date=%s,
@@ -2264,7 +2391,7 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                         total_lbp=%s
                     WHERE company_id=%s AND id=%s
                     """,
-                    (supplier_id, invoice_no, exchange_rate, inv_date, due_date, tax_code_id, goods_receipt_id, total_usd, total_lbp, company_id, invoice_id),
+                    (supplier_id, invoice_no, supplier_ref, exchange_rate, inv_date, due_date, tax_code_id, goods_receipt_id, total_usd, total_lbp, company_id, invoice_id),
                 )
 
                 cur.execute(
@@ -2579,8 +2706,8 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                         continue
                     cur.execute(
                         """
-                        INSERT INTO supplier_payments (id, supplier_invoice_id, method, amount_usd, amount_lbp)
-                        VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                        INSERT INTO supplier_payments (id, supplier_invoice_id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, NULL, NULL, NULL, NULL, now())
                         RETURNING id
                         """,
                         (invoice_id, method, amount_usd, amount_lbp),
@@ -2864,19 +2991,32 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                 cur.execute(
                     """
                     INSERT INTO supplier_invoices
-                      (id, company_id, invoice_no, supplier_id, status, total_usd, total_lbp, exchange_rate, source_event_id,
+                      (id, company_id, invoice_no, supplier_ref, supplier_id, status, total_usd, total_lbp, exchange_rate, source_event_id,
                        invoice_date, due_date, tax_code_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, invoice_no, data.supplier_id, total_usd, total_lbp, exchange_rate, None, inv_date, due_date, (data.tax.tax_code_id if data.tax else None)),
+                    (
+                        company_id,
+                        invoice_no,
+                        ((data.supplier_ref or "").strip() or None),
+                        data.supplier_id,
+                        total_usd,
+                        total_lbp,
+                        exchange_rate,
+                        None,
+                        inv_date,
+                        due_date,
+                        (data.tax.tax_code_id if data.tax else None),
+                    ),
                 )
                 invoice_id = cur.fetchone()["id"]
 
                 for idx, l in enumerate(data.lines):
                     exp = _enforce_item_tracking(cur, company_id, l.item_id, l.batch_no, l.expiry_date, f"line {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, exp)
+                    _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(data.supplier_id))
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
@@ -2982,8 +3122,8 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                         continue
                     cur.execute(
                         """
-                        INSERT INTO supplier_payments (id, supplier_invoice_id, method, amount_usd, amount_lbp)
-                        VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                        INSERT INTO supplier_payments (id, supplier_invoice_id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, NULL, NULL, NULL, NULL, now())
                         RETURNING id
                         """,
                         (invoice_id, method, amount_usd, amount_lbp),
@@ -3082,11 +3222,20 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
 
                 cur.execute(
                     """
-                    INSERT INTO supplier_payments (id, supplier_invoice_id, method, amount_usd, amount_lbp)
-                    VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                    INSERT INTO supplier_payments (id, supplier_invoice_id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, now())
                     RETURNING id
                     """,
-                    (data.supplier_invoice_id, method, data.amount_usd, data.amount_lbp),
+                    (
+                        data.supplier_invoice_id,
+                        method,
+                        data.amount_usd,
+                        data.amount_lbp,
+                        (data.reference or None),
+                        (data.auth_code or None),
+                        (data.provider or None),
+                        (data.settlement_currency or None),
+                    ),
                 )
                 payment_id = cur.fetchone()["id"]
 
@@ -3144,9 +3293,11 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                         """
                         INSERT INTO bank_transactions
                           (id, company_id, bank_account_id, txn_date, direction, amount_usd, amount_lbp,
-                           description, reference, counterparty, matched_journal_id, matched_at)
+                           description, reference, counterparty, matched_journal_id, matched_at,
+                           source_type, source_id, imported_by_user_id, imported_at)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, 'outflow', %s, %s, %s, %s, %s, %s, now())
+                          (gen_random_uuid(), %s, %s, %s, 'outflow', %s, %s, %s, %s, %s, %s, now(),
+                           'supplier_payment', %s, %s, now())
                         """,
                         (
                             company_id,
@@ -3158,6 +3309,8 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                             None,
                             None,
                             journal_id,
+                            payment_id,
+                            user["user_id"],
                         ),
                     )
 

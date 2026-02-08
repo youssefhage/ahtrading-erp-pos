@@ -82,6 +82,15 @@ jobs:
           docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='gl_journals' AND column_name='exchange_rate' LIMIT 1;"
           docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM pg_indexes WHERE indexname='idx_stock_moves_company_item_wh_move_date' LIMIT 1;"
           docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.tables WHERE table_name='worker_heartbeats' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='batches' AND column_name='status' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='supplier_invoices' AND column_name='supplier_ref' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.tables WHERE table_name='bank_statement_import_batches' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='sales_invoices' AND column_name='branch_id' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='sales_invoices' AND column_name='receipt_seq' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='warehouses' AND column_name='min_shelf_life_days_for_sale_default' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='items' AND column_name='allow_negative_stock' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='purchase_orders' AND column_name='expected_delivery_date' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='goods_receipts' AND column_name='received_at' LIMIT 1;"
       - name: Run Playwright tests
         working-directory: apps/admin
         env:

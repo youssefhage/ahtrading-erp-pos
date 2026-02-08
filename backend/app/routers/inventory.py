@@ -197,9 +197,9 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                     """
                     INSERT INTO stock_moves
                       (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
-                       source_type, source_id)
+                       source_type, source_id, created_by_user_id, reason)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_adjustment', NULL)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_adjustment', NULL, %s, %s)
                     RETURNING id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp
                     """,
                     (
@@ -212,6 +212,8 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                         unit_cost_usd,
                         unit_cost_lbp,
                         date.today(),
+                        user["user_id"],
+                        (data.reason or "Inventory adjustment").strip() if data.reason is not None else None,
                     ),
                 )
                 move = cur.fetchone()
@@ -357,14 +359,25 @@ def expiry_writeoff(data: ExpiryWriteoffIn, company_id: str = Depends(get_compan
                     INSERT INTO stock_moves
                       (id, company_id, item_id, warehouse_id, batch_id,
                        qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
-                       source_type, source_id)
+                       source_type, source_id, created_by_user_id, reason)
                     VALUES
                       (gen_random_uuid(), %s, %s, %s, %s,
                        0, %s, %s, %s, %s,
-                       'expiry_writeoff', NULL)
+                       'expiry_writeoff', NULL, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, data.item_id, data.warehouse_id, batch_id, data.qty_out, unit_cost_usd, unit_cost_lbp, date.today()),
+                    (
+                        company_id,
+                        data.item_id,
+                        data.warehouse_id,
+                        batch_id,
+                        data.qty_out,
+                        unit_cost_usd,
+                        unit_cost_lbp,
+                        date.today(),
+                        user["user_id"],
+                        (data.reason or "Expiry write-off").strip() if data.reason is not None else None,
+                    ),
                 )
                 move_id = cur.fetchone()["id"]
 
@@ -551,13 +564,25 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
                         INSERT INTO stock_moves
                           (id, company_id, item_id, warehouse_id, batch_id,
                            qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
-                           source_type, source_id)
+                           source_type, source_id, created_by_user_id, reason)
                         VALUES
                           (gen_random_uuid(), %s, %s, %s, %s,
                            %s, 0, %s, %s, %s,
-                           'opening_stock', %s)
+                           'opening_stock', %s, %s, %s)
                         """,
-                        (company_id, item_id, data.warehouse_id, batch_id, qty, unit_usd, unit_lbp, posting_date, import_id),
+                        (
+                            company_id,
+                            item_id,
+                            data.warehouse_id,
+                            batch_id,
+                            qty,
+                            unit_usd,
+                            unit_lbp,
+                            posting_date,
+                            import_id,
+                            user["user_id"],
+                            "Opening stock import",
+                        ),
                     )
 
                     total_usd += qty * unit_usd
@@ -626,6 +651,222 @@ class StockTransferIn(BaseModel):
     reason: Optional[str] = None
 
 
+class StockMoveReasonIn(BaseModel):
+    code: str
+    name: str
+    is_active: bool = True
+
+
+class StockMoveReasonUpdate(BaseModel):
+    code: Optional[str] = None
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.get("/stock-move-reasons", dependencies=[Depends(require_permission("inventory:read"))])
+def list_stock_move_reasons(company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, code, name, is_active, created_at, updated_at
+                FROM stock_move_reasons
+                WHERE company_id = %s
+                ORDER BY is_active DESC, code ASC
+                """,
+                (company_id,),
+            )
+            return {"reasons": cur.fetchall()}
+
+
+@router.post("/stock-move-reasons", dependencies=[Depends(require_permission("inventory:write"))])
+def create_stock_move_reason(data: StockMoveReasonIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    code = (data.code or "").strip()
+    name = (data.name or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="code is required")
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO stock_move_reasons (id, company_id, code, name, is_active)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                    ON CONFLICT (company_id, code) DO UPDATE
+                      SET name = EXCLUDED.name,
+                          is_active = EXCLUDED.is_active,
+                          updated_at = now()
+                    RETURNING id
+                    """,
+                    (company_id, code, name, data.is_active),
+                )
+                rid = cur.fetchone()["id"]
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'stock_move_reason_upsert', 'stock_move_reason', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], rid, json.dumps(data.model_dump())),
+                )
+                return {"id": rid}
+
+
+@router.patch("/stock-move-reasons/{reason_id}", dependencies=[Depends(require_permission("inventory:write"))])
+def update_stock_move_reason(reason_id: str, data: StockMoveReasonUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    patch = data.model_dump(exclude_none=True)
+    if not patch:
+        return {"ok": True}
+    if "code" in patch:
+        patch["code"] = (patch["code"] or "").strip()
+        if not patch["code"]:
+            raise HTTPException(status_code=400, detail="code cannot be empty")
+    if "name" in patch:
+        patch["name"] = (patch["name"] or "").strip()
+        if not patch["name"]:
+            raise HTTPException(status_code=400, detail="name cannot be empty")
+
+    fields = []
+    params = []
+    for k, v in patch.items():
+        fields.append(f"{k} = %s")
+        params.append(v)
+    params.extend([company_id, reason_id])
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    UPDATE stock_move_reasons
+                    SET {', '.join(fields)}, updated_at = now()
+                    WHERE company_id = %s AND id = %s
+                    RETURNING id
+                    """,
+                    params,
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="reason not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'stock_move_reason_update', 'stock_move_reason', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], reason_id, json.dumps(patch)),
+                )
+                return {"ok": True}
+
+
+class BatchUpdateIn(BaseModel):
+    status: Optional[str] = None  # available|quarantine|expired
+    hold_reason: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.get("/batches", dependencies=[Depends(require_permission("inventory:read"))])
+def list_batches(
+    item_id: Optional[str] = None,
+    status: Optional[str] = None,
+    exp_from: Optional[date] = None,
+    exp_to: Optional[date] = None,
+    limit: int = 500,
+    company_id: str = Depends(get_company_id),
+):
+    if limit <= 0 or limit > 2000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    if status and status not in {"available", "quarantine", "expired"}:
+        raise HTTPException(status_code=400, detail="invalid status")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            sql = """
+                SELECT b.id, b.item_id, i.sku AS item_sku, i.name AS item_name,
+                       b.batch_no, b.expiry_date, b.status, b.hold_reason, b.notes,
+                       b.received_at, b.received_source_type, b.received_source_id,
+                       b.received_supplier_id, s.name AS received_supplier_name,
+                       b.created_at, b.updated_at
+                FROM batches b
+                JOIN items i ON i.id = b.item_id
+                LEFT JOIN suppliers s ON s.id = b.received_supplier_id
+                WHERE b.company_id = %s
+            """
+            params: list = [company_id]
+            if item_id:
+                sql += " AND b.item_id = %s"
+                params.append(item_id)
+            if status:
+                sql += " AND b.status = %s"
+                params.append(status)
+            if exp_from:
+                sql += " AND b.expiry_date >= %s"
+                params.append(exp_from)
+            if exp_to:
+                sql += " AND b.expiry_date <= %s"
+                params.append(exp_to)
+            sql += " ORDER BY b.expiry_date NULLS LAST, b.created_at DESC LIMIT %s"
+            params.append(limit)
+            cur.execute(sql, params)
+            return {"batches": cur.fetchall()}
+
+
+@router.patch("/batches/{batch_id}", dependencies=[Depends(require_permission("inventory:write"))])
+def update_batch(batch_id: str, data: BatchUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    patch = data.model_dump(exclude_none=True)
+    if not patch:
+        return {"ok": True}
+    if "status" in patch:
+        st = (patch["status"] or "").strip().lower()
+        if st not in {"available", "quarantine", "expired"}:
+            raise HTTPException(status_code=400, detail="invalid status")
+        patch["status"] = st
+        if st == "quarantine" and not (patch.get("hold_reason") or data.hold_reason):
+            raise HTTPException(status_code=400, detail="hold_reason is required when status=quarantine")
+        if st != "quarantine":
+            # Clear hold reason unless explicitly set.
+            patch["hold_reason"] = patch.get("hold_reason") if "hold_reason" in patch else None
+    if "hold_reason" in patch:
+        patch["hold_reason"] = (patch["hold_reason"] or "").strip() or None
+    if "notes" in patch:
+        patch["notes"] = (patch["notes"] or "").strip() or None
+
+    fields = []
+    params = []
+    for k, v in patch.items():
+        fields.append(f"{k} = %s")
+        params.append(v)
+    params.extend([company_id, batch_id])
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    UPDATE batches
+                    SET {', '.join(fields)}
+                    WHERE company_id = %s AND id = %s
+                    RETURNING id, status
+                    """,
+                    params,
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="batch not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'batch_update', 'batch', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], batch_id, json.dumps(patch)),
+                )
+                return {"ok": True, "status": row["status"]}
+
+
 @router.post("/transfer", dependencies=[Depends(require_permission("inventory:write"))])
 def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     if data.qty <= 0:
@@ -672,6 +913,8 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
                 transfer_date = date.today()
                 min_days = int(pol.get("min_shelf_life_days_for_sale") or 0)
                 min_exp = (transfer_date + timedelta(days=min_days)) if min_days > 0 else None
+                if bool(pol.get("track_expiry")) and not min_exp:
+                    min_exp = transfer_date
 
                 allocations = pos_processor.allocate_fefo_batches(
                     cur,
@@ -692,12 +935,23 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
                         """
                         INSERT INTO stock_moves
                           (id, company_id, item_id, warehouse_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
-                           source_type, source_id)
+                           source_type, source_id, created_by_user_id, reason)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL, %s, %s)
                         RETURNING id
                         """,
-                        (company_id, data.item_id, data.from_warehouse_id, batch_id, q, unit_cost_usd, unit_cost_lbp, transfer_date),
+                        (
+                            company_id,
+                            data.item_id,
+                            data.from_warehouse_id,
+                            batch_id,
+                            q,
+                            unit_cost_usd,
+                            unit_cost_lbp,
+                            transfer_date,
+                            user["user_id"],
+                            (data.reason or "Inventory transfer").strip() if data.reason is not None else None,
+                        ),
                     )
                     out_id = out_id or cur.fetchone()["id"]
 
@@ -705,12 +959,23 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
                         """
                         INSERT INTO stock_moves
                           (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
-                           source_type, source_id)
+                           source_type, source_id, created_by_user_id, reason)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'inventory_transfer', NULL, %s, %s)
                         RETURNING id
                         """,
-                        (company_id, data.item_id, data.to_warehouse_id, batch_id, q, unit_cost_usd, unit_cost_lbp, transfer_date),
+                        (
+                            company_id,
+                            data.item_id,
+                            data.to_warehouse_id,
+                            batch_id,
+                            q,
+                            unit_cost_usd,
+                            unit_cost_lbp,
+                            transfer_date,
+                            user["user_id"],
+                            (data.reason or "Inventory transfer").strip() if data.reason is not None else None,
+                        ),
                     )
                     in_id = in_id or cur.fetchone()["id"]
 
@@ -739,6 +1004,9 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
 class CycleCountLine(BaseModel):
     item_id: str
     counted_qty: Decimal
+    batch_id: Optional[str] = None
+    batch_no: Optional[str] = None
+    expiry_date: Optional[date] = None
 
 
 class CycleCountIn(BaseModel):
@@ -777,7 +1045,6 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                 inv_adj = defaults.get("INV_ADJ")
 
                 for line in data.lines:
-                    # Cycle count v1 does not support per-batch counts; block tracked items to avoid corrupting batch on-hand.
                     cur.execute(
                         """
                         SELECT track_batches, track_expiry
@@ -787,16 +1054,50 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                         (company_id, line.item_id),
                     )
                     it = cur.fetchone() or {}
-                    if bool(it.get("track_batches")) or bool(it.get("track_expiry")):
-                        raise HTTPException(status_code=400, detail="cycle count does not support batch/expiry-tracked items yet; use stock adjustment per batch")
+                    tracked = bool(it.get("track_batches")) or bool(it.get("track_expiry"))
+
+                    batch_id = (line.batch_id or "").strip() or None
+                    batch_no = (line.batch_no or "").strip() or None
+                    exp = line.expiry_date
+                    if tracked and not (batch_id or batch_no or exp):
+                        raise HTTPException(status_code=400, detail="tracked items require batch_id (or batch_no/expiry_date) for cycle count")
+                    if batch_id:
+                        cur.execute(
+                            """
+                            SELECT id
+                            FROM batches
+                            WHERE company_id=%s AND id=%s AND item_id=%s
+                            """,
+                            (company_id, batch_id, line.item_id),
+                        )
+                        if not cur.fetchone():
+                            raise HTTPException(status_code=400, detail="invalid batch_id for item")
+                    elif batch_no or exp:
+                        cur.execute(
+                            """
+                            SELECT id
+                            FROM batches
+                            WHERE company_id=%s AND item_id=%s
+                              AND batch_no IS NOT DISTINCT FROM %s
+                              AND expiry_date IS NOT DISTINCT FROM %s
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                            """,
+                            (company_id, line.item_id, batch_no, exp),
+                        )
+                        b = cur.fetchone()
+                        if not b:
+                            raise HTTPException(status_code=400, detail="batch not found for batch_no/expiry_date")
+                        batch_id = b["id"]
 
                     cur.execute(
                         """
                         SELECT COALESCE(SUM(qty_in) - SUM(qty_out), 0) AS qty_on_hand
                         FROM stock_moves
                         WHERE company_id = %s AND item_id = %s AND warehouse_id = %s
+                          AND batch_id IS NOT DISTINCT FROM %s
                         """,
-                        (company_id, line.item_id, data.warehouse_id),
+                        (company_id, line.item_id, data.warehouse_id, batch_id),
                     )
                     current_qty = Decimal(str(cur.fetchone()["qty_on_hand"] or 0))
                     diff = line.counted_qty - current_qty
@@ -825,21 +1126,24 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                     cur.execute(
                         """
                         INSERT INTO stock_moves
-                          (id, company_id, item_id, warehouse_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
-                           source_type, source_id)
+                          (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
+                           source_type, source_id, created_by_user_id, reason)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'cycle_count', NULL)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, 'cycle_count', NULL, %s, %s)
                         RETURNING id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp
                         """,
                         (
                             company_id,
                             line.item_id,
                             data.warehouse_id,
+                            batch_id,
                             qty_in,
                             qty_out,
                             unit_cost_usd,
                             unit_cost_lbp,
                             date.today(),
+                            user["user_id"],
+                            (data.reason or "Cycle count").strip() if data.reason is not None else None,
                         ),
                     )
                     move = cur.fetchone()
@@ -856,7 +1160,7 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                     else:
                         dec_usd += value_usd
                         dec_lbp += value_lbp
-                    created.append({"item_id": line.item_id, "move_id": str(move_id), "diff": str(diff)})
+                    created.append({"item_id": line.item_id, "batch_id": str(batch_id) if batch_id else None, "move_id": str(move_id), "diff": str(diff)})
 
                 journal_id = None
                 if created:
@@ -973,16 +1277,16 @@ def expiry_alerts(days: int = 30, company_id: str = Depends(get_company_id)):
             cur.execute(
                 """
                 SELECT sm.item_id, sm.warehouse_id, sm.batch_id,
-                       b.batch_no, b.expiry_date,
+                       b.batch_no, b.expiry_date, b.status, b.hold_reason,
                        SUM(sm.qty_in) - SUM(sm.qty_out) AS qty_on_hand
                 FROM stock_moves sm
                 JOIN batches b ON b.id = sm.batch_id
                 WHERE sm.company_id = %s
                   AND b.expiry_date IS NOT NULL
                   AND b.expiry_date <= (CURRENT_DATE + (%s || ' days')::interval)
-                GROUP BY sm.item_id, sm.warehouse_id, sm.batch_id, b.batch_no, b.expiry_date
+                GROUP BY sm.item_id, sm.warehouse_id, sm.batch_id, b.batch_no, b.expiry_date, b.status, b.hold_reason
                 HAVING (SUM(sm.qty_in) - SUM(sm.qty_out)) > 0
-                ORDER BY b.expiry_date ASC
+                ORDER BY b.expiry_date ASC, b.status ASC
                 """,
                 (company_id, days),
             )

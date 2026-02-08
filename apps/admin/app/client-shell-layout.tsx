@@ -26,6 +26,7 @@ const TITLE_BY_PATH: Record<string, string> = {
   "/inventory/stock": "Stock",
   "/inventory/alerts": "Inventory Alerts",
   "/inventory/movements": "Inventory Movements",
+  "/inventory/batches": "Batches",
   "/inventory/ops": "Inventory Ops",
   "/accounting/journals": "Journals",
   "/accounting/coa": "Chart of Accounts",

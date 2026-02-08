@@ -32,6 +32,24 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
   - Structured JSON logs + `X-Request-Id` correlation added (API + Admin + worker).
   - `/health` now checks DB connectivity (503 when DB is down).
   - Admin has an Audit Logs page backed by a new `/reports/audit-logs` endpoint; audit log coverage expanded for Users and Config mutations.
+- Business robustness progress (schema + traceability):
+  - Item master data v2 is implemented: lifecycle + category + brand + expiry/batch tracking flags (already in `055_item_masterdata_v2.sql`).
+  - POS offline sync uses delta endpoints and applies/ACKs inbox events (the earlier “missing delta/inbox loop” note is now outdated).
+  - Stock move traceability expanded (created_by user/device/cashier + reason + line-level source hooks).
+  - Bank transactions traceability expanded (`source_type/source_id` + import batch metadata); sales/supplier payments now write linked bank transactions.
+  - Sales/payments commercial metadata added (discount fields + UOM/pack fields on invoice lines; payment reference fields on payments).
+  - Expiry/lot operations strengthened:
+    - Lot status + batch receiving metadata are implemented and enforced in FEFO allocation (quarantine/expired not eligible).
+    - Warehouse-level “min shelf-life days for sale” default is implemented and enforced during allocation.
+    - Cycle count now supports batch/expiry-tracked items (per-batch counts).
+  - Sales document metadata expanded:
+    - Sales invoices store `branch_id` (from POS device when available).
+    - Receipt printing metadata can be persisted (`receipt_no/seq/printer/printed_at/meta`).
+  - Returns robustness:
+    - Structured return reasons table exists and returns can store `reason_id/reason/condition` (header + line-level).
+  - Purchasing workflow metadata expanded:
+    - Purchase orders support `supplier_ref`, `expected_delivery_date`, and requested/approved attribution.
+    - Goods receipts support `supplier_ref` and `received_at/received_by`.
 
 Remaining work in this audit is mostly “business robustness” (expiry/lot operations, document metadata completeness, richer audit timelines for all mutations, and deeper ERP workflows).
 
@@ -133,23 +151,27 @@ This section focuses on “variables” (fields/columns) and missing metadata th
 
 #### Current “Item” Variables (Implemented)
 
-Backend item master data is minimal:
-- `items`: `sku`, `barcode` (legacy), `name`, `unit_of_measure`, `tax_code_id`, `reorder_point`, `reorder_qty`, `created_at`, `updated_at`.
+Item master data v2 is implemented (incremental, backwards compatible):
+- `items` core identity:
+  - `sku`, `barcode` (legacy), `name`, `unit_of_measure`, `tax_code_id`
+  - lifecycle + merchandising: `is_active`, `category_id`, `brand`, `short_name`, `description`
+  - tracking policy: `track_batches`, `track_expiry`, `default_shelf_life_days`, `min_shelf_life_days_for_sale`, `expiry_warning_days`
+  - planning: `reorder_point`, `reorder_qty`
 - `item_barcodes`: multiple barcodes with `qty_factor` (pack/case support), `label`, `is_primary`, timestamps.
 - Pricing:
   - `item_prices` (generic) with effective dates.
   - `price_lists` and `price_list_items` (per customer price list support).
 - `item_suppliers` mapping exists (lead time, min order qty, last cost).
+- `item_categories` exists (category tree).
+- `item_images` exists (v1 image/media reference).
 
 #### Missing “Item” Variables That Usually Matter
 
 These are the most common fields you’ll eventually need for a robust POS/ERP. They can be added incrementally, but you should decide the “v1 canonical item model” now to avoid constant churn.
 
 Identity and lifecycle:
-- `is_active` (soft deactivate)
 - `item_type` (stocked, non-stock/service, bundle/kit)
-- `category_id` (and category tree), `brand`, `tags`
-- `description`, `short_name` (receipt-friendly)
+- `tags` (or a simple tagging model)
 
 Units and packaging:
 - Base UOM is present (`unit_of_measure`) but missing:
@@ -166,20 +188,12 @@ Costing and valuation:
 - `standard_cost_usd/lbp` (optional)
 - `min_margin_pct` / pricing rules (optional)
 
-Expiry and lot tracking (user specifically asked about expiry):
-- `track_batches` boolean
-- `track_expiry` boolean
-- `default_shelf_life_days` (for auto-expiry on receiving)
-- `min_shelf_life_days_for_sale` (block sale if too close to expiry)
-- `expiry_warning_days` (for reports + dashboards)
-
 Inventory planning:
 - `min_stock`, `max_stock` per warehouse (not only reorder point)
 - `preferred_supplier_id` (even if item_suppliers exists)
 - `replenishment_lead_time_days` per warehouse (optional)
 
 Operational extras:
-- Image / media references
 - `weight`, `volume` (for logistics)
 - “External IDs” for integrations (supplier SKU, ERP code, barcode standards)
 
@@ -192,12 +206,20 @@ Implemented:
 - Outbound stock moves allocate batches FEFO (earliest expiry first) during sale posting in the worker.
 
 Missing (practical operations gaps):
-- No item-level enforcement to require batch/expiry capture for specific items.
-- POS UI does not select/confirm batch at sale time; FEFO is server-side “best effort” and may not match physical batch selection.
-- No “expiry monitoring” module:
-  - Expiring stock reports, blocked sale rules, write-off flows for expired goods.
+- Item-level enforcement now exists in core flows:
+  - Receiving enforces `track_batches/track_expiry` (and can auto-derive expiry from `default_shelf_life_days`).
+  - Inventory adjustments enforce batch capture for tracked items.
+  - POS sale posting allocates FEFO and supports explicit line-level batch/expiry in the payload when provided.
+- Still missing: POS-facing UX and policies for manual batch selection vs auto-FEFO (physical pick confirmation).
+- Expiry monitoring module exists:
+  - Admin expiry alerts UI exists (`/inventory/alerts`).
+  - Expiry write-off endpoint exists (`POST /inventory/writeoff/expiry`).
 - `batches` metadata is minimal:
-  - No `received_at`, no supplier reference, no “quarantine/hold” status, no location/bin, no cost trace per batch.
+  - Progress: batch operational metadata is now implemented:
+    - timestamps (`created_at/updated_at`)
+    - receiving attribution (`received_at`, `received_source_type/source_id`, `received_supplier_id`)
+    - lot status (`status`: available/quarantine/expired + `hold_reason/notes`)
+  - Still missing: location/bin placement and per-batch cost trace (landed cost / vendor rebates).
 
 ### Inventory / Warehousing
 
@@ -215,21 +237,28 @@ Missing (practical operations gaps):
 
 #### Missing Useful Inventory Data / Features
 Operational control:
-- Negative stock policy per item/warehouse (block vs allow)
+- Negative stock policy (block vs allow):
+  - Implemented v1: company default via `company_settings key='inventory'` (`allow_negative_stock`) + per-item override (`items.allow_negative_stock`).
+  - Still missing: per-warehouse override (if needed).
 - Reserved/committed quantities (orders, allocations)
 - Cycle counts / stock counts:
-  - count sessions, count lines, variances, approvals, posting to GL
+  - Implemented v1 (posts variances to GL) and now supports batch/expiry-tracked items (per-batch counts via `batch_id` / `batch_no+expiry_date`).
 - Bin/location support (if warehouses are large):
   - location_id on stock moves and batch placement
 
 Traceability:
-- Stock move “reason codes” (structured) vs free-text
-- User attribution on stock moves (`created_by_user_id`)
-- Links to document lines (line-level `source_line_id`)
+- Stock move “reason codes” (structured) vs free-text:
+  - Implemented schema (`stock_move_reasons` + `stock_moves.reason_id/reason`).
+- Attribution:
+  - Implemented on `stock_moves` (`created_by_user_id`, `created_by_device_id`, `created_by_cashier_id`) and populated in core flows.
+- Links to document lines (line-level `source_line_id`):
+  - Implemented schema (`source_line_type/source_line_id`) and populated for POS sale/return lines and goods receipt lines; remaining routers can be extended incrementally.
 
 Expiry/lot:
-- “Lot status” (available/quarantine/expired)
-- Expiry-based picking rules configurable per warehouse
+- “Lot status” (available/quarantine/expired):
+  - Implemented and enforced in allocation (quarantined/expired batches are not eligible for FEFO).
+- Expiry-based picking rules configurable per warehouse:
+  - Implemented v1: `warehouses.min_shelf_life_days_for_sale_default` enforced during allocation.
 
 ### Sales (Invoices, Payments, Returns)
 
@@ -243,30 +272,36 @@ Sales documents include:
 
 #### Missing Useful Sales Data
 Line-level commercial detail:
-- Discounts per line and header (fixed + percent)
+- Discounts per line and header (fixed + percent):
+  - Implemented schema on `sales_invoices` + `sales_invoice_lines` (discount totals + line discount fields). POS/Admin still needs to populate these consistently.
 - Promotion application trace:
-  - which promotion/price-list was applied, why, and what the “pre-discount” price was
+  - Implemented schema on `sales_invoice_lines` (`applied_promotion_id`, `applied_promotion_item_id`, `applied_price_list_id`), but POS pricing engine still needs to populate it.
 - Line-level tax breakdown (if some items have different VAT treatments)
-- UOM and pack handling at line level (barcode qty_factor was used)
+- UOM and pack handling at line level:
+  - Implemented schema on `sales_invoice_lines` (`uom`, `qty_factor`) so barcode pack conversions can be persisted per sale line.
 
 Receipts and compliance:
-- Receipt printing metadata (receipt sequence per POS, printer info)
+- Receipt printing metadata (receipt sequence per POS, printer info):
+  - Implemented: `sales_invoices.receipt_no/receipt_seq/receipt_printer/receipt_printed_at/receipt_meta`.
 - Fiscal/VAT invoice required fields if needed (jurisdiction dependent)
 
 Payments:
 - Payment references:
-  - card authorization code, transfer reference, bank txn id
+  - Implemented on payments (`reference`, `auth_code`, `provider`, `settlement_currency`, `captured_at`).
+  - Bank transactions now support `source_type/source_id` and can be linked to payment journals for reconciliation.
 - Split tenders are supported structurally, but:
-  - no normalization table for “payment types” vs free strings
-  - no explicit settlement currency metadata per payment
+  - payment methods are normalized via `payment_method_mappings` (still missing richer per-method metadata and settlement workflows)
 
 Customer and sales ops:
 - Salesperson_id, channel, delivery/shipping fields (if needed)
-- Branch_id on invoice (derivable from device, but storing it improves reporting and audit)
+- Branch_id on invoice (derivable from device, but storing it improves reporting and audit):
+  - Implemented: `sales_invoices.branch_id` (backfilled from POS device when available).
 
 Returns/refunds:
 - Refund payments are not modeled as first-class “refund transactions” (today you have return documents + `refund_method` string).
-- Restocking fee, reason codes, and return condition flags are missing.
+- Return reason codes and condition flags:
+  - Implemented: `sales_return_reasons` + `sales_returns.reason_id/reason/return_condition` + `sales_return_lines.reason_id/line_condition`.
+- Still missing: restocking fee and first-class refund transaction objects (if we want reconciliation-grade refund workflows).
 
 ### Purchases (PO, GRN, Supplier Invoice, Payments)
 
@@ -280,8 +315,12 @@ Purchasing flows are implemented with strong basics:
 
 #### Missing Useful Purchases Data
 Procurement workflow:
-- Requested_by / approved_by / approved_at
-- Expected delivery date, receiving date, supplier reference numbers
+- Requested_by / approved_by / approved_at:
+  - Implemented v1 on `purchase_orders` (`requested_by_user_id/requested_at`, `approved_by_user_id/approved_at`).
+- Expected delivery date, receiving date, supplier reference numbers:
+  - Implemented v1:
+    - `purchase_orders.expected_delivery_date`, `purchase_orders.supplier_ref`, `purchase_orders.requested_*`, `purchase_orders.approved_*`
+    - `goods_receipts.supplier_ref`, `goods_receipts.received_at/received_by_user_id`
 - PO to GR to Invoice matching (3-way match):
   - quantities matched, price variance, hold/unhold controls
 
@@ -290,7 +329,7 @@ Costs:
 - Supplier rebates/discounts and accruals
 
 Supplier master data (also relevant here):
-- Address, VAT/tax identifiers, payment/bank details, contact person(s)
+- Address, VAT/tax identifiers, payment/bank details (contacts are implemented via `party_contacts`).
 
 ### Accounting / GL
 
@@ -307,9 +346,11 @@ Consistency:
 - Some flows use `rate_type='market'` everywhere even when actual rate type differs.
 
 Dimensions:
-- No accounting dimensions:
-  - branch, warehouse, cost center, department, project
-- No “document attachment” capability (invoice scans, approvals).
+- Basic dimensions exist on `gl_entries`:
+  - `branch_id`, `warehouse_id` (useful for reporting and auditability).
+- Still missing richer dimensions:
+  - cost center, department, project, etc.
+- Document attachments are implemented (`document_attachments` table; bytes stored in Postgres in v1).
 
 Close and controls:
 - Stronger journal immutability rules (prevent edits after posting).
@@ -324,8 +365,9 @@ Close and controls:
 
 #### Missing Useful Banking Data
 Traceability and integration:
-- No `source_type/source_id` on `bank_transactions` to link origin (sales payment, supplier payment, import).
-- No import batch metadata (statement source, file id, imported_by).
+- Implemented:
+  - `bank_transactions.source_type/source_id` to link origins (sales payment, supplier payment, integrations).
+  - Import batch metadata (`bank_statement_import_batches` + `bank_transactions.import_batch_id/import_row_no/imported_by_user_id/imported_at`).
 
 ### POS Offline Sync
 
@@ -335,8 +377,8 @@ Traceability and integration:
 - POS pulls catalog + customers + cashiers + promotions and caches locally.
 
 #### What’s Missing / Fragile
-- POS pull uses snapshots; delta endpoints exist for catalog/customers/promotions but POS does not use them yet.
-- No inbox application loop is implemented in POS (backend has inbox tables/endpoints; POS agent currently does not pull/apply inbox events).
+- POS sync is delta-first for catalog/customers/promotions and falls back to snapshot if delta fails.
+- POS agent pulls/applies inbox events and ACKs them back to the backend.
 - Local security (see P0).
 
 ## Cross-Cutting Metadata Checklist (What You Want “Everywhere”)
@@ -361,7 +403,7 @@ Implemented:
 
 Missing useful data:
 - Address book (billing/shipping), city/region, VAT/tax identifiers (if B2B), customer type (retail/wholesale), assigned salesperson.
-- “Contact person(s)” model (multiple contacts per customer).
+- “Contact person(s)” model is implemented (`party_contacts`) but needs UX/productization per customer.
 - Consent/marketing preferences (if applicable).
 - Merge/dedup support (common in real-world operations).
 
@@ -371,9 +413,10 @@ Implemented:
 - Basic supplier identity + payment terms days.
 
 Missing useful data:
-- Address, VAT number, bank/payment instructions, contacts.
-- Supplier status (`is_active`), default currency, lead time defaults.
-- Supplier invoice reference uniqueness per company (often needs a uniqueness constraint by supplier + invoice_no).
+- Address, VAT number, bank/payment instructions.
+- Contacts and supplier status are implemented (`party_contacts`, `suppliers.is_active`), but need UX/productization and validation rules (e.g., required VAT for B2B).
+- Supplier invoice vendor reference uniqueness:
+  - Implemented via `supplier_invoices.supplier_ref` (unique per supplier when present).
 
 ### Companies / Branches / Warehouses
 
@@ -394,7 +437,7 @@ Implemented:
 - Sessions support active company context.
 
 Missing useful data / controls:
-- Password reset flow + session invalidation strategy (all sessions after reset).
+- Password reset now revokes sessions (scripts updated); API supports session revocation (logout-all and admin revokes).
 - MFA (optional but recommended for admin users).
 - “User profile” fields (name, phone) and deactivation reason/time.
 - Audit logs coverage is partial; many mutations do not write `audit_logs`.
@@ -406,10 +449,12 @@ Implemented:
 - VAT, trial balance, GL, inventory valuation and other reporting endpoints exist (per docs/UI pages).
 
 Missing useful reports (especially for expiry and operations):
-- Expiry dashboard: “expiring in N days” by warehouse/batch, expired stock write-offs.
+- Expiry monitoring exists (alerts UI + expiry write-off endpoint), but a richer dashboard/reporting view is still needed:
+  - “expiring in N days” by warehouse/batch, and operational write-off drill-downs.
 - Cash reconciliation report per shift (expected vs counted) with drill-down.
 - AR/AP aging (docs folders exist in Admin UI, but ensure API + SQL views match).
-- Margin reporting: sales by item with COGS (requires consistent cost capture and warehouse attribution).
+- Margin reporting: sales by item with COGS:
+  - Implemented API v1: `GET /reports/sales/margin-by-item` (filters: date range + optional warehouse/branch).
 
 ### AI Layer (Recommendations + Actions)
 
@@ -423,7 +468,17 @@ Missing useful data / controls:
 
 ## Suggested Next Steps (Practical)
 
-1) Security + invariants sprint (P0/P1): POS agent binding/auth, hashed auth sessions, shift uniqueness constraint, stronger validation.
-2) Item master data sprint: implement item flags for batch/expiry tracking and essential commercial fields (is_active, category/brand, pack info).
-3) Expiry end-to-end: receiving enforcement for tracked items, expiry dashboards/reports, and optional POS batch selection rules.
-4) Document metadata consistency: created_by/posted_by/exchange_rate population for system journals and documents.
+1) Inventory operations hardening:
+   - reserved/committed quantities (orders/allocations) and “available to sell” reporting
+   - bin/location support (optional) + per-warehouse negative-stock override (optional)
+   - POS-facing UX/policies for manual lot selection vs auto-FEFO
+2) Purchasing 3-way match v1:
+   - per-PO line matched qty (ordered vs received vs invoiced)
+   - variance detection (qty/price) and a simple hold/unhold workflow on supplier invoices
+3) Accounting controls + dimensions:
+   - journal immutability rules (prevent edits after posting; reverse via explicit void journal)
+   - add richer dimensions (cost center / project) and propagate from documents to GL entries
+4) Audit coverage completion:
+   - ensure all high-value business mutations (docs + master data) emit `audit_logs`
+5) AI governance v1:
+   - approval workflow states + clearer explainability + stronger idempotency for executor retries

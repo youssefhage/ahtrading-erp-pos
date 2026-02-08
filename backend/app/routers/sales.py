@@ -180,6 +180,19 @@ class SalesInvoiceIn(BaseModel):
     invoice_date: Optional[date] = None
 
 
+class SalesReturnLineIn(BaseModel):
+    item_id: str
+    qty: Decimal
+    unit_price_usd: Decimal
+    unit_price_lbp: Decimal
+    line_total_usd: Decimal
+    line_total_lbp: Decimal
+    unit_cost_usd: Optional[Decimal] = None
+    unit_cost_lbp: Optional[Decimal] = None
+    reason_id: Optional[str] = None
+    line_condition: Optional[str] = None
+
+
 class SalesReturnIn(BaseModel):
     device_id: str
     invoice_id: Optional[str] = None
@@ -187,7 +200,10 @@ class SalesReturnIn(BaseModel):
     warehouse_id: Optional[str] = None
     shift_id: Optional[str] = None
     refund_method: Optional[str] = None
-    lines: List[SaleLine]
+    reason_id: Optional[str] = None
+    reason: Optional[str] = None
+    return_condition: Optional[str] = None
+    lines: List[SalesReturnLineIn]
     tax: Optional[TaxBlock] = None
 
 
@@ -198,6 +214,10 @@ class SalesPaymentIn(BaseModel):
     amount_lbp: Decimal
     payment_date: Optional[date] = None
     bank_account_id: Optional[str] = None
+    reference: Optional[str] = None
+    auth_code: Optional[str] = None
+    provider: Optional[str] = None
+    settlement_currency: Optional[CurrencyCode] = None
 
 @router.get("/payments", dependencies=[Depends(require_permission("sales:read"))])
 def list_sales_payments(
@@ -303,16 +323,19 @@ def list_sales_invoices(
                 base_sql += """
                   AND (
                     COALESCE(i.invoice_no, '') ILIKE %s
+                    OR COALESCE(i.receipt_no, '') ILIKE %s
                     OR COALESCE(c.name, '') ILIKE %s
                     OR COALESCE(w.name, '') ILIKE %s
                     OR i.id::text ILIKE %s
                   )
                 """
-                params.extend([needle, needle, needle, needle])
+                params.extend([needle, needle, needle, needle, needle])
 
             select_sql = f"""
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name,
                        i.status, i.total_usd, i.total_lbp, i.warehouse_id, w.name AS warehouse_name,
+                       i.branch_id,
+                       i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at,
                        i.invoice_date, i.due_date, i.created_at
                 {base_sql}
                 ORDER BY {sort_sql} {dir_sql}
@@ -339,6 +362,8 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
                        i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
                        i.pricing_currency, i.settlement_currency,
+                       i.branch_id,
+                       i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at, i.receipt_meta,
                        i.invoice_date, i.due_date, i.created_at
                 FROM sales_invoices i
                 LEFT JOIN customers c
@@ -370,7 +395,7 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
 
             cur.execute(
                 """
-                SELECT id, method, amount_usd, amount_lbp, created_at
+                SELECT id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at, created_at
                 FROM sales_payments
                 WHERE invoice_id = %s
                 ORDER BY created_at ASC
@@ -881,13 +906,27 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     inv_policy = pos_processor.fetch_inventory_policy(cur, company_id)
                     allow_negative_stock = bool(inv_policy.get("allow_negative_stock"))
 
+                    # Warehouse-level expiry policy: enforce a default minimum shelf-life window for allocations.
+                    warehouse_min_days_default = 0
+                    cur.execute(
+                        """
+                        SELECT min_shelf_life_days_for_sale_default
+                        FROM warehouses
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (company_id, inv["warehouse_id"]),
+                    )
+                    wrow = cur.fetchone()
+                    if wrow:
+                        warehouse_min_days_default = int(wrow.get("min_shelf_life_days_for_sale_default") or 0)
+
                     # Fetch item tracking policy so FEFO allocation doesn't create "unbatched" remainder for tracked items.
                     item_ids = sorted({str(l["item_id"]) for l in (lines or []) if l.get("item_id")})
                     item_policy = {}
                     if item_ids:
                         cur.execute(
                             """
-                            SELECT id, track_batches, track_expiry, min_shelf_life_days_for_sale
+                            SELECT id, track_batches, track_expiry, min_shelf_life_days_for_sale, allow_negative_stock
                             FROM items
                             WHERE company_id=%s AND id = ANY(%s::uuid[])
                             """,
@@ -905,9 +944,13 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     # Stock moves (FEFO allocation).
                     for l in resolved_lines:
                         pol = item_policy.get(str(l["item_id"])) or {}
-                        min_days = int(pol.get("min_shelf_life_days_for_sale") or 0)
+                        min_days = max(int(pol.get("min_shelf_life_days_for_sale") or 0), warehouse_min_days_default)
                         min_exp = (inv_date + timedelta(days=min_days)) if min_days > 0 else None
+                        if bool(pol.get("track_expiry")) and not min_exp:
+                            min_exp = inv_date
                         allow_unbatched = not (bool(pol.get("track_batches")) or bool(pol.get("track_expiry")) or min_days > 0)
+                        item_allow_negative = pol.get("allow_negative_stock")
+                        allow_negative_for_item = allow_negative_stock if item_allow_negative is None else bool(item_allow_negative)
                         allocations = pos_processor.allocate_fefo_batches(
                             cur,
                             company_id,
@@ -916,18 +959,30 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                             Decimal(str(l["qty"] or 0)),
                             min_expiry_date=min_exp,
                             allow_unbatched_remainder=allow_unbatched,
-                            allow_negative_stock=allow_negative_stock,
+                            allow_negative_stock=allow_negative_for_item,
                         )
                         for batch_id, q in allocations:
                             cur.execute(
                                 """
                                 INSERT INTO stock_moves
                                   (id, company_id, item_id, warehouse_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
-                                   source_type, source_id)
+                                   source_type, source_id, created_by_user_id, reason)
                                 VALUES
-                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'sales_invoice', %s)
+                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'sales_invoice', %s, %s, %s)
                                 """,
-                                (company_id, l["item_id"], inv["warehouse_id"], batch_id, q, l["_unit_cost_usd"], l["_unit_cost_lbp"], inv_date, invoice_id),
+                                (
+                                    company_id,
+                                    l["item_id"],
+                                    inv["warehouse_id"],
+                                    batch_id,
+                                    q,
+                                    l["_unit_cost_usd"],
+                                    l["_unit_cost_lbp"],
+                                    inv_date,
+                                    invoice_id,
+                                    user["user_id"],
+                                    f"Sales invoice {inv.get('invoice_no') or ''}".strip() or "Sales invoice",
+                                ),
                             )
 
                 # Tax line.
@@ -1184,9 +1239,9 @@ def cancel_sales_invoice(invoice_id: str, data: SalesInvoiceCancelIn, company_id
                                 """
                                 INSERT INTO stock_moves
                                   (id, company_id, item_id, warehouse_id, batch_id, qty_in, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
-                                   source_type, source_id)
+                                   source_type, source_id, created_by_user_id, reason)
                                 VALUES
-                                  (gen_random_uuid(), %s, %s, %s, %s, %s, 0, %s, %s, %s, 'sales_invoice_cancel', %s)
+                                  (gen_random_uuid(), %s, %s, %s, %s, %s, 0, %s, %s, %s, 'sales_invoice_cancel', %s, %s, %s)
                                 """,
                                 (
                                     company_id,
@@ -1198,6 +1253,8 @@ def cancel_sales_invoice(invoice_id: str, data: SalesInvoiceCancelIn, company_id
                                     m["unit_cost_lbp"],
                                     cancel_date,
                                     invoice_id,
+                                    user["user_id"],
+                                    (reason or f"Void sales invoice {inv.get('invoice_no') or ''}").strip() if reason is not None else None,
                                 ),
                             )
 
@@ -1362,6 +1419,7 @@ def list_sales_returns(company_id: str = Depends(get_company_id)):
             cur.execute(
                 """
                 SELECT id, return_no, invoice_id, warehouse_id, device_id, shift_id, refund_method,
+                       branch_id, reason_id, reason, return_condition,
                        status, total_usd, total_lbp, created_at
                 FROM sales_returns
                 WHERE company_id = %s
@@ -1380,6 +1438,7 @@ def get_sales_return(return_id: str, company_id: str = Depends(get_company_id)):
             cur.execute(
                 """
                 SELECT id, return_no, invoice_id, warehouse_id, device_id, shift_id, refund_method,
+                       branch_id, reason_id, reason, return_condition,
                        status, total_usd, total_lbp, exchange_rate, created_at
                 FROM sales_returns
                 WHERE company_id = %s AND id = %s
@@ -1393,7 +1452,8 @@ def get_sales_return(return_id: str, company_id: str = Depends(get_company_id)):
                 """
                 SELECT id, item_id, qty,
                        unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp,
-                       unit_cost_usd, unit_cost_lbp
+                       unit_cost_usd, unit_cost_lbp,
+                       reason_id, line_condition
                 FROM sales_return_lines
                 WHERE company_id = %s AND sales_return_id = %s
                 ORDER BY id
@@ -1453,11 +1513,20 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
 
                 cur.execute(
                     """
-                    INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp)
-                    VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                    INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, now())
                     RETURNING id
                     """,
-                    (data.invoice_id, method, data.amount_usd, data.amount_lbp),
+                    (
+                        data.invoice_id,
+                        method,
+                        data.amount_usd,
+                        data.amount_lbp,
+                        (data.reference or None),
+                        (data.auth_code or None),
+                        (data.provider or None),
+                        (data.settlement_currency or None),
+                    ),
                 )
                 payment_id = cur.fetchone()["id"]
 
@@ -1544,9 +1613,11 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                             """
                             INSERT INTO bank_transactions
                               (id, company_id, bank_account_id, txn_date, direction, amount_usd, amount_lbp,
-                               description, reference, counterparty, matched_journal_id, matched_at)
+                               description, reference, counterparty, matched_journal_id, matched_at,
+                               source_type, source_id, imported_by_user_id, imported_at)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, 'inflow', %s, %s, %s, %s, %s, %s, now())
+                              (gen_random_uuid(), %s, %s, %s, 'inflow', %s, %s, %s, %s, %s, %s, now(),
+                               'sales_payment', %s, %s, now())
                             """,
                             (
                                 company_id,
@@ -1558,6 +1629,8 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                                 None,
                                 None,
                                 journal_id,
+                                payment_id,
+                                user["user_id"],
                             ),
                         )
 

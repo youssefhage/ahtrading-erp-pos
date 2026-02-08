@@ -20,12 +20,14 @@ type ReceiptRow = {
   id: string;
   receipt_no: string | null;
   supplier_id: string | null;
+  supplier_ref?: string | null;
   warehouse_id: string | null;
   purchase_order_id?: string | null;
   purchase_order_no?: string | null;
   status: string;
   total_usd: string | number;
   total_lbp: string | number;
+  received_at?: string | null;
   created_at: string;
 };
 
@@ -89,6 +91,7 @@ function GoodsReceiptsPageInner() {
   const [draftSaving, setDraftSaving] = useState(false);
 
   const [draftSupplierId, setDraftSupplierId] = useState("");
+  const [draftSupplierRef, setDraftSupplierRef] = useState("");
   const [draftWarehouseId, setDraftWarehouseId] = useState("");
   const [draftExchangeRate, setDraftExchangeRate] = useState("90000");
   const [draftPurchaseOrderId, setDraftPurchaseOrderId] = useState<string>("");
@@ -126,10 +129,18 @@ function GoodsReceiptsPageInner() {
       if (statusFilter && r.status !== statusFilter) return false;
       if (!needle) return true;
       const no = (r.receipt_no || "").toLowerCase();
+      const supRef = ((r.supplier_ref as string) || "").toLowerCase();
       const sup = r.supplier_id ? (supplierById.get(r.supplier_id)?.name || "").toLowerCase() : "";
       const wh = r.warehouse_id ? (whById.get(r.warehouse_id)?.name || "").toLowerCase() : "";
       const po = (r.purchase_order_no || "").toLowerCase();
-      return no.includes(needle) || sup.includes(needle) || wh.includes(needle) || po.includes(needle) || r.id.toLowerCase().includes(needle);
+      return (
+        no.includes(needle) ||
+        supRef.includes(needle) ||
+        sup.includes(needle) ||
+        wh.includes(needle) ||
+        po.includes(needle) ||
+        r.id.toLowerCase().includes(needle)
+      );
     });
   }, [receipts, q, statusFilter, supplierById, whById]);
 
@@ -189,6 +200,7 @@ function GoodsReceiptsPageInner() {
   function openNewDraft() {
     setDraftEditId("");
     setDraftSupplierId("");
+    setDraftSupplierRef("");
     setDraftWarehouseId(warehouses[0]?.id || "");
     setDraftExchangeRate("90000");
     setDraftPurchaseOrderId("");
@@ -201,6 +213,7 @@ function GoodsReceiptsPageInner() {
     if (detail.receipt.status !== "draft") return;
     setDraftEditId(detail.receipt.id);
     setDraftSupplierId(detail.receipt.supplier_id || "");
+    setDraftSupplierRef(String(detail.receipt.supplier_ref || ""));
     setDraftWarehouseId(detail.receipt.warehouse_id || "");
     setDraftExchangeRate(String(detail.receipt.exchange_rate || 0));
     setDraftPurchaseOrderId((detail.receipt.purchase_order_id as string) || "");
@@ -252,6 +265,7 @@ function GoodsReceiptsPageInner() {
     try {
       const payload = {
         supplier_id: draftSupplierId,
+        supplier_ref: draftSupplierRef.trim() || undefined,
         warehouse_id: draftWarehouseId,
         exchange_rate: ex,
         purchase_order_id: draftPurchaseOrderId || undefined,
@@ -430,7 +444,7 @@ function GoodsReceiptsPageInner() {
           <CardContent>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="w-full md:w-96">
-                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search receipt / supplier / warehouse / PO..." />
+                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search receipt / supplier / supplier ref / warehouse / PO..." />
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <select className="ui-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
@@ -464,7 +478,13 @@ function GoodsReceiptsPageInner() {
                             style={{ cursor: "pointer" }}
                             onClick={() => setReceiptId(r.id)}
                           >
-                            <td className="px-3 py-2 font-medium">{r.receipt_no || "(draft)"}</td>
+                            <td className="px-3 py-2 font-medium">
+                              <div className="flex flex-col gap-0.5">
+                                <div>{r.receipt_no || "(draft)"}</div>
+                                {r.supplier_ref ? <div className="font-mono text-[11px] text-fg-muted">Ref: {r.supplier_ref}</div> : null}
+                                {r.received_at ? <div className="font-mono text-[11px] text-fg-muted">Received: {r.received_at}</div> : null}
+                              </div>
+                            </td>
                             <td className="px-3 py-2">{supplierById.get(r.supplier_id || "")?.name || "-"}</td>
                             <td className="px-3 py-2">{whById.get(r.warehouse_id || "")?.name || "-"}</td>
                             <td className="px-3 py-2">
@@ -503,6 +523,9 @@ function GoodsReceiptsPageInner() {
                             <span className="text-fg-subtle">Supplier:</span> {supplierById.get(detail.receipt.supplier_id || "")?.name || "-"}
                           </div>
                           <div>
+                            <span className="text-fg-subtle">Supplier Ref:</span> {(detail.receipt.supplier_ref as string) || "-"}
+                          </div>
+                          <div>
                             <span className="text-fg-subtle">Warehouse:</span> {whById.get(detail.receipt.warehouse_id || "")?.name || "-"}
                           </div>
                           {detail.receipt.purchase_order_id ? (
@@ -516,6 +539,9 @@ function GoodsReceiptsPageInner() {
                             <span className="data-mono">
                               {fmtUsd(detail.receipt.total_usd)} / {fmtLbp(detail.receipt.total_lbp)}
                             </span>
+                          </div>
+                          <div>
+                            <span className="text-fg-subtle">Received At:</span> {(detail.receipt.received_at as string) || "-"}
                           </div>
                         </div>
 
@@ -618,6 +644,14 @@ function GoodsReceiptsPageInner() {
                   <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
                   <Input value={draftExchangeRate} onChange={(e) => setDraftExchangeRate(e.target.value)} />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-medium text-fg-muted">Supplier Ref (optional)</label>
+                  <Input value={draftSupplierRef} onChange={(e) => setDraftSupplierRef(e.target.value)} placeholder="Vendor delivery/GRN reference" />
+                </div>
+                <div className="md:col-span-1" />
               </div>
 
               <div className="ui-table-wrap">

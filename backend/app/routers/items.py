@@ -29,6 +29,7 @@ class ItemIn(BaseModel):
     default_shelf_life_days: Optional[int] = None
     min_shelf_life_days_for_sale: Optional[int] = None
     expiry_warning_days: Optional[int] = None
+    allow_negative_stock: Optional[bool] = None
     image_attachment_id: Optional[str] = None
     image_alt: Optional[str] = None
 
@@ -65,6 +66,7 @@ def list_items(company_id: str = Depends(get_company_id)):
                        i.is_active, i.category_id, i.brand, i.short_name, i.description,
                        i.track_batches, i.track_expiry,
                        i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
+                       i.allow_negative_stock,
                        i.image_attachment_id, i.image_alt,
                        COALESCE(bc.cnt, 0) AS barcode_count
                 FROM items i
@@ -92,11 +94,13 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id)):
                       (id, company_id, sku, barcode, name, unit_of_measure, tax_code_id, reorder_point, reorder_qty,
                        is_active, category_id, brand, short_name, description,
                        track_batches, track_expiry, default_shelf_life_days, min_shelf_life_days_for_sale, expiry_warning_days,
+                       allow_negative_stock,
                        image_attachment_id, image_alt)
                     VALUES
                       (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s,
                        %s, %s, %s, %s, %s,
                        %s, %s, %s, %s, %s,
+                       %s,
                        %s, %s)
                     RETURNING id
                     """,
@@ -119,6 +123,7 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id)):
                         data.default_shelf_life_days,
                         data.min_shelf_life_days_for_sale,
                         data.expiry_warning_days,
+                        data.allow_negative_stock,
                         data.image_attachment_id,
                         (data.image_alt or "").strip() or None,
                     ),
@@ -246,6 +251,7 @@ class ItemUpdate(BaseModel):
     default_shelf_life_days: Optional[int] = None
     min_shelf_life_days_for_sale: Optional[int] = None
     expiry_warning_days: Optional[int] = None
+    allow_negative_stock: Optional[bool] = None
     image_attachment_id: Optional[str] = None
     image_alt: Optional[str] = None
 

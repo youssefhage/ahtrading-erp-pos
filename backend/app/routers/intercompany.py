@@ -106,9 +106,9 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                         """
                         INSERT INTO stock_moves
                           (id, company_id, item_id, warehouse_id, qty_out, unit_cost_usd, unit_cost_lbp, move_date,
-                           source_type, source_id)
+                           source_type, source_id, created_by_user_id, reason)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'intercompany_issue', %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'intercompany_issue', %s, %s, %s)
                         """,
                         (
                             data.issue_company_id,
@@ -118,6 +118,8 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                             l.unit_cost_usd,
                             l.unit_cost_lbp,
                             doc_id,
+                            user["user_id"],
+                            "Intercompany issue",
                         ),
                     )
 
