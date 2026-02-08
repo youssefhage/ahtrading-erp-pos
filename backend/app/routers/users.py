@@ -104,6 +104,15 @@ def assign_role(data: RoleAssignIn, company_id: str = Depends(get_company_id)):
                 """,
                 (data.user_id, data.role_id, company_id),
             )
+            # Role changes should invalidate sessions so permissions update immediately.
+            cur.execute(
+                """
+                UPDATE auth_sessions
+                SET is_active = false
+                WHERE user_id = %s
+                """,
+                (data.user_id,),
+            )
             return {"ok": True}
 
 
@@ -169,6 +178,19 @@ def assign_role_permission(data: RolePermissionIn, company_id: str = Depends(get
                 ON CONFLICT (role_id, permission_id) DO NOTHING
                 """,
                 (data.role_id, perm["id"]),
+            )
+            # Permission changes should invalidate sessions for users with this role.
+            cur.execute(
+                """
+                UPDATE auth_sessions
+                SET is_active = false
+                WHERE user_id IN (
+                  SELECT user_id
+                  FROM user_roles
+                  WHERE company_id = %s AND role_id = %s
+                )
+                """,
+                (company_id, data.role_id),
             )
             return {"ok": True}
 

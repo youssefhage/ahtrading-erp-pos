@@ -91,7 +91,7 @@ Residual work:
   - `POST /users/{user_id}/sessions/revoke` (admin, company-scoped)
 - Added a bulk revoke endpoint for incident response:
   - `POST /users/sessions/revoke-all` (admin, company-scoped)
-- Consider revoking sessions on role/permission changes too.
+- Sessions are now revoked automatically on role/permission changes so access changes apply immediately.
 
 ### 2) Worker Scheduling Errors Were Silent
 
