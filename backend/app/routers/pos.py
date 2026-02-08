@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 import uuid
 from ..db import get_conn, set_company_context
@@ -262,6 +262,63 @@ def pull_inbox(
     return {"events": rows}
 
 
+class InboxAckIn(BaseModel):
+    event_ids: List[uuid.UUID]
+
+
+@router.post("/inbox/ack")
+def ack_inbox(data: InboxAckIn, device=Depends(require_device)):
+    ids = [str(i) for i in (data.event_ids or [])]
+    if not ids:
+        return {"ok": True, "deleted": 0}
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM pos_events_inbox
+                WHERE device_id = %s AND id = ANY(%s::uuid[])
+                """,
+                (device["device_id"], ids),
+            )
+            return {"ok": True, "deleted": cur.rowcount}
+
+
+class InboxPushIn(BaseModel):
+    device_id: uuid.UUID
+    event_type: str
+    payload: dict = {}
+
+
+@router.post("/inbox/push", dependencies=[Depends(require_permission("pos:manage"))])
+def push_inbox(
+    data: InboxPushIn,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+):
+    event_type = (data.event_type or "").strip()
+    if not event_type:
+        raise HTTPException(status_code=400, detail="event_type is required")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM pos_devices WHERE company_id=%s AND id=%s",
+                (company_id, str(data.device_id)),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="device not found")
+            cur.execute(
+                """
+                INSERT INTO pos_events_inbox (id, device_id, event_type, payload_json)
+                VALUES (gen_random_uuid(), %s, %s, %s::jsonb)
+                RETURNING id
+                """,
+                (str(data.device_id), event_type, json.dumps(data.payload or {})),
+            )
+            return {"id": cur.fetchone()["id"]}
+
+
 @router.get("/catalog")
 def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_device)):
     if company_id and company_id != device["company_id"]:
@@ -282,6 +339,11 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
             cur.execute(
                 """
                 SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure,
+                       i.tax_code_id,
+                       i.category_id, i.brand, i.short_name, i.description,
+                       i.track_batches, i.track_expiry,
+                       i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
+                       i.updated_at,
                        COALESCE(plp.price_usd, p.price_usd) AS price_usd,
                        COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
                        COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes
@@ -320,12 +382,13 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
                     FROM item_barcodes b
                     WHERE b.company_id = i.company_id AND b.item_id = i.id
                 ) bc ON true
+                WHERE i.is_active = true
                 ORDER BY i.sku
                 """
                 ,
                 (default_pl_id, default_pl_id),
             )
-            return {"items": cur.fetchall()}
+            return {"items": cur.fetchall(), "server_time": datetime.utcnow().isoformat()}
 
 
 @router.get("/catalog/delta")
@@ -359,6 +422,10 @@ def catalog_delta(
                 """
                 WITH items_with_changed_at AS (
                   SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure,
+                         i.tax_code_id,
+                         i.category_id, i.brand, i.short_name, i.description,
+                         i.track_batches, i.track_expiry,
+                         i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
                          COALESCE(plp.price_usd, p.price_usd) AS price_usd,
                          COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
                          COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes,
@@ -420,9 +487,12 @@ def catalog_delta(
                       FROM item_barcodes b
                       WHERE b.company_id = i.company_id AND b.item_id = i.id
                   ) bc ON true
-                  WHERE i.updated_at > %s OR COALESCE(pm.last_price_created_at, 'epoch'::timestamptz) > %s
+                  WHERE i.is_active = true
+                    AND (
+                      i.updated_at > %s OR COALESCE(pm.last_price_created_at, 'epoch'::timestamptz) > %s
                      OR COALESCE(bm.last_barcode_updated_at, 'epoch'::timestamptz) > %s
                      OR COALESCE(plm.last_pl_price_created_at, 'epoch'::timestamptz) > %s
+                    )
                 )
                 SELECT *
                 FROM items_with_changed_at
@@ -455,6 +525,55 @@ def catalog_delta(
         next_cursor = since.isoformat()
         next_cursor_id = str(since_id) if since_id else None
     return {"items": rows, "next_cursor": next_cursor, "next_cursor_id": next_cursor_id}
+
+
+@router.get("/item-categories/catalog")
+def item_categories_catalog(device=Depends(require_device)):
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, parent_id, is_active, updated_at
+                FROM item_categories
+                WHERE company_id = %s AND is_active = true
+                ORDER BY name
+                """,
+                (device["company_id"],),
+            )
+            return {"categories": cur.fetchall(), "server_time": datetime.utcnow().isoformat()}
+
+
+@router.get("/item-categories/catalog/delta")
+def item_categories_catalog_delta(
+    since: datetime,
+    since_id: Optional[uuid.UUID] = None,
+    limit: int = 5000,
+    device=Depends(require_device),
+):
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, parent_id, is_active, updated_at AS changed_at
+                FROM item_categories
+                WHERE company_id = %s
+                  AND (updated_at > %s OR (%s::uuid IS NOT NULL AND updated_at = %s AND id > %s))
+                ORDER BY updated_at ASC, id ASC
+                LIMIT %s
+                """,
+                (device["company_id"], since, since_id, since, since_id, limit),
+            )
+            rows = cur.fetchall()
+    if rows:
+        last = rows[-1]
+        next_cursor = last["changed_at"].isoformat()
+        next_cursor_id = str(last["id"])
+    else:
+        next_cursor = since.isoformat()
+        next_cursor_id = str(since_id) if since_id else None
+    return {"categories": rows, "next_cursor": next_cursor, "next_cursor_id": next_cursor_id}
 
 
 @router.get("/config")
@@ -965,6 +1084,7 @@ def customers_catalog(device=Depends(require_device)):
                        credit_balance_usd, credit_balance_lbp,
                        loyalty_points,
                        price_list_id,
+                       is_active,
                        updated_at
                 FROM customers
                 WHERE company_id = %s
@@ -972,7 +1092,7 @@ def customers_catalog(device=Depends(require_device)):
                 """,
                 (device["company_id"],),
             )
-            return {"customers": cur.fetchall()}
+            return {"customers": cur.fetchall(), "server_time": datetime.utcnow().isoformat()}
 
 
 @router.get("/customers/catalog/delta")
@@ -997,6 +1117,7 @@ def customers_catalog_delta(
                        credit_balance_usd, credit_balance_lbp,
                        loyalty_points,
                        price_list_id,
+                       is_active,
                        updated_at AS changed_at
                 FROM customers
                 WHERE company_id = %s
@@ -1043,13 +1164,12 @@ def promotions_catalog(device=Depends(require_device)):
                 LEFT JOIN promotion_items pi
                   ON pi.company_id = p.company_id AND pi.promotion_id = p.id
                 WHERE p.company_id = %s
-                  AND p.is_active = true
                 GROUP BY p.id
                 ORDER BY p.priority DESC, p.code
                 """,
                 (device["company_id"],),
             )
-            return {"promotions": cur.fetchall()}
+            return {"promotions": cur.fetchall(), "server_time": datetime.utcnow().isoformat()}
 
 
 @router.get("/promotions/delta")
@@ -1075,7 +1195,7 @@ def promotions_delta(
                   FROM promotions p
                   LEFT JOIN promotion_items pi
                     ON pi.company_id = p.company_id AND pi.promotion_id = p.id
-                  WHERE p.company_id = %s AND p.is_active = true
+                  WHERE p.company_id = %s
                   GROUP BY p.id
                   HAVING GREATEST(p.updated_at, COALESCE(MAX(pi.updated_at), p.updated_at)) > %s
                       OR (%s::uuid IS NOT NULL AND GREATEST(p.updated_at, COALESCE(MAX(pi.updated_at), p.updated_at)) = %s AND p.id > %s)

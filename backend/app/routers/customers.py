@@ -28,6 +28,7 @@ class CustomerIn(BaseModel):
     credit_limit_usd: Optional[float] = None
     credit_limit_lbp: Optional[float] = None
     price_list_id: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 @router.get("", dependencies=[Depends(require_permission("customers:read"))])
@@ -44,6 +45,7 @@ def list_customers(company_id: str = Depends(get_company_id)):
                        credit_balance_usd, credit_balance_lbp,
                        loyalty_points,
                        price_list_id,
+                       is_active,
                        updated_at
                 FROM customers
                 WHERE company_id = %s
@@ -66,9 +68,9 @@ def create_customer(data: CustomerIn, company_id: str = Depends(get_company_id))
                   (id, company_id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
                    membership_no, is_member, membership_expires_at,
                    payment_terms_days, credit_limit_usd, credit_limit_lbp,
-                   price_list_id)
+                   price_list_id, is_active)
                 VALUES
-                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -89,6 +91,7 @@ def create_customer(data: CustomerIn, company_id: str = Depends(get_company_id))
                     data.credit_limit_usd or 0,
                     data.credit_limit_lbp or 0,
                     data.price_list_id,
+                    bool(data.is_active) if data.is_active is not None else True,
                 ),
             )
             return {"id": cur.fetchone()["id"]}
@@ -111,6 +114,7 @@ class CustomerUpdate(BaseModel):
     credit_limit_usd: Optional[float] = None
     credit_limit_lbp: Optional[float] = None
     price_list_id: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 @router.patch("/{customer_id}", dependencies=[Depends(require_permission("customers:write"))])
@@ -122,6 +126,14 @@ def update_customer(customer_id: str, data: CustomerUpdate, company_id: str = De
         payload["membership_no"] = (payload.get("membership_no") or "").strip() or None
     if "code" in payload:
         payload["code"] = (payload.get("code") or "").strip() or None
+    if "legal_name" in payload:
+        payload["legal_name"] = (payload.get("legal_name") or "").strip() or None
+    if "tax_id" in payload:
+        payload["tax_id"] = (payload.get("tax_id") or "").strip() or None
+    if "vat_no" in payload:
+        payload["vat_no"] = (payload.get("vat_no") or "").strip() or None
+    if "notes" in payload:
+        payload["notes"] = (payload.get("notes") or "").strip() or None
     for k, v in payload.items():
         fields.append(f"{k} = %s")
         params.append(v)
@@ -159,6 +171,7 @@ class BulkCustomerIn(BaseModel):
     credit_limit_usd: Optional[float] = None
     credit_limit_lbp: Optional[float] = None
     price_list_id: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class BulkCustomersIn(BaseModel):
@@ -205,6 +218,7 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                         "credit_limit_usd": float(c.credit_limit_usd or 0),
                         "credit_limit_lbp": float(c.credit_limit_lbp or 0),
                         "price_list_id": c.price_list_id,
+                        "is_active": bool(c.is_active) if c.is_active is not None else True,
                     }
 
                     if code:
@@ -213,9 +227,9 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                             INSERT INTO customers
                               (id, company_id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
                                membership_no, is_member, membership_expires_at,
-                               payment_terms_days, credit_limit_usd, credit_limit_lbp, price_list_id)
+                               payment_terms_days, credit_limit_usd, credit_limit_lbp, price_list_id, is_active)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (company_id, code) DO UPDATE
                             SET name = EXCLUDED.name,
                                 phone = EXCLUDED.phone,
@@ -231,7 +245,8 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                                 payment_terms_days = EXCLUDED.payment_terms_days,
                                 credit_limit_usd = EXCLUDED.credit_limit_usd,
                                 credit_limit_lbp = EXCLUDED.credit_limit_lbp,
-                                price_list_id = EXCLUDED.price_list_id
+                                price_list_id = EXCLUDED.price_list_id,
+                                is_active = EXCLUDED.is_active
                             RETURNING id
                             """,
                             (
@@ -252,6 +267,7 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                                 payload["credit_limit_usd"],
                                 payload["credit_limit_lbp"],
                                 payload["price_list_id"],
+                                payload["is_active"],
                             ),
                         )
                         cur.fetchone()
@@ -349,3 +365,183 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                     (company_id, user["user_id"], json.dumps({"count": upserted})),
                 )
                 return {"ok": True, "upserted": upserted}
+
+
+class CustomerContactIn(BaseModel):
+    name: str
+    title: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    notes: Optional[str] = None
+    is_primary: bool = False
+    is_active: bool = True
+
+
+class CustomerContactUpdate(BaseModel):
+    name: Optional[str] = None
+    title: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    notes: Optional[str] = None
+    is_primary: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+@router.get("/{customer_id}/contacts", dependencies=[Depends(require_permission("customers:read"))])
+def list_customer_contacts(customer_id: str, company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM customers WHERE company_id=%s AND id=%s", (company_id, customer_id))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="customer not found")
+            cur.execute(
+                """
+                SELECT id, name, title, phone, email, notes, is_primary, is_active, updated_at
+                FROM party_contacts
+                WHERE company_id = %s AND party_kind = 'customer' AND party_id = %s
+                ORDER BY is_primary DESC, name ASC
+                """,
+                (company_id, customer_id),
+            )
+            return {"contacts": cur.fetchall()}
+
+
+@router.post("/{customer_id}/contacts", dependencies=[Depends(require_permission("customers:write"))])
+def create_customer_contact(
+    customer_id: str,
+    data: CustomerContactIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM customers WHERE company_id=%s AND id=%s", (company_id, customer_id))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="customer not found")
+                if data.is_primary:
+                    cur.execute(
+                        """
+                        UPDATE party_contacts
+                        SET is_primary = false, updated_at = now()
+                        WHERE company_id=%s AND party_kind='customer' AND party_id=%s
+                        """,
+                        (company_id, customer_id),
+                    )
+                cur.execute(
+                    """
+                    INSERT INTO party_contacts
+                      (id, company_id, party_kind, party_id, name, title, phone, email, notes, is_primary, is_active)
+                    VALUES
+                      (gen_random_uuid(), %s, 'customer', %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        company_id,
+                        customer_id,
+                        name,
+                        (data.title or "").strip() or None,
+                        (data.phone or "").strip() or None,
+                        (data.email or "").strip() or None,
+                        (data.notes or "").strip() or None,
+                        bool(data.is_primary),
+                        bool(data.is_active),
+                    ),
+                )
+                cid = cur.fetchone()["id"]
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'customer_contact_create', 'party_contact', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], cid, json.dumps({"customer_id": customer_id})),
+                )
+                return {"id": cid}
+
+
+@router.patch("/{customer_id}/contacts/{contact_id}", dependencies=[Depends(require_permission("customers:write"))])
+def update_customer_contact(
+    customer_id: str,
+    contact_id: str,
+    data: CustomerContactUpdate,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    patch = data.model_dump(exclude_unset=True)
+    if not patch:
+        return {"ok": True}
+    fields = []
+    params = []
+    for k, v in patch.items():
+        if k in {"name", "title", "phone", "email", "notes"} and isinstance(v, str):
+            v = v.strip() or None
+        fields.append(f"{k} = %s")
+        params.append(v)
+    params.extend([company_id, contact_id, customer_id])
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                if patch.get("is_primary") is True:
+                    cur.execute(
+                        """
+                        UPDATE party_contacts
+                        SET is_primary = false, updated_at = now()
+                        WHERE company_id=%s AND party_kind='customer' AND party_id=%s
+                        """,
+                        (company_id, customer_id),
+                    )
+                cur.execute(
+                    f"""
+                    UPDATE party_contacts
+                    SET {', '.join(fields)}, updated_at = now()
+                    WHERE company_id = %s AND id = %s AND party_kind='customer' AND party_id=%s
+                    RETURNING id
+                    """,
+                    params,
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="contact not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'customer_contact_update', 'party_contact', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], contact_id, json.dumps({"customer_id": customer_id, "patch": patch})),
+                )
+                return {"ok": True}
+
+
+@router.delete("/{customer_id}/contacts/{contact_id}", dependencies=[Depends(require_permission("customers:write"))])
+def delete_customer_contact(
+    customer_id: str,
+    contact_id: str,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM party_contacts
+                    WHERE company_id=%s AND id=%s AND party_kind='customer' AND party_id=%s
+                    """,
+                    (company_id, contact_id, customer_id),
+                )
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="contact not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'customer_contact_delete', 'party_contact', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], contact_id, json.dumps({"customer_id": customer_id})),
+                )
+                return {"ok": True}

@@ -7,9 +7,11 @@ import sqlite3
 import uuid
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 from urllib.request import Request, urlopen
 from urllib.error import URLError
+import secrets
+from datetime import timedelta
 
 import bcrypt
 
@@ -33,7 +35,14 @@ DEFAULT_CONFIG = {
     'pricing_currency': 'USD',
     'vat_rate': 0.11,
     'tax_code_id': None,
-    'loyalty_rate': 0
+    'loyalty_rate': 0,
+    # Optional local admin PIN to protect the POS agent when bound to LAN.
+    # Stored as bcrypt hash string (same family as backend cashier pins).
+    'admin_pin_hash': '',
+    # If true, require admin PIN even for localhost requests.
+    'require_admin_pin': False,
+    # Session duration for admin unlock when required.
+    'admin_session_hours': 12,
 }
 
 
@@ -64,6 +73,77 @@ def db_connect():
     return sqlite3.connect(DB_PATH)
 
 
+def _is_loopback(ip: str) -> bool:
+    ip = (ip or "").strip()
+    return ip in {"127.0.0.1", "::1", "localhost"}
+
+
+def _admin_pin_required(client_ip: str, cfg: dict) -> bool:
+    # Require admin session when:
+    # - request originates from non-loopback (LAN exposure), OR
+    # - require_admin_pin is explicitly enabled.
+    if cfg.get("require_admin_pin"):
+        return True
+    return not _is_loopback(client_ip)
+
+
+def _clean_expired_sessions(cur):
+    now = datetime.utcnow().isoformat()
+    cur.execute("DELETE FROM pos_local_sessions WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
+
+
+def _validate_admin_session(token: str) -> bool:
+    token = (token or "").strip()
+    if not token:
+        return False
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        _clean_expired_sessions(cur)
+        cur.execute("SELECT 1 FROM pos_local_sessions WHERE token = ? LIMIT 1", (token,))
+        ok = cur.fetchone() is not None
+        conn.commit()
+        return ok
+
+
+def _create_admin_session(hours: int) -> dict:
+    hours_i = int(hours or 12)
+    if hours_i <= 0 or hours_i > 24 * 14:
+        hours_i = 12
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.utcnow() + timedelta(hours=hours_i)).isoformat()
+    with db_connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO pos_local_sessions (token, expires_at) VALUES (?, ?)",
+            (token, expires_at),
+        )
+        conn.commit()
+    return {"token": token, "expires_at": expires_at}
+
+
+def _set_admin_pin(cfg: dict, pin: str):
+    pin = (pin or "").strip()
+    if len(pin) < 4:
+        raise ValueError("pin must be at least 4 digits")
+    ph = bcrypt.hashpw(pin.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+    cfg["admin_pin_hash"] = ph
+    save_config(cfg)
+    return ph
+
+
+def _verify_admin_pin(cfg: dict, pin: str) -> bool:
+    pin = (pin or "").strip()
+    if not pin:
+        return False
+    ph = (cfg.get("admin_pin_hash") or "").encode("utf-8")
+    if not ph:
+        return False
+    try:
+        return bcrypt.checkpw(pin.encode("utf-8"), ph)
+    except Exception:
+        return False
+
 def init_db():
     if not os.path.exists(SCHEMA_PATH):
         raise RuntimeError(f"Missing schema file: {SCHEMA_PATH}")
@@ -87,10 +167,29 @@ def init_db():
             "credit_balance_lbp": "REAL DEFAULT 0",
             "loyalty_points": "REAL DEFAULT 0",
             "price_list_id": "TEXT",
+            "is_active": "INTEGER DEFAULT 1",
         }
         for col, ddl in wanted.items():
             if col not in cols:
                 cur.execute(f"ALTER TABLE local_customers_cache ADD COLUMN {col} {ddl}")
+
+        cur.execute("PRAGMA table_info(local_items_cache)")
+        item_cols = {r[1] for r in cur.fetchall()}
+        item_wanted = {
+            "is_active": "INTEGER DEFAULT 1",
+            "category_id": "TEXT",
+            "brand": "TEXT",
+            "short_name": "TEXT",
+            "description": "TEXT",
+            "track_batches": "INTEGER DEFAULT 0",
+            "track_expiry": "INTEGER DEFAULT 0",
+            "default_shelf_life_days": "INTEGER",
+            "min_shelf_life_days_for_sale": "INTEGER",
+            "expiry_warning_days": "INTEGER",
+        }
+        for col, ddl in item_wanted.items():
+            if col not in item_cols:
+                cur.execute(f"ALTER TABLE local_items_cache ADD COLUMN {col} {ddl}")
         conn.commit()
 
 
@@ -99,7 +198,7 @@ def json_response(handler, payload, status=200):
     handler.send_response(status)
     handler.send_header('Content-Type', 'application/json')
     handler.send_header('Access-Control-Allow-Origin', '*')
-    handler.send_header('Access-Control-Allow-Headers', 'Content-Type')
+    handler.send_header('Access-Control-Allow-Headers', 'Content-Type,X-POS-Session')
     handler.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     handler.end_headers()
     handler.wfile.write(body)
@@ -109,7 +208,7 @@ def text_response(handler, body, status=200, content_type='text/plain'):
     handler.send_response(status)
     handler.send_header('Content-Type', content_type)
     handler.send_header('Access-Control-Allow-Origin', '*')
-    handler.send_header('Access-Control-Allow-Headers', 'Content-Type')
+    handler.send_header('Access-Control-Allow-Headers', 'Content-Type,X-POS-Session')
     handler.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     handler.end_headers()
     handler.wfile.write(body.encode('utf-8'))
@@ -157,6 +256,131 @@ def device_headers(cfg):
     }
 
 
+def get_sync_cursor(resource: str):
+    resource = (resource or "").strip()
+    if not resource:
+        return None, None
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("SELECT cursor, cursor_id FROM pos_sync_cursors WHERE resource = ?", (resource,))
+        row = cur.fetchone()
+        if not row:
+            return None, None
+        return row["cursor"], row["cursor_id"]
+
+
+def set_sync_cursor(resource: str, cursor=None, cursor_id=None):
+    resource = (resource or "").strip()
+    if not resource:
+        return
+    with db_connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO pos_sync_cursors (resource, cursor, cursor_id, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(resource) DO UPDATE SET
+              cursor=excluded.cursor,
+              cursor_id=excluded.cursor_id,
+              updated_at=excluded.updated_at
+            """,
+            (resource, cursor, cursor_id, datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+
+
+def clear_sync_cursors(resources=None):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        if not resources:
+            cur.execute("DELETE FROM pos_sync_cursors")
+        else:
+            cur.execute("DELETE FROM pos_sync_cursors WHERE resource IN (%s)" % ",".join(["?"] * len(resources)), tuple(resources))
+        conn.commit()
+
+
+def apply_inbox_events(events, cfg: dict):
+    """
+    Apply server->device inbox events.
+    Supported:
+    - config.patch: {"set": {...}}
+    - sync.reset: {"resources": ["catalog","customers",...]} (omit => all)
+    - message: freeform payload
+    """
+    now = datetime.utcnow().isoformat()
+    applied_ids = []
+    changed_cfg = False
+    for ev in events or []:
+        eid = ev.get("id") or ev.get("event_id")
+        etype = (ev.get("event_type") or "").strip()
+        payload = ev.get("payload_json") or ev.get("payload") or {}
+        try:
+            # psycopg returns jsonb as dict already; keep dict
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+        except Exception:
+            payload = {}
+
+        if eid:
+            applied_ids.append(str(eid))
+            with db_connect() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    INSERT INTO pos_inbox_events (event_id, event_type, payload_json, applied_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(event_id) DO NOTHING
+                    """,
+                    (str(eid), etype, json.dumps(payload), now),
+                )
+                conn.commit()
+
+        if etype == "config.patch":
+            to_set = (payload or {}).get("set") or {}
+            if isinstance(to_set, dict):
+                for k, v in to_set.items():
+                    cfg[k] = v
+                    changed_cfg = True
+        elif etype == "sync.reset":
+            resources = (payload or {}).get("resources") or None
+            if resources and isinstance(resources, list):
+                clear_sync_cursors(resources=[str(r) for r in resources if str(r)])
+            else:
+                clear_sync_cursors(resources=None)
+        else:
+            # Unknown events are stored for audit/visibility.
+            pass
+
+    if changed_cfg:
+        save_config(cfg)
+    return applied_ids
+
+
+def sync_resource_snapshot(base: str, headers: dict, resource: str, url: str, key: str, upsert_fn):
+    res = fetch_json(url, headers=headers)
+    rows = (res or {}).get(key) or []
+    upsert_fn(rows)
+    server_time = (res or {}).get("server_time") or datetime.utcnow().isoformat()
+    set_sync_cursor(resource, server_time, None)
+    return {"mode": "snapshot", "count": len(rows)}
+
+
+def sync_resource_delta(base: str, headers: dict, resource: str, url_base: str, key: str, upsert_fn):
+    since, since_id = get_sync_cursor(resource)
+    if not since:
+        return None
+    qs = [f"since={quote(str(since))}"]
+    if since_id:
+        qs.append(f"since_id={quote(str(since_id))}")
+    url = url_base + ("&" if "?" in url_base else "?") + "&".join(qs)
+    res = fetch_json(url, headers=headers)
+    rows = (res or {}).get(key) or []
+    upsert_fn(rows)
+    set_sync_cursor(resource, (res or {}).get("next_cursor") or since, (res or {}).get("next_cursor_id") or since_id)
+    return {"mode": "delta", "count": len(rows)}
+
+
 def get_items():
     with db_connect() as conn:
         conn.row_factory = sqlite3.Row
@@ -164,6 +388,9 @@ def get_items():
         cur.execute(
             """
             SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure,
+                   i.category_id, i.brand, i.short_name, i.description,
+                   i.track_batches, i.track_expiry,
+                   i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
                    p.price_usd, p.price_lbp
             FROM local_items_cache i
             LEFT JOIN (
@@ -173,6 +400,7 @@ def get_items():
                 SELECT MAX(effective_from) FROM local_prices_cache WHERE item_id = lp.item_id
               )
             ) p ON p.item_id = i.id
+            WHERE i.is_active = 1
             ORDER BY i.sku
             """
         )
@@ -222,13 +450,16 @@ def get_customers(query: str = "", limit: int = 50):
                        credit_balance_usd, credit_balance_lbp,
                        loyalty_points,
                        price_list_id,
+                       is_active,
                        updated_at
                 FROM local_customers_cache
-                WHERE lower(name) LIKE ?
+                WHERE is_active = 1 AND (
+                      lower(name) LIKE ?
                    OR lower(COALESCE(phone, '')) LIKE ?
                    OR lower(COALESCE(email, '')) LIKE ?
                    OR lower(COALESCE(membership_no, '')) LIKE ?
                    OR lower(id) LIKE ?
+                )
                 ORDER BY name
                 LIMIT ?
                 """,
@@ -244,8 +475,10 @@ def get_customers(query: str = "", limit: int = 50):
                        credit_balance_usd, credit_balance_lbp,
                        loyalty_points,
                        price_list_id,
+                       is_active,
                        updated_at
                 FROM local_customers_cache
+                WHERE is_active = 1
                 ORDER BY name
                 LIMIT ?
                 """,
@@ -270,6 +503,7 @@ def get_customer_by_id(customer_id: str):
                    credit_balance_usd, credit_balance_lbp,
                    loyalty_points,
                    price_list_id,
+                   is_active,
                    updated_at
             FROM local_customers_cache
             WHERE id = ?
@@ -294,9 +528,10 @@ def upsert_customers(customers):
                    credit_balance_usd, credit_balance_lbp,
                    loyalty_points,
                    price_list_id,
+                   is_active,
                    updated_at)
                 VALUES
-                  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                   name=excluded.name,
                   phone=excluded.phone,
@@ -311,6 +546,7 @@ def upsert_customers(customers):
                   credit_balance_lbp=excluded.credit_balance_lbp,
                   loyalty_points=excluded.loyalty_points,
                   price_list_id=excluded.price_list_id,
+                  is_active=excluded.is_active,
                   updated_at=excluded.updated_at
                 """,
                 (
@@ -328,7 +564,8 @@ def upsert_customers(customers):
                     float(c.get("credit_balance_lbp") or 0),
                     float(c.get("loyalty_points") or 0),
                     c.get("price_list_id"),
-                    (c.get("updated_at") or datetime.utcnow().isoformat()),
+                    1 if c.get("is_active", True) else 0,
+                    (c.get("updated_at") or c.get("changed_at") or datetime.utcnow().isoformat()),
                 ),
             )
         conn.commit()
@@ -469,7 +706,7 @@ def get_last_receipt():
         }
 
 
-def _receipt_html(receipt_row: dict | None):
+def _receipt_html(receipt_row):
     if not receipt_row:
         return """<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Receipt</title></head><body><p>No receipt yet.</p></body></html>"""
 
@@ -684,16 +921,35 @@ def upsert_catalog(items):
     with db_connect() as conn:
         cur = conn.cursor()
         for it in items:
+            updated_at = it.get("changed_at") or it.get("updated_at") or datetime.utcnow().isoformat()
             cur.execute(
                 """
-                INSERT INTO local_items_cache (id, sku, barcode, name, unit_of_measure, tax_code_id, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO local_items_cache
+                  (id, sku, barcode, name, unit_of_measure, tax_code_id,
+                   is_active, category_id, brand, short_name, description,
+                   track_batches, track_expiry, default_shelf_life_days, min_shelf_life_days_for_sale, expiry_warning_days,
+                   updated_at)
+                VALUES
+                  (?, ?, ?, ?, ?, ?,
+                   ?, ?, ?, ?, ?,
+                   ?, ?, ?, ?, ?,
+                   ?)
                 ON CONFLICT(id) DO UPDATE SET
                   sku=excluded.sku,
                   barcode=excluded.barcode,
                   name=excluded.name,
                   unit_of_measure=excluded.unit_of_measure,
                   tax_code_id=excluded.tax_code_id,
+                  is_active=excluded.is_active,
+                  category_id=excluded.category_id,
+                  brand=excluded.brand,
+                  short_name=excluded.short_name,
+                  description=excluded.description,
+                  track_batches=excluded.track_batches,
+                  track_expiry=excluded.track_expiry,
+                  default_shelf_life_days=excluded.default_shelf_life_days,
+                  min_shelf_life_days_for_sale=excluded.min_shelf_life_days_for_sale,
+                  expiry_warning_days=excluded.expiry_warning_days,
                   updated_at=excluded.updated_at
                 """,
                 (
@@ -702,11 +958,23 @@ def upsert_catalog(items):
                     it.get('barcode'),
                     it.get('name'),
                     it.get('unit_of_measure'),
-                    None,
-                    datetime.utcnow().isoformat(),
+                    it.get("tax_code_id"),
+                    1 if it.get("is_active", True) else 0,
+                    it.get("category_id"),
+                    it.get("brand"),
+                    it.get("short_name"),
+                    it.get("description"),
+                    1 if it.get("track_batches") else 0,
+                    1 if it.get("track_expiry") else 0,
+                    it.get("default_shelf_life_days"),
+                    it.get("min_shelf_life_days_for_sale"),
+                    it.get("expiry_warning_days"),
+                    updated_at,
                 ),
             )
 
+            # Keep item barcodes in sync.
+            cur.execute("DELETE FROM local_item_barcodes_cache WHERE item_id = ?", (it.get("id"),))
             # Multi-barcodes / pack factors
             for b in (it.get("barcodes") or []):
                 cur.execute(
@@ -743,11 +1011,37 @@ def upsert_catalog(items):
                   effective_to=excluded.effective_to
                 """,
                 (
-                    f"price-{it.get('id')}-{datetime.utcnow().date()}",
+                    f"price-current-{it.get('id')}",
                     it.get('id'),
                     it.get('price_usd') or 0,
                     it.get('price_lbp') or 0,
                     datetime.utcnow().date().isoformat(),
+                ),
+            )
+        conn.commit()
+
+
+def upsert_categories(categories):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        for c in categories or []:
+            updated_at = c.get("changed_at") or c.get("updated_at") or datetime.utcnow().isoformat()
+            cur.execute(
+                """
+                INSERT INTO local_item_categories_cache (id, name, parent_id, is_active, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  name=excluded.name,
+                  parent_id=excluded.parent_id,
+                  is_active=excluded.is_active,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    c.get("id"),
+                    c.get("name"),
+                    c.get("parent_id"),
+                    1 if c.get("is_active", True) else 0,
+                    updated_at,
                 ),
             )
         conn.commit()
@@ -820,7 +1114,9 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
             'line_total_usd': line_total_usd,
             'line_total_lbp': line_total_lbp,
             'unit_cost_usd': 0,
-            'unit_cost_lbp': 0
+            'unit_cost_lbp': 0,
+            'batch_no': item.get('batch_no') or None,
+            'expiry_date': item.get('expiry_date') or None
         })
 
     tax_block = None
@@ -891,7 +1187,9 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
             'line_total_usd': line_total_usd,
             'line_total_lbp': line_total_lbp,
             'unit_cost_usd': 0,
-            'unit_cost_lbp': 0
+            'unit_cost_lbp': 0,
+            'batch_no': item.get('batch_no') or None,
+            'expiry_date': item.get('expiry_date') or None
         })
 
     tax_block = None
@@ -929,7 +1227,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type,X-POS-Session')
         self.send_header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
         self.end_headers()
 
@@ -1006,9 +1304,62 @@ class Handler(BaseHTTPRequestHandler):
         json_response(self, {'error': 'not found'}, status=404)
 
     def handle_api_post(self, parsed):
+        client_ip = (self.client_address[0] if self.client_address else "")
+
+        # Local admin PIN setup (loopback-only).
+        if parsed.path == "/api/admin/pin/set":
+            if not _is_loopback(client_ip):
+                json_response(self, {"error": "forbidden", "hint": "PIN setup is allowed only from localhost."}, status=403)
+                return
+            data = self.read_json()
+            pin = (data.get("pin") or "").strip()
+            cfg = load_config()
+            try:
+                _set_admin_pin(cfg, pin)
+                json_response(self, {"ok": True})
+            except Exception as ex:
+                json_response(self, {"error": str(ex)}, status=400)
+            return
+
+        # Local admin unlock (returns session token for X-POS-Session header).
+        if parsed.path == "/api/auth/pin":
+            data = self.read_json()
+            pin = (data.get("pin") or "").strip()
+            cfg = load_config()
+            if not (cfg.get("admin_pin_hash") or "").strip():
+                json_response(
+                    self,
+                    {"error": "admin_pin_not_set", "hint": "Set a PIN via POST /api/admin/pin/set (localhost only)."},
+                    status=400,
+                )
+                return
+            if not _verify_admin_pin(cfg, pin):
+                json_response(self, {"error": "invalid_pin"}, status=401)
+                return
+            sess = _create_admin_session(int(cfg.get("admin_session_hours") or 12))
+            json_response(self, {"ok": True, "token": sess["token"], "expires_at": sess["expires_at"]})
+            return
+
+        # Guard mutating endpoints when the agent is LAN-exposed (or explicitly required).
+        cfg = load_config()
+        if _admin_pin_required(client_ip, cfg):
+            if not (cfg.get("admin_pin_hash") or "").strip():
+                json_response(
+                    self,
+                    {
+                        "error": "pos_auth_required",
+                        "hint": "Set admin PIN (localhost): POST /api/admin/pin/set, then unlock with POST /api/auth/pin.",
+                    },
+                    status=503,
+                )
+                return
+            token = (self.headers.get("X-POS-Session") or "").strip()
+            if not _validate_admin_session(token):
+                json_response(self, {"error": "pos_auth_required"}, status=401)
+                return
+
         if parsed.path == '/api/config':
             data = self.read_json()
-            cfg = load_config()
             cfg.update(data)
             save_config(cfg)
             json_response(self, {'ok': True, 'config': cfg})
@@ -1209,14 +1560,41 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 headers = device_headers(cfg)
-                catalog = fetch_json(f"{base}/pos/catalog?company_id={company_id}", headers=headers)
-                upsert_catalog(catalog.get('items', []))
+                out = {}
+
+                # Categories (delta-first).
+                delta = sync_resource_delta(base, headers, "categories", f"{base}/pos/item-categories/catalog/delta", "categories", upsert_categories)
+                if delta is None:
+                    out["categories"] = sync_resource_snapshot(base, headers, "categories", f"{base}/pos/item-categories/catalog", "categories", upsert_categories)
+                else:
+                    out["categories"] = delta
+
+                # Catalog (delta-first).
+                delta = sync_resource_delta(base, headers, "catalog", f"{base}/pos/catalog/delta?company_id={quote(str(company_id))}", "items", upsert_catalog)
+                if delta is None:
+                    out["catalog"] = sync_resource_snapshot(base, headers, "catalog", f"{base}/pos/catalog?company_id={quote(str(company_id))}", "items", upsert_catalog)
+                else:
+                    out["catalog"] = delta
+
+                # Cashiers (small; snapshot is fine).
                 cashiers = fetch_json(f"{base}/pos/cashiers/catalog", headers=headers)
                 upsert_cashiers(cashiers.get("cashiers", []))
-                customers = fetch_json(f"{base}/pos/customers/catalog", headers=headers)
-                upsert_customers(customers.get("customers", []))
-                promos = fetch_json(f"{base}/pos/promotions/catalog", headers=headers)
-                upsert_promotions(promos.get("promotions", []))
+                out["cashiers"] = {"mode": "snapshot", "count": len(cashiers.get("cashiers", []) or [])}
+
+                # Customers (delta-first).
+                delta = sync_resource_delta(base, headers, "customers", f"{base}/pos/customers/catalog/delta", "customers", upsert_customers)
+                if delta is None:
+                    out["customers"] = sync_resource_snapshot(base, headers, "customers", f"{base}/pos/customers/catalog", "customers", upsert_customers)
+                else:
+                    out["customers"] = delta
+
+                # Promotions (delta-first).
+                delta = sync_resource_delta(base, headers, "promotions", f"{base}/pos/promotions/delta", "promotions", upsert_promotions)
+                if delta is None:
+                    out["promotions"] = sync_resource_snapshot(base, headers, "promotions", f"{base}/pos/promotions/catalog", "promotions", upsert_promotions)
+                else:
+                    out["promotions"] = delta
+
                 # Pull device-scoped config (warehouse, VAT settings) to reduce manual setup.
                 pos_cfg = fetch_json(f"{base}/pos/config", headers=headers)
                 if pos_cfg.get('default_warehouse_id'):
@@ -1230,14 +1608,22 @@ class Handler(BaseHTTPRequestHandler):
                 if rate.get('rate'):
                     cfg['exchange_rate'] = rate['rate']['usd_to_lbp']
                     save_config(cfg)
+
+                # Apply inbox events (server -> device), then ACK.
+                inbox = fetch_json(f"{base}/pos/inbox/pull?limit=200", headers=headers)
+                applied = apply_inbox_events(inbox.get("events", []) or [], cfg)
+                if applied:
+                    try:
+                        post_json(f"{base}/pos/inbox/ack", {"event_ids": applied}, headers=headers)
+                    except URLError:
+                        pass
+
                 json_response(
                     self,
                     {
                         'ok': True,
-                        'items': len(catalog.get('items', [])),
-                        'cashiers': len(cashiers.get('cashiers', []) or []),
-                        'customers': len(customers.get('customers', []) or []),
-                        'promotions': len(promos.get('promotions', []) or []),
+                        'sync': out,
+                        'applied_inbox': len(applied or []),
                     },
                 )
             except URLError as ex:

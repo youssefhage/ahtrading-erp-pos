@@ -5,6 +5,7 @@ from decimal import Decimal
 from datetime import datetime
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission
+from ..deps import get_current_user
 
 router = APIRouter(prefix="/intercompany", tags=["intercompany"])
 
@@ -35,7 +36,7 @@ class IntercompanySettleIn(BaseModel):
 
 
 @router.post("/issue", dependencies=[Depends(require_permission("intercompany:write"))])
-def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_company_id)):
+def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     if data.issue_company_id == data.sell_company_id:
         raise HTTPException(status_code=400, detail="issue and sell company must differ")
 
@@ -110,11 +111,22 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'intercompany_issue', %s, CURRENT_DATE, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type,
+                       exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'intercompany_issue', %s, CURRENT_DATE, 'market',
+                       %s, %s, %s)
                     RETURNING id
                     """,
-                    (data.issue_company_id, f"IC-ISSUE-{str(doc_id)[:8]}", doc_id),
+                    (
+                        data.issue_company_id,
+                        f"IC-ISSUE-{str(doc_id)[:8]}",
+                        doc_id,
+                        0,
+                        f"Intercompany issue {str(doc_id)[:8]}",
+                        user["user_id"],
+                    ),
                 )
                 journal_id = cur.fetchone()["id"]
 
@@ -130,10 +142,10 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                 # Credit inventory
                 cur.execute(
                     """
-                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                    VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory issued')
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                    VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory issued', %s)
                     """,
-                    (journal_id, inventory, total_cost_usd, total_cost_lbp),
+                    (journal_id, inventory, total_cost_usd, total_cost_lbp, data.warehouse_id),
                 )
 
     # Sell company: COGS + intercompany AP
@@ -156,11 +168,22 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'intercompany_issue', %s, CURRENT_DATE, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type,
+                       exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'intercompany_issue', %s, CURRENT_DATE, 'market',
+                       %s, %s, %s)
                     RETURNING id
                     """,
-                    (data.sell_company_id, f"IC-SELL-{str(doc_id)[:8]}", doc_id),
+                    (
+                        data.sell_company_id,
+                        f"IC-SELL-{str(doc_id)[:8]}",
+                        doc_id,
+                        0,
+                        f"Intercompany sell-side COGS {str(doc_id)[:8]}",
+                        user["user_id"],
+                    ),
                 )
                 journal_id = cur.fetchone()["id"]
 
@@ -206,7 +229,7 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
 
 
 @router.post("/settle", dependencies=[Depends(require_permission("intercompany:write"))])
-def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(get_company_id)):
+def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     # From company pays to company
     method = (data.method or "bank").lower()
     if method not in {"cash", "bank"}:
@@ -232,11 +255,21 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'intercompany_settlement', NULL, CURRENT_DATE, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type,
+                       exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'intercompany_settlement', NULL, CURRENT_DATE, 'market',
+                       %s, %s, %s)
                     RETURNING id
                     """,
-                    (data.from_company_id, f"IC-SETTLE-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",),
+                    (
+                        data.from_company_id,
+                        f"IC-SETTLE-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                        data.exchange_rate,
+                        "Intercompany settlement (payer)",
+                        user["user_id"],
+                    ),
                 )
                 journal_id = cur.fetchone()["id"]
 
@@ -276,11 +309,21 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'intercompany_settlement', NULL, CURRENT_DATE, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type,
+                       exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'intercompany_settlement', NULL, CURRENT_DATE, 'market',
+                       %s, %s, %s)
                     RETURNING id
                     """,
-                    (data.to_company_id, f"IC-RECV-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",),
+                    (
+                        data.to_company_id,
+                        f"IC-RECV-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                        data.exchange_rate,
+                        "Intercompany settlement (receiver)",
+                        user["user_id"],
+                    ),
                 )
                 journal_id = cur.fetchone()["id"]
 

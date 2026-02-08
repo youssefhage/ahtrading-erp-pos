@@ -858,11 +858,21 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'sales_invoice', %s, %s, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'sales_invoice', %s, %s, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"GL-{inv['invoice_no']}", invoice_id, inv_date),
+                    (
+                        company_id,
+                        f"GL-{inv['invoice_no']}",
+                        invoice_id,
+                        inv_date,
+                        inv.get("exchange_rate") or 0,
+                        f"Sales invoice {inv['invoice_no']}",
+                        user["user_id"],
+                    ),
                 )
                 journal_id = cur.fetchone()["id"]
 
@@ -873,10 +883,10 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                         raise HTTPException(status_code=400, detail=f"Missing payment method mapping for {p['method']}")
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales receipt')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales receipt', %s)
                         """,
-                        (journal_id, acc, p["amount_usd"], p["amount_lbp"]),
+                        (journal_id, acc, p["amount_usd"], p["amount_lbp"], inv.get("warehouse_id")),
                     )
 
                 if credit_sale:
@@ -884,27 +894,27 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                         raise HTTPException(status_code=400, detail="Missing AR account default")
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales receivable')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales receivable', %s)
                         """,
-                        (journal_id, ar, credit_usd, credit_lbp),
+                        (journal_id, ar, credit_usd, credit_lbp, inv.get("warehouse_id")),
                     )
 
                 if inv["doc_subtype"] == "opening_balance":
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Opening balance offset')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Opening balance offset', %s)
                         """,
-                        (journal_id, opening_bal, base_usd, base_lbp),
+                        (journal_id, opening_bal, base_usd, base_lbp, inv.get("warehouse_id")),
                     )
                 else:
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Sales revenue')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Sales revenue', %s)
                         """,
-                        (journal_id, sales, base_usd, base_lbp),
+                        (journal_id, sales, base_usd, base_lbp, inv.get("warehouse_id")),
                     )
 
                 if tax_code_id and (tax_usd != 0 or tax_lbp != 0):
@@ -912,10 +922,10 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                         raise HTTPException(status_code=400, detail="Missing VAT_PAYABLE account default")
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'VAT payable')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'VAT payable', %s)
                         """,
-                        (journal_id, vat_payable, tax_usd, tax_lbp),
+                        (journal_id, vat_payable, tax_usd, tax_lbp, inv.get("warehouse_id")),
                     )
 
                 if inv["doc_subtype"] != "opening_balance" and (total_cost_usd > 0 or total_cost_lbp > 0):
@@ -923,17 +933,17 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                         raise HTTPException(status_code=400, detail="Missing INVENTORY/COGS account defaults")
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'COGS')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'COGS', %s)
                         """,
-                        (journal_id, cogs, total_cost_usd, total_cost_lbp),
+                        (journal_id, cogs, total_cost_usd, total_cost_lbp, inv.get("warehouse_id")),
                     )
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory reduction')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory reduction', %s)
                         """,
-                        (journal_id, inventory, total_cost_usd, total_cost_lbp),
+                        (journal_id, inventory, total_cost_usd, total_cost_lbp, inv.get("warehouse_id")),
                     )
 
                 if customer_id and credit_sale:
@@ -1324,11 +1334,13 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
 
                     cur.execute(
                         """
-                        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                        VALUES (gen_random_uuid(), %s, %s, 'sales_payment', %s, %s, 'market')
+                        INSERT INTO gl_journals
+                          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, 'sales_payment', %s, %s, 'market', 0, %s, %s)
                         RETURNING id
                         """,
-                        (company_id, f"CP-{str(payment_id)[:8]}", payment_id, pay_date),
+                        (company_id, f"CP-{str(payment_id)[:8]}", payment_id, pay_date, "Customer payment", user["user_id"]),
                     )
                     journal_id = cur.fetchone()["id"]
 

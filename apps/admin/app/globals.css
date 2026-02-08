@@ -4,17 +4,18 @@
 
 :root {
   /* App palette (RGB triples for Tailwind-friendly usage). */
-  --bg: 250 251 255;
-  --fg: 15 23 42;
-  --muted: 100 116 139;
+  --bg: 251 250 246;
+  --fg: 20 23 30;
+  --muted: 92 104 118;
   --card: 255 255 255;
-  --card-2: 248 250 252;
-  --border: 226 232 240;
-  --ring: 37 99 235;
-  --primary: 37 99 235;
+  --card-2: 252 251 247;
+  --border: 229 226 217;
+  --ring: 13 148 136;
+  --primary: 13 148 136;
   --primary-fg: 255 255 255;
+  --warning: 245 158 11;
   --danger: 220 38 38;
-  --danger-bg: 254 242 242;
+  --danger-bg: 255 241 242;
 }
 
 html,
@@ -25,9 +26,16 @@ body {
 body {
   color: rgb(var(--fg));
   background:
-    radial-gradient(900px circle at 18% -10%, rgba(59, 130, 246, 0.16), transparent 55%),
-    radial-gradient(900px circle at 90% 8%, rgba(249, 115, 22, 0.12), transparent 50%),
-    radial-gradient(700px circle at 60% 110%, rgba(34, 197, 94, 0.10), transparent 55%),
+    radial-gradient(1100px circle at 10% -12%, rgba(13, 148, 136, 0.18), transparent 55%),
+    radial-gradient(980px circle at 92% 10%, rgba(245, 158, 11, 0.14), transparent 50%),
+    radial-gradient(820px circle at 62% 112%, rgba(37, 99, 235, 0.10), transparent 55%),
+    repeating-linear-gradient(
+      90deg,
+      rgba(15, 23, 42, 0.035) 0px,
+      rgba(15, 23, 42, 0.035) 1px,
+      transparent 1px,
+      transparent 14px
+    ),
     linear-gradient(to bottom, rgb(var(--bg)), #ffffff);
 }
 
@@ -53,19 +61,23 @@ body {
 
   input[type="checkbox"] {
     @apply h-4 w-4 rounded border border-slate-300 bg-white shadow-sm;
-    @apply text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70;
+    @apply text-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70;
   }
 }
 
 @layer components {
   .ui-control {
-    @apply h-10 w-full rounded-md border border-slate-200/80 bg-white/80 px-3 text-sm shadow-sm backdrop-blur-[2px] transition;
-    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply h-10 w-full rounded-lg px-3 text-sm shadow-sm backdrop-blur-[2px] transition;
+    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70 disabled:cursor-not-allowed disabled:opacity-50;
+    border: 1px solid rgb(var(--border) / 0.92);
+    background: rgba(255, 255, 255, 0.72);
   }
 
   .ui-control-sm {
-    @apply h-9 w-full rounded-md border border-slate-200/80 bg-white/80 px-2 text-sm shadow-sm backdrop-blur-[2px] transition;
-    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply h-9 w-full rounded-lg px-2 text-sm shadow-sm backdrop-blur-[2px] transition;
+    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70 disabled:cursor-not-allowed disabled:opacity-50;
+    border: 1px solid rgb(var(--border) / 0.92);
+    background: rgba(255, 255, 255, 0.72);
   }
 
   .ui-select {
@@ -75,17 +87,21 @@ body {
   }
 
   .ui-textarea {
-    @apply w-full rounded-md border border-slate-200/80 bg-white/80 px-3 py-2 text-sm shadow-sm backdrop-blur-[2px] transition;
-    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply w-full rounded-lg px-3 py-2 text-sm shadow-sm backdrop-blur-[2px] transition;
+    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70 disabled:cursor-not-allowed disabled:opacity-50;
+    border: 1px solid rgb(var(--border) / 0.92);
+    background: rgba(255, 255, 255, 0.72);
   }
 
   .ui-checkbox {
     @apply h-4 w-4 rounded border border-slate-300 bg-white shadow-sm;
-    @apply text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70;
+    @apply text-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70;
   }
 
   .ui-table-wrap {
-    @apply overflow-x-auto rounded-lg border border-slate-200/70 bg-white/70 shadow-sm backdrop-blur-[2px];
+    @apply overflow-auto rounded-xl shadow-sm backdrop-blur-[2px];
+    border: 1px solid rgb(var(--border) / 0.9);
+    background: rgba(255, 255, 255, 0.66);
   }
 
   .ui-table {
@@ -93,7 +109,8 @@ body {
   }
 
   .ui-thead {
-    @apply bg-slate-50/70 text-xs uppercase tracking-wide text-slate-600;
+    @apply text-xs uppercase tracking-wide text-slate-600;
+    background: rgba(252, 251, 247, 0.92);
   }
 
   .ui-tr {
@@ -103,4 +120,36 @@ body {
   .ui-tr-hover {
     @apply ui-tr hover:bg-slate-50/50;
   }
+
+  .ui-kbd {
+    @apply inline-flex items-center justify-center rounded-md border border-slate-200 bg-white/70 px-1.5 py-0.5 text-[11px] font-medium text-slate-700 shadow-sm;
+  }
+
+  .ui-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/70 px-3 py-1.5 text-xs text-slate-700 shadow-sm backdrop-blur-[2px];
+  }
+}
+
+/* Table enhancements (global so pages don’t need to remember classes). */
+.ui-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: inherit;
+}
+
+.ui-table tbody td {
+  vertical-align: top;
+}
+
+.ui-table tbody tr:nth-child(even) {
+  background: rgba(15, 23, 42, 0.015);
+}
+
+.ui-table code {
+  border: 1px solid rgb(var(--border) / 0.85);
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 0.5rem;
+  padding: 0.15rem 0.4rem;
+  font-size: 0.75rem;
 }

@@ -200,6 +200,42 @@ def _get_or_create_batch(cur, company_id: str, item_id: str, batch_no: Optional[
     return cur.fetchone()["id"]
 
 
+def _enforce_item_tracking(cur, company_id: str, item_id: str, batch_no: Optional[str], expiry_date: Optional[date], doc_label: str):
+    """
+    Enforce batch/expiry capture for items flagged as tracked.
+    - track_batches => batch_no required
+    - track_expiry => expiry_date required
+    """
+    cur.execute(
+        """
+        SELECT track_batches, track_expiry, default_shelf_life_days
+        FROM items
+        WHERE company_id=%s AND id=%s
+        """,
+        (company_id, item_id),
+    )
+    it = cur.fetchone()
+    if not it:
+        raise HTTPException(status_code=404, detail="item not found")
+
+    track_batches = bool(it.get("track_batches"))
+    track_expiry = bool(it.get("track_expiry"))
+    shelf = it.get("default_shelf_life_days")
+
+    bno = (batch_no or "").strip()
+    if track_batches and not bno:
+        raise HTTPException(status_code=400, detail=f"{doc_label}: batch_no is required for this item")
+
+    if track_expiry and not expiry_date:
+        if shelf is not None:
+            try:
+                return date.today() + timedelta(days=int(shelf))
+            except Exception:
+                pass
+        raise HTTPException(status_code=400, detail=f"{doc_label}: expiry_date is required for this item")
+    return expiry_date
+
+
 class PurchaseLine(BaseModel):
     item_id: str
     qty: Decimal
@@ -1135,8 +1171,9 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                 )
                 receipt_id = cur.fetchone()["id"]
 
-                for l in data.lines:
-                    batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, l.expiry_date)
+                for idx, l in enumerate(data.lines):
+                    exp = _enforce_item_tracking(cur, company_id, l.item_id, l.batch_no, l.expiry_date, f"line {idx+1}")
+                    batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, exp)
                     cur.execute(
                         """
                         INSERT INTO goods_receipt_lines
@@ -1185,26 +1222,28 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'goods_receipt', %s, CURRENT_DATE, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'goods_receipt', %s, CURRENT_DATE, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"GR-{receipt_no}", receipt_id),
+                    (company_id, f"GR-{receipt_no}", receipt_id, data.exchange_rate, f"Goods receipt {receipt_no}", user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
                 cur.execute(
                     """
-                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                    VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory received')
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                    VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory received', %s)
                     """,
-                    (journal_id, inventory, total_usd, total_lbp),
+                    (journal_id, inventory, total_usd, total_lbp, data.warehouse_id),
                 )
                 cur.execute(
                     """
-                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                    VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'GRNI')
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                    VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'GRNI', %s)
                     """,
-                    (journal_id, grni, total_usd, total_lbp),
+                    (journal_id, grni, total_usd, total_lbp, data.warehouse_id),
                 )
 
                 cur.execute(
@@ -1257,8 +1296,9 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                 )
                 receipt_id = cur.fetchone()["id"]
 
-                for ln in (normalized or []):
-                    batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"))
+                for idx, ln in enumerate(normalized or []):
+                    exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
+                    batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
                     cur.execute(
                         """
                         INSERT INTO goods_receipt_lines
@@ -1328,10 +1368,9 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                         "DELETE FROM goods_receipt_lines WHERE company_id = %s AND goods_receipt_id = %s",
                         (company_id, receipt_id),
                     )
-                    for ln in normalized:
-                        batch_id = _get_or_create_batch(
-                            cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date")
-                        )
+                    for idx, ln in enumerate(normalized):
+                        exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
+                        batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
                         cur.execute(
                             """
                             INSERT INTO goods_receipt_lines
@@ -1472,27 +1511,29 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'goods_receipt', %s, %s, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'goods_receipt', %s, %s, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"GR-{receipt_no}", receipt_id, posting_date),
+                    (company_id, f"GR-{receipt_no}", receipt_id, posting_date, rec.get("exchange_rate") or 0, f"Goods receipt {receipt_no}", user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 
                 cur.execute(
                     """
-                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                    VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory received')
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                    VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory received', %s)
                     """,
-                    (journal_id, inventory, total_usd, total_lbp),
+                    (journal_id, inventory, total_usd, total_lbp, rec["warehouse_id"]),
                 )
                 cur.execute(
                     """
-                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                    VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'GRNI')
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                    VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'GRNI', %s)
                     """,
-                    (journal_id, grni, total_usd, total_lbp),
+                    (journal_id, grni, total_usd, total_lbp, rec["warehouse_id"]),
                 )
 
                 cur.execute(
@@ -1966,8 +2007,9 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                 )
                 invoice_id = cur.fetchone()["id"]
 
-                for ln in (normalized or []):
-                    batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"))
+                for idx, ln in enumerate(normalized or []):
+                    exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
+                    batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
@@ -2045,8 +2087,9 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                 if 'lines' in patch:
                     normalized, base_usd, base_lbp = _compute_costed_lines(data.lines or [], exchange_rate)
                     cur.execute('DELETE FROM supplier_invoice_lines WHERE company_id=%s AND supplier_invoice_id=%s', (company_id, invoice_id))
-                    for ln in (normalized or []):
-                        batch_id = _get_or_create_batch(cur, company_id, ln['item_id'], ln.get('batch_no'), ln.get('expiry_date'))
+                    for idx, ln in enumerate(normalized or []):
+                        exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
+                        batch_id = _get_or_create_batch(cur, company_id, ln['item_id'], ln.get('batch_no'), exp)
                         cur.execute(
                             """
                             INSERT INTO supplier_invoice_lines
@@ -2333,11 +2376,13 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, %s, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, %s, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"GL-{inv['invoice_no']}", invoice_id, inv_date),
+                    (company_id, f"GL-{inv['invoice_no']}", invoice_id, inv_date, exchange_rate, f"Supplier invoice {inv['invoice_no']}", user["user_id"]),
                 )
                 journal_id = cur.fetchone()['id']
 
@@ -2397,11 +2442,13 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                         raise HTTPException(status_code=400, detail=f'Missing payment method mapping for {method}')
                     cur.execute(
                         """
-                        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                        VALUES (gen_random_uuid(), %s, %s, 'supplier_payment', %s, %s, 'market')
+                        INSERT INTO gl_journals
+                          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, 'supplier_payment', %s, %s, 'market', %s, %s, %s)
                         RETURNING id
                         """,
-                        (company_id, f"SP-{str(pay_id)[:8]}", pay_id, inv_date),
+                        (company_id, f"SP-{str(pay_id)[:8]}", pay_id, inv_date, exchange_rate, "Supplier payment", user["user_id"]),
                     )
                     pay_journal = cur.fetchone()['id']
                     cur.execute(
@@ -2674,8 +2721,9 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                 )
                 invoice_id = cur.fetchone()["id"]
 
-                for l in data.lines:
-                    batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, l.expiry_date)
+                for idx, l in enumerate(data.lines):
+                    exp = _enforce_item_tracking(cur, company_id, l.item_id, l.batch_no, l.expiry_date, f"line {idx+1}")
+                    batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, exp)
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
@@ -2727,11 +2775,13 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, %s, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, %s, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"GL-{invoice_no}", invoice_id, inv_date),
+                    (company_id, f"GL-{invoice_no}", invoice_id, inv_date, exchange_rate, f"Supplier invoice {invoice_no}", user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 
@@ -2785,11 +2835,13 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                         raise HTTPException(status_code=400, detail=f"Missing payment method mapping for {method}")
                     cur.execute(
                         """
-                        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                        VALUES (gen_random_uuid(), %s, %s, 'supplier_payment', %s, %s, 'market')
+                        INSERT INTO gl_journals
+                          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, 'supplier_payment', %s, %s, 'market', %s, %s, %s)
                         RETURNING id
                         """,
-                        (company_id, f"SP-{str(pay_id)[:8]}", pay_id, inv_date),
+                        (company_id, f"SP-{str(pay_id)[:8]}", pay_id, inv_date, exchange_rate, "Supplier payment", user["user_id"]),
                     )
                     pay_journal = cur.fetchone()["id"]
                     cur.execute(
@@ -2878,11 +2930,13 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'supplier_payment', %s, %s, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'supplier_payment', %s, %s, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"SP-{str(payment_id)[:8]}", payment_id, pay_date),
+                    (company_id, f"SP-{str(payment_id)[:8]}", payment_id, pay_date, exchange_rate, "Supplier payment", user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 

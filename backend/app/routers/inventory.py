@@ -63,6 +63,18 @@ class StockAdjustIn(BaseModel):
     reason: Optional[str] = None
 
 
+class ExpiryWriteoffIn(BaseModel):
+    item_id: str
+    warehouse_id: str
+    qty_out: Decimal
+    batch_id: Optional[str] = None
+    batch_no: Optional[str] = None
+    expiry_date: Optional[date] = None
+    unit_cost_usd: Decimal = Decimal("0")
+    unit_cost_lbp: Decimal = Decimal("0")
+    reason: Optional[str] = None
+
+
 class OpeningStockLineIn(BaseModel):
     sku: Optional[str] = None
     item_id: Optional[str] = None
@@ -201,43 +213,45 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
 
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                    VALUES (gen_random_uuid(), %s, %s, 'inventory_adjustment', %s, CURRENT_DATE, 'market')
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'inventory_adjustment', %s, CURRENT_DATE, 'market', 0, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"ADJ-{str(move_id)[:8]}", move_id),
+                    (company_id, f"ADJ-{str(move_id)[:8]}", move_id, (data.reason or "Inventory adjustment"), user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 
                 if qty_in > 0:
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory adjustment (in)')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory adjustment (in)', %s)
                         """,
-                        (journal_id, inventory, amt_usd, amt_lbp),
+                        (journal_id, inventory, amt_usd, amt_lbp, data.warehouse_id),
                     )
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory adjustment (offset)')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory adjustment (offset)', %s)
                         """,
-                        (journal_id, inv_adj, amt_usd, amt_lbp),
+                        (journal_id, inv_adj, amt_usd, amt_lbp, data.warehouse_id),
                     )
                 else:
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory adjustment (out)')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory adjustment (out)', %s)
                         """,
-                        (journal_id, inv_adj, amt_usd, amt_lbp),
+                        (journal_id, inv_adj, amt_usd, amt_lbp, data.warehouse_id),
                     )
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory adjustment (asset)')
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory adjustment (asset)', %s)
                         """,
-                        (journal_id, inventory, amt_usd, amt_lbp),
+                        (journal_id, inventory, amt_usd, amt_lbp, data.warehouse_id),
                     )
 
                 cur.execute(
@@ -246,6 +260,146 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                     VALUES (gen_random_uuid(), %s, %s, 'inventory_adjust', 'stock_move', %s, %s::jsonb)
                     """,
                     (company_id, user["user_id"], move_id, json.dumps({"reason": data.reason, "journal_id": str(journal_id)})),
+                )
+                return {"id": move_id, "journal_id": journal_id}
+
+
+@router.post("/writeoff/expiry", dependencies=[Depends(require_permission("inventory:write"))])
+def expiry_writeoff(data: ExpiryWriteoffIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Post an expiry/shrinkage write-off:
+    - stock_moves: qty_out
+    - GL: Dr SHRINKAGE (fallback INV_ADJ), Cr INVENTORY
+    """
+    if data.qty_out <= 0:
+        raise HTTPException(status_code=400, detail="qty_out must be > 0")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                assert_period_open(cur, company_id, date.today())
+
+                # Resolve batch (optional but recommended when batches exist).
+                batch_id = (data.batch_id or "").strip() or None
+                if not batch_id and ((data.batch_no or "").strip() or data.expiry_date):
+                    bno = (data.batch_no or "").strip() or None
+                    exp = data.expiry_date
+                    if isinstance(exp, str):
+                        exp = date.fromisoformat(exp[:10])
+                    cur.execute(
+                        """
+                        SELECT id
+                        FROM batches
+                        WHERE company_id=%s AND item_id=%s
+                          AND batch_no IS NOT DISTINCT FROM %s
+                          AND expiry_date IS NOT DISTINCT FROM %s
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """,
+                        (company_id, data.item_id, bno, exp),
+                    )
+                    r = cur.fetchone()
+                    if not r:
+                        raise HTTPException(status_code=400, detail="batch not found (use batch_id or existing batch_no/expiry_date)")
+                    batch_id = r["id"]
+
+                unit_cost_usd = data.unit_cost_usd
+                unit_cost_lbp = data.unit_cost_lbp
+                if unit_cost_usd == 0 and unit_cost_lbp == 0:
+                    cur.execute(
+                        """
+                        SELECT avg_cost_usd, avg_cost_lbp
+                        FROM item_warehouse_costs
+                        WHERE company_id = %s AND item_id = %s AND warehouse_id = %s
+                        """,
+                        (company_id, data.item_id, data.warehouse_id),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        unit_cost_usd = Decimal(str(row["avg_cost_usd"] or 0))
+                        unit_cost_lbp = Decimal(str(row["avg_cost_lbp"] or 0))
+
+                cur.execute(
+                    """
+                    INSERT INTO stock_moves
+                      (id, company_id, item_id, warehouse_id, batch_id,
+                       qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
+                       source_type, source_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, %s,
+                       0, %s, %s, %s,
+                       'expiry_writeoff', NULL)
+                    RETURNING id
+                    """,
+                    (company_id, data.item_id, data.warehouse_id, batch_id, data.qty_out, unit_cost_usd, unit_cost_lbp),
+                )
+                move_id = cur.fetchone()["id"]
+
+                cur.execute(
+                    """
+                    SELECT role_code, account_id
+                    FROM company_account_defaults
+                    WHERE company_id = %s
+                    """,
+                    (company_id,),
+                )
+                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
+                inventory = defaults.get("INVENTORY")
+                shrink = defaults.get("SHRINKAGE") or defaults.get("INV_ADJ")
+                if not (inventory and shrink):
+                    raise HTTPException(status_code=400, detail="Missing INVENTORY and SHRINKAGE (or INV_ADJ fallback) account defaults")
+
+                amt_usd = Decimal(str(data.qty_out)) * Decimal(str(unit_cost_usd or 0))
+                amt_lbp = Decimal(str(data.qty_out)) * Decimal(str(unit_cost_lbp or 0))
+
+                journal_no = _safe_journal_no(cur, company_id, f"EXP-{str(move_id)[:8]}")
+                cur.execute(
+                    """
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'expiry_writeoff', %s, CURRENT_DATE, 'market', 0, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        company_id,
+                        journal_no,
+                        move_id,
+                        (data.reason or "Expiry write-off").strip(),
+                        user["user_id"],
+                    ),
+                )
+                journal_id = cur.fetchone()["id"]
+                cur.execute(
+                    """
+                    INSERT INTO gl_entries
+                      (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Expiry write-off', %s)
+                    """,
+                    (journal_id, shrink, amt_usd, amt_lbp, data.warehouse_id),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO gl_entries
+                      (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory (expiry write-off)', %s)
+                    """,
+                    (journal_id, inventory, amt_usd, amt_lbp, data.warehouse_id),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'expiry_writeoff', 'stock_move', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        move_id,
+                        json.dumps({"reason": data.reason, "journal_id": str(journal_id), "batch_id": batch_id}),
+                    ),
                 )
                 return {"id": move_id, "journal_id": journal_id}
 
@@ -378,11 +532,13 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
                 journal_no = _safe_journal_no(cur, company_id, f"OS-{import_id[:8]}")
                 cur.execute(
                     """
-                    INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, memo)
-                    VALUES (gen_random_uuid(), %s, %s, 'opening_stock', %s, %s, 'market', %s)
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'opening_stock', %s, %s, 'market', 0, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, journal_no, import_id, posting_date, f"Opening stock import ({created} lines)"),
+                    (company_id, journal_no, import_id, posting_date, f"Opening stock import ({created} lines)", user["user_id"]),
                 )
                 journal_id = cur.fetchone()["id"]
 
@@ -621,44 +777,46 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
                     journal_no = f"CC-{uuid.uuid4().hex[:8]}"
                     cur.execute(
                         """
-                        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-                        VALUES (gen_random_uuid(), %s, %s, 'cycle_count', %s, CURRENT_DATE, 'market')
+                        INSERT INTO gl_journals
+                          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, 'cycle_count', %s, CURRENT_DATE, 'market', 0, %s, %s)
                         RETURNING id
                         """,
-                        (company_id, journal_no, data.warehouse_id),
+                        (company_id, journal_no, data.warehouse_id, (data.reason or "Cycle count"), user["user_id"]),
                     )
                     journal_id = cur.fetchone()["id"]
 
                     if inc_usd != 0 or inc_lbp != 0:
                         cur.execute(
                             """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Cycle count increase')
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Cycle count increase', %s)
                             """,
-                            (journal_id, inventory, inc_usd, inc_lbp),
+                            (journal_id, inventory, inc_usd, inc_lbp, data.warehouse_id),
                         )
                         cur.execute(
                             """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Cycle count offset')
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Cycle count offset', %s)
                             """,
-                            (journal_id, inv_adj, inc_usd, inc_lbp),
+                            (journal_id, inv_adj, inc_usd, inc_lbp, data.warehouse_id),
                         )
 
                     if dec_usd != 0 or dec_lbp != 0:
                         cur.execute(
                             """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Cycle count decrease')
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Cycle count decrease', %s)
                             """,
-                            (journal_id, inv_adj, dec_usd, dec_lbp),
+                            (journal_id, inv_adj, dec_usd, dec_lbp, data.warehouse_id),
                         )
                         cur.execute(
                             """
-                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Cycle count asset')
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Cycle count asset', %s)
                             """,
-                            (journal_id, inventory, dec_usd, dec_lbp),
+                            (journal_id, inventory, dec_usd, dec_lbp, data.warehouse_id),
                         )
 
                 cur.execute(

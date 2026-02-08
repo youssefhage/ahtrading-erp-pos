@@ -18,7 +18,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-[4px]",
+      "fixed inset-0 z-50 bg-slate-950/45 backdrop-blur-[6px]",
       className
     )}
     {...props}
@@ -35,14 +35,14 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100vw-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-2xl border border-slate-200/70 bg-white/85 p-6 shadow-[0_1px_0_rgba(15,23,42,0.03),0_24px_70px_rgba(15,23,42,0.22)] backdrop-blur-[6px] outline-none",
+        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100vw-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 rounded-2xl border border-[rgb(var(--border)/0.92)] bg-white/80 p-6 shadow-[0_1px_0_rgba(15,23,42,0.04),0_32px_90px_rgba(15,23,42,0.28)] backdrop-blur-[10px] outline-none",
         className
       )}
       {...props}
     >
       {children}
       <DialogPrimitive.Close
-        className="absolute right-4 top-4 rounded-md p-1 text-slate-500 transition-colors hover:bg-slate-900/5 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70"
+        className="absolute right-4 top-4 rounded-md p-1 text-slate-500 transition-colors hover:bg-slate-900/5 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70"
         aria-label="Close"
       >
         <X className="h-4 w-4" />

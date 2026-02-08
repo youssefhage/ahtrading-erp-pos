@@ -18,6 +18,7 @@ const TITLE_BY_PATH: Record<string, string> = {
   "/partners/customers": "Customers",
   "/partners/suppliers": "Suppliers",
   "/catalog/items": "Items",
+  "/catalog/item-categories": "Item Categories",
   "/catalog/price-lists": "Price Lists",
   "/catalog/promotions": "Promotions",
   "/inventory/stock": "Stock",

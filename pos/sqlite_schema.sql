@@ -7,6 +7,24 @@ CREATE TABLE IF NOT EXISTS local_items_cache (
   name TEXT,
   unit_of_measure TEXT,
   tax_code_id TEXT,
+  is_active INTEGER DEFAULT 1,
+  category_id TEXT,
+  brand TEXT,
+  short_name TEXT,
+  description TEXT,
+  track_batches INTEGER DEFAULT 0,
+  track_expiry INTEGER DEFAULT 0,
+  default_shelf_life_days INTEGER,
+  min_shelf_life_days_for_sale INTEGER,
+  expiry_warning_days INTEGER,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS local_item_categories_cache (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  parent_id TEXT,
+  is_active INTEGER DEFAULT 1,
   updated_at TEXT
 );
 
@@ -61,6 +79,7 @@ CREATE TABLE IF NOT EXISTS local_customers_cache (
   credit_balance_lbp REAL DEFAULT 0,
   loyalty_points REAL DEFAULT 0,
   price_list_id TEXT,
+  is_active INTEGER DEFAULT 1,
   updated_at TEXT
 );
 
@@ -91,4 +110,18 @@ CREATE TABLE IF NOT EXISTS pos_sync_state (
   id TEXT PRIMARY KEY,
   last_sync_at TEXT,
   last_event_id TEXT
+);
+
+-- Per-resource sync cursors for delta endpoints.
+CREATE TABLE IF NOT EXISTS pos_sync_cursors (
+  resource TEXT PRIMARY KEY,
+  cursor TEXT,
+  cursor_id TEXT,
+  updated_at TEXT
+);
+
+-- Local admin sessions (for LAN exposure).
+CREATE TABLE IF NOT EXISTS pos_local_sessions (
+  token TEXT PRIMARY KEY,
+  expires_at TEXT
 );

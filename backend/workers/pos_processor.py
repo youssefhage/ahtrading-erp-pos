@@ -2,6 +2,7 @@
 import argparse
 import json
 from datetime import datetime, date, timedelta
+from typing import Optional
 from decimal import Decimal
 import psycopg
 from psycopg.rows import dict_row
@@ -145,8 +146,71 @@ def get_or_create_batch(cur, company_id: str, item_id: str, batch_no, expiry_dat
     )
     return cur.fetchone()["id"]
 
+def find_batch_id(cur, company_id: str, item_id: str, batch_no, expiry_date_raw):
+    """
+    Find an existing batch by (batch_no, expiry_date). Returns batch_id or None.
+    Sales allocation should *not* auto-create batches; that would allow selling from non-existent stock.
+    """
+    batch_no_norm = batch_no.strip() if isinstance(batch_no, str) else None
+    expiry_date = None
+    if expiry_date_raw:
+        try:
+            expiry_date = date.fromisoformat(str(expiry_date_raw)[:10])
+        except Exception:
+            expiry_date = None
+    if not batch_no_norm and not expiry_date:
+        return None
 
-def allocate_fefo_batches(cur, company_id: str, item_id: str, warehouse_id: str, qty_out: Decimal):
+    cur.execute(
+        """
+        SELECT id
+        FROM batches
+        WHERE company_id = %s
+          AND item_id = %s
+          AND batch_no IS NOT DISTINCT FROM %s
+          AND expiry_date IS NOT DISTINCT FROM %s
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (company_id, item_id, batch_no_norm, expiry_date),
+    )
+    row = cur.fetchone()
+    return row["id"] if row else None
+
+
+def fetch_batch_expiry(cur, company_id: str, batch_id: str) -> Optional[date]:
+    cur.execute("SELECT expiry_date FROM batches WHERE company_id=%s AND id=%s", (company_id, batch_id))
+    row = cur.fetchone()
+    if not row:
+        return None
+    return row["expiry_date"]
+
+
+def fetch_batch_on_hand(cur, company_id: str, item_id: str, warehouse_id: str, batch_id: str) -> Decimal:
+    cur.execute(
+        """
+        SELECT (COALESCE(SUM(qty_in), 0) - COALESCE(SUM(qty_out), 0)) AS on_hand
+        FROM stock_moves
+        WHERE company_id=%s
+          AND item_id=%s
+          AND warehouse_id=%s
+          AND batch_id = %s
+        """,
+        (company_id, item_id, warehouse_id, batch_id),
+    )
+    row = cur.fetchone()
+    return Decimal(str((row or {}).get("on_hand") or 0))
+
+
+def allocate_fefo_batches(
+    cur,
+    company_id: str,
+    item_id: str,
+    warehouse_id: str,
+    qty_out: Decimal,
+    min_expiry_date: Optional[date] = None,
+    allow_unbatched_remainder: bool = True,
+):
     """
     Allocates outbound quantity across batches in FEFO order (earliest expiry first).
     Returns list of (batch_id, qty) allocations. batch_id may be None for unbatched remainder.
@@ -154,22 +218,41 @@ def allocate_fefo_batches(cur, company_id: str, item_id: str, warehouse_id: str,
     if qty_out <= 0:
         return []
 
-    cur.execute(
-        """
-        SELECT sm.batch_id,
-               b.expiry_date,
-               (SUM(sm.qty_in) - SUM(sm.qty_out)) AS on_hand
-        FROM stock_moves sm
-        LEFT JOIN batches b ON b.id = sm.batch_id
-        WHERE sm.company_id = %s
-          AND sm.item_id = %s
-          AND sm.warehouse_id = %s
-        GROUP BY sm.batch_id, b.expiry_date
-        HAVING (SUM(sm.qty_in) - SUM(sm.qty_out)) > 0
-        ORDER BY b.expiry_date NULLS LAST, sm.batch_id
-        """,
-        (company_id, item_id, warehouse_id),
-    )
+    if min_expiry_date:
+        cur.execute(
+            """
+            SELECT sm.batch_id,
+                   b.expiry_date,
+                   (SUM(sm.qty_in) - SUM(sm.qty_out)) AS on_hand
+            FROM stock_moves sm
+            LEFT JOIN batches b ON b.id = sm.batch_id
+            WHERE sm.company_id = %s
+              AND sm.item_id = %s
+              AND sm.warehouse_id = %s
+              AND (b.expiry_date IS NULL OR b.expiry_date >= %s)
+            GROUP BY sm.batch_id, b.expiry_date
+            HAVING (SUM(sm.qty_in) - SUM(sm.qty_out)) > 0
+            ORDER BY b.expiry_date NULLS LAST, sm.batch_id
+            """,
+            (company_id, item_id, warehouse_id, min_expiry_date),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT sm.batch_id,
+                   b.expiry_date,
+                   (SUM(sm.qty_in) - SUM(sm.qty_out)) AS on_hand
+            FROM stock_moves sm
+            LEFT JOIN batches b ON b.id = sm.batch_id
+            WHERE sm.company_id = %s
+              AND sm.item_id = %s
+              AND sm.warehouse_id = %s
+            GROUP BY sm.batch_id, b.expiry_date
+            HAVING (SUM(sm.qty_in) - SUM(sm.qty_out)) > 0
+            ORDER BY b.expiry_date NULLS LAST, sm.batch_id
+            """,
+            (company_id, item_id, warehouse_id),
+        )
     rows = cur.fetchall()
 
     remaining = qty_out
@@ -185,8 +268,12 @@ def allocate_fefo_batches(cur, company_id: str, item_id: str, warehouse_id: str,
         remaining -= take
 
     if remaining > 0:
-        # If we don't have enough known batch stock, keep the remainder unbatched.
-        out.append((None, remaining))
+        if allow_unbatched_remainder:
+            # Backward compatibility: if we don't have enough known batch stock,
+            # keep the remainder unbatched.
+            out.append((None, remaining))
+        else:
+            raise ValueError("insufficient eligible batch stock for FEFO allocation")
 
     return out
 
@@ -413,15 +500,58 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             ),
         )
 
-    # Stock moves (FEFO batch allocation when batches are tracked).
+    # Stock moves (FEFO batch allocation). If items are configured to require batch/expiry,
+    # do not allow unbatched remainder.
     warehouse_id = payload.get("warehouse_id")
+    item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
+    item_policy = {}
+    if item_ids:
+        cur.execute(
+            """
+            SELECT id, track_batches, track_expiry, min_shelf_life_days_for_sale
+            FROM items
+            WHERE company_id=%s AND id = ANY(%s::uuid[])
+            """,
+            (company_id, item_ids),
+        )
+        item_policy = {str(r["id"]): r for r in cur.fetchall()}
+
     for l in lines:
-        if not l.get("item_id") or not warehouse_id:
+        item_id = l.get("item_id")
+        if not item_id or not warehouse_id:
             continue
+        pol = item_policy.get(str(item_id)) or {}
+        min_days = int(pol.get("min_shelf_life_days_for_sale") or 0)
+        min_exp = (invoice_date + timedelta(days=min_days)) if min_days > 0 else None
+        allow_unbatched = not (bool(pol.get("track_batches")) or bool(pol.get("track_expiry")) or min_days > 0)
+
         unit_cost_usd = Decimal(str(l.get("_resolved_unit_cost_usd", 0) or 0))
         unit_cost_lbp = Decimal(str(l.get("_resolved_unit_cost_lbp", 0) or 0))
         qty_out = Decimal(str(l.get("qty", 0)))
-        allocations = allocate_fefo_batches(cur, company_id, l.get("item_id"), warehouse_id, qty_out)
+        req_batch_no = l.get("batch_no") or None
+        req_expiry = l.get("expiry_date") or None
+        if req_batch_no or req_expiry:
+            batch_id = find_batch_id(cur, company_id, item_id, req_batch_no, req_expiry)
+            if not batch_id:
+                raise ValueError("specified batch/expiry not found for item (cannot allocate)")
+            if min_exp:
+                exp = fetch_batch_expiry(cur, company_id, batch_id)
+                if exp and exp < min_exp:
+                    raise ValueError("specified batch does not meet min shelf-life requirement")
+            on_hand = fetch_batch_on_hand(cur, company_id, item_id, warehouse_id, batch_id)
+            if on_hand < qty_out:
+                raise ValueError("insufficient stock for specified batch allocation")
+            allocations = [(batch_id, qty_out)]
+        else:
+            allocations = allocate_fefo_batches(
+                cur,
+                company_id,
+                item_id,
+                warehouse_id,
+                qty_out,
+                min_expiry_date=min_exp,
+                allow_unbatched_remainder=allow_unbatched,
+            )
         for batch_id, q in allocations:
             cur.execute(
                 """
@@ -458,11 +588,13 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     journal_no = f"GL-{invoice_no}"
     cur.execute(
         """
-        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-        VALUES (gen_random_uuid(), %s, %s, 'sales_invoice', %s, CURRENT_DATE, 'market')
+        INSERT INTO gl_journals
+          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
+        VALUES
+          (gen_random_uuid(), %s, %s, 'sales_invoice', %s, %s, 'market', %s, %s, %s, %s)
         RETURNING id
         """,
-        (company_id, journal_no, invoice_id),
+        (company_id, journal_no, invoice_id, invoice_date, exchange_rate, f"POS sale {invoice_no}", device_id, cashier_id),
     )
     journal_id = cur.fetchone()["id"]
 
@@ -481,10 +613,10 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 continue
             cur.execute(
                 """
-                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales receipt')
+                INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales receipt', %s)
                 """,
-                (journal_id, account_id, amount_usd, amount_lbp),
+                (journal_id, account_id, amount_usd, amount_lbp, warehouse_id),
             )
 
     if credit_sale:
@@ -492,29 +624,29 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             raise ValueError("Missing account defaults for AR posting")
         cur.execute(
             """
-            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales receivable')
+            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Sales receivable', %s)
             """,
-            (journal_id, ar, credit_usd, credit_lbp),
+            (journal_id, ar, credit_usd, credit_lbp, warehouse_id),
         )
 
     # Credit sales
     cur.execute(
         """
-        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Sales revenue')
+        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Sales revenue', %s)
         """,
-        (journal_id, sales, base_usd, base_lbp),
+        (journal_id, sales, base_usd, base_lbp, warehouse_id),
     )
 
     # Credit VAT payable if present
     if tax and vat_payable:
         cur.execute(
             """
-            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'VAT payable')
+            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'VAT payable', %s)
             """,
-            (journal_id, vat_payable, tax_usd, tax_lbp),
+            (journal_id, vat_payable, tax_usd, tax_lbp, warehouse_id),
         )
 
     # Customer credit + loyalty
@@ -556,17 +688,17 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             raise ValueError("Missing account defaults for inventory/COGS posting")
         cur.execute(
             """
-            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'COGS')
+            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'COGS', %s)
             """,
-            (journal_id, cogs, total_cost_usd, total_cost_lbp),
+            (journal_id, cogs, total_cost_usd, total_cost_lbp, warehouse_id),
         )
         cur.execute(
             """
-            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory reduction')
+            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory reduction', %s)
             """,
-            (journal_id, inventory, total_cost_usd, total_cost_lbp),
+            (journal_id, inventory, total_cost_usd, total_cost_lbp, warehouse_id),
         )
 
     emit_event(
@@ -676,6 +808,10 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
     for l in lines:
         if not l.get("item_id") or not warehouse_id:
             continue
+        batch_id = None
+        if l.get("batch_no") or l.get("expiry_date"):
+            # Returns may come from older invoices where batches were not recorded; best-effort create to preserve tracking.
+            batch_id = get_or_create_batch(cur, company_id, l.get("item_id"), l.get("batch_no"), l.get("expiry_date"))
         unit_cost_usd = Decimal(str(l.get("unit_cost_usd", 0) or 0))
         unit_cost_lbp = Decimal(str(l.get("unit_cost_lbp", 0) or 0))
         if unit_cost_usd == 0 and unit_cost_lbp == 0:
@@ -687,15 +823,16 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         cur.execute(
             """
             INSERT INTO stock_moves
-              (id, company_id, item_id, warehouse_id, qty_in, unit_cost_usd, unit_cost_lbp,
+              (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp,
                source_type, source_id)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'sales_return', %s)
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'sales_return', %s)
             """,
             (
                 company_id,
                 l.get("item_id"),
                 warehouse_id,
+                batch_id,
                 Decimal(str(l.get("qty", 0))),
                 unit_cost_usd,
                 unit_cost_lbp,
@@ -772,13 +909,25 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         raise ValueError("Missing account defaults for sales return posting")
 
     journal_no = f"SR-{str(return_id)[:8]}"
+    return_date = None
+    raw_return_date = payload.get("return_date") or payload.get("created_at") or None
+    if raw_return_date:
+        try:
+            return_date = date.fromisoformat(str(raw_return_date)[:10])
+        except Exception:
+            return_date = None
+    if not return_date:
+        return_date = date.today()
+
     cur.execute(
         """
-        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-        VALUES (gen_random_uuid(), %s, %s, 'sales_return', %s, CURRENT_DATE, 'market')
+        INSERT INTO gl_journals
+          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
+        VALUES
+          (gen_random_uuid(), %s, %s, 'sales_return', %s, %s, 'market', %s, %s, %s, %s)
         RETURNING id
         """,
-        (company_id, journal_no, return_id),
+        (company_id, journal_no, return_id, return_date, exchange_rate, f"POS return {str(return_id)[:8]}", device_id, payload.get("cashier_id")),
     )
     journal_id = cur.fetchone()["id"]
 
@@ -929,7 +1078,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
     return "processed"
 
 
-def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
+def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, device_id: str):
     cur.execute(
         """
         SELECT id FROM goods_receipts
@@ -1033,26 +1182,36 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
     journal_no = f"GR-{str(gr_id)[:8]}"
     cur.execute(
         """
-        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-        VALUES (gen_random_uuid(), %s, %s, 'goods_receipt', %s, CURRENT_DATE, 'market')
+        INSERT INTO gl_journals
+          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
+        VALUES
+          (gen_random_uuid(), %s, %s, 'goods_receipt', %s, CURRENT_DATE, 'market', %s, %s, %s, %s)
         RETURNING id
         """,
-        (company_id, journal_no, gr_id),
+        (
+            company_id,
+            journal_no,
+            gr_id,
+            Decimal(str(payload.get("exchange_rate", 0) or 0)),
+            f"POS goods receipt {str(receipt_no)}",
+            device_id,
+            payload.get("cashier_id"),
+        ),
     )
     journal_id = cur.fetchone()["id"]
     cur.execute(
         """
-        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory received')
+        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Inventory received', %s)
         """,
-        (journal_id, inventory, total_usd, total_lbp),
+        (journal_id, inventory, total_usd, total_lbp, warehouse_id),
     )
     cur.execute(
         """
-        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'GRNI')
+        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'GRNI', %s)
         """,
-        (journal_id, grni, total_usd, total_lbp),
+        (journal_id, grni, total_usd, total_lbp, warehouse_id),
     )
 
     emit_event(
@@ -1067,7 +1226,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
     return "processed"
 
 
-def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict):
+def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict, device_id: str):
     cur.execute(
         """
         SELECT id FROM supplier_invoices
@@ -1225,11 +1384,13 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     journal_no = f"GL-{invoice_no}"
     cur.execute(
         """
-        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate)
-        VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, CURRENT_DATE, 'market', %s)
+        INSERT INTO gl_journals
+          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
+        VALUES
+          (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, CURRENT_DATE, 'market', %s, %s, %s, %s)
         RETURNING id
         """,
-        (company_id, journal_no, inv_id, exchange_rate),
+        (company_id, journal_no, inv_id, exchange_rate, f"POS supplier invoice {invoice_no}", device_id, payload.get("cashier_id")),
     )
     journal_id = cur.fetchone()["id"]
 
@@ -1379,9 +1540,9 @@ def _process_one(conn, company_id: str, max_attempts: int) -> bool:
                 elif event_type == "pos.cash_movement":
                     process_cash_movement(cur, company_id, event_id, payload, e["device_id"])
                 elif event_type == "purchase.received":
-                    process_goods_receipt(cur, company_id, event_id, payload)
+                    process_goods_receipt(cur, company_id, event_id, payload, e["device_id"])
                 elif event_type == "purchase.invoice":
-                    process_purchase_invoice(cur, company_id, event_id, payload)
+                    process_purchase_invoice(cur, company_id, event_id, payload, e["device_id"])
                 else:
                     raise ValueError(f"Unsupported event type {event_type}")
 

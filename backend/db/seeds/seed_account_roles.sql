@@ -14,6 +14,7 @@ INSERT INTO account_roles (code, description) VALUES
   ('OPENING_BALANCE','Opening Balance Offset (Equity)'),
   ('COGS','Cost of Goods Sold'),
   ('INV_ADJ','Inventory Adjustments'),
+  ('SHRINKAGE','Shrinkage / Expiry Write-offs'),
   ('ROUNDING','Rounding Differences'),
   ('INTERCO_AR','Intercompany Receivable'),
   ('INTERCO_AP','Intercompany Payable'),

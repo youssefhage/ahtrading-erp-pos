@@ -6,8 +6,8 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Roboto"', ...defaultTheme.fontFamily.sans],
-        mono: ['"Roboto Mono"', ...defaultTheme.fontFamily.mono]
+        sans: ['"Space Grotesk"', ...defaultTheme.fontFamily.sans],
+        mono: ['"JetBrains Mono"', ...defaultTheme.fontFamily.mono]
       }
     }
   },

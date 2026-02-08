@@ -19,6 +19,16 @@ class ItemIn(BaseModel):
     tax_code_id: Optional[str] = None
     reorder_point: Optional[Decimal] = None
     reorder_qty: Optional[Decimal] = None
+    is_active: bool = True
+    category_id: Optional[str] = None
+    brand: Optional[str] = None
+    short_name: Optional[str] = None
+    description: Optional[str] = None
+    track_batches: bool = False
+    track_expiry: bool = False
+    default_shelf_life_days: Optional[int] = None
+    min_shelf_life_days_for_sale: Optional[int] = None
+    expiry_warning_days: Optional[int] = None
 
 
 class BulkItemIn(BaseModel):
@@ -50,6 +60,9 @@ def list_items(company_id: str = Depends(get_company_id)):
             cur.execute(
                 """
                 SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure, i.tax_code_id, i.reorder_point, i.reorder_qty,
+                       i.is_active, i.category_id, i.brand, i.short_name, i.description,
+                       i.track_batches, i.track_expiry,
+                       i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
                        COALESCE(bc.cnt, 0) AS barcode_count
                 FROM items i
                 LEFT JOIN LATERAL (
@@ -72,8 +85,14 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id)):
                 barcode = data.barcode.strip() if data.barcode else None
                 cur.execute(
                     """
-                    INSERT INTO items (id, company_id, sku, barcode, name, unit_of_measure, tax_code_id, reorder_point, reorder_qty)
-                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO items
+                      (id, company_id, sku, barcode, name, unit_of_measure, tax_code_id, reorder_point, reorder_qty,
+                       is_active, category_id, brand, short_name, description,
+                       track_batches, track_expiry, default_shelf_life_days, min_shelf_life_days_for_sale, expiry_warning_days)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s,
+                       %s, %s, %s, %s, %s,
+                       %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -85,6 +104,16 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id)):
                         data.tax_code_id,
                         data.reorder_point or 0,
                         data.reorder_qty or 0,
+                        bool(data.is_active),
+                        data.category_id,
+                        (data.brand or "").strip() or None,
+                        (data.short_name or "").strip() or None,
+                        (data.description or "").strip() or None,
+                        bool(data.track_batches),
+                        bool(data.track_expiry),
+                        data.default_shelf_life_days,
+                        data.min_shelf_life_days_for_sale,
+                        data.expiry_warning_days,
                     ),
                 )
                 item_id = cur.fetchone()["id"]
@@ -200,6 +229,16 @@ class ItemUpdate(BaseModel):
     tax_code_id: Optional[str] = None
     reorder_point: Optional[Decimal] = None
     reorder_qty: Optional[Decimal] = None
+    is_active: Optional[bool] = None
+    category_id: Optional[str] = None
+    brand: Optional[str] = None
+    short_name: Optional[str] = None
+    description: Optional[str] = None
+    track_batches: Optional[bool] = None
+    track_expiry: Optional[bool] = None
+    default_shelf_life_days: Optional[int] = None
+    min_shelf_life_days_for_sale: Optional[int] = None
+    expiry_warning_days: Optional[int] = None
 
 
 @router.patch("/{item_id}", dependencies=[Depends(require_permission("items:write"))])
@@ -210,6 +249,8 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
     for k, v in data.model_dump(exclude_unset=True).items():
         fields.append(f"{k} = %s")
         if k == "barcode" and isinstance(v, str):
+            params.append(v.strip() or None)
+        elif k in {"brand", "short_name", "description"} and isinstance(v, str):
             params.append(v.strip() or None)
         else:
             params.append(v)

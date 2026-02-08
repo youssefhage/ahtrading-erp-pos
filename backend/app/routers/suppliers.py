@@ -21,6 +21,7 @@ class SupplierIn(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     payment_terms_days: Optional[int] = None
+    is_active: Optional[bool] = None
 
 
 class ItemSupplierIn(BaseModel):
@@ -39,7 +40,7 @@ def list_suppliers(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes
+                SELECT id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active
                 FROM suppliers
                 WHERE company_id = %s
                 ORDER BY name
@@ -57,11 +58,24 @@ def create_supplier(data: SupplierIn, company_id: str = Depends(get_company_id))
             code = (data.code or "").strip() or None
             cur.execute(
                 """
-                INSERT INTO suppliers (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes)
-                VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO suppliers (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active)
+                VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (company_id, code, data.name, data.phone, data.email, data.payment_terms_days or 0, (data.party_type or 'business'), (data.legal_name or '').strip() or None, (data.tax_id or '').strip() or None, (data.vat_no or '').strip() or None, (data.notes or '').strip() or None),
+                (
+                    company_id,
+                    code,
+                    data.name,
+                    data.phone,
+                    data.email,
+                    data.payment_terms_days or 0,
+                    (data.party_type or 'business'),
+                    (data.legal_name or '').strip() or None,
+                    (data.tax_id or '').strip() or None,
+                    (data.vat_no or '').strip() or None,
+                    (data.notes or '').strip() or None,
+                    bool(data.is_active) if data.is_active is not None else True,
+                ),
             )
             return {"id": cur.fetchone()["id"]}
 
@@ -77,6 +91,7 @@ class SupplierUpdate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     payment_terms_days: Optional[int] = None
+    is_active: Optional[bool] = None
 
 
 @router.patch("/{supplier_id}", dependencies=[Depends(require_permission("suppliers:write"))])
@@ -117,6 +132,7 @@ class BulkSupplierIn(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     payment_terms_days: Optional[int] = None
+    is_active: Optional[bool] = None
 
 
 class BulkSuppliersIn(BaseModel):
@@ -149,14 +165,15 @@ def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_c
                     vat_no = (s.vat_no or "").strip() or None
                     notes = (s.notes or "").strip() or None
                     terms = int(s.payment_terms_days or 0)
+                    is_active = bool(s.is_active) if s.is_active is not None else True
 
                     if code:
                         cur.execute(
                             """
                             INSERT INTO suppliers
-                              (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes)
+                              (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (company_id, code) DO UPDATE
                             SET name = EXCLUDED.name,
                                 phone = EXCLUDED.phone,
@@ -166,10 +183,11 @@ def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_c
                                 legal_name = EXCLUDED.legal_name,
                                 tax_id = EXCLUDED.tax_id,
                                 vat_no = EXCLUDED.vat_no,
-                                notes = EXCLUDED.notes
+                                notes = EXCLUDED.notes,
+                                is_active = EXCLUDED.is_active
                             RETURNING id
                             """,
-                            (company_id, code, name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes),
+                            (company_id, code, name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes, is_active),
                         )
                         cur.fetchone()
                         upserted += 1
@@ -186,21 +204,21 @@ def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_c
                             """
                             UPDATE suppliers
                             SET name=%s, phone=%s, email=%s, payment_terms_days=%s,
-                                party_type=%s, legal_name=%s, tax_id=%s, vat_no=%s, notes=%s
+                                party_type=%s, legal_name=%s, tax_id=%s, vat_no=%s, notes=%s, is_active=%s
                             WHERE company_id=%s AND id=%s
                             """,
-                            (name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes, company_id, existing_id),
+                            (name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes, is_active, company_id, existing_id),
                         )
                         upserted += 1
                     else:
                         cur.execute(
                             """
                             INSERT INTO suppliers
-                              (id, company_id, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes)
+                              (id, company_id, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """,
-                            (company_id, name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes),
+                            (company_id, name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes, is_active),
                         )
                         upserted += 1
 
@@ -212,6 +230,186 @@ def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_c
                     (company_id, user["user_id"], json.dumps({"count": upserted})),
                 )
                 return {"ok": True, "upserted": upserted}
+
+
+class SupplierContactIn(BaseModel):
+    name: str
+    title: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    notes: Optional[str] = None
+    is_primary: bool = False
+    is_active: bool = True
+
+
+class SupplierContactUpdate(BaseModel):
+    name: Optional[str] = None
+    title: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    notes: Optional[str] = None
+    is_primary: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+@router.get("/{supplier_id}/contacts", dependencies=[Depends(require_permission("suppliers:read"))])
+def list_supplier_contacts(supplier_id: str, company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM suppliers WHERE company_id=%s AND id=%s", (company_id, supplier_id))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="supplier not found")
+            cur.execute(
+                """
+                SELECT id, name, title, phone, email, notes, is_primary, is_active, updated_at
+                FROM party_contacts
+                WHERE company_id = %s AND party_kind = 'supplier' AND party_id = %s
+                ORDER BY is_primary DESC, name ASC
+                """,
+                (company_id, supplier_id),
+            )
+            return {"contacts": cur.fetchall()}
+
+
+@router.post("/{supplier_id}/contacts", dependencies=[Depends(require_permission("suppliers:write"))])
+def create_supplier_contact(
+    supplier_id: str,
+    data: SupplierContactIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM suppliers WHERE company_id=%s AND id=%s", (company_id, supplier_id))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="supplier not found")
+                if data.is_primary:
+                    cur.execute(
+                        """
+                        UPDATE party_contacts
+                        SET is_primary = false, updated_at = now()
+                        WHERE company_id=%s AND party_kind='supplier' AND party_id=%s
+                        """,
+                        (company_id, supplier_id),
+                    )
+                cur.execute(
+                    """
+                    INSERT INTO party_contacts
+                      (id, company_id, party_kind, party_id, name, title, phone, email, notes, is_primary, is_active)
+                    VALUES
+                      (gen_random_uuid(), %s, 'supplier', %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        company_id,
+                        supplier_id,
+                        name,
+                        (data.title or "").strip() or None,
+                        (data.phone or "").strip() or None,
+                        (data.email or "").strip() or None,
+                        (data.notes or "").strip() or None,
+                        bool(data.is_primary),
+                        bool(data.is_active),
+                    ),
+                )
+                cid = cur.fetchone()["id"]
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_contact_create', 'party_contact', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], cid, json.dumps({"supplier_id": supplier_id})),
+                )
+                return {"id": cid}
+
+
+@router.patch("/{supplier_id}/contacts/{contact_id}", dependencies=[Depends(require_permission("suppliers:write"))])
+def update_supplier_contact(
+    supplier_id: str,
+    contact_id: str,
+    data: SupplierContactUpdate,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    patch = data.model_dump(exclude_unset=True)
+    if not patch:
+        return {"ok": True}
+    fields = []
+    params = []
+    for k, v in patch.items():
+        if k in {"name", "title", "phone", "email", "notes"} and isinstance(v, str):
+            v = v.strip() or None
+        fields.append(f"{k} = %s")
+        params.append(v)
+    params.extend([company_id, contact_id, supplier_id])
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                if patch.get("is_primary") is True:
+                    cur.execute(
+                        """
+                        UPDATE party_contacts
+                        SET is_primary = false, updated_at = now()
+                        WHERE company_id=%s AND party_kind='supplier' AND party_id=%s
+                        """,
+                        (company_id, supplier_id),
+                    )
+                cur.execute(
+                    f"""
+                    UPDATE party_contacts
+                    SET {', '.join(fields)}, updated_at = now()
+                    WHERE company_id = %s AND id = %s AND party_kind='supplier' AND party_id=%s
+                    RETURNING id
+                    """,
+                    params,
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="contact not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_contact_update', 'party_contact', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], contact_id, json.dumps({"supplier_id": supplier_id, "patch": patch})),
+                )
+                return {"ok": True}
+
+
+@router.delete("/{supplier_id}/contacts/{contact_id}", dependencies=[Depends(require_permission("suppliers:write"))])
+def delete_supplier_contact(
+    supplier_id: str,
+    contact_id: str,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM party_contacts
+                    WHERE company_id=%s AND id=%s AND party_kind='supplier' AND party_id=%s
+                    """,
+                    (company_id, contact_id, supplier_id),
+                )
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="contact not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_contact_delete', 'party_contact', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], contact_id, json.dumps({"supplier_id": supplier_id})),
+                )
+                return {"ok": True}
 
 
 @router.get("/{supplier_id}/items", dependencies=[Depends(require_permission("suppliers:read"))])

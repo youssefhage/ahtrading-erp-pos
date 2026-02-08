@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-dev.txt
+      - name: Run unit tests
+        run: |
+          pytest -q
+
+  admin-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install deps
+        working-directory: apps/admin
+        run: |
+          npm ci
+      - name: Lint
+        working-directory: apps/admin
+        run: |
+          npm run lint
+      - name: Build
+        working-directory: apps/admin
+        run: |
+          npm run build
+
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, admin-build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install admin deps
+        working-directory: apps/admin
+        run: |
+          npm ci
+      - name: Install Playwright (Chromium)
+        working-directory: apps/admin
+        run: |
+          npx playwright install --with-deps chromium
+      - name: Start stack
+        run: |
+          docker compose up -d --build
+      - name: Wait for admin
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS "http://localhost:3000/api/health" >/dev/null; then
+              echo "admin ok"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "admin did not become ready" >&2
+          docker compose ps
+          docker compose logs --no-color --tail=200
+          exit 1
+      - name: Run Playwright tests
+        working-directory: apps/admin
+        env:
+          CI: "1"
+          E2E_BASE_URL: "http://localhost:3000"
+        run: |
+          npm run test:e2e
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --no-color --tail=400
+

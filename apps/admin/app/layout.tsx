@@ -1,10 +1,6 @@
 import type { Metadata } from "next";
-import "@fontsource/roboto/400.css";
-import "@fontsource/roboto/500.css";
-import "@fontsource/roboto/700.css";
-import "@fontsource/roboto-mono/400.css";
-import "@fontsource/roboto-mono/500.css";
-import "@fontsource/roboto-mono/700.css";
+import "@fontsource-variable/space-grotesk/wght.css";
+import "@fontsource-variable/jetbrains-mono/wght.css";
 import "./globals.css";
 import { ClientShellLayout } from "./client-shell-layout";
 

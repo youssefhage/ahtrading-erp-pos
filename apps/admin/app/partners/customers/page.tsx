@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { PartyAddresses } from "@/components/party-addresses";
+import { PartyContacts } from "@/components/party-contacts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -31,6 +32,7 @@ type Customer = {
   credit_balance_usd: string | number;
   credit_balance_lbp: string | number;
   loyalty_points: string | number;
+  is_active?: boolean;
 };
 
 function fmt(n: string | number) {
@@ -61,6 +63,7 @@ export default function CustomersPage() {
   const [membershipNo, setMembershipNo] = useState("");
   const [isMember, setIsMember] = useState(false);
   const [membershipExpiresAt, setMembershipExpiresAt] = useState("");
+  const [isActive, setIsActive] = useState(true);
   const [termsDays, setTermsDays] = useState("0");
   const [creditLimitUsd, setCreditLimitUsd] = useState("0");
   const [creditLimitLbp, setCreditLimitLbp] = useState("0");
@@ -79,6 +82,7 @@ export default function CustomersPage() {
   const [editMembershipNo, setEditMembershipNo] = useState("");
   const [editIsMember, setEditIsMember] = useState(false);
   const [editMembershipExpiresAt, setEditMembershipExpiresAt] = useState("");
+  const [editIsActive, setEditIsActive] = useState(true);
   const [editTermsDays, setEditTermsDays] = useState("0");
   const [editLimitUsd, setEditLimitUsd] = useState("0");
   const [editLimitLbp, setEditLimitLbp] = useState("0");
@@ -150,6 +154,7 @@ export default function CustomersPage() {
         membership_no: membershipNo.trim() || null,
         is_member: isMember,
         membership_expires_at: membershipExpiresAt.trim() || null,
+        is_active: isActive,
         payment_terms_days: Number(termsDays || 0),
         credit_limit_usd: Number(creditLimitUsd || 0),
         credit_limit_lbp: Number(creditLimitLbp || 0)
@@ -166,6 +171,7 @@ export default function CustomersPage() {
       setMembershipNo("");
       setIsMember(false);
       setMembershipExpiresAt("");
+      setIsActive(true);
       setTermsDays("0");
       setCreditLimitUsd("0");
       setCreditLimitLbp("0");
@@ -194,6 +200,7 @@ export default function CustomersPage() {
     setEditMembershipNo(c.membership_no || "");
     setEditIsMember(Boolean(c.is_member));
     setEditMembershipExpiresAt(c.membership_expires_at || "");
+    setEditIsActive(c.is_active !== false);
     setEditTermsDays(String(c.payment_terms_days ?? 0));
     setEditLimitUsd(String(c.credit_limit_usd ?? 0));
     setEditLimitLbp(String(c.credit_limit_lbp ?? 0));
@@ -220,6 +227,7 @@ export default function CustomersPage() {
         membership_no: editMembershipNo.trim() || null,
         is_member: editIsMember,
         membership_expires_at: editMembershipExpiresAt.trim() || null,
+        is_active: editIsActive,
         payment_terms_days: Number(editTermsDays || 0),
         credit_limit_usd: Number(editLimitUsd || 0),
         credit_limit_lbp: Number(editLimitLbp || 0)
@@ -531,6 +539,14 @@ export default function CustomersPage() {
                       </div>
 
                       <div className="space-y-1 md:col-span-2">
+                        <label className="text-xs font-medium text-slate-700">Active?</label>
+                        <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1 md:col-span-2">
                         <label className="text-xs font-medium text-slate-700">Notes</label>
                         <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
                       </div>
@@ -618,6 +634,14 @@ export default function CustomersPage() {
                       </div>
 
                       <div className="space-y-1 md:col-span-2">
+                        <label className="text-xs font-medium text-slate-700">Active?</label>
+                        <select className="ui-select" value={editIsActive ? "yes" : "no"} onChange={(e) => setEditIsActive(e.target.value === "yes")}>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1 md:col-span-2">
                         <label className="text-xs font-medium text-slate-700">Notes</label>
                         <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
                       </div>
@@ -649,6 +673,7 @@ export default function CustomersPage() {
                     <th className="px-3 py-2">Type</th>
                     <th className="px-3 py-2">Phone</th>
                     <th className="px-3 py-2">Email</th>
+                    <th className="px-3 py-2">Active</th>
                     <th className="px-3 py-2 text-right">AR USD</th>
                     <th className="px-3 py-2 text-right">AR LBP</th>
                     <th className="px-3 py-2 text-right">Actions</th>
@@ -661,6 +686,7 @@ export default function CustomersPage() {
                       <td className="px-3 py-2">{c.party_type || "individual"}</td>
                       <td className="px-3 py-2">{c.phone || "-"}</td>
                       <td className="px-3 py-2">{c.email || "-"}</td>
+                      <td className="px-3 py-2">{c.is_active === false ? <span className="text-slate-500">No</span> : "Yes"}</td>
                       <td className="px-3 py-2 text-right">{fmt(c.credit_balance_usd)}</td>
                       <td className="px-3 py-2 text-right">{fmt(c.credit_balance_lbp)}</td>
                       <td className="px-3 py-2 text-right">
@@ -716,6 +742,7 @@ export default function CustomersPage() {
                 </Card>
 
                 <PartyAddresses partyKind="customer" partyId={detail.id} />
+                <PartyContacts partyKind="customer" partyId={detail.id} />
 	              </div>
 	            ) : null}
 	          </CardContent>

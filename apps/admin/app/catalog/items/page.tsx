@@ -17,10 +17,21 @@ type Item = {
   tax_code_id: string | null;
   reorder_point: string | number | null;
   reorder_qty: string | number | null;
+  is_active?: boolean;
+  category_id?: string | null;
+  brand?: string | null;
+  short_name?: string | null;
+  description?: string | null;
+  track_batches?: boolean;
+  track_expiry?: boolean;
+  default_shelf_life_days?: number | null;
+  min_shelf_life_days_for_sale?: number | null;
+  expiry_warning_days?: number | null;
   barcode_count?: number;
 };
 
 type TaxCode = { id: string; name: string; rate: string | number };
+type Category = { id: string; name: string; parent_id: string | null; is_active: boolean };
 
 type BulkItemIn = {
   sku: string;
@@ -62,6 +73,7 @@ type ItemSupplierLinkRow = {
 export default function ItemsPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [status, setStatus] = useState<string>("");
 
   const [q, setQ] = useState("");
@@ -70,6 +82,8 @@ export default function ItemsPage() {
   const [name, setName] = useState("");
   const [uom, setUom] = useState("EA");
   const [barcode, setBarcode] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [isActive, setIsActive] = useState(true);
   const [creating, setCreating] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -80,6 +94,16 @@ export default function ItemsPage() {
   const [editTaxCodeId, setEditTaxCodeId] = useState("");
   const [editReorderPoint, setEditReorderPoint] = useState("");
   const [editReorderQty, setEditReorderQty] = useState("");
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [editCategoryId, setEditCategoryId] = useState("");
+  const [editBrand, setEditBrand] = useState("");
+  const [editShortName, setEditShortName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editTrackBatches, setEditTrackBatches] = useState(false);
+  const [editTrackExpiry, setEditTrackExpiry] = useState(false);
+  const [editDefaultShelfLifeDays, setEditDefaultShelfLifeDays] = useState("");
+  const [editMinShelfLifeDaysForSale, setEditMinShelfLifeDaysForSale] = useState("");
+  const [editExpiryWarningDays, setEditExpiryWarningDays] = useState("");
   const [editing, setEditing] = useState(false);
 
   const [importOpen, setImportOpen] = useState(false);
@@ -131,15 +155,19 @@ export default function ItemsPage() {
     });
   }, [items, q]);
 
+  const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+
   async function load() {
     setStatus("Loading...");
     try {
-      const [res, tc] = await Promise.all([
+      const [res, tc, cats] = await Promise.all([
         apiGet<{ items: Item[] }>("/items"),
-        apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes")
+        apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes"),
+        apiGet<{ categories: Category[] }>("/item-categories")
       ]);
       setItems(res.items || []);
       setTaxCodes(tc.tax_codes || []);
+      setCategories(cats.categories || []);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -321,11 +349,15 @@ export default function ItemsPage() {
         sku: sku.trim(),
         name: name.trim(),
         unit_of_measure: uom.trim(),
-        barcode: barcode.trim() || null
+        barcode: barcode.trim() || null,
+        category_id: categoryId || null,
+        is_active: isActive
       });
       setSku("");
       setName("");
       setBarcode("");
+      setCategoryId("");
+      setIsActive(true);
       setCreateOpen(false);
       setStatus("Created.");
       await load();
@@ -346,6 +378,16 @@ export default function ItemsPage() {
     setEditTaxCodeId(item.tax_code_id || "");
     setEditReorderPoint(String(item.reorder_point ?? ""));
     setEditReorderQty(String(item.reorder_qty ?? ""));
+    setEditIsActive(item.is_active !== false);
+    setEditCategoryId((item.category_id as any) || "");
+    setEditBrand((item.brand as any) || "");
+    setEditShortName((item.short_name as any) || "");
+    setEditDescription((item.description as any) || "");
+    setEditTrackBatches(Boolean(item.track_batches));
+    setEditTrackExpiry(Boolean(item.track_expiry));
+    setEditDefaultShelfLifeDays(String(item.default_shelf_life_days ?? ""));
+    setEditMinShelfLifeDaysForSale(String(item.min_shelf_life_days_for_sale ?? ""));
+    setEditExpiryWarningDays(String(item.expiry_warning_days ?? ""));
     setEditOpen(true);
   }
 
@@ -364,7 +406,17 @@ export default function ItemsPage() {
         barcode: editBarcode.trim(),
         tax_code_id: editTaxCodeId ? editTaxCodeId : null,
         reorder_point: Number(editReorderPoint || 0),
-        reorder_qty: Number(editReorderQty || 0)
+        reorder_qty: Number(editReorderQty || 0),
+        is_active: editIsActive,
+        category_id: editCategoryId || null,
+        brand: editBrand.trim() || null,
+        short_name: editShortName.trim() || null,
+        description: editDescription.trim() || null,
+        track_batches: !!editTrackBatches,
+        track_expiry: !!editTrackExpiry,
+        default_shelf_life_days: editDefaultShelfLifeDays.trim() ? Number(editDefaultShelfLifeDays) : null,
+        min_shelf_life_days_for_sale: editMinShelfLifeDaysForSale.trim() ? Number(editMinShelfLifeDaysForSale) : null,
+        expiry_warning_days: editExpiryWarningDays.trim() ? Number(editExpiryWarningDays) : null
       });
       setEditOpen(false);
       setEditItem(null);
@@ -605,7 +657,20 @@ export default function ItemsPage() {
                 <Button variant="outline" onClick={load}>
                   Refresh
                 </Button>
-                <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+                <Dialog
+                  open={createOpen}
+                  onOpenChange={(o) => {
+                    setCreateOpen(o);
+                    if (!o) {
+                      setSku("");
+                      setName("");
+                      setUom("EA");
+                      setBarcode("");
+                      setCategoryId("");
+                      setIsActive(true);
+                    }
+                  }}
+                >
                   <DialogTrigger asChild>
                     <Button>New Item</Button>
                   </DialogTrigger>
@@ -631,6 +696,26 @@ export default function ItemsPage() {
                         <div className="space-y-1">
                           <label className="text-xs font-medium text-slate-700">Barcode (optional)</label>
                           <Input value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="629..." />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-slate-700">Category (optional)</label>
+                          <select className="ui-select" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                            <option value="">(none)</option>
+                            {categories.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-slate-700">Active?</label>
+                          <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
+                            <option value="yes">Yes</option>
+                            <option value="no">No</option>
+                          </select>
                         </div>
                       </div>
                       <div className="flex justify-end">
@@ -699,8 +784,10 @@ export default function ItemsPage() {
                   <tr>
                     <th className="px-3 py-2">SKU</th>
                     <th className="px-3 py-2">Name</th>
+                    <th className="px-3 py-2">Category</th>
                     <th className="px-3 py-2">Barcode</th>
                     <th className="px-3 py-2">UOM</th>
+                    <th className="px-3 py-2">Active</th>
                     <th className="px-3 py-2 text-right">Reorder</th>
                     <th className="px-3 py-2 text-right">Actions</th>
                   </tr>
@@ -710,8 +797,10 @@ export default function ItemsPage() {
                     <tr key={i.id} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{i.sku}</td>
                       <td className="px-3 py-2">{i.name}</td>
+                      <td className="px-3 py-2">{i.category_id ? categoryNameById.get(i.category_id) || "-" : "-"}</td>
                       <td className="px-3 py-2 font-mono text-xs">{i.barcode || "-"}</td>
                       <td className="px-3 py-2">{i.unit_of_measure}</td>
+                      <td className="px-3 py-2">{i.is_active === false ? <span className="text-slate-500">No</span> : "Yes"}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">
                         {Number(i.reorder_point || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })} /{" "}
                         {Number(i.reorder_qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
@@ -733,7 +822,7 @@ export default function ItemsPage() {
                   ))}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={6}>
+                      <td className="px-3 py-6 text-center text-slate-500" colSpan={8}>
                         No items found.
                       </td>
                     </tr>
@@ -799,6 +888,84 @@ export default function ItemsPage() {
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-slate-700">Reorder Qty</label>
                       <Input value={editReorderQty} onChange={(e) => setEditReorderQty(e.target.value)} placeholder="0" />
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-slate-200 bg-white p-3">
+                    <div className="text-xs font-medium text-slate-700">Master Data</div>
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-700">Category</label>
+                        <select className="ui-select" value={editCategoryId} onChange={(e) => setEditCategoryId(e.target.value)}>
+                          <option value="">(none)</option>
+                          {categories.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-700">Active?</label>
+                        <select className="ui-select" value={editIsActive ? "yes" : "no"} onChange={(e) => setEditIsActive(e.target.value === "yes")}>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-700">Brand</label>
+                        <Input value={editBrand} onChange={(e) => setEditBrand(e.target.value)} placeholder="Optional" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-700">Short Name</label>
+                        <Input value={editShortName} onChange={(e) => setEditShortName(e.target.value)} placeholder="Optional (POS label)" />
+                      </div>
+
+                      <div className="space-y-1 md:col-span-2">
+                        <label className="text-xs font-medium text-slate-700">Description</label>
+                        <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} placeholder="Optional" />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-700">Track Batches?</label>
+                        <select
+                          className="ui-select"
+                          value={editTrackBatches ? "yes" : "no"}
+                          onChange={(e) => setEditTrackBatches(e.target.value === "yes")}
+                        >
+                          <option value="no">No</option>
+                          <option value="yes">Yes</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-700">Track Expiry?</label>
+                        <select
+                          className="ui-select"
+                          value={editTrackExpiry ? "yes" : "no"}
+                          onChange={(e) => setEditTrackExpiry(e.target.value === "yes")}
+                        >
+                          <option value="no">No</option>
+                          <option value="yes">Yes</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-700">Default Shelf Life (days)</label>
+                        <Input value={editDefaultShelfLifeDays} onChange={(e) => setEditDefaultShelfLifeDays(e.target.value)} placeholder="Optional" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-slate-700">Min Shelf Life For Sale (days)</label>
+                        <Input
+                          value={editMinShelfLifeDaysForSale}
+                          onChange={(e) => setEditMinShelfLifeDaysForSale(e.target.value)}
+                          placeholder="Optional"
+                        />
+                      </div>
+                      <div className="space-y-1 md:col-span-2">
+                        <label className="text-xs font-medium text-slate-700">Expiry Warning (days)</label>
+                        <Input value={editExpiryWarningDays} onChange={(e) => setEditExpiryWarningDays(e.target.value)} placeholder="Optional" />
+                      </div>
                     </div>
                   </div>
                   <div className="flex justify-end">

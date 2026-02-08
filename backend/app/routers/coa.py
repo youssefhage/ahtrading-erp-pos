@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission
 
@@ -34,12 +34,116 @@ def list_templates():
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, code, name, default_language
+                SELECT id, code, name, description, default_language
                 FROM coa_templates
                 ORDER BY name
                 """,
             )
             return {"templates": cur.fetchall()}
+
+
+class CoaTemplateIn(BaseModel):
+    code: str
+    name: str
+    description: Optional[str] = None
+    default_language: str = "en"
+
+
+@router.post("/templates", dependencies=[Depends(require_permission("coa:write"))])
+def create_template(data: CoaTemplateIn):
+    code = (data.code or "").strip()
+    name = (data.name or "").strip()
+    if not code or not name:
+        raise HTTPException(status_code=400, detail="code and name are required")
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO coa_templates (id, code, name, description, default_language)
+                VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                ON CONFLICT (code) DO UPDATE
+                SET name = EXCLUDED.name,
+                    description = EXCLUDED.description,
+                    default_language = EXCLUDED.default_language
+                RETURNING id
+                """,
+                (code, name, (data.description or "").strip() or None, (data.default_language or "en").strip() or "en"),
+            )
+            return {"id": cur.fetchone()["id"]}
+
+
+@router.get("/templates/{template_id}/accounts", dependencies=[Depends(require_permission("coa:read"))])
+def list_template_accounts(template_id: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, account_code, name_en, name_fr, name_ar, normal_balance_raw, is_postable_default, created_at
+                FROM coa_template_accounts
+                WHERE template_id = %s
+                ORDER BY account_code
+                """,
+                (template_id,),
+            )
+            return {"accounts": cur.fetchall()}
+
+
+class TemplateAccountIn(BaseModel):
+    account_code: str
+    name_en: Optional[str] = None
+    name_fr: Optional[str] = None
+    name_ar: Optional[str] = None
+    normal_balance_raw: Optional[str] = None
+    is_postable_default: bool = True
+
+
+class TemplateAccountsBulkIn(BaseModel):
+    accounts: List[TemplateAccountIn]
+
+
+@router.post("/templates/{template_id}/accounts/bulk", dependencies=[Depends(require_permission("coa:write"))])
+def bulk_upsert_template_accounts(template_id: str, data: TemplateAccountsBulkIn):
+    accounts = data.accounts or []
+    if not accounts:
+        raise HTTPException(status_code=400, detail="accounts is required")
+    if len(accounts) > 5000:
+        raise HTTPException(status_code=400, detail="too many accounts (max 5000)")
+    with get_conn() as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM coa_templates WHERE id=%s", (template_id,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="template not found")
+                upserted = 0
+                for a in accounts:
+                    code = (a.account_code or "").strip()
+                    if not code:
+                        raise HTTPException(status_code=400, detail="each account requires account_code")
+                    cur.execute(
+                        """
+                        INSERT INTO coa_template_accounts
+                          (id, template_id, account_code, name_en, name_fr, name_ar, normal_balance_raw, is_postable_default)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (template_id, account_code) DO UPDATE
+                        SET name_en = EXCLUDED.name_en,
+                            name_fr = EXCLUDED.name_fr,
+                            name_ar = EXCLUDED.name_ar,
+                            normal_balance_raw = EXCLUDED.normal_balance_raw,
+                            is_postable_default = EXCLUDED.is_postable_default
+                        """,
+                        (
+                            template_id,
+                            code,
+                            (a.name_en or "").strip() or None,
+                            (a.name_fr or "").strip() or None,
+                            (a.name_ar or "").strip() or None,
+                            (a.normal_balance_raw or "").strip() or None,
+                            bool(a.is_postable_default),
+                        ),
+                    )
+                    upserted += 1
+                return {"ok": True, "upserted": upserted}
 
 
 @router.post("/clone", dependencies=[Depends(require_permission("coa:write"))])

@@ -1,17 +1,63 @@
+const SESSION_KEY = "pos_admin_session_token";
+
+function getSessionToken() {
+  try {
+    return localStorage.getItem(SESSION_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function setSessionToken(token) {
+  try {
+    if (!token) localStorage.removeItem(SESSION_KEY);
+    else localStorage.setItem(SESSION_KEY, token);
+  } catch {}
+}
+
+async function unlockWithPin() {
+  const pin = window.prompt("Admin PIN required to use this POS (LAN mode). Enter PIN:");
+  if (!pin) throw new Error("Admin PIN required.");
+  const res = await fetch(`/api/auth/pin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pin })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.token) throw new Error("Invalid admin PIN.");
+  setSessionToken(data.token);
+}
+
+async function apiRequest(method, path, payload, retry = true) {
+  const headers = { "Content-Type": "application/json" };
+  const tok = getSessionToken();
+  if (tok) headers["X-POS-Session"] = tok;
+  const res = await fetch(`/api${path}`, {
+    method,
+    headers,
+    body: method === "POST" ? JSON.stringify(payload || {}) : undefined
+  });
+  if (res.ok) return res.json();
+
+  const status = res.status;
+  const data = await res.json().catch(() => null);
+  const errCode = data?.error;
+
+  if (retry && (status === 401 || status === 503) && errCode === "pos_auth_required") {
+    await unlockWithPin();
+    return apiRequest(method, path, payload, false);
+  }
+
+  const msg = data?.error || (await res.text().catch(() => "")) || `HTTP ${status}`;
+  throw new Error(msg);
+}
+
 const api = {
   async get(path) {
-    const res = await fetch(`/api${path}`);
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+    return apiRequest("GET", path);
   },
   async post(path, payload) {
-    const res = await fetch(`/api${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload || {})
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+    return apiRequest("POST", path, payload);
   }
 };
 
@@ -399,13 +445,25 @@ function addToCart(item, qty) {
   if (existing) {
     existing.qty += inc;
   } else {
+    let batch_no = "";
+    let expiry_date = "";
+    if (item.track_batches) {
+      batch_no = window.prompt("Batch number required for this item:", "") || "";
+      if (!batch_no.trim()) return;
+    }
+    if (item.track_expiry) {
+      expiry_date = window.prompt("Expiry date required (YYYY-MM-DD):", "") || "";
+      if (!expiry_date.trim()) return;
+    }
     state.cart.push({
       ...item,
       qty: inc,
       base_price_usd: toNum(item.price_usd || 0),
       base_price_lbp: toNum(item.price_lbp || 0),
       promo_code: "",
-      promo_name: ""
+      promo_name: "",
+      batch_no: batch_no.trim() || null,
+      expiry_date: expiry_date.trim() || null
     });
   }
   repriceCart();
@@ -681,7 +739,14 @@ async function confirmPay() {
   }
 
   const payload = {
-    cart: state.cart.map((i) => ({ id: i.id, qty: i.qty, price_usd: i.price_usd || 0, price_lbp: i.price_lbp || 0 })),
+    cart: state.cart.map((i) => ({
+      id: i.id,
+      qty: i.qty,
+      price_usd: i.price_usd || 0,
+      price_lbp: i.price_lbp || 0,
+      batch_no: i.batch_no || null,
+      expiry_date: i.expiry_date || null
+    })),
     exchange_rate: getRate(),
     pricing_currency: getCurrency(),
     customer_id: customerId,
@@ -717,7 +782,14 @@ async function confirmReturn() {
   const refundMethod = el("refundMethod").value || "cash";
   const invoiceId = (el("returnInvoiceId").value || "").trim() || null;
   const payload = {
-    cart: state.cart.map((i) => ({ id: i.id, qty: i.qty, price_usd: i.price_usd || 0, price_lbp: i.price_lbp || 0 })),
+    cart: state.cart.map((i) => ({
+      id: i.id,
+      qty: i.qty,
+      price_usd: i.price_usd || 0,
+      price_lbp: i.price_lbp || 0,
+      batch_no: i.batch_no || null,
+      expiry_date: i.expiry_date || null
+    })),
     exchange_rate: getRate(),
     pricing_currency: getCurrency(),
     invoice_id: invoiceId,

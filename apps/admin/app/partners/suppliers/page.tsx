@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { PartyAddresses } from "@/components/party-addresses";
+import { PartyContacts } from "@/components/party-contacts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -23,6 +24,7 @@ type Supplier = {
   tax_id?: string | null;
   vat_no?: string | null;
   notes?: string | null;
+  is_active?: boolean;
 };
 
 export default function SuppliersPage() {
@@ -46,6 +48,7 @@ export default function SuppliersPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [termsDays, setTermsDays] = useState("0");
+  const [isActive, setIsActive] = useState(true);
   const [creating, setCreating] = useState(false);
 
   const [editCode, setEditCode] = useState("");
@@ -58,6 +61,7 @@ export default function SuppliersPage() {
   const [editPhone, setEditPhone] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editTermsDays, setEditTermsDays] = useState("0");
+  const [editIsActive, setEditIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [importOpen, setImportOpen] = useState(false);
@@ -121,7 +125,8 @@ export default function SuppliersPage() {
         notes: notes.trim() || null,
         phone: phone.trim() || null,
         email: email.trim() || null,
-        payment_terms_days: Number(termsDays || 0)
+        payment_terms_days: Number(termsDays || 0),
+        is_active: isActive
       });
       setName("");
       setCode("");
@@ -133,6 +138,7 @@ export default function SuppliersPage() {
       setPhone("");
       setEmail("");
       setTermsDays("0");
+      setIsActive(true);
       setCreateOpen(false);
       await load();
       setStatus("");
@@ -156,6 +162,7 @@ export default function SuppliersPage() {
     setEditPhone(s.phone || "");
     setEditEmail(s.email || "");
     setEditTermsDays(String(s.payment_terms_days ?? 0));
+    setEditIsActive(s.is_active !== false);
     setEditOpen(true);
   }
 
@@ -176,7 +183,8 @@ export default function SuppliersPage() {
         notes: editNotes.trim() || null,
         phone: editPhone.trim() || null,
         email: editEmail.trim() || null,
-        payment_terms_days: Number(editTermsDays || 0)
+        payment_terms_days: Number(editTermsDays || 0),
+        is_active: editIsActive
       });
       setEditOpen(false);
       await load();
@@ -468,6 +476,13 @@ export default function SuppliersPage() {
                         <Input value={termsDays} onChange={(e) => setTermsDays(e.target.value)} placeholder="0" />
                       </div>
                       <div className="space-y-1 md:col-span-2">
+                        <label className="text-xs font-medium text-slate-700">Active?</label>
+                        <select className="ui-select" value={isActive ? "yes" : "no"} onChange={(e) => setIsActive(e.target.value === "yes")}>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1 md:col-span-2">
                         <label className="text-xs font-medium text-slate-700">Notes</label>
                         <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
                       </div>
@@ -532,6 +547,13 @@ export default function SuppliersPage() {
                         <Input value={editTermsDays} onChange={(e) => setEditTermsDays(e.target.value)} />
                       </div>
                       <div className="space-y-1 md:col-span-2">
+                        <label className="text-xs font-medium text-slate-700">Active?</label>
+                        <select className="ui-select" value={editIsActive ? "yes" : "no"} onChange={(e) => setEditIsActive(e.target.value === "yes")}>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1 md:col-span-2">
                         <label className="text-xs font-medium text-slate-700">Notes</label>
                         <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
                       </div>
@@ -556,6 +578,7 @@ export default function SuppliersPage() {
                     <th className="px-3 py-2">Type</th>
                     <th className="px-3 py-2">Phone</th>
                     <th className="px-3 py-2">Email</th>
+                    <th className="px-3 py-2">Active</th>
                     <th className="px-3 py-2 text-right">Terms</th>
                     <th className="px-3 py-2 text-right">Actions</th>
                   </tr>
@@ -568,6 +591,7 @@ export default function SuppliersPage() {
                       <td className="px-3 py-2">{s.party_type || "business"}</td>
                       <td className="px-3 py-2">{s.phone || "-"}</td>
                       <td className="px-3 py-2">{s.email || "-"}</td>
+                      <td className="px-3 py-2">{s.is_active === false ? <span className="text-slate-500">No</span> : "Yes"}</td>
                       <td className="px-3 py-2 text-right">{Number(s.payment_terms_days || 0)}</td>
                       <td className="px-3 py-2 text-right">
                         <Button
@@ -624,6 +648,7 @@ export default function SuppliersPage() {
                 </Card>
 
                 <PartyAddresses partyKind="supplier" partyId={detail.id} />
+                <PartyContacts partyKind="supplier" partyId={detail.id} />
               </div>
             ) : null}
           </CardContent>
