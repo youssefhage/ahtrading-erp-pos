@@ -653,6 +653,36 @@ def import_supplier_invoice_draft_from_file(
                                 extracted = openai_extract_purchase_invoice_from_text(text=pdf_text, filename=filename)
                         except FileNotFoundError:
                             warnings.append("pdftotext is not installed; PDF import needs poppler-utils.")
+
+                        # Fallback for image-based PDFs: render first page to PNG and run vision extraction.
+                        if not extracted:
+                            try:
+                                with tempfile.TemporaryDirectory() as td:
+                                    out_prefix = os.path.join(td, "page1")
+                                    proc2 = subprocess.run(
+                                        ["pdftoppm", "-f", "1", "-l", "1", "-png", "-singlefile", f.name, out_prefix],
+                                        capture_output=True,
+                                        timeout=15,
+                                        check=False,
+                                    )
+                                    png_path = out_prefix + ".png"
+                                    if proc2.returncode != 0:
+                                        warnings.append("pdftoppm failed (cannot render PDF to image).")
+                                    elif not os.path.exists(png_path):
+                                        warnings.append("pdftoppm did not produce an image (unexpected).")
+                                    else:
+                                        with open(png_path, "rb") as pf:
+                                            img_raw = pf.read() or b""
+                                        if img_raw:
+                                            extracted = openai_extract_purchase_invoice_from_image(
+                                                raw=img_raw,
+                                                content_type="image/png",
+                                                filename=filename,
+                                            )
+                            except FileNotFoundError:
+                                warnings.append("pdftoppm is not installed; image-based PDF import needs poppler-utils.")
+                            except Exception as ex2:
+                                warnings.append(f"PDF image fallback failed: {ex2}")
                 else:
                     warnings.append("Unsupported content type for AI extraction (use image/* or application/pdf).")
             else:
@@ -809,6 +839,21 @@ def import_supplier_invoice_draft_from_file(
                                 LIMIT 1
                                 """,
                                 (company_id, supplier_id, ncode),
+                            )
+                            r = cur.fetchone()
+                            item_id = r["item_id"] if r else None
+
+                        # Next-best: exact normalized name match in our learned alias table.
+                        if not item_id and supplier_id and nname:
+                            cur.execute(
+                                """
+                                SELECT item_id
+                                FROM supplier_item_aliases
+                                WHERE company_id=%s AND supplier_id=%s AND normalized_name=%s
+                                ORDER BY last_seen_at DESC
+                                LIMIT 1
+                                """,
+                                (company_id, supplier_id, nname),
                             )
                             r = cur.fetchone()
                             item_id = r["item_id"] if r else None

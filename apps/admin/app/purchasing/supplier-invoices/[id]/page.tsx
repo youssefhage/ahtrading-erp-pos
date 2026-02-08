@@ -532,6 +532,8 @@ function SupplierInvoiceShowInner() {
                             <th className="px-3 py-2 text-right">Prev</th>
                             <th className="px-3 py-2 text-right">New</th>
                             <th className="px-3 py-2 text-right">% +</th>
+                            <th className="px-3 py-2 text-right">Sell USD</th>
+                            <th className="px-3 py-2 text-right">Margin</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -548,6 +550,12 @@ function SupplierInvoiceShowInner() {
                               <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{c.new_unit_cost_usd || c.new_unit_cost_lbp || "-"}</td>
                               <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">
                                 {typeof c.pct_increase === "number" ? `${(c.pct_increase * 100).toFixed(1)}%` : "-"}
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{c.sell_price_usd || "-"}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">
+                                {typeof c.margin_before === "number" && typeof c.margin_after === "number"
+                                  ? `${(c.margin_before * 100).toFixed(1)}% → ${(c.margin_after * 100).toFixed(1)}%`
+                                  : "-"}
                               </td>
                             </tr>
                           ))}
