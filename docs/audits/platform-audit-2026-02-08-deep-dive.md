@@ -51,7 +51,7 @@ Executed (2026-02-08):
 
 Residual work:
 - Document these in the root README “Dev prerequisites”.
-- Optionally add a preflight script to warn when versions don’t match.
+- Added a lightweight preflight script (`scripts/preflight.sh`) to warn (or `--strict` fail) when local runtime versions don’t match `.python-version` / `.nvmrc`.
 
 ### 3) User Input Can Trigger 500s (Enum Cast / FK / Constraint Errors)
 
