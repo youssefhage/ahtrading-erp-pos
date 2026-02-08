@@ -53,6 +53,10 @@ Recommended fix:
 - Store only a token hash (similar to `pos_devices.device_token_hash`).
 - Add “last_seen_at” or rotate token on sensitive events (password reset, company switch, role changes).
 
+Executed (2026-02-08):
+- Auth login now uses `secrets.token_urlsafe(32)` and stores sessions as a one-way hash (`sha256:...`) via `hash_session_token()`.
+- Session validation hashes the presented bearer/cookie token and matches against the stored hash (with a legacy plaintext fallback).
+
 ## P1 (High Priority)
 
 ### 1) DB Constraint Missing: “One Open Shift Per Device”
