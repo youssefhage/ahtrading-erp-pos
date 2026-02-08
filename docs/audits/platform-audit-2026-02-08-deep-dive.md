@@ -155,7 +155,8 @@ Risks to watch:
 
 2) Validation hardening:
 - Introduce shared Pydantic enums for `currency_code`, `rate_type`, `doc_status`, and payment methods with coercion.
-- Make list endpoints validate filters (`status`, etc.) and return 400 on invalid values.
+- Make list endpoints validate filters (`status`, etc.) and return 400/422 on invalid values.
+  - Started: `GET /sales/invoices` and `GET /purchases/invoices` now type `status` as `DocStatus` (invalid values are rejected before DB).
 
 3) Observability:
 - Add structured logging in API + worker.
