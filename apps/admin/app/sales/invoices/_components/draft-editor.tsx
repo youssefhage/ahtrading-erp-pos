@@ -15,6 +15,7 @@ type CatalogItemBarcode = { id: string; barcode: string; qty_factor: string | nu
 type Item = ItemPickerItem & {
   barcode: string | null;
   unit_of_measure: string;
+  is_active: boolean;
   price_usd: string | number | null;
   price_lbp: string | number | null;
   barcodes: CatalogItemBarcode[];
@@ -94,6 +95,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 
   const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const pickItems = useMemo(() => items.filter((i) => i.is_active !== false), [items]);
   const addItem = addItemId ? itemById.get(addItemId) : undefined;
 
   const load = useCallback(async () => {
@@ -370,7 +372,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
                   <div className="space-y-1 md:col-span-6">
                     <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
-                    <ItemPicker items={items} onSelect={(it) => onPickItem(it as Item)} disabled={loading} />
+                    <ItemPicker items={pickItems} onSelect={(it) => onPickItem(it as Item)} disabled={loading} />
                     {addItem ? (
                       <p className="text-[11px] text-fg-subtle">
                         Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}

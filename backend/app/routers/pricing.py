@@ -34,7 +34,7 @@ def catalog(company_id: str = Depends(get_company_id)):
 
             cur.execute(
                 """
-                SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure,
+                SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure, i.is_active,
                        i.tax_code_id,
                        i.category_id, i.brand, i.short_name, i.description,
                        i.track_batches, i.track_expiry,
@@ -78,7 +78,6 @@ def catalog(company_id: str = Depends(get_company_id)):
                     FROM item_barcodes b
                     WHERE b.company_id = i.company_id AND b.item_id = i.id
                 ) bc ON true
-                WHERE i.is_active = true
                 ORDER BY i.sku
                 """,
                 (default_pl_id, default_pl_id),

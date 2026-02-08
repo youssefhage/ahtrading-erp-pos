@@ -15,6 +15,7 @@ type CatalogItemBarcode = { id: string; barcode: string; qty_factor: string | nu
 type Item = ItemPickerItem & {
   barcode?: string | null;
   unit_of_measure?: string | null;
+  is_active?: boolean;
   price_usd?: string | number | null;
   price_lbp?: string | number | null;
   barcodes?: CatalogItemBarcode[] | null;
@@ -111,6 +112,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [addExpiry, setAddExpiry] = useState("");
 
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const pickItems = useMemo(() => items.filter((i) => (i as any).is_active !== false), [items]);
   const addItem = addItemId ? itemById.get(addItemId) : undefined;
   const addQtyRef = useRef<HTMLInputElement | null>(null);
   const supplierCostCache = useRef(new Map<string, { usd: number; lbp: number } | null>());
@@ -620,7 +622,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
                   <div className="space-y-1 md:col-span-6">
                     <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
-                    <ItemPicker items={items} onSelect={(it) => void onPickItem(it as Item)} disabled={loading} />
+                    <ItemPicker items={pickItems} onSelect={(it) => void onPickItem(it as Item)} disabled={loading} />
                     {addItem ? (
                       <p className="text-[11px] text-fg-subtle">
                         Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}
