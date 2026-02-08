@@ -2,106 +2,179 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  /* App palette (RGB triples for Tailwind-friendly usage). */
-  --bg: 251 250 246;
-  --fg: 20 23 30;
-  --muted: 92 104 118;
-  --card: 255 255 255;
-  --card-2: 252 251 247;
-  --border: 229 226 217;
-  --ring: 13 148 136;
-  --primary: 13 148 136;
-  --primary-fg: 255 255 255;
-  --warning: 245 158 11;
-  --danger: 220 38 38;
-  --danger-bg: 255 241 242;
-}
-
-html,
-body {
-  height: 100%;
-}
-
-body {
-  color: rgb(var(--fg));
-  background:
-    radial-gradient(1100px circle at 10% -12%, rgba(13, 148, 136, 0.18), transparent 55%),
-    radial-gradient(980px circle at 92% 10%, rgba(245, 158, 11, 0.14), transparent 50%),
-    radial-gradient(820px circle at 62% 112%, rgba(37, 99, 235, 0.10), transparent 55%),
-    repeating-linear-gradient(
-      90deg,
-      rgba(15, 23, 42, 0.035) 0px,
-      rgba(15, 23, 42, 0.035) 1px,
-      transparent 1px,
-      transparent 14px
-    ),
-    linear-gradient(to bottom, rgb(var(--bg)), #ffffff);
-}
-
 @layer base {
+  :root {
+    /* Industrial Terminal - Light Mode Design System (default) */
+    /* Background hierarchy: light at bottom, slightly darker as we rise */
+    --bg: 250 250 250; /* zinc-50 */
+    --bg-elevated: 244 244 245; /* zinc-100 */
+    --bg-sunken: 228 228 231; /* zinc-200 */
+
+    /* Foreground: near-black for readability on light */
+    --fg: 24 24 27; /* zinc-900 */
+    --fg-muted: 63 63 70; /* zinc-700 */
+    --fg-subtle: 113 113 122; /* zinc-500 */
+
+    /* Border: subtle definition */
+    --border: 212 212 216; /* zinc-300 */
+    --border-subtle: 228 228 231; /* zinc-200 */
+    --border-strong: 161 161 170; /* zinc-400 */
+
+    /* Primary accent: Industrial Amber */
+    --primary: 245 158 11; /* amber-500 */
+    --primary-fg: 0 0 0;   /* black on amber */
+    --primary-dim: 180 83 9; /* amber-700: hover states */
+    --primary-glow: 245 158 11; /* for shadows */
+
+    /* Status colors: functional but muted */
+    --success: 34 197 94;  /* green-500 */
+    --success-fg: 0 0 0;
+    --warning: 234 179 8;  /* yellow-500 */
+    --warning-fg: 0 0 0;
+    --danger: 239 68 68;   /* red-500 */
+    --danger-fg: 255 255 255;
+    --info: 59 130 246;    /* blue-500 */
+    --info-fg: 255 255 255;
+
+    /* Terminal-specific */
+    --terminal-green: 74 222 128; /* green-400: data accents */
+    --terminal-amber: 251 191 36; /* amber-400: warnings */
+    --terminal-cyan: 34 211 238;  /* cyan-400: info */
+
+    /* Ring focus */
+    --ring: 245 158 11;    /* amber-500 */
+  }
+
+  .dark {
+    /* Industrial Terminal - Dark Mode Design System */
+    /* Background hierarchy: darkest at bottom, lighter as we rise */
+    --bg: 9 9 11; /* zinc-950 */
+    --bg-elevated: 24 24 27; /* zinc-900 */
+    --bg-sunken: 0 0 0; /* pure black */
+
+    /* Foreground: warm white for readability on dark */
+    --fg: 250 250 250; /* zinc-50 */
+    --fg-muted: 161 161 170; /* zinc-400 */
+    --fg-subtle: 113 113 122; /* zinc-500 */
+
+    /* Border: subtle definition */
+    --border: 63 63 70; /* zinc-700 */
+    --border-subtle: 39 39 42; /* zinc-800 */
+    --border-strong: 82 82 91; /* zinc-600 */
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Custom scrollbar for terminal feel */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: rgb(var(--bg-sunken));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--border));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--border-strong));
+  }
+
   ::selection {
-    background: rgba(var(--primary), 0.18);
-  }
-
-  a {
-    color: inherit;
-    text-decoration: none;
-  }
-
-  code {
-    font-family: theme(fontFamily.mono);
-  }
-
-  /* Make native controls usable even when pages forget classes. */
-  select,
-  textarea {
+    background: rgba(var(--primary), 0.25);
     color: rgb(var(--fg));
   }
 
-  input[type="checkbox"] {
-    @apply h-4 w-4 rounded border border-slate-300 bg-white shadow-sm;
-    @apply text-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70;
+  code {
+    @apply font-mono;
   }
 }
 
 @layer components {
+  /* Terminal-style data display */
+  .data-mono {
+    @apply font-mono tabular-nums tracking-tight;
+  }
+
+  /* Navigation rail item */
+  .nav-rail-item {
+    @apply relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200;
+    @apply text-fg-muted hover:text-foreground hover:bg-bg-elevated/60;
+  }
+
+  .nav-rail-item[data-active="true"] {
+    @apply text-amber-600 bg-amber-500/10;
+  }
+
+  .nav-rail-item[data-active="true"]::before {
+    content: "";
+    @apply absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-amber-500 rounded-r-full;
+  }
+
+  /* Form controls - industrial style */
   .ui-control {
-    @apply h-10 w-full rounded-lg px-3 text-sm shadow-sm backdrop-blur-[2px] transition;
-    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70 disabled:cursor-not-allowed disabled:opacity-50;
-    border: 1px solid rgb(var(--border) / 0.92);
-    background: rgba(255, 255, 255, 0.72);
+    @apply h-10 w-full rounded-md px-3 text-sm transition-all duration-200;
+    @apply bg-bg-elevated border border-border text-foreground;
+    @apply placeholder:text-fg-subtle;
+    @apply focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .ui-control-sm {
-    @apply h-9 w-full rounded-lg px-2 text-sm shadow-sm backdrop-blur-[2px] transition;
-    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70 disabled:cursor-not-allowed disabled:opacity-50;
-    border: 1px solid rgb(var(--border) / 0.92);
-    background: rgba(255, 255, 255, 0.72);
+    @apply h-8 w-full rounded-md px-2.5 text-sm;
+    @apply bg-bg-elevated border border-border text-foreground;
+    @apply placeholder:text-fg-subtle;
+    @apply focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .ui-select {
-    @apply ui-control pr-10;
-    @apply appearance-none bg-[linear-gradient(45deg,transparent_50%,rgb(100_116_139)_50%),linear-gradient(135deg,rgb(100_116_139)_50%,transparent_50%),linear-gradient(to_right,transparent,transparent)];
-    @apply bg-[length:8px_8px,8px_8px,2.5rem_100%] bg-[position:calc(100%_-_1.1rem)_50%,calc(100%_-_0.8rem)_50%,100%_0] bg-no-repeat;
+    @apply ui-control pr-10 appearance-none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='rgb(161,161,170)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: calc(100% - 0.75rem) center;
   }
 
   .ui-textarea {
-    @apply w-full rounded-lg px-3 py-2 text-sm shadow-sm backdrop-blur-[2px] transition;
-    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70 disabled:cursor-not-allowed disabled:opacity-50;
-    border: 1px solid rgb(var(--border) / 0.92);
-    background: rgba(255, 255, 255, 0.72);
+    @apply w-full rounded-md px-3 py-2 text-sm min-h-[80px];
+    @apply bg-bg-elevated border border-border text-foreground;
+    @apply placeholder:text-fg-subtle;
+    @apply focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
+  /* Checkbox - industrial toggle style */
   .ui-checkbox {
-    @apply h-4 w-4 rounded border border-slate-300 bg-white shadow-sm;
-    @apply text-teal-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/70;
+    @apply h-4 w-4 rounded border border-border-strong bg-bg-elevated;
+    @apply text-amber-500 focus:ring-amber-500/20 focus:ring-offset-0;
+    @apply transition-colors;
   }
 
+  /* Table styling - data terminal aesthetic */
   .ui-table-wrap {
-    @apply overflow-auto rounded-xl shadow-sm backdrop-blur-[2px];
-    border: 1px solid rgb(var(--border) / 0.9);
-    background: rgba(255, 255, 255, 0.66);
+    @apply overflow-auto rounded-lg border border-border-subtle bg-bg-elevated/60;
   }
 
   .ui-table {
@@ -109,47 +182,168 @@ body {
   }
 
   .ui-thead {
-    @apply text-xs uppercase tracking-wide text-slate-600;
-    background: rgba(252, 251, 247, 0.92);
+    @apply text-xs font-medium uppercase tracking-wider text-fg-subtle;
+    @apply bg-bg-elevated border-b border-border-subtle;
+  }
+
+  .ui-thead th {
+    @apply py-3 px-4 font-medium;
   }
 
   .ui-tr {
-    @apply border-t border-slate-100/80;
+    @apply border-b border-border-subtle/60 transition-colors;
   }
 
   .ui-tr-hover {
-    @apply ui-tr hover:bg-slate-50/50;
+    @apply hover:bg-bg-sunken/60;
   }
 
+  .ui-table td {
+    @apply py-3 px-4 text-fg-muted;
+  }
+
+  .ui-table tbody tr:last-child {
+    @apply border-b-0;
+  }
+
+  /* Keyboard shortcuts */
   .ui-kbd {
-    @apply inline-flex items-center justify-center rounded-md border border-slate-200 bg-white/70 px-1.5 py-0.5 text-[11px] font-medium text-slate-700 shadow-sm;
+    @apply inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[11px] font-mono font-medium;
+    @apply bg-bg-elevated text-fg-muted border border-border;
+    box-shadow: 0 1px 0 rgb(var(--border-strong));
   }
 
+  /* Chips/Tags */
   .ui-chip {
-    @apply inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/70 px-3 py-1.5 text-xs text-slate-700 shadow-sm backdrop-blur-[2px];
+    @apply inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium;
+  }
+
+  .ui-chip-default {
+    @apply bg-bg-elevated text-fg-muted border border-border;
+  }
+
+  .ui-chip-primary {
+    @apply bg-amber-500/10 text-amber-400 border border-amber-500/20;
+  }
+
+  .ui-chip-success {
+    @apply bg-green-500/10 text-green-400 border border-green-500/20;
+  }
+
+  .ui-chip-warning {
+    @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/20;
+  }
+
+  .ui-chip-danger {
+    @apply bg-red-500/10 text-red-400 border border-red-500/20;
+  }
+
+  /* Status indicators */
+  .status-dot {
+    @apply h-2 w-2 rounded-full;
+  }
+
+  .status-online {
+    @apply bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)];
+  }
+
+  .status-offline {
+    @apply bg-red-500;
+  }
+
+  .status-warning {
+    @apply bg-yellow-500;
+  }
+
+  /* Section dividers */
+  .section-divider {
+    @apply h-px bg-gradient-to-r from-transparent via-border-strong to-transparent;
+  }
+
+  /* Glass panel for overlays */
+  .glass-panel {
+    @apply bg-bg-elevated/80 backdrop-blur-xl border border-border-subtle;
+  }
+
+  /* Data grid cells */
+  .data-cell {
+    @apply data-mono text-fg-muted;
+  }
+
+  .data-cell-positive {
+    @apply text-green-400;
+  }
+
+  .data-cell-negative {
+    @apply text-red-400;
+  }
+
+  .data-cell-highlight {
+    @apply text-amber-400;
+  }
+
+  /* Card variations */
+  .card-interactive {
+    @apply transition-all duration-200;
+    @apply hover:border-border-strong hover:shadow-lg hover:shadow-black/10;
   }
 }
 
-/* Table enhancements (global so pages don’t need to remember classes). */
-.ui-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: inherit;
+@layer utilities {
+  /* Animation utilities */
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .animate-slide-in-right {
+    animation: slideInRight 0.2s ease-out;
+  }
+
+  .animate-pulse-subtle {
+    animation: pulseSubtle 2s ease-in-out infinite;
+  }
+
+  /* Text utilities */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-gradient-to-r from-amber-400 to-amber-200 bg-clip-text text-transparent;
+  }
+
+  /* Focus ring */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:ring-offset-2 focus:ring-offset-background;
+  }
 }
 
-.ui-table tbody td {
-  vertical-align: top;
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
-.ui-table tbody tr:nth-child(even) {
-  background: rgba(15, 23, 42, 0.015);
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
-.ui-table code {
-  border: 1px solid rgb(var(--border) / 0.85);
-  background: rgba(255, 255, 255, 0.7);
-  border-radius: 0.5rem;
-  padding: 0.15rem 0.4rem;
-  font-size: 0.75rem;
+@keyframes pulseSubtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }

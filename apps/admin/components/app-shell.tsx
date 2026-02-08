@@ -14,31 +14,57 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Moon,
   Search,
   Settings,
   ShoppingCart,
+  Sun,
+  Zap,
   Sparkles,
   Tag,
   Truck,
   Users,
   Wifi,
-  WifiOff
+  WifiOff,
+  X,
+  ChevronDown
 } from "lucide-react";
 
 import { apiGet, apiPost, clearSession, getCompanyId } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type NavItem = {
   label: string;
   href: string;
+  icon?: React.ComponentType<{ className?: string }>;
 };
 
 type NavSection = { label: string; items: NavItem[] };
 type FlatNavItem = NavItem & { section: string };
 
-const navSections: NavSection[] = [
+function iconForHref(href: string) {
+  if (href === "/dashboard") return LayoutDashboard;
+  if (href.startsWith("/sales/")) return ShoppingCart;
+  if (href.startsWith("/purchasing/")) return Truck;
+  if (href.startsWith("/partners/")) return Users;
+  if (href.startsWith("/catalog/")) return Tag;
+  if (href.startsWith("/inventory/")) return Boxes;
+  if (href.startsWith("/accounting/")) return Calculator;
+  if (href.startsWith("/system/")) return Settings;
+  if (href.startsWith("/automation/")) return Sparkles;
+  return Cpu;
+}
+
+function withIcons(sections: NavSection[]): NavSection[] {
+  return sections.map((s) => ({
+    ...s,
+    items: s.items.map((i) => ({ ...i, icon: i.icon ?? iconForHref(i.href) }))
+  }));
+}
+
+const FULL_NAV_SECTIONS: NavSection[] = [
   {
     label: "Operations",
     items: [
@@ -75,33 +101,26 @@ const navSections: NavSection[] = [
     label: "Catalog & Inventory",
     items: [
       { label: "Items", href: "/catalog/items" },
-      { label: "Item Categories", href: "/catalog/item-categories" },
+      { label: "Categories", href: "/catalog/item-categories" },
       { label: "Price Lists", href: "/catalog/price-lists" },
       { label: "Promotions", href: "/catalog/promotions" },
       { label: "Stock", href: "/inventory/stock" },
       { label: "Alerts", href: "/inventory/alerts" },
-      { label: "Movements", href: "/inventory/movements" },
-      { label: "Inventory Ops", href: "/inventory/ops" }
+      { label: "Movements", href: "/inventory/movements" }
     ]
   },
   {
     label: "Accounting",
     items: [
       { label: "Journals", href: "/accounting/journals" },
-      { label: "COA", href: "/accounting/coa" },
+      { label: "Chart of Accounts", href: "/accounting/coa" },
       { label: "Intercompany", href: "/accounting/intercompany" },
       { label: "Bank Accounts", href: "/accounting/banking/accounts" },
       { label: "Reconciliation", href: "/accounting/banking/reconciliation" },
-      { label: "Period Locks", href: "/accounting/period-locks" },
       { label: "VAT Report", href: "/accounting/reports/vat" },
       { label: "Trial Balance", href: "/accounting/reports/trial-balance" },
-      { label: "General Ledger", href: "/accounting/reports/general-ledger" },
-      { label: "Profit & Loss", href: "/accounting/reports/profit-loss" },
-      { label: "Balance Sheet", href: "/accounting/reports/balance-sheet" },
-      { label: "AR Aging", href: "/accounting/reports/ar-aging" },
-      { label: "AP Aging", href: "/accounting/reports/ap-aging" },
-      { label: "Inventory Valuation", href: "/accounting/reports/inventory-valuation" },
-      { label: "Consolidated", href: "/accounting/reports/consolidated" }
+      { label: "P&L", href: "/accounting/reports/profit-loss" },
+      { label: "Balance Sheet", href: "/accounting/reports/balance-sheet" }
     ]
   },
   {
@@ -112,35 +131,106 @@ const navSections: NavSection[] = [
       { label: "Branches", href: "/system/branches" },
       { label: "Warehouses", href: "/system/warehouses" },
       { label: "Users", href: "/system/users" },
-      { label: "Roles & Perms", href: "/system/roles-permissions" }
-    ]
-  },
-  {
-    label: "Automation",
-    items: [
-      { label: "Copilot", href: "/automation/copilot" },
-      { label: "Ops Copilot", href: "/automation/ops-copilot" },
-      { label: "AI Hub", href: "/automation/ai-hub" }
+      { label: "Roles", href: "/system/roles-permissions" }
     ]
   }
 ];
 
-function iconForHref(href: string) {
-  if (href === "/dashboard") return LayoutDashboard;
-  if (href.startsWith("/sales/")) return ShoppingCart;
-  if (href.startsWith("/purchasing/")) return Truck;
-  if (href.startsWith("/partners/")) return Users;
-  if (href.startsWith("/catalog/")) return Tag;
-  if (href.startsWith("/inventory/")) return Boxes;
-  if (href.startsWith("/accounting/")) return Calculator;
-  if (href.startsWith("/system/")) return Settings;
-  if (href.startsWith("/automation/")) return Sparkles;
-  return Cpu;
+const LITE_NAV_SECTIONS: NavSection[] = [
+  {
+    label: "Core",
+    items: [
+      { label: "Dashboard", href: "/dashboard" },
+      { label: "Sales Invoices", href: "/sales/invoices" },
+      { label: "Customers", href: "/partners/customers" },
+      { label: "Items", href: "/catalog/items" },
+      { label: "Stock", href: "/inventory/stock" }
+    ]
+  },
+  {
+    label: "Ops",
+    items: [
+      { label: "POS Shifts", href: "/system/pos-shifts" },
+      { label: "POS Devices", href: "/system/pos-devices" },
+      { label: "Outbox", href: "/system/outbox" }
+    ]
+  },
+  {
+    label: "System",
+    items: [
+      { label: "Users", href: "/system/users" },
+      { label: "Config", href: "/system/config" }
+    ]
+  }
+];
+
+type UiVariant = "full" | "lite";
+type ColorTheme = "light" | "dark";
+
+function NavItemComponent({
+  item,
+  isActive,
+  collapsed,
+  onClick
+}: {
+  item: NavItem;
+  isActive: boolean;
+  collapsed: boolean;
+  onClick?: () => void;
+}) {
+  const Icon = item.icon ?? Cpu;
+
+  return (
+    <Link
+      href={item.href}
+      onClick={onClick}
+      title={collapsed ? item.label : undefined}
+      data-active={isActive}
+      aria-current={isActive ? "page" : undefined}
+      className={cn(
+        "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 focus-ring",
+        collapsed && "justify-center px-2",
+        isActive
+          ? "bg-amber-500/10 text-primary"
+          : "text-fg-muted hover:bg-bg-elevated/60 hover:text-foreground"
+      )}
+    >
+      {isActive && (
+        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-amber-500" />
+      )}
+      <Icon
+        className={cn(
+          "h-4 w-4 shrink-0 transition-colors",
+          isActive ? "text-primary" : "text-fg-subtle group-hover:text-fg-muted"
+        )}
+      />
+      <span className={cn("truncate", collapsed && "hidden")}>{item.label}</span>
+      {isActive && !collapsed && (
+        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-amber-500" />
+      )}
+    </Link>
+  );
 }
 
 export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [uiVariant, setUiVariant] = useState<UiVariant>(() => {
+    try {
+      const raw = localStorage.getItem("admin.uiVariant");
+      return raw === "lite" ? "lite" : "full";
+    } catch {
+      return "full";
+    }
+  });
+  const [colorTheme, setColorTheme] = useState<ColorTheme>(() => {
+    try {
+      const raw = localStorage.getItem("admin.colorTheme");
+      return raw === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  });
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -149,20 +239,26 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
 
   const [health, setHealth] = useState<"checking" | "online" | "offline">("checking");
   const [healthDetail, setHealthDetail] = useState("");
-  const [healthAt, setHealthAt] = useState<Date | null>(null);
 
   const companyId = getCompanyId();
   const [authChecked, setAuthChecked] = useState(false);
   const [authOk, setAuthOk] = useState(false);
 
+  const navSections = useMemo<NavSection[]>(
+    () => withIcons(uiVariant === "lite" ? LITE_NAV_SECTIONS : FULL_NAV_SECTIONS),
+    [uiVariant]
+  );
+
   const flatNav = useMemo<FlatNavItem[]>(
     () => navSections.flatMap((s) => s.items.map((i) => ({ ...i, section: s.label }))),
-    []
+    [navSections]
   );
+
   const activeInfo = useMemo(() => {
     const item = flatNav.find((i) => pathname === i.href || pathname.startsWith(i.href + "/"));
     return { href: item?.href || "/dashboard", label: item?.label || "Dashboard" };
   }, [pathname, flatNav]);
+
   const active = activeInfo.href;
   const title = props.title ?? activeInfo.label;
 
@@ -171,7 +267,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     const items = needle
       ? flatNav.filter((i) => i.label.toLowerCase().includes(needle) || i.href.toLowerCase().includes(needle))
       : flatNav;
-    return items.slice(0, 12);
+    return items.slice(0, 10);
   }, [commandQ, flatNav]);
 
   useEffect(() => {
@@ -210,22 +306,33 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    try {
+      localStorage.setItem("admin.colorTheme", colorTheme);
+    } catch {
+      // ignore
+    }
+    if (colorTheme === "dark") document.documentElement.classList.add("dark");
+    else document.documentElement.classList.remove("dark");
+  }, [colorTheme]);
+
+  useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      // Cmd/Ctrl+K opens the global command menu.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCommandOpen(true);
       }
+      if (e.key === "Escape" && commandOpen) {
+        setCommandOpen(false);
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [commandOpen]);
 
   useEffect(() => {
     if (!commandOpen) return;
     setCommandQ("");
-    // Defer focus so the dialog content is mounted.
-    const t = window.setTimeout(() => commandInputRef.current?.focus(), 0);
+    const t = window.setTimeout(() => commandInputRef.current?.focus(), 50);
     return () => window.clearTimeout(t);
   }, [commandOpen]);
 
@@ -240,23 +347,24 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
         if (cancelled) return;
         setHealth("online");
         setHealthDetail("");
-        setHealthAt(new Date());
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
         setHealth("offline");
         setHealthDetail(message);
-        setHealthAt(new Date());
       }
     }
 
     check();
-    timer = window.setInterval(check, 30000);
+    // Lite mode is meant to be "quiet": reduce background polling.
+    if (uiVariant !== "lite") {
+      timer = window.setInterval(check, 30000);
+    }
     return () => {
       cancelled = true;
       if (timer) window.clearInterval(timer);
     };
-  }, []);
+  }, [uiVariant]);
 
   function toggleCollapsed() {
     setCollapsed((v) => {
@@ -268,6 +376,22 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       }
       return next;
     });
+  }
+
+  function toggleUiVariant() {
+    setUiVariant((v) => {
+      const next: UiVariant = v === "lite" ? "full" : "lite";
+      try {
+        localStorage.setItem("admin.uiVariant", next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
+
+  function toggleColorTheme() {
+    setColorTheme((t) => (t === "dark" ? "light" : "dark"));
   }
 
   async function logout() {
@@ -283,12 +407,10 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
 
   if (!authChecked) {
     return (
-      <div className="min-h-screen px-6 py-10">
-        <div className="mx-auto max-w-3xl">
-          <p className="text-sm text-slate-700">Checking session...</p>
-          <div className="mt-4 h-2 w-56 rounded-full bg-slate-900/10">
-            <div className="h-2 w-24 animate-pulse rounded-full bg-slate-900/20" />
-          </div>
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-amber-500" />
+          <p className="text-sm text-fg-subtle">Initializing session...</p>
         </div>
       </div>
     );
@@ -296,332 +418,384 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   if (!authOk) return null;
 
   return (
-    <div className="min-h-screen">
-      <div className="mx-auto flex min-h-screen max-w-[96rem] gap-5 px-3 py-4 sm:px-5 lg:px-8">
-        <aside
-          className={cn(
-            "sticky top-4 hidden h-[calc(100vh-2rem)] shrink-0 flex-col rounded-3xl border border-[rgb(var(--border)/0.92)] bg-white/55 shadow-[0_1px_0_rgba(15,23,42,0.04),0_18px_70px_rgba(15,23,42,0.12)] backdrop-blur-[10px] md:flex",
-            collapsed ? "w-20" : "w-72"
-          )}
-        >
-          <div className={cn("flex items-start justify-between gap-3 p-4", collapsed && "justify-center")}>
-            <div className={cn("space-y-1", collapsed && "hidden")}>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">AH Trading</p>
-              <p className="text-lg font-semibold text-slate-950">Admin ERP</p>
-              <p className="mt-2 flex items-center gap-2 text-xs text-slate-700">
-                <Building2 className="h-4 w-4 text-slate-500" />
-                <span className="font-medium">Company</span>
-                <code className="rounded-lg border border-[rgb(var(--border)/0.9)] bg-white/60 px-1.5 py-0.5 text-[11px]">
-                  {companyId || "unset"}
-                </code>
-              </p>
+    <div className="flex h-screen overflow-hidden bg-background">
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "flex shrink-0 flex-col border-r border-border-subtle bg-bg-elevated/70 transition-all duration-300",
+          collapsed ? "w-16" : "w-64"
+        )}
+      >
+        {/* Header */}
+        <div className="flex h-14 items-center border-b border-border-subtle px-4">
+          <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-amber-600">
+              <span className="text-sm font-bold text-black">AH</span>
             </div>
+            {!collapsed && (
+              <div className="flex flex-col">
+                <span className="text-sm font-semibold text-foreground">AH Trading</span>
+                <span className="text-[10px] uppercase tracking-wider text-fg-subtle">Admin</span>
+              </div>
+            )}
+          </div>
+          {!collapsed && (
             <Button
               variant="ghost"
               size="icon"
+              className="ml-auto h-7 w-7 text-fg-subtle hover:text-foreground"
               onClick={toggleCollapsed}
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-              {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+
+        {/* Collapse button when collapsed */}
+        {collapsed && (
+          <div className="flex h-10 items-center justify-center border-b border-border-subtle">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-fg-subtle hover:text-foreground"
+              onClick={toggleCollapsed}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto py-2">
+          {navSections.map((section) => (
+            <div key={section.label} className="px-2 py-2">
+              {!collapsed && (
+                <p className="mb-1 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-fg-subtle">
+                  {section.label}
+                </p>
+              )}
+              {collapsed && <div className="mb-2 h-px bg-border-subtle" />}
+              <div className="space-y-0.5">
+                {section.items.map((item) => (
+                  <NavItemComponent
+                    key={item.href}
+                    item={item}
+                    isActive={active === item.href}
+                    collapsed={collapsed}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        {/* Footer */}
+        <div className="border-t border-border-subtle p-2">
+          <div className={cn("space-y-1", collapsed && "flex flex-col items-center")}>
+            <Button
+              variant="ghost"
+              className={cn(
+                "h-8 text-fg-muted hover:text-foreground",
+                collapsed ? "w-8 justify-center px-0" : "w-full justify-start gap-2"
+              )}
+              onClick={toggleColorTheme}
+              title={collapsed ? (colorTheme === "dark" ? "Dark theme" : "Light theme") : undefined}
+            >
+              {colorTheme === "dark" ? (
+                <Moon className="h-4 w-4 shrink-0" />
+              ) : (
+                <Sun className="h-4 w-4 shrink-0" />
+              )}
+              {!collapsed && (
+                <>
+                  <span className="text-xs">Theme</span>
+                  <code
+                    className={cn(
+                      "ml-auto rounded px-1.5 py-0.5 text-[10px]",
+                      colorTheme === "dark"
+                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        : "bg-bg-sunken text-fg-muted"
+                    )}
+                  >
+                    {colorTheme === "dark" ? "DARK" : "LIGHT"}
+                  </code>
+                </>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              className={cn(
+                "h-8 text-fg-muted hover:text-foreground",
+                collapsed ? "w-8 justify-center px-0" : "w-full justify-start gap-2"
+              )}
+              onClick={toggleUiVariant}
+              title={collapsed ? (uiVariant === "lite" ? "Lite mode (on)" : "Lite mode (off)") : undefined}
+            >
+              <Zap className="h-4 w-4 shrink-0" />
+              {!collapsed && (
+                <>
+                  <span className="text-xs">Lite mode</span>
+                  <code
+                    className={cn(
+                      "ml-auto rounded px-1.5 py-0.5 text-[10px]",
+                      uiVariant === "lite"
+                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        : "bg-bg-sunken text-fg-muted"
+                    )}
+                  >
+                    {uiVariant === "lite" ? "ON" : "OFF"}
+                  </code>
+                </>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              className={cn(
+                "h-8 text-fg-muted hover:text-foreground",
+                collapsed ? "w-8 justify-center px-0" : "w-full justify-start gap-2"
+              )}
+              onClick={() => router.push("/company/select")}
+            >
+              <Building2 className="h-4 w-4 shrink-0" />
+              {!collapsed && (
+                <>
+                  <span className="text-xs">Company</span>
+                  <code className="ml-auto rounded bg-bg-sunken px-1.5 py-0.5 text-[10px] text-fg-muted">
+                    {companyId || "-"}
+                  </code>
+                </>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              className={cn(
+                "h-8 text-fg-muted hover:text-red-500",
+                collapsed ? "w-8 justify-center px-0" : "w-full justify-start gap-2"
+              )}
+              onClick={logout}
+            >
+              <LogOut className="h-4 w-4 shrink-0" />
+              {!collapsed && <span className="text-xs">Logout</span>}
+            </Button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex min-w-0 flex-1 flex-col">
+        {/* Top Bar */}
+        <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border-subtle bg-background/70 px-4 backdrop-blur-sm">
+          <div className="flex items-center gap-3 md:hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-fg-muted hover:text-foreground"
+              onClick={() => setMobileOpen(true)}
+            >
+              <Menu className="h-5 w-5" />
             </Button>
           </div>
 
-          <nav className={cn("min-h-0 flex-1 overflow-y-auto px-2 pb-2", collapsed && "px-1")}>
+          <div className="flex flex-1 items-center gap-4">
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-foreground">{title}</span>
+              <span className="text-[10px] uppercase tracking-wider text-fg-subtle">
+                {activeInfo.label}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Search trigger */}
+            <Button
+              variant="outline"
+              onClick={() => setCommandOpen(true)}
+              className="hidden h-9 items-center gap-2 border-border bg-bg-elevated/60 text-fg-muted hover:bg-bg-sunken hover:text-foreground md:flex"
+            >
+              <Search className="h-4 w-4" />
+              <span className="text-sm">Search...</span>
+              <span className="ml-2 flex items-center gap-0.5">
+                <kbd className="ui-kbd">⌘</kbd>
+                <kbd className="ui-kbd">K</kbd>
+              </span>
+            </Button>
+
+            {/* Health indicator */}
+            <div
+              className={cn(
+                "flex h-8 items-center gap-2 rounded-md border px-2.5 text-xs font-medium",
+                health === "online"
+                  ? "border-green-500/20 bg-green-500/10 text-green-400"
+                  : health === "offline"
+                    ? "border-red-500/20 bg-red-500/10 text-red-400"
+                    : "border-border bg-bg-elevated text-fg-subtle"
+              )}
+              title={healthDetail || "System status"}
+            >
+              {health === "online" ? (
+                <>
+                  <span className="status-dot status-online" />
+                  <span className="hidden sm:inline">Online</span>
+                </>
+              ) : health === "offline" ? (
+                <>
+                  <WifiOff className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Offline</span>
+                </>
+              ) : (
+                <>
+                  <Wifi className="h-3.5 w-3.5 animate-pulse" />
+                  <span className="hidden sm:inline">...</span>
+                </>
+              )}
+            </div>
+
+            {/* User menu */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-fg-muted hover:text-foreground"
+              onClick={logout}
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        </header>
+
+        {/* Page Content */}
+        <div className="flex-1 overflow-auto p-4 sm:p-6">
+          <div className="mx-auto max-w-7xl">{props.children}</div>
+        </div>
+      </main>
+
+      {/* Mobile Navigation Drawer */}
+      <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+        <DialogContent className="left-0 top-0 h-full w-72 max-w-none translate-x-0 translate-y-0 rounded-none border-0 border-r border-border-subtle bg-bg-elevated p-0">
+          <DialogHeader className="border-b border-border-subtle p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500 to-amber-600">
+                <span className="text-sm font-bold text-black">AH</span>
+              </div>
+              <div className="flex flex-col">
+                <DialogTitle className="text-sm font-semibold text-foreground">AH Trading</DialogTitle>
+                <span className="text-[10px] uppercase tracking-wider text-fg-subtle">Admin</span>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-1 p-2">
+            <div className="mb-2 flex items-center gap-2 px-3 py-2">
+              <Building2 className="h-4 w-4 text-fg-subtle" />
+              <span className="text-xs text-fg-muted">Company</span>
+              <code className="ml-auto rounded bg-bg-sunken px-1.5 py-0.5 text-[10px] text-fg-muted">
+                {companyId || "-"}
+              </code>
+            </div>
+
             {navSections.map((section) => (
-              <div key={section.label} className="mt-2">
-                <p
-                  className={cn(
-                    "px-3 pb-2 pt-5 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500",
-                    collapsed && "hidden"
-                  )}
-                >
+              <div key={section.label} className="py-1">
+                <p className="mb-1 px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-fg-subtle">
                   {section.label}
                 </p>
-                <div className="space-y-1">
-                  {section.items.map((item) => {
-                    const isActive = active === item.href;
-                    const Icon = iconForHref(item.href);
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        title={collapsed ? item.label : undefined}
-                        className={cn(
-                          "group flex items-center gap-2 rounded-2xl border border-transparent px-3 py-2 text-sm transition-colors",
-                          collapsed && "justify-center px-0",
-                          isActive
-                            ? "border-teal-500/30 bg-teal-600 text-white shadow-sm"
-                            : "text-slate-800 hover:border-[rgb(var(--border)/0.92)] hover:bg-white/60 hover:text-slate-950"
-                        )}
-                      >
-                        <Icon
-                          className={cn(
-                            "h-4 w-4",
-                            isActive ? "text-white" : "text-slate-500 group-hover:text-slate-700"
-                          )}
-                        />
-                        <span className={cn("truncate", collapsed && "hidden")}>{item.label}</span>
-                        <span className={cn("ml-auto h-1.5 w-1.5 rounded-full bg-white/80", !isActive && "hidden", collapsed && "hidden")} />
-                      </Link>
-                    );
-                  })}
+                <div className="space-y-0.5">
+                  {section.items.map((item) => (
+                    <NavItemComponent
+                      key={item.href}
+                      item={item}
+                      isActive={active === item.href}
+                      collapsed={false}
+                      onClick={() => setMobileOpen(false)}
+                    />
+                  ))}
                 </div>
               </div>
             ))}
-          </nav>
 
-          <div className={cn("border-t border-[rgb(var(--border)/0.92)] p-3", collapsed && "p-2")}>
-            <div className={cn("grid gap-2", collapsed && "justify-items-center")}>
+            <div className="mt-auto border-t border-border-subtle pt-2">
               <Button
-                variant="outline"
-                className={cn("w-full justify-start", collapsed && "h-10 w-10 justify-center px-0")}
-                onClick={() => router.push("/company/select")}
-                title={collapsed ? "Change company" : undefined}
-              >
-                <Building2 className="h-4 w-4" />
-                <span className={cn(collapsed && "hidden")}>Change Company</span>
-              </Button>
-              <Button
-                variant="secondary"
-                className={cn("w-full justify-start", collapsed && "h-10 w-10 justify-center px-0")}
-                onClick={logout}
-                title={collapsed ? "Logout" : undefined}
+                variant="ghost"
+                className="w-full justify-start gap-2 text-fg-muted hover:text-red-500"
+                onClick={() => {
+                  setMobileOpen(false);
+                  logout();
+                }}
               >
                 <LogOut className="h-4 w-4" />
-                <span className={cn(collapsed && "hidden")}>Logout</span>
+                <span className="text-xs">Logout</span>
               </Button>
             </div>
           </div>
-        </aside>
+        </DialogContent>
+      </Dialog>
 
-        <main className="min-w-0 flex-1">
-          <header className="sticky top-0 z-20 -mx-3 px-3 pb-4 pt-3 sm:-mx-4 sm:px-4 lg:-mx-6 lg:px-6">
-            <div className="rounded-3xl border border-[rgb(var(--border)/0.92)] bg-white/55 px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.03),0_18px_70px_rgba(15,23,42,0.10)] backdrop-blur-[10px]">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600">{activeInfo.label}</p>
-                  <h1 className="text-2xl font-semibold text-slate-950">{title}</h1>
-                </div>
+      {/* Command Palette */}
+      <Dialog open={commandOpen} onOpenChange={setCommandOpen}>
+        <DialogContent className="max-w-xl border-border-subtle bg-bg-elevated p-0 shadow-2xl">
+          <div className="flex items-center gap-3 border-b border-border-subtle px-4 py-3">
+            <Search className="h-5 w-5 text-fg-subtle" />
+            <input
+              ref={commandInputRef}
+              value={commandQ}
+              onChange={(e) => setCommandQ(e.target.value)}
+              placeholder="Search pages, actions, or data..."
+              className="flex-1 bg-transparent text-sm text-foreground placeholder:text-fg-subtle focus:outline-none"
+            />
+            <kbd className="ui-kbd">ESC</kbd>
+          </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setCommandOpen(true)}
-                    className="w-full justify-between md:w-[26rem]"
-                    aria-label="Open command menu"
-                    title="Search pages and actions (Cmd/Ctrl+K)"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Search className="h-4 w-4 text-slate-500" />
-                      <span className="text-slate-800">Search pages and actions</span>
-                    </span>
-                    <span className="hidden items-center gap-1 sm:flex">
-                      <span className="ui-kbd">Cmd</span>
-                      <span className="ui-kbd">K</span>
-                    </span>
-                  </Button>
-
-                  <div
-                    className={cn(
-                      "ui-chip",
-                      health === "offline" && "border-rose-200/70 bg-rose-50/70 text-rose-900"
-                    )}
-                    title={
-                      health === "offline"
-                        ? `API offline (${healthDetail || "unreachable"})`
-                        : healthAt
-                          ? `Last checked ${healthAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
-                          : "Checking API..."
-                    }
-                  >
-                    {health === "online" ? (
-                      <Wifi className="h-4 w-4 text-teal-700" />
-                    ) : health === "offline" ? (
-                      <WifiOff className="h-4 w-4 text-rose-700" />
-                    ) : (
-                      <Wifi className="h-4 w-4 animate-pulse text-slate-500" />
-                    )}
-                    <span className="font-medium">
-                      {health === "online" ? "Online" : health === "offline" ? "Offline" : "Checking"}
-                    </span>
-                  </div>
-
-                  <Button
-                    variant="outline"
-                    className="hidden md:inline-flex"
-                    onClick={() => router.push("/company/select")}
-                    title="Change company"
-                  >
-                    <Building2 className="h-4 w-4 text-slate-600" />
-                    <span className="text-slate-800">Company</span>
-                    <code className="rounded-lg border border-[rgb(var(--border)/0.9)] bg-white/60 px-1.5 py-0.5 text-[11px]">
-                      {companyId || "unset"}
-                    </code>
-                  </Button>
-
-                  <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="icon" className="md:hidden" aria-label="Open menu">
-                        <Menu className="h-4 w-4" />
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="left-0 top-0 h-[100svh] w-[min(22rem,calc(100vw-1rem))] max-w-none translate-x-0 translate-y-0 rounded-none border-0 border-r border-[rgb(var(--border)/0.92)] bg-white/85 p-4">
-                      <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                          <LayoutDashboard className="h-5 w-5 text-slate-700" />
-                          Admin ERP
-                        </DialogTitle>
-                        <DialogDescription>Navigate across modules and run quick actions.</DialogDescription>
-                      </DialogHeader>
-
-                      <div className="mt-3 flex items-center gap-2 text-xs text-slate-700">
-                        <Building2 className="h-4 w-4 text-slate-500" />
-                        <span className="font-medium">Company</span>
-                        <code className="rounded-lg border border-[rgb(var(--border)/0.9)] bg-white/60 px-1.5 py-0.5 text-[11px]">
-                          {companyId || "unset"}
-                        </code>
-                      </div>
-
-                      <div className="mt-4 space-y-5 overflow-y-auto pb-6">
-                        {navSections.map((section) => (
-                          <div key={section.label} className="space-y-2">
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600">{section.label}</p>
-                            <div className="grid grid-cols-2 gap-2">
-                              {section.items.map((item) => {
-                                const isActive = active === item.href;
-                                const Icon = iconForHref(item.href);
-                                return (
-                                  <Link
-                                    key={item.href}
-                                    href={item.href}
-                                    className={cn(
-                                      "flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm shadow-sm",
-                                      isActive
-                                        ? "border-teal-500/30 bg-teal-600 text-white"
-                                        : "border-[rgb(var(--border)/0.92)] bg-white/70 text-slate-900 hover:bg-white"
-                                    )}
-                                    onClick={() => setMobileOpen(false)}
-                                  >
-                                    <Icon className={cn("h-4 w-4", isActive ? "text-white" : "text-slate-500")} />
-                                    <span className="truncate">{item.label}</span>
-                                  </Link>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-
-                        <div className="grid gap-2">
-                          <Button variant="outline" onClick={() => router.push("/company/select")}>
-                            <Building2 className="h-4 w-4" />
-                            Change Company
-                          </Button>
-                          <Button variant="secondary" onClick={logout}>
-                            <LogOut className="h-4 w-4" />
-                            Logout
-                          </Button>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  <Button variant="secondary" className="hidden md:inline-flex" onClick={logout}>
-                    <LogOut className="h-4 w-4" />
-                    Logout
-                  </Button>
-                </div>
+          <div className="max-h-[60vh] overflow-y-auto py-2">
+            {commandResults.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-fg-subtle">
+                <p>No results found</p>
+                <p className="mt-1 text-xs">Try a different search term</p>
               </div>
+            ) : (
+              <div className="space-y-0.5 px-2">
+                {commandResults.map((item) => {
+                  const Icon = item.icon ?? Cpu;
+                  return (
+                    <button
+                      key={item.href}
+                      type="button"
+                      className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-bg-sunken"
+                      onClick={() => {
+                        setCommandOpen(false);
+                        router.push(item.href);
+                      }}
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-bg-sunken">
+                        <Icon className="h-4 w-4 text-fg-muted" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{item.label}</p>
+                        <p className="truncate text-xs text-fg-subtle">
+                          {item.section} · {item.href}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-fg-subtle" />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between border-t border-border-subtle px-4 py-2 text-xs text-fg-subtle">
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1">
+                <kbd className="ui-kbd">↑</kbd>
+                <kbd className="ui-kbd">↓</kbd>
+                <span className="ml-1">Navigate</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="ui-kbd">Enter</kbd>
+                <span className="ml-1">Select</span>
+              </span>
             </div>
-          </header>
-
-          <div className="px-0 pb-6 pt-2 sm:pb-10">{props.children}</div>
-
-          <Dialog open={commandOpen} onOpenChange={setCommandOpen}>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Command className="h-5 w-5 text-slate-700" />
-                  Command Menu
-                </DialogTitle>
-                <DialogDescription>Jump to a page, or run a quick action.</DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[rgb(var(--border)/0.92)] bg-white/60">
-                    <Search className="h-4 w-4 text-slate-600" />
-                  </div>
-                  <input
-                    ref={commandInputRef}
-                    value={commandQ}
-                    onChange={(e) => setCommandQ(e.target.value)}
-                    placeholder="Search: invoices, items, roles, ..."
-                    className="ui-control"
-                  />
-                </div>
-
-                <div className="grid gap-2">
-                  {commandResults.length === 0 ? (
-                    <div className="rounded-2xl border border-[rgb(var(--border)/0.92)] bg-white/60 p-4 text-sm text-slate-700">
-                      No results.
-                    </div>
-                  ) : (
-                    commandResults.map((item) => {
-                      const Icon = iconForHref(item.href);
-                      return (
-                        <button
-                          key={item.href}
-                          type="button"
-                          className="flex w-full items-center gap-3 rounded-2xl border border-[rgb(var(--border)/0.92)] bg-white/60 px-3 py-2 text-left text-sm text-slate-900 shadow-sm transition hover:bg-white"
-                          onClick={() => {
-                            setCommandOpen(false);
-                            router.push(item.href);
-                          }}
-                        >
-                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900/5">
-                            <Icon className="h-4 w-4 text-slate-600" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate font-medium">{item.label}</span>
-                            <span className="block truncate text-xs text-slate-600">
-                              {item.section} · {item.href}
-                            </span>
-                          </span>
-                          <span className="ui-kbd">Enter</span>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2 pt-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setCommandOpen(false);
-                      router.push("/company/select");
-                    }}
-                  >
-                    <Building2 className="h-4 w-4" />
-                    Change Company
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setCommandOpen(false);
-                      logout();
-                    }}
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Logout
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </main>
-      </div>
+            <span>{commandResults.length} items</span>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
