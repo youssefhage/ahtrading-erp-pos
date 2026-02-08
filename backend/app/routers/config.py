@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from datetime import date
 from decimal import Decimal
@@ -142,7 +142,7 @@ def set_account_default(data: AccountDefaultIn, company_id: str = Depends(get_co
             )
             acc = cur.fetchone()
             if not acc:
-                return {"error": "account_code not found"}
+                raise HTTPException(status_code=400, detail="account_code not found")
             cur.execute(
                 """
                 INSERT INTO company_account_defaults (company_id, role_code, account_id)
@@ -175,7 +175,7 @@ def list_payment_methods(company_id: str = Depends(get_company_id)):
 def upsert_payment_method(data: PaymentMethodMappingIn, company_id: str = Depends(get_company_id)):
     method = (data.method or "").strip().lower()
     if not method:
-        return {"error": "method is required"}
+        raise HTTPException(status_code=400, detail="method is required")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -184,7 +184,7 @@ def upsert_payment_method(data: PaymentMethodMappingIn, company_id: str = Depend
                 (data.role_code,),
             )
             if not cur.fetchone():
-                return {"error": "invalid role_code"}
+                raise HTTPException(status_code=400, detail="invalid role_code")
             cur.execute(
                 """
                 INSERT INTO payment_method_mappings (company_id, method, role_code)
