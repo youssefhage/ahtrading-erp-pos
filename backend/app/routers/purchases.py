@@ -698,8 +698,14 @@ def import_supplier_invoice_draft_from_file(
                             supplier_id = r["id"] if r else None
 
                     if not supplier_id and supplier_name and auto_create_supplier:
-                        # Require suppliers:write only when we need to create.
-                        require_permission("suppliers:write")(company_id=company_id, user=user)
+                        # Require suppliers:write only when we need to create. If missing, keep draft and warn.
+                        try:
+                            require_permission("suppliers:write")(company_id=company_id, user=user)
+                        except HTTPException:
+                            warnings.append("Missing suppliers:write permission; could not auto-create supplier.")
+                            auto_create_supplier = False
+
+                    if not supplier_id and supplier_name and auto_create_supplier:
                         vat_no = ((extracted.get("supplier", {}) or {}).get("vat_no") or "").strip() or None
                         phone = ((extracted.get("supplier", {}) or {}).get("phone") or "").strip() or None
                         email = ((extracted.get("supplier", {}) or {}).get("email") or "").strip() or None
@@ -829,7 +835,13 @@ def import_supplier_invoice_draft_from_file(
                             item_id = r["id"] if r else None
 
                         if not item_id and auto_create_items:
-                            require_permission("items:write")(company_id=company_id, user=user)
+                            try:
+                                require_permission("items:write")(company_id=company_id, user=user)
+                            except HTTPException:
+                                warnings.append("Missing items:write permission; could not auto-create items.")
+                                auto_create_items = False
+
+                        if not item_id and auto_create_items:
                             # SKU: prefer supplier code if it looks usable; otherwise generate.
                             sku = None
                             if ncode:
