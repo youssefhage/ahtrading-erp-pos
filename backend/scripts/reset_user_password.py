@@ -42,6 +42,18 @@ def main() -> int:
                 if not row:
                     print(f"user not found: {email}", file=sys.stderr)
                     return 2
+                user_id = row["id"]
+
+                # Security: revoke any existing sessions so old tokens/cookies can't be reused
+                # after a password reset.
+                cur.execute(
+                    """
+                    UPDATE auth_sessions
+                    SET is_active = false
+                    WHERE user_id = %s
+                    """,
+                    (user_id,),
+                )
 
     print("OK")
     return 0
@@ -49,4 +61,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

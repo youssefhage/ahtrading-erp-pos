@@ -66,6 +66,15 @@ def main() -> int:
                             """,
                             (hash_password(password), user_id),
                         )
+                        # Revoke existing sessions so old cookies/tokens can't be reused.
+                        cur.execute(
+                            """
+                            UPDATE auth_sessions
+                            SET is_active = false
+                            WHERE user_id = %s
+                            """,
+                            (user_id,),
+                        )
                         did_reset = True
                 else:
                     cur.execute(

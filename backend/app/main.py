@@ -1,5 +1,7 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from psycopg import errors as pg_errors
 from .routers.pos import router as pos_router
 from .routers.companies import router as companies_router
 from .routers.branches import router as branches_router
@@ -28,6 +30,40 @@ from .config import settings
 from .deps import require_company_access
 
 app = FastAPI(title="AH Trading ERP/POS API", version="0.1.0")
+
+# Map common DB constraint/cast errors to 4xx so clients get actionable responses
+# instead of generic 500s.
+@app.exception_handler(pg_errors.InvalidTextRepresentation)
+def _invalid_text_representation(_req: Request, exc: Exception):
+    # e.g. invalid enum cast: 'usd'::currency_code
+    content = {"detail": "invalid value"}
+    if settings.env in {"local", "dev"}:
+        content["error"] = str(exc)
+    return JSONResponse(status_code=400, content=content)
+
+
+@app.exception_handler(pg_errors.ForeignKeyViolation)
+def _foreign_key_violation(_req: Request, exc: Exception):
+    content = {"detail": "invalid reference"}
+    if settings.env in {"local", "dev"}:
+        content["error"] = str(exc)
+    return JSONResponse(status_code=400, content=content)
+
+
+@app.exception_handler(pg_errors.UniqueViolation)
+def _unique_violation(_req: Request, exc: Exception):
+    content = {"detail": "conflict"}
+    if settings.env in {"local", "dev"}:
+        content["error"] = str(exc)
+    return JSONResponse(status_code=409, content=content)
+
+
+@app.exception_handler(pg_errors.CheckViolation)
+def _check_violation(_req: Request, exc: Exception):
+    content = {"detail": "constraint violation"}
+    if settings.env in {"local", "dev"}:
+        content["error"] = str(exc)
+    return JSONResponse(status_code=400, content=content)
 
 # Dev CORS: Admin app runs on a different port during development.
 app.add_middleware(

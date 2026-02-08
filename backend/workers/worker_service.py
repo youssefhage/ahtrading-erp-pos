@@ -12,6 +12,8 @@ schedule (`background_job_schedules`).
 import argparse
 import json
 import time
+import sys
+import traceback
 from typing import Any
 from decimal import Decimal
 
@@ -233,9 +235,11 @@ def main():
                 jobs_ran = run_due_jobs(args.db, cid, max_jobs=3)
                 if jobs_ran:
                     did_work = True
-            except Exception:
+            except Exception as ex:
                 # Never crash the worker loop due to background scheduling issues.
-                pass
+                # But do log so we can see it in Docker/Dokploy logs.
+                print(f"[worker] background scheduling error for company {cid}: {ex}", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
 
         if args.once:
             break
