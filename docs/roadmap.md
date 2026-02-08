@@ -29,6 +29,11 @@ The immediate focus is to reduce operational drift and productize the Admin UI:
 - Expand audit trail coverage and surface timeline per document in Admin
 - Close remaining “free-string” validation drift (keep inputs strict)
 
+4) AI-assisted ingestion (Purchases)
+- Telegram/WhatsApp invoice upload -> AI draft Supplier Invoice (async fill + human review)
+- Supplier item code/name aliasing to improve matching and reduce noisy item creation
+- “Price impact” and margin-risk insights on new supplier invoices
+
 ## Phase 0: Foundation
 - Define COA templates (Lebanese + IFRS stub + custom template tooling)
 - Dual-currency data model finalized

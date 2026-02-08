@@ -139,6 +139,23 @@ Recommendation:
   - Store metadata in Postgres
   - Store bytes in filesystem/object storage (MinIO/S3) with signed URLs
 
+### 4) External AI Calls (Operational + Privacy Considerations)
+
+Status (2026-02-08):
+- The platform now includes optional external AI calls for:
+  - Purchase invoice extraction from image/PDF uploads (Admin “AI Import” for Supplier Invoices)
+  - Item name suggestion (Admin “AI Suggest” in Items editor)
+
+Risk:
+- External AI calls can introduce latency, cost, and data/privacy concerns (supplier invoices may contain sensitive commercial data).
+
+Recommendation:
+- Keep these features off-by-default unless `OPENAI_API_KEY` is configured.
+- Consider a company-level toggle (and audit log) for “Allow external AI processing”.
+- For a flawless UX, move extraction to an async background job:
+  - Upload returns immediately (draft + attachment)
+  - Worker fills the draft later and emits a recommendation with confidence/explainability
+
 ### 3) Admin UI Productization Is In Progress (Good Direction)
 
 Current direction (observed):

@@ -63,6 +63,12 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
       - Supplier Invoices: `AI_AP_GUARD`
       - Inventory Alerts: `AI_EXPIRY_OPS`
       - Dashboard: pending AI recommendation counts (via `GET /ai/recommendations/summary`)
+  - AI-assisted purchasing import (v1):
+    - Admin can upload a supplier invoice image/PDF and auto-generate a draft Supplier Invoice.
+    - The original file is always attached to the draft invoice (auditability/rollback).
+    - Supplier-provided item code/name are preserved on invoice lines and a supplier→item alias table is populated for future matching.
+    - AI can surface “price impact” signals (e.g. large cost increases) as recommendations for review.
+    - Item name “AI Suggest” exists in the Items editor to normalize/enhance messy names (LLM if configured, deterministic fallback otherwise).
 
 Remaining work in this audit is mostly “business robustness” (expiry/lot operations, document metadata completeness, richer audit timelines for all mutations, and deeper ERP workflows).
 
@@ -350,6 +356,9 @@ Costs:
 
 Supplier master data (also relevant here):
 - Address, VAT/tax identifiers, payment/bank details (contacts are implemented via `party_contacts`).
+- Supplier-provided item identifiers (SKU/name) and a consistent matching model across imports/EDI:
+  - Implemented v1: `supplier_invoice_lines.supplier_item_code/supplier_item_name`.
+  - Implemented v1: `supplier_item_aliases` table to learn supplier→item mappings over time (improves matching and reduces noisy item creation).
 
 ### Accounting / GL
 
@@ -484,6 +493,11 @@ Implemented:
 - Tables exist for events, recommendations, actions; executor has governance gates (auto_execute, caps).
 - Added embedded “AI Insights” across core operational modules (items/AP/expiry) using deterministic agents (no auto-actions).
 - Added `GET /ai/recommendations/summary` to support lightweight “pending AI” counts in the Admin dashboard.
+- AI-assisted invoice ingestion (v1):
+  - `POST /purchases/invoices/drafts/import-file` creates a draft Supplier Invoice from an uploaded image/PDF and always attaches the original document.
+  - Generates `AI_PURCHASE_INVOICE_INSIGHTS` recommendations when it detects meaningful supplier cost increases.
+- AI-assisted item naming (v1):
+  - `POST /items/name-suggestions` returns improved item-name suggestions for messy strings (LLM if configured; deterministic fallback).
 
 Missing useful data / controls:
 - Stronger “approval” workflow states (requested, approved, queued, executed, rejected) with reasons.
