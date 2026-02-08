@@ -69,6 +69,7 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
     - Supplier-provided item code/name are preserved on invoice lines and a supplier→item alias table is populated for future matching.
     - AI can surface “price impact” signals (e.g. large cost increases) as recommendations for review.
     - Item name “AI Suggest” exists in the Items editor to normalize/enhance messy names (LLM if configured, deterministic fallback otherwise).
+    - Telegram webhook receiver exists (off-by-default) to support “send invoice to bot → create draft invoice” workflows (future WhatsApp can mirror this pattern).
 
 Remaining work in this audit is mostly “business robustness” (expiry/lot operations, document metadata completeness, richer audit timelines for all mutations, and deeper ERP workflows).
 

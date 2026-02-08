@@ -30,6 +30,7 @@ from .routers.accounting import router as accounting_router
 from .routers.banking import router as banking_router
 from .routers.pricing import router as pricing_router
 from .routers.promotions import router as promotions_router
+from .routers.telegram import router as telegram_router
 from .routers.auth import router as auth_router
 from .config import settings
 from .deps import require_company_access
@@ -151,6 +152,7 @@ app.include_router(accounting_router, dependencies=[Depends(require_company_acce
 app.include_router(banking_router, dependencies=[Depends(require_company_access)])
 app.include_router(pricing_router, dependencies=[Depends(require_company_access)])
 app.include_router(promotions_router, dependencies=[Depends(require_company_access)])
+app.include_router(telegram_router)
 
 @app.get("/health")
 def health():

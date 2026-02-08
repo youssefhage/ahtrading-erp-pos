@@ -34,6 +34,9 @@ The immediate focus is to reduce operational drift and productize the Admin UI:
 - Supplier item code/name aliasing to improve matching and reduce noisy item creation
 - “Price impact” and margin-risk insights on new supplier invoices
 
+Note:
+- Telegram webhook receiver is implemented (off-by-default) and can be enabled via env vars.
+
 ## Phase 0: Foundation
 - Define COA templates (Lebanese + IFRS stub + custom template tooling)
 - Dual-currency data model finalized
