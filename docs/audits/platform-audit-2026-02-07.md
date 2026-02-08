@@ -16,6 +16,25 @@ The platform foundation is strong for an offline-first POS + ERP:
 
 However, there are a few high-risk gaps (security + DB invariants) and several “business robustness” gaps (missing master-data fields, missing document metadata, and incomplete lot/expiry handling end-to-end).
 
+## Status Update (2026-02-08)
+
+This audit was actively executed on 2026-02-08. Summary of where we stand:
+
+- Closed/mitigated the top security findings:
+  - POS desktop agent is now localhost-bound by default, LAN exposure requires explicit host config, and LAN requests require a local PIN session.
+  - Auth sessions are now strong random tokens stored as one-way hashes (legacy plaintext fallback supported).
+  - Admin/session incident-response controls exist (logout-all, revoke user sessions, revoke all company sessions) and sessions are revoked on role/permission changes.
+- Closed key DB invariants and drift risks:
+  - “One open shift per device” enforced at the DB level.
+  - POS delta sync cursors follow the “max changed_at + id tie-breaker” pattern (verified).
+- Ops/productization progress (high signal for reliability):
+  - Worker heartbeat + job health surfaced in Ops Copilot.
+  - Structured JSON logs + `X-Request-Id` correlation added (API + Admin + worker).
+  - `/health` now checks DB connectivity (503 when DB is down).
+  - Admin has an Audit Logs page backed by a new `/reports/audit-logs` endpoint; audit log coverage expanded for Users and Config mutations.
+
+Remaining work in this audit is mostly “business robustness” (expiry/lot operations, document metadata completeness, richer audit timelines for all mutations, and deeper ERP workflows).
+
 ## P0 (Must Fix)
 
 ### 1) POS Desktop Agent Is Exposed On LAN (No Local Auth)
@@ -56,6 +75,11 @@ Recommended fix:
 Executed (2026-02-08):
 - Auth login now uses `secrets.token_urlsafe(32)` and stores sessions as a one-way hash (`sha256:...`) via `hash_session_token()`.
 - Session validation hashes the presented bearer/cookie token and matches against the stored hash (with a legacy plaintext fallback).
+- Added session revocation controls:
+  - `POST /auth/logout-all` (current user)
+  - `POST /users/{user_id}/sessions/revoke` (admin)
+  - `POST /users/sessions/revoke-all` (admin, company-scoped incident response)
+  - Sessions are revoked on role/permission changes (so access changes apply immediately).
 
 ## P1 (High Priority)
 
