@@ -407,7 +407,7 @@ export default function SuppliersPage() {
                         }
                       />
                       {importErrors ? (
-                        <pre className="whitespace-pre-wrap rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+                        <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken p-3 text-xs text-fg-muted">
                           {importErrors}
                         </pre>
                       ) : null}

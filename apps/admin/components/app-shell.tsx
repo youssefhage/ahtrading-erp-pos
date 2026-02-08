@@ -297,12 +297,12 @@ function NavItemComponent({
         "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all duration-200 focus-ring",
         collapsed && "justify-center px-2",
         isActive
-          ? "bg-sky-500/10 text-primary"
+          ? "bg-primary/10 text-primary"
           : "text-fg-muted hover:bg-bg-elevated/60 hover:text-foreground"
       )}
     >
       {isActive && (
-        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-sky-500" />
+        <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-primary" />
       )}
       <Icon
         className={cn(
@@ -312,7 +312,7 @@ function NavItemComponent({
       />
       <span className={cn("truncate", collapsed && "hidden")}>{item.label}</span>
       {isActive && !collapsed && (
-        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-sky-500" />
+        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
       )}
     </Link>
   );
@@ -573,7 +573,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
         return (
           <div className="flex h-screen items-center justify-center bg-background">
             <div className="flex flex-col items-center gap-4">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-sky-500" />
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary" />
               <p className="text-sm text-fg-subtle">Initializing session...</p>
             </div>
           </div>
@@ -593,8 +593,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
         {/* Header */}
         <div className="flex h-14 items-center border-b border-border-subtle px-4">
             <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-600">
-              <span className="text-sm font-bold text-black">AH</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-dim">
+              <span className="text-sm font-bold text-primary-foreground">AH</span>
             </div>
             {!collapsed && (
               <div className="flex flex-col">
@@ -693,7 +693,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                     className={cn(
                       "ml-auto rounded px-1.5 py-0.5 text-[10px]",
                       colorTheme === "dark"
-                        ? "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+                        ? "bg-primary/10 text-primary"
                         : "bg-bg-sunken text-fg-muted"
                     )}
                   >
@@ -719,7 +719,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                     className={cn(
                       "ml-auto rounded px-1.5 py-0.5 text-[10px]",
                       uiVariant === "lite"
-                        ? "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+                        ? "bg-primary/10 text-primary"
                         : "bg-bg-sunken text-fg-muted"
                     )}
                   >
@@ -853,8 +853,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
         <DialogContent className="left-0 top-0 h-full w-72 max-w-none translate-x-0 translate-y-0 rounded-none border-0 border-r border-border-subtle bg-bg-elevated p-0">
           <DialogHeader className="border-b border-border-subtle p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-600">
-                <span className="text-sm font-bold text-black">AH</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-dim">
+                <span className="text-sm font-bold text-primary-foreground">AH</span>
               </div>
               <div className="flex flex-col">
                 <DialogTitle className="text-sm font-semibold text-foreground">AH Trading</DialogTitle>

@@ -187,7 +187,7 @@ export default function CustomersPage() {
         cellClassName: (c) => {
           const n = Number(c.credit_balance_usd || 0);
           if (n < 0) return "text-red-600";
-          if (n > 0) return "text-sky-700";
+          if (n > 0) return "text-primary";
           return "text-fg-subtle";
         },
       },
@@ -202,7 +202,7 @@ export default function CustomersPage() {
         cellClassName: (c) => {
           const n = Number(c.credit_balance_lbp || 0);
           if (n < 0) return "text-red-600";
-          if (n > 0) return "text-sky-700";
+          if (n > 0) return "text-primary";
           return "text-fg-subtle";
         },
       },
@@ -548,7 +548,7 @@ export default function CustomersPage() {
                         placeholder={"code,name,party_type,phone,email,membership_no\nC-0001,Walk-in,individual,,,\nC-1002,Company XYZ,business,+961...,ap@xyz.com,"}
                       />
                       {importErrors ? (
-                        <pre className="whitespace-pre-wrap rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+                        <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken p-3 text-xs text-fg-muted">
                           {importErrors}
                         </pre>
                       ) : null}

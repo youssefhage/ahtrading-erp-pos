@@ -457,12 +457,12 @@ export default function DashboardPage() {
               status={metrics && metrics.low_stock_count > 0 ? "warning" : "good"}
             />
 
-            <div className="mt-4 rounded-md border border-sky-500/20 bg-sky-500/10 p-3">
+            <div className="mt-4 rounded-md border border-primary/20 bg-primary/10 p-3">
               <div className="flex items-start gap-2">
-                <Activity className="mt-0.5 h-4 w-4 text-sky-500" />
+                <Activity className="mt-0.5 h-4 w-4 text-primary" />
                 <div>
-                  <p className="text-xs font-medium text-sky-500">Daily Summary</p>
-                  <p className="text-xs text-sky-700/80">
+                  <p className="text-xs font-medium text-primary">Daily Summary</p>
+                  <p className="text-xs text-fg-muted">
                     Sales are up 12% compared to yesterday. Consider reviewing stock levels for fast-moving items.
                   </p>
                 </div>

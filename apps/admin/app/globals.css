@@ -129,12 +129,12 @@
   }
 
   .nav-rail-item[data-active="true"] {
-    @apply text-sky-600 bg-sky-500/10;
+    @apply text-primary bg-primary/10;
   }
 
   .nav-rail-item[data-active="true"]::before {
     content: "";
-    @apply absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-sky-500 rounded-r-full;
+    @apply absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-primary rounded-r-full;
   }
 
   /* Form controls - industrial style */
@@ -142,7 +142,7 @@
     @apply h-10 w-full rounded-md px-3 text-sm transition-all duration-200;
     @apply bg-bg-elevated border border-border text-foreground;
     @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/20;
+    @apply focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
@@ -150,7 +150,7 @@
     @apply h-8 w-full rounded-md px-2.5 text-sm;
     @apply bg-bg-elevated border border-border text-foreground;
     @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/20;
+    @apply focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
@@ -165,14 +165,14 @@
     @apply w-full rounded-md px-3 py-2 text-sm min-h-[80px];
     @apply bg-bg-elevated border border-border text-foreground;
     @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/20;
+    @apply focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   /* Checkbox - industrial toggle style */
   .ui-checkbox {
     @apply h-4 w-4 rounded border border-border-strong bg-bg-elevated;
-    @apply text-sky-500 focus:ring-sky-500/20 focus:ring-offset-0;
+    @apply text-primary focus:ring-primary/20 focus:ring-offset-0;
     @apply transition-colors;
   }
 
@@ -238,7 +238,7 @@
   }
 
   .ui-chip-primary {
-    @apply bg-sky-500/10 text-sky-500 border border-sky-500/20;
+    @apply bg-primary/10 text-primary border border-primary/20;
   }
 
   .ui-chip-success {
@@ -294,7 +294,7 @@
   }
 
   .data-cell-highlight {
-    @apply text-sky-500;
+    @apply text-primary;
   }
 
   /* Card variations */
@@ -381,12 +381,12 @@
 
   /* Gradient text */
   .text-gradient {
-    @apply bg-gradient-to-r from-sky-500 to-sky-300 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-primary to-primary-dim bg-clip-text text-transparent;
   }
 
   /* Focus ring */
   .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:ring-offset-2 focus:ring-offset-background;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2 focus:ring-offset-background;
   }
 }
 

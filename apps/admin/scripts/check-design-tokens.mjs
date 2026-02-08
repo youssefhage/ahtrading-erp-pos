@@ -14,6 +14,8 @@ const FORBIDDEN = [
   /\btext-slate-\d+\b/g,
   /\bborder-slate-\d+\b/g,
   /\bbg-slate-\d+\b/g,
+  // Use `primary` design tokens instead of Tailwind palettes in TSX/TS.
+  /\b(?:bg|text|border|from|to|ring|border-t)-sky-\d+\b/g,
 ];
 
 function walk(dir, out) {

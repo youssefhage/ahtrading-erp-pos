@@ -10,8 +10,8 @@ export default function HomePage() {
       <header className="border-b border-border-subtle">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-600">
-              <span className="text-sm font-bold text-black">AH</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-dim">
+              <span className="text-sm font-bold text-primary-foreground">AH</span>
             </div>
             <span className="text-sm font-semibold text-foreground">AH Trading</span>
           </div>
@@ -30,12 +30,12 @@ export default function HomePage() {
           <div className="grid gap-12 lg:grid-cols-2 lg:gap-8">
             {/* Left Column */}
             <div className="flex flex-col justify-center space-y-6">
-              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-sky-500/20 bg-sky-500/10 px-3 py-1">
+              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1">
                 <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75"></span>
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-sky-500"></span>
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75"></span>
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-primary"></span>
                 </span>
-                <span className="text-xs font-medium text-sky-500">v2.0 Terminal Edition</span>
+                <span className="text-xs font-medium text-primary">v2.0 Terminal Edition</span>
               </div>
 
               <h1 className="text-4xl font-semibold leading-tight text-foreground sm:text-5xl">
@@ -132,7 +132,7 @@ function FeatureCard({
 }) {
   return (
     <div className="rounded-lg border border-border-subtle bg-bg-elevated/70 p-4 transition-all duration-200 hover:border-border-strong hover:bg-bg-sunken/60">
-      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-md bg-bg-sunken text-sky-600 dark:text-sky-400">
+      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-md bg-bg-sunken text-primary">
         <Icon className="h-5 w-5" />
       </div>
       <h3 className="mb-1 text-sm font-medium text-foreground">{title}</h3>

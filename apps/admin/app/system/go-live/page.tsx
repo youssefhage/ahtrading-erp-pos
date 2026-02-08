@@ -383,7 +383,7 @@ export default function GoLivePage() {
                       }}
                     />
                     {arErrors ? (
-                      <pre className="whitespace-pre-wrap rounded-md border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900">
+                      <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken p-2 text-xs text-fg-muted">
                         {arErrors}
                       </pre>
                     ) : null}
@@ -497,7 +497,7 @@ export default function GoLivePage() {
                       }}
                     />
                     {apErrors ? (
-                      <pre className="whitespace-pre-wrap rounded-md border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900">
+                      <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken p-2 text-xs text-fg-muted">
                         {apErrors}
                       </pre>
                     ) : null}

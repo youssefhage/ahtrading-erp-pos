@@ -817,7 +817,7 @@ export default function ItemsPage() {
                         placeholder={'sku,name,unit_of_measure,barcode,tax_code,reorder_point,reorder_qty\nSKU-001,Milk 1L,EA,629...,VAT 11%,10,50'}
                       />
                       {importErrors ? (
-                        <pre className="whitespace-pre-wrap rounded-md border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+                        <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken p-3 text-xs text-fg-muted">
                           {importErrors}
                         </pre>
                       ) : null}
