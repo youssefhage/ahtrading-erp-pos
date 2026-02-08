@@ -81,6 +81,7 @@ jobs:
           docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='items' AND column_name='image_attachment_id' LIMIT 1;"
           docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.columns WHERE table_name='gl_journals' AND column_name='exchange_rate' LIMIT 1;"
           docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM pg_indexes WHERE indexname='idx_stock_moves_company_item_wh_move_date' LIMIT 1;"
+          docker compose exec -T db psql -U ahtrading -d ahtrading -tA -c "SELECT 1 FROM information_schema.tables WHERE table_name='worker_heartbeats' LIMIT 1;"
       - name: Run Playwright tests
         working-directory: apps/admin
         env:

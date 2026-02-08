@@ -333,6 +333,57 @@ def copilot_overview(company_id: str = Depends(get_company_id)):
             )
             locks = cur.fetchall()
 
+            # Worker liveness (per company) so Ops can see if the background worker is alive.
+            cur.execute(
+                """
+                SELECT worker_name, last_seen_at, details
+                FROM worker_heartbeats
+                WHERE company_id = %s
+                ORDER BY worker_name
+                """,
+                (company_id,),
+            )
+            heartbeats = cur.fetchall()
+
+            # Background jobs: quick health signals + recent failures.
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS failed_24h
+                FROM background_job_runs
+                WHERE company_id = %s
+                  AND status = 'failed'
+                  AND started_at >= now() - interval '24 hours'
+                """,
+                (company_id,),
+            )
+            failed_24h = int(cur.fetchone()["failed_24h"])
+
+            cur.execute(
+                """
+                SELECT id, job_code, status, started_at, finished_at, error_message
+                FROM background_job_runs
+                WHERE company_id = %s AND status = 'failed'
+                ORDER BY started_at DESC
+                LIMIT 10
+                """,
+                (company_id,),
+            )
+            recent_failed_runs = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT job_code, enabled, interval_seconds, last_run_at, next_run_at, updated_at,
+                       (enabled = true AND next_run_at IS NOT NULL AND next_run_at < now() - interval '5 minutes') AS is_overdue
+                FROM background_job_schedules
+                WHERE company_id = %s
+                ORDER BY job_code
+                """,
+                (company_id,),
+            )
+            schedules = cur.fetchall()
+
+            overdue_schedules = [s for s in schedules if s.get("is_overdue")]
+
     return {
         "generated_at": datetime.utcnow().isoformat(),
         "ai": {
@@ -350,6 +401,13 @@ def copilot_overview(company_id: str = Depends(get_company_id)):
             "approx_value_lbp": str(neg["approx_value_lbp"]),
         },
         "accounting": {"period_locks": locks},
+        "workers": {"heartbeats": heartbeats},
+        "jobs": {
+            "failed_runs_24h": failed_24h,
+            "recent_failed_runs": recent_failed_runs,
+            "schedules": schedules,
+            "overdue_schedules": overdue_schedules,
+        },
     }
 
 

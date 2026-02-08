@@ -105,7 +105,9 @@ Executed (2026-02-08):
 
 Residual work:
 - Add structured logging (JSON logs) and consistent correlation ids.
-- Added a DB heartbeat row (`worker_heartbeats`) written by the worker, plus `GET /config/worker-heartbeats` for Admin surfacing.
+- Added a DB heartbeat row (`worker_heartbeats`) written by the worker, plus:
+  - `GET /config/worker-heartbeats` (direct)
+  - `GET /ai/copilot/overview` now includes worker heartbeat + background job health for the Admin Ops view.
 
 ## P2 (Important, Not Urgent)
 
