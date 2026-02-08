@@ -171,3 +171,35 @@ def assign_role_permission(data: RolePermissionIn, company_id: str = Depends(get
                 (data.role_id, perm["id"]),
             )
             return {"ok": True}
+
+
+@router.post("/{user_id}/sessions/revoke", dependencies=[Depends(require_permission("users:write"))])
+def revoke_user_sessions(user_id: str, company_id: str = Depends(get_company_id)):
+    """
+    Company-admin operation: revoke all auth sessions for a user in this company.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            # Only allow revoking sessions for users that belong to this company.
+            cur.execute(
+                """
+                SELECT 1
+                FROM user_roles
+                WHERE user_id = %s AND company_id = %s
+                LIMIT 1
+                """,
+                (user_id, company_id),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="user not found")
+
+            cur.execute(
+                """
+                UPDATE auth_sessions
+                SET is_active = false
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+            return {"ok": True, "revoked": cur.rowcount}

@@ -119,6 +119,26 @@ def logout(session=Depends(get_session)):
             return resp
 
 
+@router.post("/logout-all")
+def logout_all(session=Depends(get_session)):
+    """
+    Revoke all sessions for the current user (useful after password resets or when a token may be leaked).
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE auth_sessions
+                SET is_active = false
+                WHERE user_id = %s
+                """,
+                (session["user_id"],),
+            )
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    return resp
+
+
 class SelectCompanyIn(BaseModel):
     company_id: uuid.UUID
 

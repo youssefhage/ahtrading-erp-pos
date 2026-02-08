@@ -86,7 +86,10 @@ Executed (2026-02-08):
 - Updated both scripts to `UPDATE auth_sessions SET is_active = false WHERE user_id = ...` after resetting.
 
 Residual work:
-- Add a first-class API endpoint for admins to revoke sessions (per user / all users).
+- Added API endpoints to revoke sessions:
+  - `POST /auth/logout-all` (current user)
+  - `POST /users/{user_id}/sessions/revoke` (admin, company-scoped)
+- Consider adding a bulk "revoke all users" endpoint for incident response.
 - Consider revoking sessions on role/permission changes too.
 
 ### 2) Worker Scheduling Errors Were Silent
