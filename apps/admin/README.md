@@ -1,6 +1,6 @@
 # AH Trading Admin (Next.js + shadcn/ui)
 
-This is the new Admin ERP web app (replacing the static `web-admin` prototype).
+This is the Admin ERP web app.
 
 ## Local Dev
 1) Install dependencies:
@@ -10,4 +10,3 @@ This is the new Admin ERP web app (replacing the static `web-admin` prototype).
 
 ## Environment
 - `NEXT_PUBLIC_API_BASE_URL` (default: `http://localhost:8000`)
-
