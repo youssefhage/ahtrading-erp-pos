@@ -74,6 +74,7 @@ function iconForHref(href: string) {
     "/system/pos-devices": Monitor,
     "/system/pos-cashiers": UserRoundCog,
     "/system/pos-shifts": Timer,
+    "/system/audit-logs": FileText,
 
     "/sales/invoices": ReceiptText,
     "/sales/payments": BadgeDollarSign,
@@ -237,6 +238,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Branches", href: "/system/branches" },
       { label: "Warehouses", href: "/system/warehouses" },
       { label: "Users", href: "/system/users" },
+      { label: "Audit Logs", href: "/system/audit-logs" },
       { label: "Roles", href: "/system/roles-permissions" }
     ]
   }
@@ -265,6 +267,7 @@ const LITE_NAV_SECTIONS: NavSection[] = [
     label: "Administration",
     items: [
       { label: "Users", href: "/system/users" },
+      { label: "Audit Logs", href: "/system/audit-logs" },
       { label: "Config", href: "/system/config" }
     ]
   }

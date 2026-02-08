@@ -51,6 +51,7 @@ const TITLE_BY_PATH: Record<string, string> = {
   "/system/pos-cashiers": "POS Cashiers",
   "/system/pos-shifts": "POS Shifts",
   "/system/outbox": "Outbox",
+  "/system/audit-logs": "Audit Logs",
   "/automation/copilot": "Copilot",
   "/automation/ops-copilot": "Ops Copilot",
   "/automation/ai-hub": "AI Hub"
