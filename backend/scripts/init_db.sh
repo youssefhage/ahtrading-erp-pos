@@ -159,6 +159,54 @@ bootstrap_existing_versions() {
   if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sales_returns' AND column_name='return_no' LIMIT 1;")" ]]; then
     mark_version "026_doc_metadata"
   fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='background_job_schedules' LIMIT 1;")" ]]; then
+    mark_version "028_background_jobs"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='ai_actions' AND column_name='attempt_count' LIMIT 1;")" ]]; then
+    mark_version "029_ai_actions_attempts"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='gl_journals' AND column_name='memo' LIMIT 1;")" ]]; then
+    mark_version "030_gl_journals_metadata"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM permissions WHERE code='accounting:read' LIMIT 1;")" ]]; then
+    mark_version "031_accounting_permissions"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='gl_journals' AND column_name='exchange_rate' LIMIT 1;")" ]]; then
+    mark_version "032_gl_journals_exchange_rate"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sales_invoices' AND column_name='due_date' LIMIT 1;")" ]]; then
+    mark_version "033_due_dates_terms"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='accounting_period_locks' LIMIT 1;")" ]]; then
+    mark_version "034_accounting_period_locks"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='item_barcodes' LIMIT 1;")" ]]; then
+    mark_version "035_item_barcodes"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='goods_receipt_lines' AND column_name='batch_id' LIMIT 1;")" ]]; then
+    mark_version "036_batch_links"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='pos_cashiers' LIMIT 1;")" ]]; then
+    mark_version "037_pos_cashiers"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='company_settings' LIMIT 1;")" ]]; then
+    mark_version "038_company_settings"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='price_lists' LIMIT 1;")" ]]; then
+    mark_version "039_price_lists"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='bank_accounts' LIMIT 1;")" ]]; then
+    mark_version "040_banking"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='goods_receipts' AND column_name='purchase_order_id' LIMIT 1;")" ]]; then
+    mark_version "049_purchasing_doc_links"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sales_invoices' AND column_name='canceled_at' LIMIT 1;")" ]]; then
+    mark_version "050_cancel_metadata_and_party_codes"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sales_invoices' AND column_name='doc_subtype' LIMIT 1;")" ]]; then
+    mark_version "052_opening_balances_doc_subtype"
+  fi
 
   if [[ -n "$(psql_value -c "SELECT 1 FROM coa_templates WHERE code='LB_COA_2025' LIMIT 1;")" ]]; then
     mark_version "seed_coa_lebanon"
@@ -171,6 +219,11 @@ bootstrap_existing_versions() {
   fi
   if [[ -n "$(psql_value -c "SELECT 1 FROM company_coa_versions LIMIT 1;")" ]]; then
     mark_version "seed_company_coa"
+  fi
+  if [[ -n "$(psql_value -c "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='background_job_schedules' LIMIT 1;")" ]]; then
+    if [[ -n "$(psql_value -c "SELECT 1 FROM background_job_schedules LIMIT 1;")" ]]; then
+      mark_version "seed_background_job_schedules"
+    fi
   fi
 }
 
@@ -204,6 +257,31 @@ run_migration "023_sales_return_lines" "backend/db/migrations/023_sales_return_l
 run_migration "024_goods_receipt_lines" "backend/db/migrations/024_goods_receipt_lines.sql"
 run_migration "025_supplier_invoice_lines" "backend/db/migrations/025_supplier_invoice_lines.sql"
 run_migration "026_doc_metadata" "backend/db/migrations/026_doc_metadata.sql"
+run_migration "028_background_jobs" "backend/db/migrations/028_background_jobs.sql"
+run_migration "029_ai_actions_attempts" "backend/db/migrations/029_ai_actions_attempts.sql"
+run_migration "030_gl_journals_metadata" "backend/db/migrations/030_gl_journals_metadata.sql"
+run_migration "031_accounting_permissions" "backend/db/migrations/031_accounting_permissions.sql"
+run_migration "032_gl_journals_exchange_rate" "backend/db/migrations/032_gl_journals_exchange_rate.sql"
+run_migration "033_due_dates_terms" "backend/db/migrations/033_due_dates_terms.sql"
+run_migration "034_accounting_period_locks" "backend/db/migrations/034_accounting_period_locks.sql"
+run_migration "035_item_barcodes" "backend/db/migrations/035_item_barcodes.sql"
+run_migration "036_batch_links" "backend/db/migrations/036_batch_links.sql"
+run_migration "037_pos_cashiers" "backend/db/migrations/037_pos_cashiers.sql"
+run_migration "038_company_settings" "backend/db/migrations/038_company_settings.sql"
+run_migration "039_price_lists" "backend/db/migrations/039_price_lists.sql"
+run_migration "040_banking" "backend/db/migrations/040_banking.sql"
+run_migration "041_customer_membership" "backend/db/migrations/041_customer_membership.sql"
+run_migration "042_ai_action_governance" "backend/db/migrations/042_ai_action_governance.sql"
+run_migration "043_ai_feature_store" "backend/db/migrations/043_ai_feature_store.sql"
+run_migration "044_ai_demand_forecasts" "backend/db/migrations/044_ai_demand_forecasts.sql"
+run_migration "045_promotions" "backend/db/migrations/045_promotions.sql"
+run_migration "046_sales_invoice_warehouse" "backend/db/migrations/046_sales_invoice_warehouse.sql"
+run_migration "047_supplier_invoice_tax_code" "backend/db/migrations/047_supplier_invoice_tax_code.sql"
+run_migration "048_parties_business_individual" "backend/db/migrations/048_parties_business_individual.sql"
+run_migration "049_purchasing_doc_links" "backend/db/migrations/049_purchasing_doc_links.sql"
+run_migration "050_cancel_metadata_and_party_codes" "backend/db/migrations/050_cancel_metadata_and_party_codes.sql"
+run_migration "051_opening_stock_role_and_inv_adj_default" "backend/db/migrations/051_opening_stock_role_and_inv_adj_default.sql"
+run_migration "052_opening_balances_doc_subtype" "backend/db/migrations/052_opening_balances_doc_subtype.sql"
 
 run_migration "seed_coa_lebanon" "backend/db/seeds/seed_coa_lebanon.sql"
 run_migration "seed_account_roles" "backend/db/seeds/seed_account_roles.sql"
@@ -211,6 +289,7 @@ run_migration "seed_companies" "backend/db/seeds/seed_companies.sql"
 run_migration "seed_company_coa" "backend/db/seeds/seed_company_coa.sql"
 run_migration "seed_bootstrap_master_data" "backend/db/seeds/seed_bootstrap_master_data.sql"
 run_migration "seed_payment_method_mappings" "backend/db/seeds/seed_payment_method_mappings.sql"
+run_migration "seed_background_job_schedules" "backend/db/seeds/seed_background_job_schedules.sql"
 
 ensure_app_role
 

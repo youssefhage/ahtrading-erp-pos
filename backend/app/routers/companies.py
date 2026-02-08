@@ -160,6 +160,23 @@ def create_company(
                     (user["user_id"], role_id, new_company_id),
                 )
 
+                # Default background job schedules (AI agents + executor).
+                # Jobs are recommendation-first; auto-execution is still gated by ai_agent_settings.
+                cur.execute(
+                    """
+                    INSERT INTO background_job_schedules (company_id, job_code, enabled, interval_seconds, options_json, next_run_at)
+                    VALUES
+                      (%s, 'AI_INVENTORY', true, 3600, '{}'::jsonb, now()),
+                      (%s, 'AI_PURCHASE', true, 3600, '{}'::jsonb, now()),
+                      (%s, 'AI_CRM', true, 86400, '{"inactive_days": 60}'::jsonb, now()),
+                      (%s, 'AI_PRICING', true, 86400, '{"min_margin_pct": 0.05, "target_margin_pct": 0.15}'::jsonb, now()),
+                      (%s, 'AI_SHRINKAGE', true, 3600, '{}'::jsonb, now()),
+                      (%s, 'AI_EXECUTOR', true, 60, '{}'::jsonb, now())
+                    ON CONFLICT (company_id, job_code) DO NOTHING
+                    """,
+                    (new_company_id, new_company_id, new_company_id, new_company_id, new_company_id, new_company_id),
+                )
+
             return {
                 "id": new_company_id,
                 "default_branch_id": branch_id,

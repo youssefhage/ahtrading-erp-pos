@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -67,8 +66,7 @@ export default function OutboxPage() {
   }
 
   return (
-    <AppShell title="Outbox">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
         {status ? (
           <Card>
             <CardHeader>
@@ -90,7 +88,7 @@ export default function OutboxPage() {
             <div className="space-y-1 md:col-span-1">
               <label className="text-xs font-medium text-slate-700">Status</label>
               <select
-                className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                className="ui-select"
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
               >
@@ -123,9 +121,9 @@ export default function OutboxPage() {
             <CardDescription>{events.length} events</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">Created</th>
                     <th className="px-3 py-2">Status</th>
@@ -181,8 +179,6 @@ export default function OutboxPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
-  );
+      </div>);
 }
 

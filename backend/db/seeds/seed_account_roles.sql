@@ -10,6 +10,8 @@ INSERT INTO account_roles (code, description) VALUES
   ('VAT_PAYABLE','VAT Payable'),
   ('VAT_RECOVERABLE','VAT Recoverable'),
   ('INVENTORY','Inventory'),
+  ('OPENING_STOCK','Opening Stock / Opening Balances Offset'),
+  ('OPENING_BALANCE','Opening Balance Offset (Equity)'),
   ('COGS','Cost of Goods Sold'),
   ('INV_ADJ','Inventory Adjustments'),
   ('ROUNDING','Rounding Differences'),

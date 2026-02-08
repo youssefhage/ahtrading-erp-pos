@@ -4,19 +4,56 @@ Long-running worker service.
 
 Processes POS outbox events for all companies (or a specified subset) using the
 same logic as `pos_processor.py`, but runs continuously.
+
+Also runs scheduled background jobs (AI agents + executor) using a DB-backed
+schedule (`background_job_schedules`).
 """
 
 import argparse
+import json
 import time
+from typing import Any
+from decimal import Decimal
 
 import psycopg
 from psycopg.rows import dict_row
 
 try:
-    from .pos_processor import process_events, DB_URL_DEFAULT, MAX_ATTEMPTS_DEFAULT
+    from .pos_processor import process_events, DB_URL_DEFAULT, MAX_ATTEMPTS_DEFAULT, set_company_context
+    from .ai_inventory import run_inventory_agent
+    from .ai_purchase import run_purchase_agent
+    from .ai_crm import run_crm_agent
+    from .ai_pricing import run_pricing_agent
+    from .ai_shrinkage import run_shrinkage_agent
+    from .ai_demand import run_demand_agent
+    from .ai_anomaly import run_anomaly_agent
+    from .ai_action_executor import run_executor
 except ImportError:  # pragma: no cover
     # Allow running as a script: `python3 backend/workers/worker_service.py`
-    from pos_processor import process_events, DB_URL_DEFAULT, MAX_ATTEMPTS_DEFAULT
+    from pos_processor import process_events, DB_URL_DEFAULT, MAX_ATTEMPTS_DEFAULT, set_company_context
+    from ai_inventory import run_inventory_agent
+    from ai_purchase import run_purchase_agent
+    from ai_crm import run_crm_agent
+    from ai_pricing import run_pricing_agent
+    from ai_shrinkage import run_shrinkage_agent
+    from ai_demand import run_demand_agent
+    from ai_anomaly import run_anomaly_agent
+    from ai_action_executor import run_executor
+
+
+DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
+    "AI_INVENTORY": {"interval_seconds": 3600, "options_json": {}},
+    "AI_PURCHASE": {"interval_seconds": 3600, "options_json": {}},
+    "AI_DEMAND": {"interval_seconds": 86400, "options_json": {"window_days": 28, "review_days": 7, "safety_days": 3}},
+    "AI_CRM": {"interval_seconds": 86400, "options_json": {"inactive_days": 60}},
+    "AI_PRICING": {
+        "interval_seconds": 86400,
+        "options_json": {"min_margin_pct": 0.05, "target_margin_pct": 0.15},
+    },
+    "AI_SHRINKAGE": {"interval_seconds": 3600, "options_json": {}},
+    "AI_ANOMALY": {"interval_seconds": 3600, "options_json": {"lookback_days": 7, "return_rate": 0.20, "min_return_qty": 2, "adjustment_usd": 250}},
+    "AI_EXECUTOR": {"interval_seconds": 60, "options_json": {"limit": 20}},
+}
 
 
 def list_company_ids(db_url: str):
@@ -24,6 +61,154 @@ def list_company_ids(db_url: str):
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM companies ORDER BY created_at ASC")
             return [str(r["id"]) for r in cur.fetchall()]
+
+
+def ensure_default_job_schedules(conn, company_id: str):
+    with conn.cursor() as cur:
+        set_company_context(cur, company_id)
+        for job_code, spec in DEFAULT_JOB_SPECS.items():
+            cur.execute(
+                """
+                INSERT INTO background_job_schedules
+                  (company_id, job_code, enabled, interval_seconds, options_json, next_run_at)
+                VALUES
+                  (%s, %s, true, %s, %s::jsonb, now())
+                ON CONFLICT (company_id, job_code) DO NOTHING
+                """,
+                (company_id, job_code, spec["interval_seconds"], json.dumps(spec["options_json"])),
+            )
+
+
+def claim_due_job(conn, company_id: str):
+    with conn.cursor() as cur:
+        set_company_context(cur, company_id)
+        cur.execute(
+            """
+            WITH due AS (
+              SELECT job_code
+              FROM background_job_schedules
+              WHERE company_id = %s
+                AND enabled = true
+                AND (next_run_at IS NULL OR next_run_at <= now())
+              ORDER BY next_run_at NULLS FIRST, job_code
+              FOR UPDATE SKIP LOCKED
+              LIMIT 1
+            )
+            UPDATE background_job_schedules s
+            SET last_run_at = now(),
+                next_run_at = now() + interval '1 second' * s.interval_seconds,
+                updated_at = now()
+            FROM due
+            WHERE s.company_id = %s AND s.job_code = due.job_code
+            RETURNING s.job_code, s.options_json
+            """,
+            (company_id, company_id),
+        )
+        return cur.fetchone()
+
+
+def record_job_run_start(conn, company_id: str, job_code: str, details: dict):
+    with conn.cursor() as cur:
+        set_company_context(cur, company_id)
+        cur.execute(
+            """
+            INSERT INTO background_job_runs
+              (id, company_id, job_code, status, started_at, details_json)
+            VALUES
+              (gen_random_uuid(), %s, %s, 'running', now(), %s::jsonb)
+            RETURNING id
+            """,
+            (company_id, job_code, json.dumps(details)),
+        )
+        return cur.fetchone()["id"]
+
+
+def record_job_run_finish(conn, company_id: str, run_id: str, status: str, error_message: str | None = None):
+    with conn.cursor() as cur:
+        set_company_context(cur, company_id)
+        cur.execute(
+            """
+            UPDATE background_job_runs
+            SET status = %s,
+                finished_at = now(),
+                error_message = %s
+            WHERE company_id = %s AND id = %s
+            """,
+            (status, error_message, company_id, run_id),
+        )
+
+
+def execute_job(db_url: str, company_id: str, job_code: str, options: dict):
+    if job_code == "AI_INVENTORY":
+        run_inventory_agent(db_url, company_id)
+        return
+    if job_code == "AI_PURCHASE":
+        run_purchase_agent(db_url, company_id)
+        return
+    if job_code == "AI_DEMAND":
+        window_days = int(options.get("window_days") or 28)
+        review_days = int(options.get("review_days") or 7)
+        safety_days = int(options.get("safety_days") or 3)
+        run_demand_agent(db_url, company_id, window_days=window_days, review_days=review_days, safety_days=safety_days)
+        return
+    if job_code == "AI_CRM":
+        inactive_days = int(options.get("inactive_days") or 60)
+        run_crm_agent(db_url, company_id, inactive_days=inactive_days)
+        return
+    if job_code == "AI_PRICING":
+        min_margin_pct = Decimal(str(options.get("min_margin_pct") or "0.05"))
+        target_margin_pct = Decimal(str(options.get("target_margin_pct") or "0.15"))
+        run_pricing_agent(db_url, company_id, min_margin_pct=min_margin_pct, target_margin_pct=target_margin_pct)
+        return
+    if job_code == "AI_SHRINKAGE":
+        run_shrinkage_agent(db_url, company_id)
+        return
+    if job_code == "AI_ANOMALY":
+        lookback_days = int(options.get("lookback_days") or 7)
+        return_rate = Decimal(str(options.get("return_rate") or "0.20"))
+        min_return_qty = Decimal(str(options.get("min_return_qty") or "2"))
+        adjustment_usd = Decimal(str(options.get("adjustment_usd") or "250"))
+        run_anomaly_agent(
+            db_url,
+            company_id,
+            lookback_days=lookback_days,
+            return_rate_threshold=return_rate,
+            min_return_qty=min_return_qty,
+            adjustment_value_usd_threshold=adjustment_usd,
+        )
+        return
+    if job_code == "AI_EXECUTOR":
+        limit = int(options.get("limit") or 20)
+        run_executor(db_url, company_id, limit=limit)
+        return
+
+
+def run_due_jobs(db_url: str, company_id: str, max_jobs: int = 3) -> int:
+    ran = 0
+    with psycopg.connect(db_url, row_factory=dict_row) as conn:
+        with conn.transaction():
+            ensure_default_job_schedules(conn, company_id)
+
+        for _ in range(max_jobs):
+            with conn.transaction():
+                claimed = claim_due_job(conn, company_id)
+                if not claimed:
+                    break
+                job_code = claimed["job_code"]
+                options = claimed.get("options_json") or {}
+                if isinstance(options, str):
+                    options = json.loads(options)
+                run_id = record_job_run_start(conn, company_id, job_code, {"options": options})
+
+            try:
+                execute_job(db_url, company_id, job_code, options)
+                with conn.transaction():
+                    record_job_run_finish(conn, company_id, run_id, "success")
+            except Exception as ex:
+                with conn.transaction():
+                    record_job_run_finish(conn, company_id, run_id, "failed", error_message=str(ex))
+            ran += 1
+    return ran
 
 
 def main():
@@ -43,6 +228,14 @@ def main():
             processed = process_events(args.db, cid, args.limit, max_attempts=args.max_attempts)
             if processed:
                 did_work = True
+
+            try:
+                jobs_ran = run_due_jobs(args.db, cid, max_jobs=3)
+                if jobs_ran:
+                    did_work = True
+            except Exception:
+                # Never crash the worker loop due to background scheduling issues.
+                pass
 
         if args.once:
             break

@@ -17,53 +17,32 @@
       </div>
       <div class="status">
         <span id="syncStatus">Idle</span>
-        <button id="syncPull">Pull Catalog</button>
-        <button id="syncPush" class="ghost">Sync Sales</button>
+        <button id="syncPull">Sync</button>
+        <button id="syncPush" class="ghost">Push</button>
+        <button id="settingsBtn" class="ghost">Settings</button>
+        <button id="receiptBtn" class="ghost">Receipt</button>
       </div>
     </header>
 
-    <section class="controls">
-      <label>Search
-        <input id="search" placeholder="Search by SKU, barcode, name" />
-      </label>
-      <label>Customer ID
-        <input id="customerId" placeholder="Optional customer UUID" />
-      </label>
-      <label>Payment
-        <select id="paymentMethod">
-          <option value="cash">Cash</option>
-          <option value="card">Card</option>
-          <option value="transfer">Transfer</option>
-          <option value="credit">Credit</option>
-        </select>
-      </label>
-      <label>Currency
-        <select id="currency">
-          <option value="USD">USD</option>
-          <option value="LBP">LBP</option>
-        </select>
-      </label>
-      <label>Rate (USD→LBP)
-        <input id="rate" type="number" step="0.01" />
-      </label>
-    </section>
-
-    <section class="shift-bar">
-      <div class="shift-card">
-        <div class="shift-meta">
-          <h3>Shift</h3>
-          <p id="shiftStatus">No open shift</p>
+    <section class="toolbar">
+      <div class="toolbar-left">
+        <label class="field">
+          <span>Search</span>
+          <input id="search" placeholder="Search by SKU, barcode, name" />
+        </label>
+      </div>
+      <div class="toolbar-right">
+        <div class="pill">
+          <span class="pill-label">Cashier</span>
+          <strong id="cashierName">-</strong>
         </div>
-        <div class="shift-fields">
-          <label>Open USD<input id="shiftOpenUsd" type="number" step="0.01" /></label>
-          <label>Open LBP<input id="shiftOpenLbp" type="number" step="1" /></label>
-          <label>Close USD<input id="shiftCloseUsd" type="number" step="0.01" /></label>
-          <label>Close LBP<input id="shiftCloseLbp" type="number" step="1" /></label>
+        <div class="pill">
+          <span class="pill-label">Shift</span>
+          <strong id="shiftStatus">-</strong>
         </div>
-        <div class="shift-actions">
-          <button id="openShift">Open Shift</button>
-          <button id="closeShift" class="ghost">Close Shift</button>
-        </div>
+        <button id="shiftBtn">Shift</button>
+        <button id="cashBtn" class="ghost">Cash</button>
+        <button id="lockBtn" class="ghost">Lock</button>
       </div>
     </section>
 
@@ -82,12 +61,230 @@
         </div>
         <div class="actions">
           <button id="clear">Clear</button>
-          <button id="complete" class="primary">Complete Sale</button>
+          <button id="pay" class="primary">Pay</button>
           <button id="return" class="ghost">Return</button>
         </div>
-        <div id="saleStatus" class="status"></div>
+        <div id="saleStatus" class="hint"></div>
       </section>
     </main>
+
+    <div id="backdrop" class="backdrop hidden"></div>
+
+    <div id="loginModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <div class="modal-header">
+        <h3 id="loginTitle">Cashier Login</h3>
+        <p>Enter PIN to unlock POS (works offline).</p>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span>PIN</span>
+          <input id="loginPin" inputmode="numeric" type="password" placeholder="••••" />
+        </label>
+        <div id="loginStatus" class="hint"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="loginBtn" class="primary">Login</button>
+      </div>
+    </div>
+
+    <div id="shiftOpenModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="shiftOpenTitle">
+      <div class="modal-header">
+        <h3 id="shiftOpenTitle">Open Shift</h3>
+        <p>Start a new shift with opening cash.</p>
+      </div>
+      <div class="modal-body grid-2">
+        <label class="field">
+          <span>Opening USD</span>
+          <input id="shiftOpenUsd" type="number" step="0.01" placeholder="0.00" />
+        </label>
+        <label class="field">
+          <span>Opening LBP</span>
+          <input id="shiftOpenLbp" type="number" step="1" placeholder="0" />
+        </label>
+        <label class="field">
+          <span>Notes (optional)</span>
+          <input id="shiftOpenNotes" placeholder="..." />
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="shiftOpenCancel" class="ghost">Cancel</button>
+        <button id="shiftOpenConfirm" class="primary">Open</button>
+      </div>
+    </div>
+
+    <div id="shiftCloseModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="shiftCloseTitle">
+      <div class="modal-header">
+        <h3 id="shiftCloseTitle">Close Shift</h3>
+        <p>Enter counted cash to close and compute variance.</p>
+      </div>
+      <div class="modal-body grid-2">
+        <label class="field">
+          <span>Closing USD</span>
+          <input id="shiftCloseUsd" type="number" step="0.01" placeholder="0.00" />
+        </label>
+        <label class="field">
+          <span>Closing LBP</span>
+          <input id="shiftCloseLbp" type="number" step="1" placeholder="0" />
+        </label>
+        <label class="field">
+          <span>Notes (optional)</span>
+          <input id="shiftCloseNotes" placeholder="..." />
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="shiftCloseCancel" class="ghost">Cancel</button>
+        <button id="shiftCloseConfirm" class="primary">Close</button>
+      </div>
+    </div>
+
+    <div id="cashModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cashTitle">
+      <div class="modal-header">
+        <h3 id="cashTitle">Cash Movement</h3>
+        <p>Record cash-in/out, paid out, or safe drop (queued offline).</p>
+      </div>
+      <div class="modal-body grid-2">
+        <label class="field">
+          <span>Type</span>
+          <select id="cashType">
+            <option value="cash_in">Cash In</option>
+            <option value="cash_out">Cash Out</option>
+            <option value="paid_out">Paid Out</option>
+            <option value="safe_drop">Safe Drop</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Amount USD</span>
+          <input id="cashUsd" type="number" step="0.01" placeholder="0.00" />
+        </label>
+        <label class="field">
+          <span>Amount LBP</span>
+          <input id="cashLbp" type="number" step="1" placeholder="0" />
+        </label>
+        <label class="field">
+          <span>Notes</span>
+          <input id="cashNotes" placeholder="Reason / reference" />
+        </label>
+        <div id="cashStatus" class="hint"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="cashCancel" class="ghost">Cancel</button>
+        <button id="cashConfirm" class="primary">Queue</button>
+      </div>
+    </div>
+
+    <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-header">
+        <h3 id="settingsTitle">Sale Settings</h3>
+        <p>Defaults used for sales and returns.</p>
+      </div>
+      <div class="modal-body grid-2">
+        <label class="field">
+          <span>Currency</span>
+          <select id="currency">
+            <option value="USD">USD</option>
+            <option value="LBP">LBP</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Rate (USD→LBP)</span>
+          <input id="rate" type="number" step="0.01" placeholder="0" />
+        </label>
+        <label class="field">
+          <span>Default Customer (optional)</span>
+          <div class="inline-picker">
+            <div id="settingsCustomerLabel" class="picker-label">None</div>
+            <div class="picker-actions">
+              <button id="settingsPickCustomer" type="button" class="ghost small">Select</button>
+              <button id="settingsClearCustomer" type="button" class="ghost small">Clear</button>
+            </div>
+          </div>
+          <input id="customerId" class="hidden" />
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="settingsCancel" class="ghost">Cancel</button>
+        <button id="settingsSave" class="primary">Save</button>
+      </div>
+    </div>
+
+    <div id="payModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="payTitle">
+      <div class="modal-header">
+        <h3 id="payTitle">Payment</h3>
+        <p>Choose payment method, then queue sale offline.</p>
+      </div>
+      <div class="modal-body grid-2">
+        <label class="field">
+          <span>Method</span>
+          <select id="paymentMethod">
+            <option value="cash">Cash</option>
+            <option value="card">Card</option>
+            <option value="transfer">Transfer</option>
+            <option value="credit">Credit</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Customer (required for credit)</span>
+          <div class="inline-picker">
+            <div id="payCustomerLabel" class="picker-label">None</div>
+            <div class="picker-actions">
+              <button id="payPickCustomer" type="button" class="ghost small">Select</button>
+              <button id="payClearCustomer" type="button" class="ghost small">Clear</button>
+            </div>
+          </div>
+          <input id="payCustomerId" class="hidden" />
+        </label>
+        <div id="payStatus" class="hint"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="payCancel" class="ghost">Cancel</button>
+        <button id="payConfirm" class="primary">Queue Sale</button>
+      </div>
+    </div>
+
+    <div id="customerPickerModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="custPickTitle">
+      <div class="modal-header">
+        <h3 id="custPickTitle">Select Customer</h3>
+        <p>Search by name, phone, email, membership #.</p>
+      </div>
+      <div class="modal-body">
+        <div class="row">
+          <input id="custPickQuery" placeholder="Search..." />
+          <button id="custPickRefresh" class="ghost">Search</button>
+        </div>
+        <div id="custPickStatus" class="hint"></div>
+        <div id="custPickList" class="list"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="custPickCancel" class="ghost">Cancel</button>
+      </div>
+    </div>
+
+    <div id="returnModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="returnTitle">
+      <div class="modal-header">
+        <h3 id="returnTitle">Return</h3>
+        <p>Queue return offline. Optionally link to an invoice.</p>
+      </div>
+      <div class="modal-body grid-2">
+        <label class="field">
+          <span>Refund Method</span>
+          <select id="refundMethod">
+            <option value="cash">Cash</option>
+            <option value="card">Card</option>
+            <option value="transfer">Transfer</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Invoice ID (optional)</span>
+          <input id="returnInvoiceId" placeholder="uuid" />
+        </label>
+        <div id="returnStatus" class="hint"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="returnCancel" class="ghost">Cancel</button>
+        <button id="returnConfirm" class="primary">Queue Return</button>
+      </div>
+    </div>
 
     <script src="app.js"></script>
   </body>

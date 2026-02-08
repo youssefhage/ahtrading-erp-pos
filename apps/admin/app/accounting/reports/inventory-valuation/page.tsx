@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 
 import { apiBase, apiGet } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -65,8 +64,7 @@ export default function InventoryValuationPage() {
   }
 
   return (
-    <AppShell title="Inventory Valuation">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
         {status ? (
           <Card>
             <CardHeader>
@@ -94,9 +92,9 @@ export default function InventoryValuationPage() {
               </Button>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">SKU</th>
                     <th className="px-3 py-2">Item</th>
@@ -107,7 +105,7 @@ export default function InventoryValuationPage() {
                 </thead>
                 <tbody>
                   {rows.map((r) => (
-                    <tr key={r.id} className="border-t border-slate-100">
+                    <tr key={r.id} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{r.sku}</td>
                       <td className="px-3 py-2">{r.name || ""}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.qty_on_hand)}</td>
@@ -127,8 +125,6 @@ export default function InventoryValuationPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
-  );
+      </div>);
 }
 

@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Metrics = {
   sales_today_usd: string | number;
@@ -40,6 +40,8 @@ export default function DashboardPage() {
   const router = useRouter();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [status, setStatus] = useState<string>("");
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     async function run() {
@@ -47,6 +49,7 @@ export default function DashboardPage() {
       try {
         const res = await apiGet<{ metrics: Metrics }>("/reports/metrics");
         setMetrics(res.metrics);
+        setLastUpdatedAt(new Date());
         setStatus("");
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -56,17 +59,53 @@ export default function DashboardPage() {
     run();
   }, []);
 
+  async function refresh() {
+    setRefreshing(true);
+    try {
+      const res = await apiGet<{ metrics: Metrics }>("/reports/metrics");
+      setMetrics(res.metrics);
+      setLastUpdatedAt(new Date());
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   return (
-    <AppShell title="Dashboard">
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex items-center justify-end">
-          <Button variant="outline" onClick={() => router.refresh()}>
-            Refresh
-          </Button>
+    <div className="mx-auto max-w-5xl space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Button variant="outline" onClick={refresh} disabled={refreshing}>
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </Button>
+            {lastUpdatedAt ? (
+              <p className="text-xs text-slate-600">
+                Updated{" "}
+                <span className="font-medium text-slate-800">
+                  {lastUpdatedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => router.push("/sales/invoices")}>
+              Sales Invoices
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/inventory/stock")}>
+              Stock
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/catalog/items")}>
+              Items
+            </Button>
+          </div>
         </div>
 
-        {status ? (
-          <Card>
+        {status && status !== "Loading..." ? (
+          <Card className="border-red-200/70 bg-red-50/60">
             <CardHeader>
               <CardTitle>Status</CardTitle>
               <CardDescription>API errors will show here.</CardDescription>
@@ -75,6 +114,23 @@ export default function DashboardPage() {
               <pre className="whitespace-pre-wrap text-xs text-slate-700">{status}</pre>
             </CardContent>
           </Card>
+        ) : null}
+
+        {!metrics && status === "Loading..." ? (
+          <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Card key={i}>
+                <CardHeader>
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="h-4 w-28" />
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Skeleton className="h-7 w-32" />
+                  <Skeleton className="h-4 w-24" />
+                </CardContent>
+              </Card>
+            ))}
+          </section>
         ) : null}
 
         {metrics ? (
@@ -175,7 +231,5 @@ export default function DashboardPage() {
             </Card>
           </section>
         ) : null}
-      </div>
-    </AppShell>
-  );
+      </div>);
 }

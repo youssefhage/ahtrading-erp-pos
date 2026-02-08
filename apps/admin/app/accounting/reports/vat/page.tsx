@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 
 import { apiBase, apiGet } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -64,8 +63,7 @@ export default function VatReportPage() {
   }
 
   return (
-    <AppShell title="VAT Report">
-      <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
         {status ? (
           <Card>
             <CardHeader>
@@ -93,9 +91,9 @@ export default function VatReportPage() {
               </Button>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">Period</th>
                     <th className="px-3 py-2">Tax</th>
@@ -105,7 +103,7 @@ export default function VatReportPage() {
                 </thead>
                 <tbody>
                   {rows.map((r, idx) => (
-                    <tr key={`${r.tax_code_id}:${r.period}:${idx}`} className="border-t border-slate-100">
+                    <tr key={`${r.tax_code_id}:${r.period}:${idx}`} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{r.period}</td>
                       <td className="px-3 py-2">{r.tax_name}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{fmtLbp(r.base_lbp)}</td>
@@ -124,7 +122,5 @@ export default function VatReportPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
-  );
+      </div>);
 }

@@ -5,7 +5,7 @@ from datetime import datetime
 import uuid
 from ..db import get_conn, set_company_context
 from ..deps import require_device, get_company_id, require_company_access, require_permission
-from ..security import hash_device_token
+from ..security import hash_device_token, hash_pin, verify_pin
 import secrets
 import json
 from decimal import Decimal
@@ -28,12 +28,14 @@ class ShiftOpenIn(BaseModel):
     opening_cash_usd: Decimal = Decimal("0")
     opening_cash_lbp: Decimal = Decimal("0")
     notes: Optional[str] = None
+    cashier_id: Optional[str] = None
 
 
 class ShiftCloseIn(BaseModel):
     closing_cash_usd: Decimal = Decimal("0")
     closing_cash_lbp: Decimal = Decimal("0")
     notes: Optional[str] = None
+    cashier_id: Optional[str] = None
 
 
 @router.post("/devices/register")
@@ -269,9 +271,32 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
         with conn.cursor() as cur:
             cur.execute(
                 """
+                SELECT value_json->>'id' AS id
+                FROM company_settings
+                WHERE company_id = %s AND key = 'default_price_list_id'
+                """,
+                (device["company_id"],),
+            )
+            srow = cur.fetchone()
+            default_pl_id = srow["id"] if srow else None
+            cur.execute(
+                """
                 SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure,
-                       p.price_usd, p.price_lbp
+                       COALESCE(plp.price_usd, p.price_usd) AS price_usd,
+                       COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
+                       COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes
                 FROM items i
+                LEFT JOIN LATERAL (
+                    SELECT price_usd, price_lbp
+                    FROM price_list_items pli
+                    WHERE pli.company_id = i.company_id
+                      AND pli.price_list_id = %s::uuid
+                      AND pli.item_id = i.id
+                      AND pli.effective_from <= CURRENT_DATE
+                      AND (pli.effective_to IS NULL OR pli.effective_to >= CURRENT_DATE)
+                    ORDER BY pli.effective_from DESC, pli.created_at DESC, pli.id DESC
+                    LIMIT 1
+                ) plp ON (%s::uuid IS NOT NULL)
                 LEFT JOIN LATERAL (
                     SELECT price_usd, price_lbp
                     FROM item_prices ip
@@ -281,8 +306,24 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
                     ORDER BY ip.effective_from DESC, ip.created_at DESC
                     LIMIT 1
                 ) p ON true
+                LEFT JOIN LATERAL (
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                          'id', b.id,
+                          'barcode', b.barcode,
+                          'qty_factor', b.qty_factor,
+                          'label', b.label,
+                          'is_primary', b.is_primary
+                        )
+                        ORDER BY b.is_primary DESC, b.created_at ASC
+                    ) AS barcodes
+                    FROM item_barcodes b
+                    WHERE b.company_id = i.company_id AND b.item_id = i.id
+                ) bc ON true
                 ORDER BY i.sku
                 """
+                ,
+                (default_pl_id, default_pl_id),
             )
             return {"items": cur.fetchall()}
 
@@ -305,10 +346,38 @@ def catalog_delta(
         with conn.cursor() as cur:
             cur.execute(
                 """
+                SELECT value_json->>'id' AS id
+                FROM company_settings
+                WHERE company_id = %s AND key = 'default_price_list_id'
+                """,
+                (device["company_id"],),
+            )
+            srow = cur.fetchone()
+            default_pl_id = srow["id"] if srow else None
+            cur.execute(
+                """
                 SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure,
-                       p.price_usd, p.price_lbp,
-                       GREATEST(i.updated_at, COALESCE(pm.last_price_created_at, i.updated_at)) AS changed_at
+                       COALESCE(plp.price_usd, p.price_usd) AS price_usd,
+                       COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
+                       COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes,
+                       GREATEST(
+                         i.updated_at,
+                         COALESCE(pm.last_price_created_at, i.updated_at),
+                         COALESCE(plm.last_pl_price_created_at, i.updated_at),
+                         COALESCE(bm.last_barcode_updated_at, i.updated_at)
+                       ) AS changed_at
                 FROM items i
+                LEFT JOIN LATERAL (
+                    SELECT price_usd, price_lbp
+                    FROM price_list_items pli
+                    WHERE pli.company_id = i.company_id
+                      AND pli.price_list_id = %s::uuid
+                      AND pli.item_id = i.id
+                      AND pli.effective_from <= CURRENT_DATE
+                      AND (pli.effective_to IS NULL OR pli.effective_to >= CURRENT_DATE)
+                    ORDER BY pli.effective_from DESC, pli.created_at DESC, pli.id DESC
+                    LIMIT 1
+                ) plp ON (%s::uuid IS NOT NULL)
                 LEFT JOIN LATERAL (
                     SELECT price_usd, price_lbp
                     FROM item_prices ip
@@ -323,11 +392,39 @@ def catalog_delta(
                     FROM item_prices ip
                     WHERE ip.item_id = i.id
                 ) pm ON true
+                LEFT JOIN LATERAL (
+                    SELECT MAX(created_at) AS last_pl_price_created_at
+                    FROM price_list_items pli
+                    WHERE pli.company_id = i.company_id
+                      AND pli.price_list_id = %s::uuid
+                      AND pli.item_id = i.id
+                ) plm ON true
+                LEFT JOIN LATERAL (
+                    SELECT MAX(updated_at) AS last_barcode_updated_at
+                    FROM item_barcodes b
+                    WHERE b.company_id = i.company_id AND b.item_id = i.id
+                ) bm ON true
+                LEFT JOIN LATERAL (
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                          'id', b.id,
+                          'barcode', b.barcode,
+                          'qty_factor', b.qty_factor,
+                          'label', b.label,
+                          'is_primary', b.is_primary
+                        )
+                        ORDER BY b.is_primary DESC, b.created_at ASC
+                    ) AS barcodes
+                    FROM item_barcodes b
+                    WHERE b.company_id = i.company_id AND b.item_id = i.id
+                ) bc ON true
                 WHERE i.updated_at > %s OR COALESCE(pm.last_price_created_at, 'epoch'::timestamptz) > %s
+                   OR COALESCE(bm.last_barcode_updated_at, 'epoch'::timestamptz) > %s
+                   OR COALESCE(plm.last_pl_price_created_at, 'epoch'::timestamptz) > %s
                 ORDER BY i.sku
                 LIMIT %s
                 """,
-                (since, since, limit),
+                (default_pl_id, default_pl_id, default_pl_id, since, since, since, since, limit),
             )
             rows = cur.fetchall()
     return {"items": rows, "next_cursor": datetime.utcnow().isoformat()}
@@ -396,6 +493,17 @@ def pos_config(device=Depends(require_device)):
             )
             pay_methods = cur.fetchall()
 
+            cur.execute(
+                """
+                SELECT value_json->>'id' AS id
+                FROM company_settings
+                WHERE company_id = %s AND key = 'default_price_list_id'
+                """,
+                (device["company_id"],),
+            )
+            srow = cur.fetchone()
+            default_pl_id = srow["id"] if srow else None
+
     return {
         "company_id": device["company_id"],
         "device": dev,
@@ -403,6 +511,7 @@ def pos_config(device=Depends(require_device)):
         "default_warehouse_id": (wh["id"] if wh else None),
         "vat": vat,
         "payment_methods": pay_methods,
+        "default_price_list_id": default_pl_id,
     }
 
 @router.post("/heartbeat")
@@ -476,9 +585,9 @@ def open_shift(data: ShiftOpenIn, device=Depends(require_device)):
             cur.execute(
                 """
                 INSERT INTO pos_shifts
-                  (id, company_id, device_id, status, opened_at, opening_cash_usd, opening_cash_lbp, notes)
+                  (id, company_id, device_id, status, opened_at, opening_cash_usd, opening_cash_lbp, notes, opened_cashier_id)
                 VALUES
-                  (gen_random_uuid(), %s, %s, 'open', now(), %s, %s, %s)
+                  (gen_random_uuid(), %s, %s, 'open', now(), %s, %s, %s, %s)
                 RETURNING id, status, opened_at, opening_cash_usd, opening_cash_lbp
                 """,
                 (
@@ -487,6 +596,7 @@ def open_shift(data: ShiftOpenIn, device=Depends(require_device)):
                     data.opening_cash_usd,
                     data.opening_cash_lbp,
                     data.notes,
+                    data.cashier_id,
                 ),
             )
             return {"shift": cur.fetchone()}
@@ -599,6 +709,7 @@ def close_shift(shift_id: str, data: ShiftCloseIn, device=Depends(require_device
                     expected_cash_lbp = %s,
                     variance_usd = %s,
                     variance_lbp = %s,
+                    closed_cashier_id = %s,
                     notes = COALESCE(%s, notes)
                 WHERE id = %s
                 RETURNING id, status, closed_at, expected_cash_usd, expected_cash_lbp, variance_usd, variance_lbp
@@ -610,6 +721,7 @@ def close_shift(shift_id: str, data: ShiftCloseIn, device=Depends(require_device
                     expected_lbp,
                     variance_usd,
                     variance_lbp,
+                    data.cashier_id,
                     data.notes,
                     shift_id,
                 ),
@@ -622,6 +734,7 @@ class CashMovementIn(BaseModel):
     amount_usd: Decimal = Decimal("0")
     amount_lbp: Decimal = Decimal("0")
     notes: Optional[str] = None
+    cashier_id: Optional[str] = None
 
 
 @router.get("/cash-movements")
@@ -678,9 +791,9 @@ def create_cash_movement(data: CashMovementIn, device=Depends(require_device)):
                 cur.execute(
                     """
                     INSERT INTO pos_cash_movements
-                      (id, company_id, shift_id, device_id, movement_type, amount_usd, amount_lbp, notes)
+                      (id, company_id, shift_id, device_id, movement_type, amount_usd, amount_lbp, notes, cashier_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -691,9 +804,295 @@ def create_cash_movement(data: CashMovementIn, device=Depends(require_device)):
                         data.amount_usd,
                         data.amount_lbp,
                         data.notes,
+                        data.cashier_id,
                     ),
                 )
                 return {"id": cur.fetchone()["id"], "shift_id": shift["id"]}
+
+
+class CashierIn(BaseModel):
+    name: str
+    pin: str
+    is_active: bool = True
+
+
+class CashierUpdate(BaseModel):
+    name: Optional[str] = None
+    pin: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class CashierVerifyIn(BaseModel):
+    pin: str
+
+
+@router.get("/cashiers", dependencies=[Depends(require_permission("pos:manage"))])
+def list_cashiers(company_id: str = Depends(get_company_id), _auth=Depends(require_company_access)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, is_active, updated_at
+                FROM pos_cashiers
+                WHERE company_id = %s
+                ORDER BY name
+                """,
+                (company_id,),
+            )
+            return {"cashiers": cur.fetchall()}
+
+
+@router.post("/cashiers", dependencies=[Depends(require_permission("pos:manage"))])
+def create_cashier(data: CashierIn, company_id: str = Depends(get_company_id), _auth=Depends(require_company_access)):
+    if not data.name.strip():
+        raise HTTPException(status_code=400, detail="name is required")
+    pin = (data.pin or "").strip()
+    if len(pin) < 4:
+        raise HTTPException(status_code=400, detail="pin must be at least 4 digits")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO pos_cashiers (id, company_id, name, pin_hash, is_active)
+                VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (company_id, data.name.strip(), hash_pin(pin), data.is_active),
+            )
+            return {"id": cur.fetchone()["id"]}
+
+
+@router.patch("/cashiers/{cashier_id}", dependencies=[Depends(require_permission("pos:manage"))])
+def update_cashier(cashier_id: str, data: CashierUpdate, company_id: str = Depends(get_company_id), _auth=Depends(require_company_access)):
+    patch = data.model_dump(exclude_none=True)
+    if not patch:
+        return {"ok": True}
+    fields = []
+    params = []
+    if "name" in patch:
+        fields.append("name = %s")
+        params.append(patch["name"].strip())
+    if "is_active" in patch:
+        fields.append("is_active = %s")
+        params.append(patch["is_active"])
+    if "pin" in patch:
+        pin = (patch["pin"] or "").strip()
+        if len(pin) < 4:
+            raise HTTPException(status_code=400, detail="pin must be at least 4 digits")
+        fields.append("pin_hash = %s")
+        params.append(hash_pin(pin))
+    params.extend([company_id, cashier_id])
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE pos_cashiers
+                SET {', '.join(fields)}, updated_at = now()
+                WHERE company_id = %s AND id = %s
+                RETURNING id
+                """,
+                params,
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="cashier not found")
+            return {"ok": True}
+
+
+@router.get("/cashiers/catalog")
+def cashiers_catalog(device=Depends(require_device)):
+    """
+    Device sync endpoint. Includes PIN hashes so the POS can verify offline.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, pin_hash, is_active, updated_at
+                FROM pos_cashiers
+                WHERE company_id = %s AND is_active = true
+                ORDER BY name
+                """,
+                (device["company_id"],),
+            )
+            return {"cashiers": cur.fetchall()}
+
+@router.get("/customers/catalog")
+def customers_catalog(device=Depends(require_device)):
+    """
+    POS customer master data snapshot (membership lookup + credit validation).
+    """
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, phone, email,
+                       membership_no, is_member, membership_expires_at,
+                       payment_terms_days,
+                       credit_limit_usd, credit_limit_lbp,
+                       credit_balance_usd, credit_balance_lbp,
+                       loyalty_points,
+                       price_list_id,
+                       updated_at
+                FROM customers
+                WHERE company_id = %s
+                ORDER BY name
+                """,
+                (device["company_id"],),
+            )
+            return {"customers": cur.fetchall()}
+
+
+@router.get("/customers/catalog/delta")
+def customers_catalog_delta(
+    since: datetime,
+    limit: int = 5000,
+    device=Depends(require_device),
+):
+    """
+    Incremental customer sync for POS.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, phone, email,
+                       membership_no, is_member, membership_expires_at,
+                       payment_terms_days,
+                       credit_limit_usd, credit_limit_lbp,
+                       credit_balance_usd, credit_balance_lbp,
+                       loyalty_points,
+                       price_list_id,
+                       updated_at AS changed_at
+                FROM customers
+                WHERE company_id = %s AND updated_at > %s
+                ORDER BY updated_at ASC
+                LIMIT %s
+                """,
+                (device["company_id"], since, limit),
+            )
+            rows = cur.fetchall()
+    return {"customers": rows, "next_cursor": datetime.utcnow().isoformat()}
+
+@router.get("/promotions/catalog")
+def promotions_catalog(device=Depends(require_device)):
+    """
+    POS promotions snapshot. Rules are evaluated locally by the POS (offline-first).
+    """
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT p.id, p.code, p.name, p.starts_on, p.ends_on, p.is_active, p.priority, p.updated_at,
+                       COALESCE(jsonb_agg(
+                         jsonb_build_object(
+                           'id', pi.id,
+                           'item_id', pi.item_id,
+                           'min_qty', pi.min_qty,
+                           'promo_price_usd', pi.promo_price_usd,
+                           'promo_price_lbp', pi.promo_price_lbp,
+                           'discount_pct', pi.discount_pct,
+                           'updated_at', pi.updated_at
+                         )
+                         ORDER BY pi.min_qty ASC
+                       ) FILTER (WHERE pi.id IS NOT NULL), '[]'::jsonb) AS items
+                FROM promotions p
+                LEFT JOIN promotion_items pi
+                  ON pi.company_id = p.company_id AND pi.promotion_id = p.id
+                WHERE p.company_id = %s
+                  AND p.is_active = true
+                GROUP BY p.id
+                ORDER BY p.priority DESC, p.code
+                """,
+                (device["company_id"],),
+            )
+            return {"promotions": cur.fetchall()}
+
+
+@router.get("/promotions/delta")
+def promotions_delta(
+    since: datetime,
+    limit: int = 2000,
+    device=Depends(require_device),
+):
+    """
+    Incremental promotions sync for POS.
+    """
+    if limit <= 0 or limit > 5000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 5000")
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH changed_promos AS (
+                  SELECT p.id,
+                         GREATEST(p.updated_at, COALESCE(MAX(pi.updated_at), p.updated_at)) AS changed_at
+                  FROM promotions p
+                  LEFT JOIN promotion_items pi
+                    ON pi.company_id = p.company_id AND pi.promotion_id = p.id
+                  WHERE p.company_id = %s AND p.is_active = true
+                  GROUP BY p.id
+                  HAVING GREATEST(p.updated_at, COALESCE(MAX(pi.updated_at), p.updated_at)) > %s
+                  ORDER BY changed_at ASC
+                  LIMIT %s
+                )
+                SELECT p.id, p.code, p.name, p.starts_on, p.ends_on, p.is_active, p.priority, p.updated_at,
+                       COALESCE(jsonb_agg(
+                         jsonb_build_object(
+                           'id', pi.id,
+                           'item_id', pi.item_id,
+                           'min_qty', pi.min_qty,
+                           'promo_price_usd', pi.promo_price_usd,
+                           'promo_price_lbp', pi.promo_price_lbp,
+                           'discount_pct', pi.discount_pct,
+                           'updated_at', pi.updated_at
+                         )
+                         ORDER BY pi.min_qty ASC
+                       ) FILTER (WHERE pi.id IS NOT NULL), '[]'::jsonb) AS items,
+                       cp.changed_at
+                FROM changed_promos cp
+                JOIN promotions p ON p.id = cp.id
+                LEFT JOIN promotion_items pi
+                  ON pi.company_id = p.company_id AND pi.promotion_id = p.id
+                GROUP BY p.id, cp.changed_at
+                ORDER BY cp.changed_at ASC
+                """,
+                (device["company_id"], since, limit),
+            )
+            rows = cur.fetchall()
+    return {"promotions": rows, "next_cursor": datetime.utcnow().isoformat()}
+
+
+@router.post("/cashiers/verify")
+def verify_cashier(data: CashierVerifyIn, device=Depends(require_device)):
+    pin = (data.pin or "").strip()
+    if not pin:
+        raise HTTPException(status_code=400, detail="pin is required")
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, pin_hash
+                FROM pos_cashiers
+                WHERE company_id = %s AND is_active = true
+                ORDER BY updated_at DESC
+                """,
+                (device["company_id"],),
+            )
+            rows = cur.fetchall()
+            for r in rows:
+                if verify_pin(pin, r["pin_hash"]):
+                    return {"cashier": {"id": r["id"], "name": r["name"]}}
+    raise HTTPException(status_code=401, detail="invalid pin")
 
 @router.get("/cash-movements/admin", dependencies=[Depends(require_permission("pos:manage"))])
 def list_cash_movements_admin(

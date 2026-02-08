@@ -30,6 +30,20 @@ WHERE NOT EXISTS (
 -- Default account role mappings (assumes Lebanese COA template was cloned).
 -- If you use a custom COA, set these via /config/account-defaults instead.
 
+-- Opening balance equity (used as the default offset for opening stock imports).
+-- We create a dedicated postable account to avoid polluting P&L accounts by default.
+INSERT INTO company_coa_accounts (id, company_id, account_code, name_en, name_fr, name_ar, normal_balance, is_postable)
+SELECT gen_random_uuid(), c.id, '1099', 'OPENING BALANCE EQUITY', 'CAPITAL D''OUVERTURE', 'رصيد افتتاحي', 'credit', true
+FROM companies c
+WHERE NOT EXISTS (
+  SELECT 1 FROM company_coa_accounts a WHERE a.company_id = c.id AND a.account_code = '1099'
+);
+
+-- If present in the template clone, make inventory variance postable.
+UPDATE company_coa_accounts
+SET is_postable = true
+WHERE account_code IN ('6050', '6150') AND is_postable = false;
+
 -- Receivables / Payables
 INSERT INTO company_account_defaults (company_id, role_code, account_id)
 SELECT c.id, 'AR', a.id
@@ -99,7 +113,28 @@ ON CONFLICT (company_id, role_code) DO NOTHING;
 INSERT INTO company_account_defaults (company_id, role_code, account_id)
 SELECT c.id, 'INV_ADJ', a.id
 FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6050'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+-- Fallback for companies/COAs that do not have 6050.
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'INV_ADJ', a.id
+FROM companies c
 JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6011'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+-- Opening stock offset (opening balances equity). Used by Inventory -> Opening Stock Import.
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'OPENING_STOCK', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '1099'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+-- Generic opening balance offset (equity). Used by Opening AR/AP imports.
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'OPENING_BALANCE', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '1099'
 ON CONFLICT (company_id, role_code) DO NOTHING;
 
 -- GRNI (goods received, invoice pending)

@@ -1,0 +1,15 @@
+.git
+**/.DS_Store
+**/node_modules
+apps/admin/.next
+apps/admin/out
+.venv
+__pycache__
+**/__pycache__
+**/*.pyc
+**/*.pyo
+pgdata
+backend/.pytest_cache
+pos-desktop/pos.sqlite
+pos-desktop/*.sqlite
+pos/*.sqlite

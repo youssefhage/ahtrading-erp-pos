@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 import psycopg
 from psycopg.rows import dict_row
@@ -19,6 +19,22 @@ def set_company_context(cur, company_id: str):
     # Use set_config() to safely parameterize the value.
     # set_config(name text, value text, is_local boolean)
     cur.execute("SELECT set_config('app.current_company_id', %s::text, true)", (company_id,))
+
+
+def assert_period_open(cur, company_id: str, posting_date: date):
+    cur.execute(
+        """
+        SELECT 1
+        FROM accounting_period_locks
+        WHERE company_id = %s
+          AND locked = true
+          AND %s BETWEEN start_date AND end_date
+        LIMIT 1
+        """,
+        (company_id, posting_date),
+    )
+    if cur.fetchone():
+        raise ValueError(f"accounting period is locked for date {posting_date.isoformat()}")
 
 
 def fetch_account_defaults(cur, company_id: str):
@@ -91,6 +107,90 @@ def normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -
     return usd, lbp
 
 
+def get_or_create_batch(cur, company_id: str, item_id: str, batch_no, expiry_date_raw):
+    batch_no_norm = batch_no.strip() if isinstance(batch_no, str) else None
+    expiry_date = None
+    if expiry_date_raw:
+        try:
+            expiry_date = date.fromisoformat(str(expiry_date_raw)[:10])
+        except Exception:
+            expiry_date = None
+    if not batch_no_norm and not expiry_date:
+        return None
+
+    cur.execute(
+        """
+        SELECT id
+        FROM batches
+        WHERE company_id = %s
+          AND item_id = %s
+          AND batch_no IS NOT DISTINCT FROM %s
+          AND expiry_date IS NOT DISTINCT FROM %s
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (company_id, item_id, batch_no_norm, expiry_date),
+    )
+    row = cur.fetchone()
+    if row:
+        return row["id"]
+
+    cur.execute(
+        """
+        INSERT INTO batches (id, company_id, item_id, batch_no, expiry_date)
+        VALUES (gen_random_uuid(), %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (company_id, item_id, batch_no_norm, expiry_date),
+    )
+    return cur.fetchone()["id"]
+
+
+def allocate_fefo_batches(cur, company_id: str, item_id: str, warehouse_id: str, qty_out: Decimal):
+    """
+    Allocates outbound quantity across batches in FEFO order (earliest expiry first).
+    Returns list of (batch_id, qty) allocations. batch_id may be None for unbatched remainder.
+    """
+    if qty_out <= 0:
+        return []
+
+    cur.execute(
+        """
+        SELECT sm.batch_id,
+               b.expiry_date,
+               (SUM(sm.qty_in) - SUM(sm.qty_out)) AS on_hand
+        FROM stock_moves sm
+        LEFT JOIN batches b ON b.id = sm.batch_id
+        WHERE sm.company_id = %s
+          AND sm.item_id = %s
+          AND sm.warehouse_id = %s
+        GROUP BY sm.batch_id, b.expiry_date
+        HAVING (SUM(sm.qty_in) - SUM(sm.qty_out)) > 0
+        ORDER BY b.expiry_date NULLS LAST, sm.batch_id
+        """,
+        (company_id, item_id, warehouse_id),
+    )
+    rows = cur.fetchall()
+
+    remaining = qty_out
+    out = []
+    for r in rows:
+        if remaining <= 0:
+            break
+        available = Decimal(str(r["on_hand"] or 0))
+        if available <= 0:
+            continue
+        take = available if available <= remaining else remaining
+        out.append((r["batch_id"], take))
+        remaining -= take
+
+    if remaining > 0:
+        # If we don't have enough known batch stock, keep the remainder unbatched.
+        out.append((None, remaining))
+
+    return out
+
+
 def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: str):
     # Idempotency: skip if invoice already created for this event
     cur.execute(
@@ -110,6 +210,18 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     exchange_rate = Decimal(str(payload.get("exchange_rate", 0)))
     pricing_currency = payload.get("pricing_currency", "USD")
     settlement_currency = payload.get("settlement_currency", "USD")
+    invoice_date = None
+    raw_invoice_date = payload.get("invoice_date") or payload.get("created_at") or None
+    if raw_invoice_date:
+        try:
+            invoice_date = date.fromisoformat(str(raw_invoice_date)[:10])
+        except Exception:
+            invoice_date = None
+    if not invoice_date:
+        invoice_date = date.today()
+    due_date = invoice_date
+
+    assert_period_open(cur, company_id, invoice_date)
 
     lines = payload.get("lines", [])
     if not lines:
@@ -144,6 +256,55 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
 
+    # Payments (normalize to dual-ledger amounts so GL always balances per currency).
+    raw_payments = payload.get("payments", []) or []
+    payments = []
+    for p in raw_payments:
+        method = (p.get("method") or "cash").strip().lower()
+        amount_usd = Decimal(str(p.get("amount_usd", 0)))
+        amount_lbp = Decimal(str(p.get("amount_lbp", 0)))
+        amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
+        payments.append({"method": method, "amount_usd": amount_usd, "amount_lbp": amount_lbp})
+
+    # Credit sale validation (compute outstanding before creating the invoice).
+    customer_id = payload.get("customer_id")
+    total_paid_usd = Decimal("0")
+    total_paid_lbp = Decimal("0")
+    for p in payments:
+        method = (p.get("method") or "").lower()
+        if method == "credit":
+            continue
+        total_paid_usd += Decimal(str(p.get("amount_usd", 0)))
+        total_paid_lbp += Decimal(str(p.get("amount_lbp", 0)))
+    credit_usd = total_usd - total_paid_usd
+    credit_lbp = total_lbp - total_paid_lbp
+    if credit_usd < 0 or credit_lbp < 0:
+        raise ValueError("Payments exceed invoice total")
+
+    credit_sale = credit_usd > 0 or credit_lbp > 0
+    if credit_sale:
+        if not customer_id:
+            raise ValueError("Credit sale requires customer_id")
+        cur.execute(
+            """
+            SELECT credit_limit_usd, credit_limit_lbp, credit_balance_usd, credit_balance_lbp, payment_terms_days
+            FROM customers
+            WHERE company_id = %s AND id = %s
+            """,
+            (company_id, customer_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise ValueError("Customer not found for credit sale")
+        if row["credit_limit_usd"] and (row["credit_balance_usd"] + credit_usd) > row["credit_limit_usd"]:
+            raise ValueError("Credit limit exceeded (USD)")
+        if row["credit_limit_lbp"] and (row["credit_balance_lbp"] + credit_lbp) > row["credit_limit_lbp"]:
+            raise ValueError("Credit limit exceeded (LBP)")
+
+        terms = int(row.get("payment_terms_days") or 0)
+        if terms > 0:
+            due_date = invoice_date + timedelta(days=terms)
+
     shift_id = payload.get("shift_id")
     if not shift_id:
         cur.execute(
@@ -159,27 +320,35 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         if row:
             shift_id = row["id"]
 
+    cashier_id = payload.get("cashier_id") or None
+
     cur.execute(
         """
         INSERT INTO sales_invoices
-          (id, company_id, invoice_no, customer_id, status, total_usd, total_lbp,
-           exchange_rate, pricing_currency, settlement_currency, source_event_id, device_id, shift_id)
+          (id, company_id, invoice_no, customer_id, status, total_usd, total_lbp, warehouse_id,
+           exchange_rate, pricing_currency, settlement_currency, source_event_id, device_id, shift_id,
+           invoice_date, due_date, cashier_id)
         VALUES
-          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
             company_id,
             invoice_no,
-            payload.get("customer_id"),
+            customer_id,
+            "posted",
             total_usd,
             total_lbp,
+            payload.get("warehouse_id"),
             exchange_rate,
             pricing_currency,
             settlement_currency,
             event_id,
             device_id,
             shift_id,
+            invoice_date,
+            due_date,
+            cashier_id,
         ),
     )
     invoice_id = cur.fetchone()["id"]
@@ -225,15 +394,12 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             ),
         )
 
-    # Payments (normalize to dual-ledger amounts so GL always balances per currency).
-    raw_payments = payload.get("payments", []) or []
-    payments = []
+    # Persist payments.
     for p in raw_payments:
         method = (p.get("method") or "cash").strip().lower()
         amount_usd = Decimal(str(p.get("amount_usd", 0)))
         amount_lbp = Decimal(str(p.get("amount_lbp", 0)))
         amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
-        payments.append({"method": method, "amount_usd": amount_usd, "amount_lbp": amount_lbp})
         cur.execute(
             """
             INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp)
@@ -247,66 +413,35 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             ),
         )
 
-    # Credit sale validation
-    customer_id = payload.get("customer_id")
-    total_paid_usd = Decimal("0")
-    total_paid_lbp = Decimal("0")
-    for p in payments:
-        method = (p.get("method") or "").lower()
-        if method == "credit":
-            continue
-        total_paid_usd += Decimal(str(p.get("amount_usd", 0)))
-        total_paid_lbp += Decimal(str(p.get("amount_lbp", 0)))
-    credit_usd = total_usd - total_paid_usd
-    credit_lbp = total_lbp - total_paid_lbp
-    if credit_usd < 0 or credit_lbp < 0:
-        raise ValueError("Payments exceed invoice total")
-
-    credit_sale = credit_usd > 0 or credit_lbp > 0
-    if credit_sale:
-        if not customer_id:
-            raise ValueError("Credit sale requires customer_id")
-        cur.execute(
-            """
-            SELECT credit_limit_usd, credit_limit_lbp, credit_balance_usd, credit_balance_lbp
-            FROM customers
-            WHERE company_id = %s AND id = %s
-            """,
-            (company_id, customer_id),
-        )
-        row = cur.fetchone()
-        if not row:
-            raise ValueError("Customer not found for credit sale")
-        if row["credit_limit_usd"] and (row["credit_balance_usd"] + credit_usd) > row["credit_limit_usd"]:
-            raise ValueError("Credit limit exceeded (USD)")
-        if row["credit_limit_lbp"] and (row["credit_balance_lbp"] + credit_lbp) > row["credit_limit_lbp"]:
-            raise ValueError("Credit limit exceeded (LBP)")
-
-    # Stock moves
+    # Stock moves (FEFO batch allocation when batches are tracked).
     warehouse_id = payload.get("warehouse_id")
     for l in lines:
         if not l.get("item_id") or not warehouse_id:
             continue
         unit_cost_usd = Decimal(str(l.get("_resolved_unit_cost_usd", 0) or 0))
         unit_cost_lbp = Decimal(str(l.get("_resolved_unit_cost_lbp", 0) or 0))
-        cur.execute(
-            """
-            INSERT INTO stock_moves
-              (id, company_id, item_id, warehouse_id, qty_out, unit_cost_usd, unit_cost_lbp,
-               source_type, source_id)
-            VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'sales_invoice', %s)
-            """,
-            (
-                company_id,
-                l.get("item_id"),
-                warehouse_id,
-                Decimal(str(l.get("qty", 0))),
-                unit_cost_usd,
-                unit_cost_lbp,
-                invoice_id,
-            ),
-        )
+        qty_out = Decimal(str(l.get("qty", 0)))
+        allocations = allocate_fefo_batches(cur, company_id, l.get("item_id"), warehouse_id, qty_out)
+        for batch_id, q in allocations:
+            cur.execute(
+                """
+                INSERT INTO stock_moves
+                  (id, company_id, item_id, warehouse_id, batch_id, qty_out, unit_cost_usd, unit_cost_lbp,
+                   source_type, source_id)
+                VALUES
+                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'sales_invoice', %s)
+                """,
+                (
+                    company_id,
+                    l.get("item_id"),
+                    warehouse_id,
+                    batch_id,
+                    q,
+                    unit_cost_usd,
+                    unit_cost_lbp,
+                    invoice_id,
+                ),
+            )
 
     # GL posting
     account_defaults = fetch_account_defaults(cur, company_id)
@@ -466,6 +601,8 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
     if not return_no:
         return_no = next_doc_no(cur, company_id, "SR")
 
+    assert_period_open(cur, company_id, date.today())
+
     base_usd = Decimal("0")
     base_lbp = Decimal("0")
     total_cost_usd = Decimal("0")
@@ -485,14 +622,15 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
 
     shift_id = payload.get("shift_id") or None
     refund_method = (payload.get("refund_method") or "").strip().lower() or None
+    cashier_id = payload.get("cashier_id") or None
 
     cur.execute(
         """
         INSERT INTO sales_returns
           (id, company_id, return_no, invoice_id, status, total_usd, total_lbp, exchange_rate,
-           warehouse_id, device_id, shift_id, refund_method, source_event_id)
+           warehouse_id, device_id, shift_id, refund_method, source_event_id, cashier_id)
         VALUES
-          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
@@ -507,6 +645,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             shift_id,
             refund_method,
             event_id,
+            cashier_id,
         ),
     )
     return_id = cur.fetchone()["id"]
@@ -809,6 +948,8 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
     if not receipt_no:
         receipt_no = next_doc_no(cur, company_id, "GR")
 
+    assert_period_open(cur, company_id, date.today())
+
     total_usd = Decimal("0")
     total_lbp = Decimal("0")
 
@@ -841,18 +982,20 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
     for l in lines:
         if not l.get("item_id") or not warehouse_id:
             continue
+        batch_id = get_or_create_batch(cur, company_id, l.get("item_id"), l.get("batch_no"), l.get("expiry_date"))
         cur.execute(
             """
             INSERT INTO goods_receipt_lines
-              (id, company_id, goods_receipt_id, item_id, qty,
+              (id, company_id, goods_receipt_id, item_id, batch_id, qty,
                unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 company_id,
                 gr_id,
                 l.get("item_id"),
+                batch_id,
                 Decimal(str(l.get("qty", 0))),
                 Decimal(str(l.get("unit_cost_usd", 0))),
                 Decimal(str(l.get("unit_cost_lbp", 0))),
@@ -863,15 +1006,16 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict):
         cur.execute(
             """
             INSERT INTO stock_moves
-              (id, company_id, item_id, warehouse_id, qty_in, unit_cost_usd, unit_cost_lbp,
+              (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp,
                source_type, source_id)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, 'goods_receipt', %s)
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, 'goods_receipt', %s)
             """,
             (
                 company_id,
                 l.get("item_id"),
                 warehouse_id,
+                batch_id,
                 Decimal(str(l.get("qty", 0))),
                 Decimal(str(l.get("unit_cost_usd", 0))),
                 Decimal(str(l.get("unit_cost_lbp", 0))),
@@ -947,7 +1091,8 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     tax = payload.get("tax") or None
     tax_usd = Decimal(str(tax.get("tax_usd", 0))) if tax else Decimal("0")
     tax_lbp = Decimal(str(tax.get("tax_lbp", 0))) if tax else Decimal("0")
-    tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, Decimal(str(payload.get("exchange_rate", 0))))
+    exchange_rate = Decimal(str(payload.get("exchange_rate", 0)))
+    tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
 
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
@@ -956,39 +1101,73 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     if not invoice_no:
         invoice_no = next_doc_no(cur, company_id, "PI")
 
+    invoice_date = None
+    raw_invoice_date = payload.get("invoice_date") or payload.get("created_at") or None
+    if raw_invoice_date:
+        try:
+            invoice_date = date.fromisoformat(str(raw_invoice_date)[:10])
+        except Exception:
+            invoice_date = None
+    if not invoice_date:
+        invoice_date = date.today()
+
+    assert_period_open(cur, company_id, invoice_date)
+
+    due_date = invoice_date
+    supplier_id = payload.get("supplier_id")
+    if supplier_id:
+        cur.execute(
+            """
+            SELECT payment_terms_days
+            FROM suppliers
+            WHERE company_id = %s AND id = %s
+            """,
+            (company_id, supplier_id),
+        )
+        srow = cur.fetchone()
+        if srow:
+            terms = int(srow.get("payment_terms_days") or 0)
+            if terms > 0:
+                due_date = invoice_date + timedelta(days=terms)
+
     cur.execute(
         """
         INSERT INTO supplier_invoices
-          (id, company_id, invoice_no, supplier_id, status, total_usd, total_lbp, exchange_rate, source_event_id)
+          (id, company_id, invoice_no, supplier_id, status, total_usd, total_lbp, exchange_rate, source_event_id,
+           invoice_date, due_date)
         VALUES
-          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
             company_id,
             invoice_no,
-            payload.get("supplier_id"),
+            supplier_id,
             total_usd,
             total_lbp,
-            Decimal(str(payload.get("exchange_rate", 0))),
+            exchange_rate,
             event_id,
+            invoice_date,
+            due_date,
         ),
     )
     inv_id = cur.fetchone()["id"]
 
     for l in lines:
+        batch_id = get_or_create_batch(cur, company_id, l.get("item_id"), l.get("batch_no"), l.get("expiry_date"))
         cur.execute(
             """
             INSERT INTO supplier_invoice_lines
-              (id, company_id, supplier_invoice_id, item_id, qty,
+              (id, company_id, supplier_invoice_id, item_id, batch_id, qty,
                unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 company_id,
                 inv_id,
                 l.get("item_id"),
+                batch_id,
                 Decimal(str(l.get("qty", 0))),
                 Decimal(str(l.get("unit_cost_usd", 0))),
                 Decimal(str(l.get("unit_cost_lbp", 0))),
@@ -1046,11 +1225,11 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     journal_no = f"GL-{invoice_no}"
     cur.execute(
         """
-        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type)
-        VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, CURRENT_DATE, 'market')
+        INSERT INTO gl_journals (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate)
+        VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, CURRENT_DATE, 'market', %s)
         RETURNING id
         """,
-        (company_id, journal_no, inv_id),
+        (company_id, journal_no, inv_id, exchange_rate),
     )
     journal_id = cur.fetchone()["id"]
 
@@ -1096,6 +1275,69 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict)
     return "processed"
 
 
+def process_cash_movement(cur, company_id: str, event_id: str, payload: dict, device_id: str):
+    movement_type = (payload.get("movement_type") or "").strip().lower()
+    if movement_type not in {"cash_in", "cash_out", "paid_out", "safe_drop", "other"}:
+        raise ValueError("invalid movement_type")
+
+    amount_usd = Decimal(str(payload.get("amount_usd", 0) or 0))
+    amount_lbp = Decimal(str(payload.get("amount_lbp", 0) or 0))
+    if amount_usd < 0 or amount_lbp < 0:
+        raise ValueError("amounts must be >= 0")
+    if amount_usd == 0 and amount_lbp == 0:
+        raise ValueError("amount is required")
+
+    shift_id = payload.get("shift_id") or None
+    if not shift_id:
+        cur.execute(
+            """
+            SELECT id
+            FROM pos_shifts
+            WHERE company_id = %s AND device_id = %s AND status = 'open'
+            ORDER BY opened_at DESC
+            LIMIT 1
+            """,
+            (company_id, device_id),
+        )
+        row = cur.fetchone()
+        if row:
+            shift_id = row["id"]
+    if not shift_id:
+        raise ValueError("no open shift for cash movement")
+
+    cashier_id = payload.get("cashier_id") or None
+    notes = payload.get("notes") or None
+
+    # Idempotency: use event UUID as movement id.
+    cur.execute(
+        """
+        INSERT INTO pos_cash_movements
+          (id, company_id, shift_id, device_id, movement_type, amount_usd, amount_lbp, notes, cashier_id)
+        VALUES
+          (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (id) DO NOTHING
+        """,
+        (event_id, company_id, shift_id, device_id, movement_type, amount_usd, amount_lbp, notes, cashier_id),
+    )
+
+    emit_event(
+        cur,
+        company_id,
+        "pos.cash_movement",
+        "pos_cash_movement",
+        event_id,
+        {
+            "movement_type": movement_type,
+            "amount_usd": str(amount_usd),
+            "amount_lbp": str(amount_lbp),
+            "shift_id": str(shift_id),
+            "cashier_id": str(cashier_id) if cashier_id else None,
+        },
+    )
+
+    return "processed"
+
+
 def _fetch_next_event(cur, company_id: str, max_attempts: int):
     cur.execute(
         """
@@ -1134,6 +1376,8 @@ def _process_one(conn, company_id: str, max_attempts: int) -> bool:
                     process_sale(cur, company_id, event_id, payload, e["device_id"])
                 elif event_type == "sale.returned":
                     process_sale_return(cur, company_id, event_id, payload, e["device_id"])
+                elif event_type == "pos.cash_movement":
+                    process_cash_movement(cur, company_id, event_id, payload, e["device_id"])
                 elif event_type == "purchase.received":
                     process_goods_receipt(cur, company_id, event_id, payload)
                 elif event_type == "purchase.invoice":

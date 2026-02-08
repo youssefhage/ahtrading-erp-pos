@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 
 import { apiGet, apiPost, getCompanyId } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
 type DeviceRow = {
@@ -19,6 +19,7 @@ type DeviceRow = {
 export default function PosDevicesPage() {
   const [devices, setDevices] = useState<DeviceRow[]>([]);
   const [status, setStatus] = useState("");
+  const [registerOpen, setRegisterOpen] = useState(false);
 
   const [deviceCode, setDeviceCode] = useState("");
   const [branchId, setBranchId] = useState("");
@@ -65,6 +66,7 @@ export default function PosDevicesPage() {
       setLastToken(res);
       setDeviceCode("");
       setBranchId("");
+      setRegisterOpen(false);
       await load();
       setStatus("");
     } catch (err) {
@@ -90,8 +92,7 @@ export default function PosDevicesPage() {
   }
 
   return (
-    <AppShell title="POS Devices">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
         {status ? (
           <Card>
             <CardHeader>
@@ -129,43 +130,45 @@ export default function PosDevicesPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Register Device</CardTitle>
-            <CardDescription>Creates a device and returns a one-time token.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={registerDevice} className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Device Code</label>
-                <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} placeholder="POS-01" />
-              </div>
-              <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">Branch ID (optional)</label>
-                <Input value={branchId} onChange={(e) => setBranchId(e.target.value)} placeholder="uuid" />
-              </div>
-              <div className="md:col-span-3">
-                <Button type="submit" disabled={registering} className="w-full md:w-auto">
-                  {registering ? "..." : "Register"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle>Devices</CardTitle>
             <CardDescription>{devices.length} devices</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-end gap-2">
               <Button variant="outline" onClick={load}>
                 Refresh
               </Button>
+              <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
+                <DialogTrigger asChild>
+                  <Button>Register Device</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Register POS Device</DialogTitle>
+                    <DialogDescription>Creates a device and returns a one-time token.</DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={registerDevice} className="grid grid-cols-1 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-slate-700">Device Code</label>
+                      <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} placeholder="POS-01" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-slate-700">Branch ID (optional)</label>
+                      <Input value={branchId} onChange={(e) => setBranchId(e.target.value)} placeholder="uuid" />
+                    </div>
+                    <div className="flex justify-end">
+                      <Button type="submit" disabled={registering}>
+                        {registering ? "..." : "Register"}
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">Code</th>
                     <th className="px-3 py-2">Device ID</th>
@@ -176,7 +179,7 @@ export default function PosDevicesPage() {
                 </thead>
                 <tbody>
                   {devices.map((d) => (
-                    <tr key={d.id} className="border-t border-slate-100">
+                    <tr key={d.id} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{d.device_code}</td>
                       <td className="px-3 py-2 font-mono text-xs">{d.id}</td>
                       <td className="px-3 py-2 font-mono text-xs">{d.branch_id || "-"}</td>
@@ -200,8 +203,5 @@ export default function PosDevicesPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
-  );
+      </div>);
 }
-

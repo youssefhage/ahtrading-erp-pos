@@ -40,3 +40,14 @@ def verify_device_token(token: str, token_hash: Optional[str]) -> bool:
     if not token_hash:
         return False
     return hash_device_token(token) == token_hash
+
+
+def hash_pin(pin: str) -> str:
+    # Use bcrypt (same as user passwords). Safe to sync to POS devices for offline verification.
+    return _pwd_context.hash(pin)
+
+
+def verify_pin(pin: str, hashed: Optional[str]) -> bool:
+    if not hashed:
+        return False
+    return _pwd_context.verify(pin, hashed)
