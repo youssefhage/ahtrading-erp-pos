@@ -107,7 +107,7 @@ def run_purchase_agent(db_url: str, company_id: str):
                             execute = True
                             today_count += 1
 
-                    status = "executed" if execute else "pending"
+                    status = "approved" if execute else "pending"
                     cur.execute(
                         """
                         INSERT INTO ai_recommendations

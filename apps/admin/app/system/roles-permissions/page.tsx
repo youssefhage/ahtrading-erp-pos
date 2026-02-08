@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
 type RoleRow = { id: string; name: string };
@@ -15,6 +15,8 @@ export default function RolesPermissionsPage() {
   const [status, setStatus] = useState("");
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [permissions, setPermissions] = useState<PermissionRow[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [grantOpen, setGrantOpen] = useState(false);
 
   const [newRoleName, setNewRoleName] = useState("");
   const [creatingRole, setCreatingRole] = useState(false);
@@ -84,6 +86,7 @@ export default function RolesPermissionsPage() {
     try {
       await apiPost("/users/roles", { name: newRoleName.trim() });
       setNewRoleName("");
+      setCreateOpen(false);
       await load();
       setStatus("");
     } catch (err) {
@@ -105,6 +108,7 @@ export default function RolesPermissionsPage() {
         role_id: selectedRoleId,
         permission_code: assignPermCode
       });
+      setGrantOpen(false);
       await loadRolePerms(selectedRoleId);
       setStatus("");
     } catch (err) {
@@ -116,8 +120,7 @@ export default function RolesPermissionsPage() {
   }
 
   return (
-    <AppShell title="Roles & Permissions">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
         {status ? (
           <Card>
             <CardHeader>
@@ -130,43 +133,94 @@ export default function RolesPermissionsPage() {
           </Card>
         ) : null}
 
-        <div className="flex items-center justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="outline" onClick={load}>
             Refresh
           </Button>
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button>New Role</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create Role</DialogTitle>
+                <DialogDescription>Create a company role, then grant permissions.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={createRole} className="grid grid-cols-1 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-700">Role Name</label>
+                  <Input value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} placeholder="Cashier / Manager / Accounting" />
+                </div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={creatingRole}>
+                    {creatingRole ? "..." : "Create"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={grantOpen} onOpenChange={setGrantOpen}>
+            <DialogTrigger asChild>
+              <Button variant="secondary">Grant Permission</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Grant Permission</DialogTitle>
+                <DialogDescription>Grant a permission code to a role.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={assignPermission} className="grid grid-cols-1 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-700">Role</label>
+                  <select
+                    className="ui-select"
+                    value={selectedRoleId}
+                    onChange={(e) => setSelectedRoleId(e.target.value)}
+                  >
+                    <option value="">Select role...</option>
+                    {roles.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-700">Permission</label>
+                  <select
+                    className="ui-select"
+                    value={assignPermCode}
+                    onChange={(e) => setAssignPermCode(e.target.value)}
+                  >
+                    <option value="">Select permission...</option>
+                    {permissions.map((p) => (
+                      <option key={p.id} value={p.code}>
+                        {p.code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={assigning}>
+                    {assigning ? "..." : "Grant"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Create Role</CardTitle>
-            <CardDescription>Create a new company role, then assign permissions below.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={createRole} className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-slate-700">Role Name</label>
-                <Input value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} placeholder="Cashier / Manager / Accounting" />
-              </div>
-              <div className="md:col-span-1 flex items-end">
-                <Button type="submit" disabled={creatingRole}>
-                  {creatingRole ? "..." : "Create"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Assign Permission</CardTitle>
-            <CardDescription>Grant a permission code to a role.</CardDescription>
+            <CardTitle>Role Permissions</CardTitle>
+            <CardDescription>Pick a role to review its assigned permissions.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <form onSubmit={assignPermission} className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="space-y-1 md:col-span-1">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-700">Role</label>
                 <select
-                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
+                  className="ui-select"
                   value={selectedRoleId}
                   onChange={(e) => setSelectedRoleId(e.target.value)}
                 >
@@ -178,31 +232,10 @@ export default function RolesPermissionsPage() {
                   ))}
                 </select>
               </div>
-              <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">Permission</label>
-                <select
-                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={assignPermCode}
-                  onChange={(e) => setAssignPermCode(e.target.value)}
-                >
-                  <option value="">Select permission...</option>
-                  {permissions.map((p) => (
-                    <option key={p.id} value={p.code}>
-                      {p.code}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="md:col-span-1 flex items-end">
-                <Button type="submit" disabled={assigning}>
-                  {assigning ? "..." : "Grant"}
-                </Button>
-              </div>
-            </form>
+            </div>
 
             <div className="rounded-md border border-slate-200 bg-white p-3">
               <p className="text-sm font-medium text-slate-900">
-                Role Permissions
                 {selectedRoleId ? (
                   <span className="ml-2 text-xs font-normal text-slate-600">
                     ({roleById.get(selectedRoleId)?.name || selectedRoleId})
@@ -210,8 +243,8 @@ export default function RolesPermissionsPage() {
                 ) : null}
               </p>
               <div className="mt-3 overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+                <table className="ui-table">
+                  <thead className="ui-thead">
                     <tr>
                       <th className="px-3 py-2">Code</th>
                       <th className="px-3 py-2">Description</th>
@@ -219,7 +252,7 @@ export default function RolesPermissionsPage() {
                   </thead>
                   <tbody>
                     {rolePerms.map((p) => (
-                      <tr key={p.code} className="border-t border-slate-100">
+                      <tr key={p.code} className="ui-tr-hover">
                         <td className="px-3 py-2 font-mono text-xs">{p.code}</td>
                         <td className="px-3 py-2">{p.description}</td>
                       </tr>
@@ -244,9 +277,9 @@ export default function RolesPermissionsPage() {
             <CardDescription>{permissions.length} permission codes</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">Code</th>
                     <th className="px-3 py-2">Description</th>
@@ -254,7 +287,7 @@ export default function RolesPermissionsPage() {
                 </thead>
                 <tbody>
                   {permissions.map((p) => (
-                    <tr key={p.id} className="border-t border-slate-100">
+                    <tr key={p.id} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{p.code}</td>
                       <td className="px-3 py-2">{p.description}</td>
                     </tr>
@@ -271,8 +304,5 @@ export default function RolesPermissionsPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
-  );
+      </div>);
 }
-

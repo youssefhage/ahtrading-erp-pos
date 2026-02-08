@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { Button } from "@/components/ui/button";
+
 export default function HomePage() {
   return (
     <main className="min-h-screen p-10">
@@ -14,21 +16,14 @@ export default function HomePage() {
           </p>
         </div>
         <div className="flex gap-3">
-          <Link
-            href="/login"
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white"
-          >
-            Login
-          </Link>
-          <Link
-            href="/dashboard"
-            className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium"
-          >
-            Dashboard
-          </Link>
+          <Button asChild>
+            <Link href="/login">Login</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/dashboard">Dashboard</Link>
+          </Button>
         </div>
       </div>
     </main>
   );
 }
-

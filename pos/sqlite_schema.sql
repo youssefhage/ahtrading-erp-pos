@@ -10,6 +10,19 @@ CREATE TABLE IF NOT EXISTS local_items_cache (
   updated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS local_item_barcodes_cache (
+  id TEXT PRIMARY KEY,
+  item_id TEXT,
+  barcode TEXT,
+  qty_factor REAL DEFAULT 1,
+  label TEXT,
+  is_primary INTEGER DEFAULT 0,
+  updated_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_local_item_barcodes_item ON local_item_barcodes_cache(item_id);
+CREATE INDEX IF NOT EXISTS idx_local_item_barcodes_barcode ON local_item_barcodes_cache(barcode);
+
 CREATE TABLE IF NOT EXISTS local_prices_cache (
   id TEXT PRIMARY KEY,
   item_id TEXT,
@@ -26,11 +39,36 @@ CREATE TABLE IF NOT EXISTS local_promotions_cache (
   updated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS pos_receipts (
+  id TEXT PRIMARY KEY,
+  receipt_type TEXT,
+  receipt_json TEXT,
+  created_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS local_customers_cache (
   id TEXT PRIMARY KEY,
   name TEXT,
   phone TEXT,
   email TEXT,
+  membership_no TEXT,
+  is_member INTEGER DEFAULT 0,
+  membership_expires_at TEXT,
+  payment_terms_days INTEGER DEFAULT 0,
+  credit_limit_usd REAL DEFAULT 0,
+  credit_limit_lbp REAL DEFAULT 0,
+  credit_balance_usd REAL DEFAULT 0,
+  credit_balance_lbp REAL DEFAULT 0,
+  loyalty_points REAL DEFAULT 0,
+  price_list_id TEXT,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS local_cashiers_cache (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  pin_hash TEXT,
+  is_active INTEGER DEFAULT 1,
   updated_at TEXT
 );
 

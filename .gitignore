@@ -16,6 +16,8 @@ venv/
 pos-desktop/pos.sqlite
 pos-desktop/config.json
 backend/.env
+.env
+*.tsbuildinfo
 
 # Node (admin app to be added)
 node_modules/

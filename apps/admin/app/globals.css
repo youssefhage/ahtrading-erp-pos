@@ -3,12 +3,18 @@
 @tailwind utilities;
 
 :root {
-  --bg: 255 255 255;
+  /* App palette (RGB triples for Tailwind-friendly usage). */
+  --bg: 250 251 255;
   --fg: 15 23 42;
   --muted: 100 116 139;
-  --card: 248 250 252;
+  --card: 255 255 255;
+  --card-2: 248 250 252;
   --border: 226 232 240;
+  --ring: 37 99 235;
   --primary: 37 99 235;
+  --primary-fg: 255 255 255;
+  --danger: 220 38 38;
+  --danger-bg: 254 242 242;
 }
 
 html,
@@ -17,7 +23,84 @@ body {
 }
 
 body {
-  background: rgb(var(--bg));
   color: rgb(var(--fg));
+  background:
+    radial-gradient(900px circle at 18% -10%, rgba(59, 130, 246, 0.16), transparent 55%),
+    radial-gradient(900px circle at 90% 8%, rgba(249, 115, 22, 0.12), transparent 50%),
+    radial-gradient(700px circle at 60% 110%, rgba(34, 197, 94, 0.10), transparent 55%),
+    linear-gradient(to bottom, rgb(var(--bg)), #ffffff);
 }
 
+@layer base {
+  ::selection {
+    background: rgba(var(--primary), 0.18);
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  code {
+    font-family: theme(fontFamily.mono);
+  }
+
+  /* Make native controls usable even when pages forget classes. */
+  select,
+  textarea {
+    color: rgb(var(--fg));
+  }
+
+  input[type="checkbox"] {
+    @apply h-4 w-4 rounded border border-slate-300 bg-white shadow-sm;
+    @apply text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70;
+  }
+}
+
+@layer components {
+  .ui-control {
+    @apply h-10 w-full rounded-md border border-slate-200/80 bg-white/80 px-3 text-sm shadow-sm backdrop-blur-[2px] transition;
+    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-control-sm {
+    @apply h-9 w-full rounded-md border border-slate-200/80 bg-white/80 px-2 text-sm shadow-sm backdrop-blur-[2px] transition;
+    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-select {
+    @apply ui-control pr-10;
+    @apply appearance-none bg-[linear-gradient(45deg,transparent_50%,rgb(100_116_139)_50%),linear-gradient(135deg,rgb(100_116_139)_50%,transparent_50%),linear-gradient(to_right,transparent,transparent)];
+    @apply bg-[length:8px_8px,8px_8px,2.5rem_100%] bg-[position:calc(100%_-_1.1rem)_50%,calc(100%_-_0.8rem)_50%,100%_0] bg-no-repeat;
+  }
+
+  .ui-textarea {
+    @apply w-full rounded-md border border-slate-200/80 bg-white/80 px-3 py-2 text-sm shadow-sm backdrop-blur-[2px] transition;
+    @apply placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-checkbox {
+    @apply h-4 w-4 rounded border border-slate-300 bg-white shadow-sm;
+    @apply text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/70;
+  }
+
+  .ui-table-wrap {
+    @apply overflow-x-auto rounded-lg border border-slate-200/70 bg-white/70 shadow-sm backdrop-blur-[2px];
+  }
+
+  .ui-table {
+    @apply w-full text-left text-sm;
+  }
+
+  .ui-thead {
+    @apply bg-slate-50/70 text-xs uppercase tracking-wide text-slate-600;
+  }
+
+  .ui-tr {
+    @apply border-t border-slate-100/80;
+  }
+
+  .ui-tr-hover {
+    @apply ui-tr hover:bg-slate-50/50;
+  }
+}

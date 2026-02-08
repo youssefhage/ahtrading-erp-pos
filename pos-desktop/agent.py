@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import argparse
+import html
 import json
 import os
 import sqlite3
@@ -9,6 +11,8 @@ from urllib.parse import urlparse, parse_qs
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
+import bcrypt
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(ROOT, 'pos.sqlite')
 SCHEMA_PATH = os.path.join(os.path.dirname(ROOT), 'pos', 'sqlite_schema.sql')
@@ -16,12 +20,14 @@ CONFIG_PATH = os.path.join(ROOT, 'config.json')
 UI_PATH = os.path.join(ROOT, 'ui')
 
 DEFAULT_CONFIG = {
-    'api_base_url': 'http://localhost:8000',
+    'api_base_url': 'http://localhost:8001',
     'company_id': '',
     'device_id': '',
     'device_token': '',
     'warehouse_id': '',
     'shift_id': '',
+    'cashier_id': '',
+    'default_customer_id': '',
     'exchange_rate': 0,
     'rate_type': 'market',
     'pricing_currency': 'USD',
@@ -36,7 +42,17 @@ def load_config():
         save_config(DEFAULT_CONFIG)
     with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
         data = json.load(f)
-    return {**DEFAULT_CONFIG, **data}
+    cfg = {**DEFAULT_CONFIG, **data}
+    # Allow Docker/ops to override without rewriting the on-disk config.
+    if os.environ.get("POS_API_BASE_URL"):
+        cfg["api_base_url"] = os.environ["POS_API_BASE_URL"]
+    if os.environ.get("POS_COMPANY_ID"):
+        cfg["company_id"] = os.environ["POS_COMPANY_ID"]
+    if os.environ.get("POS_DEVICE_ID"):
+        cfg["device_id"] = os.environ["POS_DEVICE_ID"]
+    if os.environ.get("POS_DEVICE_TOKEN"):
+        cfg["device_token"] = os.environ["POS_DEVICE_TOKEN"]
+    return cfg
 
 
 def save_config(data):
@@ -55,6 +71,26 @@ def init_db():
         schema = f.read()
     with db_connect() as conn:
         conn.executescript(schema)
+        # SQLite CREATE TABLE IF NOT EXISTS does not add new columns. Keep a tiny
+        # runtime migration layer for local caches.
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(local_customers_cache)")
+        cols = {r[1] for r in cur.fetchall()}
+        wanted = {
+            "membership_no": "TEXT",
+            "is_member": "INTEGER DEFAULT 0",
+            "membership_expires_at": "TEXT",
+            "payment_terms_days": "INTEGER DEFAULT 0",
+            "credit_limit_usd": "REAL DEFAULT 0",
+            "credit_limit_lbp": "REAL DEFAULT 0",
+            "credit_balance_usd": "REAL DEFAULT 0",
+            "credit_balance_lbp": "REAL DEFAULT 0",
+            "loyalty_points": "REAL DEFAULT 0",
+            "price_list_id": "TEXT",
+        }
+        for col, ddl in wanted.items():
+            if col not in cols:
+                cur.execute(f"ALTER TABLE local_customers_cache ADD COLUMN {col} {ddl}")
         conn.commit()
 
 
@@ -143,6 +179,507 @@ def get_items():
         return [dict(r) for r in cur.fetchall()]
 
 
+def get_barcodes():
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, item_id, barcode, qty_factor, label, is_primary
+            FROM local_item_barcodes_cache
+            ORDER BY is_primary DESC, updated_at DESC
+            """
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+def get_cashiers():
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, name, is_active, updated_at
+            FROM local_cashiers_cache
+            WHERE is_active = 1
+            ORDER BY name
+            """
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+def get_customers(query: str = "", limit: int = 50):
+    query = (query or "").strip().lower()
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        if query:
+            needle = f"%{query}%"
+            cur.execute(
+                """
+                SELECT id, name, phone, email,
+                       membership_no, is_member, membership_expires_at,
+                       payment_terms_days,
+                       credit_limit_usd, credit_limit_lbp,
+                       credit_balance_usd, credit_balance_lbp,
+                       loyalty_points,
+                       price_list_id,
+                       updated_at
+                FROM local_customers_cache
+                WHERE lower(name) LIKE ?
+                   OR lower(COALESCE(phone, '')) LIKE ?
+                   OR lower(COALESCE(email, '')) LIKE ?
+                   OR lower(COALESCE(membership_no, '')) LIKE ?
+                   OR lower(id) LIKE ?
+                ORDER BY name
+                LIMIT ?
+                """,
+                (needle, needle, needle, needle, needle, int(limit)),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, name, phone, email,
+                       membership_no, is_member, membership_expires_at,
+                       payment_terms_days,
+                       credit_limit_usd, credit_limit_lbp,
+                       credit_balance_usd, credit_balance_lbp,
+                       loyalty_points,
+                       price_list_id,
+                       updated_at
+                FROM local_customers_cache
+                ORDER BY name
+                LIMIT ?
+                """,
+                (int(limit),),
+            )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def get_customer_by_id(customer_id: str):
+    customer_id = (customer_id or "").strip()
+    if not customer_id:
+        return None
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, name, phone, email,
+                   membership_no, is_member, membership_expires_at,
+                   payment_terms_days,
+                   credit_limit_usd, credit_limit_lbp,
+                   credit_balance_usd, credit_balance_lbp,
+                   loyalty_points,
+                   price_list_id,
+                   updated_at
+            FROM local_customers_cache
+            WHERE id = ?
+            """,
+            (customer_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def upsert_customers(customers):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        for c in customers:
+            cur.execute(
+                """
+                INSERT INTO local_customers_cache
+                  (id, name, phone, email,
+                   membership_no, is_member, membership_expires_at,
+                   payment_terms_days,
+                   credit_limit_usd, credit_limit_lbp,
+                   credit_balance_usd, credit_balance_lbp,
+                   loyalty_points,
+                   price_list_id,
+                   updated_at)
+                VALUES
+                  (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  name=excluded.name,
+                  phone=excluded.phone,
+                  email=excluded.email,
+                  membership_no=excluded.membership_no,
+                  is_member=excluded.is_member,
+                  membership_expires_at=excluded.membership_expires_at,
+                  payment_terms_days=excluded.payment_terms_days,
+                  credit_limit_usd=excluded.credit_limit_usd,
+                  credit_limit_lbp=excluded.credit_limit_lbp,
+                  credit_balance_usd=excluded.credit_balance_usd,
+                  credit_balance_lbp=excluded.credit_balance_lbp,
+                  loyalty_points=excluded.loyalty_points,
+                  price_list_id=excluded.price_list_id,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    c.get("id"),
+                    c.get("name"),
+                    c.get("phone"),
+                    c.get("email"),
+                    (c.get("membership_no") or "").strip() or None,
+                    1 if c.get("is_member") else 0,
+                    c.get("membership_expires_at"),
+                    int(c.get("payment_terms_days") or 0),
+                    float(c.get("credit_limit_usd") or 0),
+                    float(c.get("credit_limit_lbp") or 0),
+                    float(c.get("credit_balance_usd") or 0),
+                    float(c.get("credit_balance_lbp") or 0),
+                    float(c.get("loyalty_points") or 0),
+                    c.get("price_list_id"),
+                    (c.get("updated_at") or datetime.utcnow().isoformat()),
+                ),
+            )
+        conn.commit()
+
+def upsert_cashiers(cashiers):
+    with db_connect() as conn:
+        cur = conn.cursor()
+        for c in cashiers:
+            cur.execute(
+                """
+                INSERT INTO local_cashiers_cache (id, name, pin_hash, is_active, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  name=excluded.name,
+                  pin_hash=excluded.pin_hash,
+                  is_active=excluded.is_active,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    c.get("id"),
+                    c.get("name"),
+                    c.get("pin_hash"),
+                    1 if c.get("is_active") else 0,
+                    datetime.utcnow().isoformat(),
+                ),
+            )
+        conn.commit()
+
+def upsert_promotions(promotions):
+    """
+    Store promotions as a local, POS-evaluable rules cache (offline-first).
+
+    Expected `promotions` shape is the payload from backend `/pos/promotions/catalog`.
+    """
+    with db_connect() as conn:
+        cur = conn.cursor()
+        for p in promotions or []:
+            pid = str(p.get("id") or "")
+            if not pid:
+                continue
+            rules = {
+                "id": pid,
+                "code": p.get("code"),
+                "name": p.get("name"),
+                "starts_on": p.get("starts_on"),
+                "ends_on": p.get("ends_on"),
+                "is_active": bool(p.get("is_active", True)),
+                "priority": int(p.get("priority") or 0),
+                "items": p.get("items") or [],
+            }
+            cur.execute(
+                """
+                INSERT INTO local_promotions_cache (id, name, rules_json, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  name=excluded.name,
+                  rules_json=excluded.rules_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    pid,
+                    (p.get("name") or "").strip() or (p.get("code") or "").strip(),
+                    json.dumps(rules),
+                    (p.get("updated_at") or datetime.utcnow().isoformat()),
+                ),
+            )
+        conn.commit()
+
+
+def get_promotions():
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, name, rules_json, updated_at
+            FROM local_promotions_cache
+            ORDER BY updated_at DESC
+            """
+        )
+        rows = []
+        for r in cur.fetchall():
+            try:
+                rules = json.loads(r["rules_json"] or "{}")
+            except Exception:
+                rules = {}
+            rows.append(
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "rules": rules,
+                    "updated_at": r["updated_at"],
+                }
+            )
+        return rows
+
+
+def save_receipt(receipt_type: str, receipt_obj: dict):
+    rid = str(uuid.uuid4())
+    created_at = datetime.utcnow().isoformat()
+    with db_connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO pos_receipts (id, receipt_type, receipt_json, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (rid, receipt_type, json.dumps(receipt_obj), created_at),
+        )
+        conn.commit()
+    return rid
+
+
+def get_last_receipt():
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, receipt_type, receipt_json, created_at
+            FROM pos_receipts
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        )
+        r = cur.fetchone()
+        if not r:
+            return None
+        try:
+            obj = json.loads(r["receipt_json"] or "{}")
+        except Exception:
+            obj = {}
+        return {
+            "id": r["id"],
+            "receipt_type": r["receipt_type"],
+            "receipt": obj,
+            "created_at": r["created_at"],
+        }
+
+
+def _receipt_html(receipt_row: dict | None):
+    if not receipt_row:
+        return """<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Receipt</title></head><body><p>No receipt yet.</p></body></html>"""
+
+    r = receipt_row.get("receipt") or {}
+    lines = r.get("lines") or []
+    totals = r.get("totals") or {}
+
+    def e(x):
+        return html.escape(str(x if x is not None else ""))
+
+    def fmt_usd(x):
+        try:
+            return f"{float(x or 0):.2f}"
+        except Exception:
+            return "0.00"
+
+    def fmt_lbp(x):
+        try:
+            return f"{int(round(float(x or 0))):,}"
+        except Exception:
+            return "0"
+
+    title = "Sale Receipt" if receipt_row.get("receipt_type") == "sale" else "Return Receipt"
+    cashier = r.get("cashier") or {}
+
+    line_rows = []
+    for ln in lines:
+        name = (ln.get("name") or "").strip() or (ln.get("sku") or "").strip() or ln.get("item_id") or ""
+        qty = ln.get("qty") or 0
+        line_rows.append(
+            f"""
+            <tr>
+              <td class="name">{e(name)}</td>
+              <td class="qty">{e(qty)}</td>
+              <td class="amt">{e(fmt_usd(ln.get("line_total_usd")))}</td>
+            </tr>
+            """
+        )
+
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+	    <title>{e(title)}</title>
+	    <style>
+	      @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;700&display=swap');
+	      :root {{
+	        --w: 80mm;
+	        --fg: #111;
+	        --muted: #666;
+	        --border: #ddd;
+	        --mono: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+	        --sans: Roboto, ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+	      }}
+      body {{
+        margin: 0;
+        padding: 10px;
+        color: var(--fg);
+        font-family: var(--sans);
+        max-width: var(--w);
+      }}
+      .muted {{ color: var(--muted); }}
+      .mono {{ font-family: var(--mono); }}
+      h1 {{ font-size: 16px; margin: 0 0 2px; }}
+      h2 {{ font-size: 12px; margin: 0 0 12px; font-weight: 600; }}
+      .meta {{ font-size: 11px; line-height: 1.35; margin-bottom: 10px; }}
+      table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+      thead th {{ text-align: left; border-bottom: 1px solid var(--border); padding: 6px 0; }}
+      tbody td {{ padding: 6px 0; border-bottom: 1px dashed #eee; vertical-align: top; }}
+      td.qty, th.qty {{ text-align: right; width: 18%; }}
+      td.amt, th.amt {{ text-align: right; width: 28%; }}
+      .totals {{ margin-top: 10px; font-size: 12px; }}
+      .row {{ display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }}
+      .actions {{ margin-top: 12px; display: flex; gap: 8px; }}
+      button {{
+        border: 1px solid var(--border);
+        background: white;
+        padding: 8px 10px;
+        border-radius: 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }}
+      @media print {{
+        .actions {{ display: none; }}
+        body {{ padding: 0; }}
+      }}
+    </style>
+  </head>
+  <body>
+    <h1>AH Trading</h1>
+    <h2>{e(title)}</h2>
+    <div class="meta">
+      <div class="muted">Time: <span class="mono">{e(r.get("created_at"))}</span></div>
+      <div class="muted">Event: <span class="mono">{e(r.get("event_id"))}</span></div>
+      <div class="muted">Shift: <span class="mono">{e(r.get("shift_id") or "-")}</span></div>
+      <div class="muted">Cashier: <span>{e(cashier.get("name") or cashier.get("id") or "-")}</span></div>
+      <div class="muted">Customer: <span class="mono">{e(r.get("customer_id") or "-")}</span></div>
+      <div class="muted">Payment: <span>{e(r.get("payment_method") or "-")}</span></div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th class="qty">Qty</th>
+          <th class="amt">USD</th>
+        </tr>
+      </thead>
+      <tbody>
+        {''.join(line_rows)}
+      </tbody>
+    </table>
+
+    <div class="totals">
+      <div class="row"><span class="muted">Subtotal USD</span><strong class="mono">{e(fmt_usd(totals.get("base_usd")))}</strong></div>
+      <div class="row"><span class="muted">VAT USD</span><strong class="mono">{e(fmt_usd(totals.get("tax_usd")))}</strong></div>
+      <div class="row"><span class="muted">Total USD</span><strong class="mono">{e(fmt_usd(totals.get("total_usd")))}</strong></div>
+      <div class="row"><span class="muted">Total LBP</span><strong class="mono">{e(fmt_lbp(totals.get("total_lbp")))}</strong></div>
+    </div>
+
+    <div class="actions">
+      <button onclick="window.print()">Print</button>
+      <button onclick="window.close()">Close</button>
+    </div>
+    <script>
+      // Kiosk-friendly: auto-open print dialog shortly after load.
+      window.addEventListener('load', () => setTimeout(() => window.print(), 250));
+    </script>
+  </body>
+</html>"""
+
+
+def _compute_totals(lines, vat_rate: float, exchange_rate: float):
+    base_usd = 0.0
+    base_lbp = 0.0
+    for ln in lines or []:
+        base_usd += float(ln.get("line_total_usd") or 0)
+        base_lbp += float(ln.get("line_total_lbp") or 0)
+    tax_lbp = base_lbp * float(vat_rate or 0)
+    tax_usd = (tax_lbp / exchange_rate) if exchange_rate else 0.0
+    return {
+        "base_usd": base_usd,
+        "base_lbp": base_lbp,
+        "tax_usd": tax_usd,
+        "tax_lbp": tax_lbp,
+        "total_usd": base_usd + tax_usd,
+        "total_lbp": base_lbp + tax_lbp,
+    }
+
+
+def verify_cashier_pin(pin: str):
+    pin = (pin or "").strip()
+    if not pin:
+        return None
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, name, pin_hash
+            FROM local_cashiers_cache
+            WHERE is_active = 1
+            ORDER BY updated_at DESC
+            """
+        )
+        rows = cur.fetchall()
+        for r in rows:
+            ph = (r["pin_hash"] or "").encode("utf-8")
+            try:
+                if bcrypt.checkpw(pin.encode("utf-8"), ph):
+                    return {"id": r["id"], "name": r["name"]}
+            except Exception:
+                # Bad hash in cache; skip it.
+                continue
+    return None
+
+
+def verify_cashier_pin_online(pin: str, cfg: dict):
+    """
+    Best-effort online PIN verification.
+    - Used as a fallback when the local cashier cache is empty/outdated.
+    - If online verification succeeds, refresh the local cashiers cache so
+      subsequent logins work fully offline.
+    Returns: cashier dict on success, None on failure.
+    """
+    pin = (pin or "").strip()
+    if not pin:
+        return None
+    if not (cfg.get("device_id") and cfg.get("device_token")):
+        return None
+    base = (cfg.get("api_base_url") or "").strip()
+    if not base:
+        return None
+    try:
+        res = post_json(f"{base}/pos/cashiers/verify", {"pin": pin}, headers=device_headers(cfg))
+        cashier = (res or {}).get("cashier") or None
+        if not cashier:
+            return None
+        # Refresh cache so we can verify offline next time.
+        try:
+            cashiers = fetch_json(f"{base}/pos/cashiers/catalog", headers=device_headers(cfg))
+            upsert_cashiers(cashiers.get("cashiers", []))
+        except URLError:
+            pass
+        return {"id": cashier.get("id"), "name": cashier.get("name")}
+    except URLError:
+        return None
+
+
 def upsert_catalog(items):
     with db_connect() as conn:
         cur = conn.cursor()
@@ -169,6 +706,31 @@ def upsert_catalog(items):
                     datetime.utcnow().isoformat(),
                 ),
             )
+
+            # Multi-barcodes / pack factors
+            for b in (it.get("barcodes") or []):
+                cur.execute(
+                    """
+                    INSERT INTO local_item_barcodes_cache (id, item_id, barcode, qty_factor, label, is_primary, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                      item_id=excluded.item_id,
+                      barcode=excluded.barcode,
+                      qty_factor=excluded.qty_factor,
+                      label=excluded.label,
+                      is_primary=excluded.is_primary,
+                      updated_at=excluded.updated_at
+                    """,
+                    (
+                        b.get("id") or f"bc-{it.get('id')}-{b.get('barcode')}",
+                        it.get("id"),
+                        b.get("barcode"),
+                        float(b.get("qty_factor") or 1),
+                        b.get("label"),
+                        1 if b.get("is_primary") else 0,
+                        datetime.utcnow().isoformat(),
+                    ),
+                )
             cur.execute(
                 """
                 INSERT INTO local_prices_cache (id, item_id, price_usd, price_lbp, effective_from, effective_to)
@@ -234,7 +796,7 @@ def mark_outbox_sent(event_ids):
         conn.commit()
 
 
-def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_id, payment_method, shift_id):
+def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_id, payment_method, shift_id, cashier_id):
     lines = []
     base_usd = 0
     base_lbp = 0
@@ -298,13 +860,14 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
         'customer_id': customer_id,
         'warehouse_id': config.get('warehouse_id'),
         'shift_id': shift_id,
+        'cashier_id': cashier_id,
         'lines': lines,
         'tax': tax_block,
         'payments': payments,
         'loyalty_points': loyalty_points
     }
 
-def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_id, refund_method, shift_id):
+def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_id, refund_method, shift_id, cashier_id):
     lines = []
     base_usd = 0
     base_lbp = 0
@@ -355,6 +918,7 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
         'settlement_currency': pricing_currency,
         'warehouse_id': config.get('warehouse_id'),
         'shift_id': shift_id,
+        'cashier_id': cashier_id,
         'refund_method': refund_method or 'cash',
         'lines': lines,
         'tax': tax_block
@@ -371,6 +935,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/receipt/last":
+            row = get_last_receipt()
+            text_response(self, _receipt_html(row), status=200, content_type="text/html")
+            return
         if parsed.path.startswith('/api/'):
             self.handle_api_get(parsed)
             return
@@ -404,6 +972,34 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == '/api/items':
             json_response(self, {'items': get_items()})
             return
+        if parsed.path == '/api/barcodes':
+            json_response(self, {'barcodes': get_barcodes()})
+            return
+        if parsed.path == '/api/cashiers':
+            json_response(self, {'cashiers': get_cashiers()})
+            return
+        if parsed.path == "/api/promotions":
+            json_response(self, {"promotions": get_promotions()})
+            return
+        if parsed.path == "/api/receipts/last":
+            json_response(self, {"receipt": get_last_receipt()})
+            return
+
+        if parsed.path == '/api/customers':
+            q = (parse_qs(parsed.query).get("query") or [""])[0]
+            limit = (parse_qs(parsed.query).get("limit") or ["50"])[0]
+            try:
+                limit_i = int(limit)
+            except Exception:
+                limit_i = 50
+            json_response(self, {'customers': get_customers(q, limit=limit_i)})
+            return
+
+        if parsed.path == '/api/customers/by-id':
+            cid = (parse_qs(parsed.query).get("customer_id") or [""])[0]
+            row = get_customer_by_id(cid)
+            json_response(self, {'customer': row})
+            return
         if parsed.path == '/api/outbox':
             json_response(self, {'outbox': list_outbox()})
             return
@@ -430,8 +1026,52 @@ class Handler(BaseHTTPRequestHandler):
             customer_id = data.get('customer_id')
             payment_method = data.get('payment_method') or 'cash'
             shift_id = data.get('shift_id') or cfg.get('shift_id') or None
-            payload = build_sale_payload(cart, cfg, pricing_currency, float(exchange_rate), customer_id, payment_method, shift_id)
+            cashier_id = data.get('cashier_id') or cfg.get('cashier_id') or None
+            payload = build_sale_payload(
+                cart,
+                cfg,
+                pricing_currency,
+                float(exchange_rate),
+                customer_id,
+                payment_method,
+                shift_id,
+                cashier_id,
+            )
             event_id = add_outbox_event('sale.completed', payload)
+            # Persist a printable receipt snapshot locally (offline-friendly).
+            items_map = {i["id"]: i for i in (get_items() or [])}
+            cashier_map = {c["id"]: c for c in (get_cashiers() or [])}
+            receipt_lines = []
+            for ln in payload.get("lines") or []:
+                info = items_map.get(ln.get("item_id")) or {}
+                receipt_lines.append(
+                    {
+                        "item_id": ln.get("item_id"),
+                        "sku": info.get("sku"),
+                        "name": info.get("name"),
+                        "qty": ln.get("qty"),
+                        "unit_price_usd": ln.get("unit_price_usd"),
+                        "unit_price_lbp": ln.get("unit_price_lbp"),
+                        "line_total_usd": ln.get("line_total_usd"),
+                        "line_total_lbp": ln.get("line_total_lbp"),
+                    }
+                )
+            receipt = {
+                "created_at": datetime.utcnow().isoformat(),
+                "event_id": event_id,
+                "company_id": cfg.get("company_id"),
+                "device_id": cfg.get("device_id"),
+                "shift_id": shift_id,
+                "cashier": {"id": cashier_id, "name": cashier_map.get(cashier_id, {}).get("name") if cashier_id else None},
+                "customer_id": customer_id,
+                "payment_method": payment_method,
+                "pricing_currency": pricing_currency,
+                "exchange_rate": float(exchange_rate or 0),
+                "vat_rate": float(cfg.get("vat_rate") or 0),
+                "lines": receipt_lines,
+                "totals": _compute_totals(receipt_lines, float(cfg.get("vat_rate") or 0), float(exchange_rate or 0)),
+            }
+            save_receipt("sale", receipt)
             json_response(self, {'event_id': event_id})
             return
 
@@ -447,8 +1087,116 @@ class Handler(BaseHTTPRequestHandler):
             invoice_id = data.get('invoice_id') or None
             refund_method = data.get('refund_method') or data.get('payment_method') or 'cash'
             shift_id = data.get('shift_id') or cfg.get('shift_id') or None
-            payload = build_return_payload(cart, cfg, pricing_currency, float(exchange_rate), invoice_id, refund_method, shift_id)
+            cashier_id = data.get('cashier_id') or cfg.get('cashier_id') or None
+            payload = build_return_payload(
+                cart,
+                cfg,
+                pricing_currency,
+                float(exchange_rate),
+                invoice_id,
+                refund_method,
+                shift_id,
+                cashier_id,
+            )
             event_id = add_outbox_event('sale.returned', payload)
+            items_map = {i["id"]: i for i in (get_items() or [])}
+            cashier_map = {c["id"]: c for c in (get_cashiers() or [])}
+            receipt_lines = []
+            for ln in payload.get("lines") or []:
+                info = items_map.get(ln.get("item_id")) or {}
+                receipt_lines.append(
+                    {
+                        "item_id": ln.get("item_id"),
+                        "sku": info.get("sku"),
+                        "name": info.get("name"),
+                        "qty": ln.get("qty"),
+                        "unit_price_usd": ln.get("unit_price_usd"),
+                        "unit_price_lbp": ln.get("unit_price_lbp"),
+                        "line_total_usd": ln.get("line_total_usd"),
+                        "line_total_lbp": ln.get("line_total_lbp"),
+                    }
+                )
+            receipt = {
+                "created_at": datetime.utcnow().isoformat(),
+                "event_id": event_id,
+                "company_id": cfg.get("company_id"),
+                "device_id": cfg.get("device_id"),
+                "shift_id": shift_id,
+                "cashier": {"id": cashier_id, "name": cashier_map.get(cashier_id, {}).get("name") if cashier_id else None},
+                "customer_id": None,
+                "payment_method": refund_method,
+                "pricing_currency": pricing_currency,
+                "exchange_rate": float(exchange_rate or 0),
+                "vat_rate": float(cfg.get("vat_rate") or 0),
+                "lines": receipt_lines,
+                "totals": _compute_totals(receipt_lines, float(cfg.get("vat_rate") or 0), float(exchange_rate or 0)),
+                "invoice_id": invoice_id,
+            }
+            save_receipt("return", receipt)
+            json_response(self, {'event_id': event_id})
+            return
+
+        if parsed.path == '/api/cashiers/login':
+            data = self.read_json()
+            pin = (data.get("pin") or "").strip()
+            cfg = load_config()
+            cashier = verify_cashier_pin(pin)
+            if not cashier:
+                # Fallback: if the local cache is empty/outdated, try verifying online.
+                cashier = verify_cashier_pin_online(pin, cfg)
+            if not cashier:
+                cached = get_cashiers() or []
+                if not cached:
+                    json_response(
+                        self,
+                        {
+                            "error": "no cashiers cached (click Sync first)",
+                            "hint": "Create a cashier in Admin, then press Sync on the POS.",
+                        },
+                        status=503,
+                    )
+                else:
+                    json_response(
+                        self,
+                        {
+                            "error": "invalid pin",
+                            "hint": "If you just created/changed this cashier PIN, press Sync then try again.",
+                        },
+                        status=401,
+                    )
+                return
+            cfg['cashier_id'] = cashier['id']
+            save_config(cfg)
+            json_response(self, {'ok': True, 'cashier': cashier, 'config': cfg})
+            return
+
+        if parsed.path == '/api/cashiers/logout':
+            cfg = load_config()
+            cfg['cashier_id'] = ''
+            save_config(cfg)
+            json_response(self, {'ok': True, 'config': cfg})
+            return
+
+        if parsed.path == '/api/cash-movement':
+            data = self.read_json()
+            cfg = load_config()
+            shift_id = data.get('shift_id') or cfg.get('shift_id') or None
+            if not shift_id:
+                json_response(self, {'error': 'no open shift'}, status=400)
+                return
+            movement_type = (data.get('movement_type') or '').strip()
+            if not movement_type:
+                json_response(self, {'error': 'movement_type is required'}, status=400)
+                return
+            payload = {
+                'shift_id': shift_id,
+                'cashier_id': data.get('cashier_id') or cfg.get('cashier_id') or None,
+                'movement_type': movement_type,
+                'amount_usd': float(data.get('amount_usd') or 0),
+                'amount_lbp': float(data.get('amount_lbp') or 0),
+                'notes': (data.get('notes') or '').strip() or None
+            }
+            event_id = add_outbox_event('pos.cash_movement', payload)
             json_response(self, {'event_id': event_id})
             return
 
@@ -463,6 +1211,12 @@ class Handler(BaseHTTPRequestHandler):
                 headers = device_headers(cfg)
                 catalog = fetch_json(f"{base}/pos/catalog?company_id={company_id}", headers=headers)
                 upsert_catalog(catalog.get('items', []))
+                cashiers = fetch_json(f"{base}/pos/cashiers/catalog", headers=headers)
+                upsert_cashiers(cashiers.get("cashiers", []))
+                customers = fetch_json(f"{base}/pos/customers/catalog", headers=headers)
+                upsert_customers(customers.get("customers", []))
+                promos = fetch_json(f"{base}/pos/promotions/catalog", headers=headers)
+                upsert_promotions(promos.get("promotions", []))
                 # Pull device-scoped config (warehouse, VAT settings) to reduce manual setup.
                 pos_cfg = fetch_json(f"{base}/pos/config", headers=headers)
                 if pos_cfg.get('default_warehouse_id'):
@@ -476,7 +1230,16 @@ class Handler(BaseHTTPRequestHandler):
                 if rate.get('rate'):
                     cfg['exchange_rate'] = rate['rate']['usd_to_lbp']
                     save_config(cfg)
-                json_response(self, {'ok': True, 'items': len(catalog.get('items', []))})
+                json_response(
+                    self,
+                    {
+                        'ok': True,
+                        'items': len(catalog.get('items', [])),
+                        'cashiers': len(cashiers.get('cashiers', []) or []),
+                        'customers': len(customers.get('customers', []) or []),
+                        'promotions': len(promos.get('promotions', []) or []),
+                    },
+                )
             except URLError as ex:
                 json_response(self, {'error': str(ex)}, status=502)
             return
@@ -505,6 +1268,8 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, {'error': 'missing device_id or device_token'}, status=400)
                 return
             try:
+                if not data.get("cashier_id") and cfg.get("cashier_id"):
+                    data["cashier_id"] = cfg["cashier_id"]
                 res = post_json(f"{base}/pos/shifts/open", data, headers=device_headers(cfg))
                 shift = res.get('shift')
                 if shift:
@@ -527,6 +1292,8 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, {'error': 'missing device_id or device_token'}, status=400)
                 return
             try:
+                if not data.get("cashier_id") and cfg.get("cashier_id"):
+                    data["cashier_id"] = cfg["cashier_id"]
                 res = post_json(f"{base}/pos/shifts/{shift_id}/close", data, headers=device_headers(cfg))
                 cfg['shift_id'] = ''
                 save_config(cfg)
@@ -584,8 +1351,22 @@ class Handler(BaseHTTPRequestHandler):
         json_response(self, {'error': 'not found'}, status=404)
 
 
-if __name__ == '__main__':
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--init-db", action="store_true", help="Initialize local SQLite schema and exit")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("POS_PORT", "7070")), help="HTTP port (default: 7070)")
+    args = parser.parse_args()
+
+    if args.init_db:
+        init_db()
+        print("ok")
+        return
+
     init_db()
-    server = ThreadingHTTPServer(('0.0.0.0', 7070), Handler)
-    print('POS Agent running on http://localhost:7070')
+    server = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
+    print(f"POS Agent running on http://localhost:{args.port}")
     server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

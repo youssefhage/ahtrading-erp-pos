@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -41,8 +40,7 @@ export default function TrialBalancePage() {
   }, []);
 
   return (
-    <AppShell title="Trial Balance">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
         {status ? (
           <Card>
             <CardHeader>
@@ -67,9 +65,9 @@ export default function TrialBalancePage() {
               </Button>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">Code</th>
                     <th className="px-3 py-2">Account</th>
@@ -81,7 +79,7 @@ export default function TrialBalancePage() {
                 </thead>
                 <tbody>
                   {rows.map((r) => (
-                    <tr key={r.account_code} className="border-t border-slate-100">
+                    <tr key={r.account_code} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
                       <td className="px-3 py-2">{r.name_en || ""}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.debit_usd)}</td>
@@ -102,8 +100,6 @@ export default function TrialBalancePage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
-  );
+      </div>);
 }
 

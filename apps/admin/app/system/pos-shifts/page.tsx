@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -102,8 +101,7 @@ export default function PosShiftsPage() {
   }, [selectedShiftId]);
 
   return (
-    <AppShell title="POS Shifts">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
         {status ? (
           <Card>
             <CardHeader>
@@ -128,9 +126,9 @@ export default function PosShiftsPage() {
             <CardDescription>{shifts.length} shifts (latest first)</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">Opened</th>
                     <th className="px-3 py-2">Device</th>
@@ -147,7 +145,7 @@ export default function PosShiftsPage() {
                     const d = deviceById.get(s.device_id);
                     const active = selectedShiftId === s.id;
                     return (
-                      <tr key={s.id} className="border-t border-slate-100">
+                      <tr key={s.id} className="ui-tr-hover">
                         <td className="px-3 py-2 font-mono text-xs">{s.opened_at}</td>
                         <td className="px-3 py-2 font-mono text-xs">{d?.device_code || s.device_id}</td>
                         <td className="px-3 py-2 font-mono text-xs">{s.status}</td>
@@ -200,9 +198,9 @@ export default function PosShiftsPage() {
               </Button>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">Created</th>
                     <th className="px-3 py-2">Device</th>
@@ -235,8 +233,6 @@ export default function PosShiftsPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
-  );
+      </div>);
 }
 

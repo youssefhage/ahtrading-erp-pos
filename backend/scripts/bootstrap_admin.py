@@ -39,6 +39,8 @@ def main() -> int:
         generated_password = True
 
     role_name = os.getenv("BOOTSTRAP_ADMIN_ROLE_NAME", "Owner").strip() or "Owner"
+    did_create = False
+    did_reset = False
 
     with psycopg.connect(db_url, row_factory=dict_row) as conn:
         with conn.transaction():
@@ -46,6 +48,7 @@ def main() -> int:
                 cur.execute("SELECT id FROM users WHERE email = %s", (email,))
                 row = cur.fetchone()
                 if row:
+                    user_id = row["id"]
                     # Idempotent: don't create duplicate users unless explicitly asked to
                     # reset the password (useful for local dev / first-time setup).
                     if _truthy(os.getenv("BOOTSTRAP_ADMIN_RESET_PASSWORD", "")):
@@ -61,22 +64,20 @@ def main() -> int:
                             SET hashed_password = %s
                             WHERE id = %s
                             """,
-                            (hash_password(password), row["id"]),
+                            (hash_password(password), user_id),
                         )
-                        print("BOOTSTRAP_ADMIN_PASSWORD_RESET")
-                        print(f"email: {email}")
-                        print("password: (provided via BOOTSTRAP_ADMIN_PASSWORD)")
-                    return 0
-
-                cur.execute(
-                    """
-                    INSERT INTO users (id, email, hashed_password, is_active)
-                    VALUES (gen_random_uuid(), %s, %s, true)
-                    RETURNING id
-                    """,
-                    (email, hash_password(password)),
-                )
-                user_id = cur.fetchone()["id"]
+                        did_reset = True
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO users (id, email, hashed_password, is_active)
+                        VALUES (gen_random_uuid(), %s, %s, true)
+                        RETURNING id
+                        """,
+                        (email, hash_password(password)),
+                    )
+                    user_id = cur.fetchone()["id"]
+                    did_create = True
 
                 cur.execute("SELECT id FROM companies ORDER BY created_at ASC")
                 companies = cur.fetchall()
@@ -130,11 +131,16 @@ def main() -> int:
                         (user_id, role_id, company_id),
                     )
 
-    print("BOOTSTRAP_ADMIN_CREATED")
-    print(f"email: {email}")
-    if generated_password:
-        print(f"password: {password}")
-    else:
+    if did_create:
+        print("BOOTSTRAP_ADMIN_CREATED")
+        print(f"email: {email}")
+        if generated_password:
+            print(f"password: {password}")
+        else:
+            print("password: (provided via BOOTSTRAP_ADMIN_PASSWORD)")
+    elif did_reset:
+        print("BOOTSTRAP_ADMIN_PASSWORD_RESET")
+        print(f"email: {email}")
         print("password: (provided via BOOTSTRAP_ADMIN_PASSWORD)")
     return 0
 

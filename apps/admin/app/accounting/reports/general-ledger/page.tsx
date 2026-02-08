@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiBase, apiGet } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -79,8 +78,7 @@ export default function GeneralLedgerPage() {
   }
 
   return (
-    <AppShell title="General Ledger">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
         {status ? (
           <Card>
             <CardHeader>
@@ -122,9 +120,9 @@ export default function GeneralLedgerPage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">Date</th>
                     <th className="px-3 py-2">Journal</th>
@@ -138,7 +136,7 @@ export default function GeneralLedgerPage() {
                 </thead>
                 <tbody>
                   {rows.map((r, idx) => (
-                    <tr key={`${r.journal_no}:${r.account_code}:${idx}`} className="border-t border-slate-100">
+                    <tr key={`${r.journal_no}:${r.account_code}:${idx}`} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{String(r.journal_date)}</td>
                       <td className="px-3 py-2 font-mono text-xs">{r.journal_no}</td>
                       <td className="px-3 py-2">
@@ -164,8 +162,6 @@ export default function GeneralLedgerPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
-  );
+      </div>);
 }
 

@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
 type UserRow = { id: string; email: string; is_active: boolean };
@@ -15,6 +15,8 @@ export default function UsersPage() {
   const [status, setStatus] = useState("");
   const [users, setUsers] = useState<UserRow[]>([]);
   const [roles, setRoles] = useState<RoleRow[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -61,6 +63,7 @@ export default function UsersPage() {
       await apiPost("/users", { email: email.trim().toLowerCase(), password });
       setEmail("");
       setPassword("");
+      setCreateOpen(false);
       await load();
       setStatus("");
     } catch (err) {
@@ -79,6 +82,7 @@ export default function UsersPage() {
     setStatus("Assigning role...");
     try {
       await apiPost("/users/roles/assign", { user_id: assignUserId, role_id: assignRoleId });
+      setAssignOpen(false);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -89,8 +93,7 @@ export default function UsersPage() {
   }
 
   return (
-    <AppShell title="Users">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
         {status ? (
           <Card>
             <CardHeader>
@@ -103,89 +106,92 @@ export default function UsersPage() {
           </Card>
         ) : null}
 
-        <div className="flex items-center justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="outline" onClick={load}>
             Refresh
           </Button>
+          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+            <DialogTrigger asChild>
+              <Button>New User</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create User</DialogTitle>
+                <DialogDescription>Creates a global user account, then assign roles per company.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={createUser} className="grid grid-cols-1 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-700">Email</label>
+                  <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@ahtrading.local" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-700">Password</label>
+                  <Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Set a password" />
+                </div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={creating}>
+                    {creating ? "..." : "Create"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+            <DialogTrigger asChild>
+              <Button variant="secondary">Assign Role</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Assign Role</DialogTitle>
+                <DialogDescription>Attach an existing company role to a user.</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={assignRole} className="grid grid-cols-1 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-700">User</label>
+                  <select
+                    className="ui-select"
+                    value={assignUserId}
+                    onChange={(e) => setAssignUserId(e.target.value)}
+                  >
+                    <option value="">Select user...</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-700">Role</label>
+                  <select
+                    className="ui-select"
+                    value={assignRoleId}
+                    onChange={(e) => setAssignRoleId(e.target.value)}
+                  >
+                    <option value="">Select role...</option>
+                    {roles.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {assignRoleId ? (
+                  <p className="text-xs text-slate-600">
+                    Selected role:{" "}
+                    <span className="font-mono text-xs">{roleById.get(assignRoleId)?.name || assignRoleId}</span>
+                  </p>
+                ) : null}
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={assigning}>
+                    {assigning ? "..." : "Assign"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Create User</CardTitle>
-            <CardDescription>Creates a global user account (then assign roles per company).</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={createUser} className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">Email</label>
-                <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@ahtrading.local" />
-              </div>
-              <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">Password</label>
-                <Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Set a password" />
-              </div>
-              <div className="md:col-span-1 flex items-end">
-                <Button type="submit" disabled={creating}>
-                  {creating ? "..." : "Create"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Assign Role</CardTitle>
-            <CardDescription>Attach an existing company role to a user.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={assignRole} className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">User</label>
-                <select
-                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={assignUserId}
-                  onChange={(e) => setAssignUserId(e.target.value)}
-                >
-                  <option value="">Select user...</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.email}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1 md:col-span-1">
-                <label className="text-xs font-medium text-slate-700">Role</label>
-                <select
-                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  value={assignRoleId}
-                  onChange={(e) => setAssignRoleId(e.target.value)}
-                >
-                  <option value="">Select role...</option>
-                  {roles.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="md:col-span-1 flex items-end">
-                <Button type="submit" disabled={assigning}>
-                  {assigning ? "..." : "Assign"}
-                </Button>
-              </div>
-            </form>
-            {assignRoleId ? (
-              <p className="mt-3 text-xs text-slate-600">
-                Selected role:{" "}
-                <span className="font-mono text-xs">
-                  {roleById.get(assignRoleId)?.name || assignRoleId}
-                </span>
-              </p>
-            ) : null}
-          </CardContent>
-        </Card>
 
         <Card>
           <CardHeader>
@@ -193,9 +199,9 @@ export default function UsersPage() {
             <CardDescription>{users.length} users with access to this company</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">Email</th>
                     <th className="px-3 py-2">User ID</th>
@@ -204,7 +210,7 @@ export default function UsersPage() {
                 </thead>
                 <tbody>
                   {users.map((u) => (
-                    <tr key={u.id} className="border-t border-slate-100">
+                    <tr key={u.id} className="ui-tr-hover">
                       <td className="px-3 py-2">{u.email}</td>
                       <td className="px-3 py-2 font-mono text-xs">{u.id}</td>
                       <td className="px-3 py-2">{u.is_active ? "yes" : "no"}</td>
@@ -222,8 +228,5 @@ export default function UsersPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
-  );
+      </div>);
 }
-

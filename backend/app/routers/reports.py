@@ -221,3 +221,196 @@ def metrics(company_id: str = Depends(get_company_id)):
             )
             row = cur.fetchone()
             return {"metrics": row}
+
+
+@router.get("/ar-aging", dependencies=[Depends(require_permission("reports:read"))])
+def ar_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company_id)):
+    as_of = as_of or date.today()
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                  si.id AS invoice_id,
+                  si.invoice_no,
+                  si.customer_id,
+                  c.name AS customer_name,
+                  si.invoice_date,
+                  si.due_date,
+                  si.total_usd,
+                  si.total_lbp,
+                  COALESCE(SUM(sp.amount_usd), 0) AS paid_usd,
+                  COALESCE(SUM(sp.amount_lbp), 0) AS paid_lbp,
+                  (si.total_usd - COALESCE(SUM(sp.amount_usd), 0)) AS balance_usd,
+                  (si.total_lbp - COALESCE(SUM(sp.amount_lbp), 0)) AS balance_lbp,
+                  GREATEST((%s::date - si.due_date), 0) AS days_past_due,
+                  CASE
+                    WHEN %s::date <= si.due_date THEN 0
+                    WHEN (%s::date - si.due_date) <= 30 THEN 1
+                    WHEN (%s::date - si.due_date) <= 60 THEN 2
+                    WHEN (%s::date - si.due_date) <= 90 THEN 3
+                    ELSE 4
+                  END AS bucket_order,
+                  CASE
+                    WHEN %s::date <= si.due_date THEN 'current'
+                    WHEN (%s::date - si.due_date) <= 30 THEN '1-30'
+                    WHEN (%s::date - si.due_date) <= 60 THEN '31-60'
+                    WHEN (%s::date - si.due_date) <= 90 THEN '61-90'
+                    ELSE '90+'
+                  END AS bucket
+                FROM sales_invoices si
+                LEFT JOIN customers c ON c.id = si.customer_id
+                LEFT JOIN sales_payments sp ON sp.invoice_id = si.id
+                WHERE si.company_id = %s AND si.status = 'posted'
+                GROUP BY si.id, si.invoice_no, si.customer_id, c.name, si.invoice_date, si.due_date, si.total_usd, si.total_lbp
+                HAVING (si.total_usd - COALESCE(SUM(sp.amount_usd), 0)) != 0
+                    OR (si.total_lbp - COALESCE(SUM(sp.amount_lbp), 0)) != 0
+                ORDER BY bucket_order, si.due_date, si.invoice_no
+                """,
+                (as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, company_id),
+            )
+            return {"as_of": str(as_of), "rows": cur.fetchall()}
+
+
+@router.get("/ap-aging", dependencies=[Depends(require_permission("reports:read"))])
+def ap_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company_id)):
+    as_of = as_of or date.today()
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                  si.id AS invoice_id,
+                  si.invoice_no,
+                  si.supplier_id,
+                  s.name AS supplier_name,
+                  si.invoice_date,
+                  si.due_date,
+                  si.total_usd,
+                  si.total_lbp,
+                  COALESCE(SUM(sp.amount_usd), 0) AS paid_usd,
+                  COALESCE(SUM(sp.amount_lbp), 0) AS paid_lbp,
+                  (si.total_usd - COALESCE(SUM(sp.amount_usd), 0)) AS balance_usd,
+                  (si.total_lbp - COALESCE(SUM(sp.amount_lbp), 0)) AS balance_lbp,
+                  GREATEST((%s::date - si.due_date), 0) AS days_past_due,
+                  CASE
+                    WHEN %s::date <= si.due_date THEN 0
+                    WHEN (%s::date - si.due_date) <= 30 THEN 1
+                    WHEN (%s::date - si.due_date) <= 60 THEN 2
+                    WHEN (%s::date - si.due_date) <= 90 THEN 3
+                    ELSE 4
+                  END AS bucket_order,
+                  CASE
+                    WHEN %s::date <= si.due_date THEN 'current'
+                    WHEN (%s::date - si.due_date) <= 30 THEN '1-30'
+                    WHEN (%s::date - si.due_date) <= 60 THEN '31-60'
+                    WHEN (%s::date - si.due_date) <= 90 THEN '61-90'
+                    ELSE '90+'
+                  END AS bucket
+                FROM supplier_invoices si
+                LEFT JOIN suppliers s ON s.id = si.supplier_id
+                LEFT JOIN supplier_payments sp ON sp.supplier_invoice_id = si.id
+                WHERE si.company_id = %s AND si.status = 'posted'
+                GROUP BY si.id, si.invoice_no, si.supplier_id, s.name, si.invoice_date, si.due_date, si.total_usd, si.total_lbp
+                HAVING (si.total_usd - COALESCE(SUM(sp.amount_usd), 0)) != 0
+                    OR (si.total_lbp - COALESCE(SUM(sp.amount_lbp), 0)) != 0
+                ORDER BY bucket_order, si.due_date, si.invoice_no
+                """,
+                (as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, company_id),
+            )
+            return {"as_of": str(as_of), "rows": cur.fetchall()}
+
+
+@router.get("/profit-loss", dependencies=[Depends(require_permission("reports:read"))])
+def profit_and_loss(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    company_id: str = Depends(get_company_id),
+):
+    today = date.today()
+    start_date = start_date or today.replace(day=1)
+    end_date = end_date or today
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT a.account_code, a.name_en,
+                       CASE WHEN a.account_code LIKE '7%%' THEN 'revenue' ELSE 'expense' END AS kind,
+                       COALESCE(SUM(
+                         CASE
+                           WHEN a.account_code LIKE '7%%' THEN (e.credit_usd - e.debit_usd)
+                           ELSE (e.debit_usd - e.credit_usd)
+                         END
+                       ), 0) AS amount_usd,
+                       COALESCE(SUM(
+                         CASE
+                           WHEN a.account_code LIKE '7%%' THEN (e.credit_lbp - e.debit_lbp)
+                           ELSE (e.debit_lbp - e.credit_lbp)
+                         END
+                       ), 0) AS amount_lbp
+                FROM gl_entries e
+                JOIN gl_journals j ON j.id = e.journal_id
+                JOIN company_coa_accounts a ON a.id = e.account_id
+                WHERE j.company_id = %s
+                  AND j.journal_date BETWEEN %s AND %s
+                  AND (a.account_code LIKE '6%%' OR a.account_code LIKE '7%%')
+                GROUP BY a.account_code, a.name_en, kind
+                HAVING COALESCE(SUM(e.debit_usd) + SUM(e.credit_usd) + SUM(e.debit_lbp) + SUM(e.credit_lbp), 0) != 0
+                ORDER BY a.account_code
+                """,
+                (company_id, start_date, end_date),
+            )
+            rows = cur.fetchall()
+            revenue_usd = sum([r["amount_usd"] for r in rows if r["kind"] == "revenue"])
+            revenue_lbp = sum([r["amount_lbp"] for r in rows if r["kind"] == "revenue"])
+            expense_usd = sum([r["amount_usd"] for r in rows if r["kind"] == "expense"])
+            expense_lbp = sum([r["amount_lbp"] for r in rows if r["kind"] == "expense"])
+            return {
+                "start_date": str(start_date),
+                "end_date": str(end_date),
+                "revenue_usd": revenue_usd,
+                "revenue_lbp": revenue_lbp,
+                "expense_usd": expense_usd,
+                "expense_lbp": expense_lbp,
+                "net_profit_usd": revenue_usd - expense_usd,
+                "net_profit_lbp": revenue_lbp - expense_lbp,
+                "rows": rows,
+            }
+
+
+@router.get("/balance-sheet", dependencies=[Depends(require_permission("reports:read"))])
+def balance_sheet(as_of: Optional[date] = None, company_id: str = Depends(get_company_id)):
+    as_of = as_of or date.today()
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT a.account_code, a.name_en, a.normal_balance,
+                       COALESCE(SUM(e.debit_usd), 0) AS debit_usd,
+                       COALESCE(SUM(e.credit_usd), 0) AS credit_usd,
+                       COALESCE(SUM(e.debit_lbp), 0) AS debit_lbp,
+                       COALESCE(SUM(e.credit_lbp), 0) AS credit_lbp,
+                       CASE
+                         WHEN a.normal_balance = 'credit' THEN COALESCE(SUM(e.credit_usd) - SUM(e.debit_usd), 0)
+                         ELSE COALESCE(SUM(e.debit_usd) - SUM(e.credit_usd), 0)
+                       END AS balance_usd,
+                       CASE
+                         WHEN a.normal_balance = 'credit' THEN COALESCE(SUM(e.credit_lbp) - SUM(e.debit_lbp), 0)
+                         ELSE COALESCE(SUM(e.debit_lbp) - SUM(e.credit_lbp), 0)
+                       END AS balance_lbp
+                FROM gl_entries e
+                JOIN gl_journals j ON j.id = e.journal_id
+                JOIN company_coa_accounts a ON a.id = e.account_id
+                WHERE j.company_id = %s
+                  AND j.journal_date <= %s
+                  AND (a.account_code LIKE '1%%' OR a.account_code LIKE '2%%' OR a.account_code LIKE '3%%' OR a.account_code LIKE '4%%' OR a.account_code LIKE '5%%')
+                GROUP BY a.account_code, a.name_en, a.normal_balance
+                ORDER BY a.account_code
+                """,
+                (company_id, as_of),
+            )
+            return {"as_of": str(as_of), "rows": cur.fetchall()}

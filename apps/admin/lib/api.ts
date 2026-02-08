@@ -89,3 +89,13 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   const res = await handle(raw);
   return (await res.json()) as T;
 }
+
+export async function apiDelete<T>(path: string): Promise<T> {
+  const raw = await fetch(`${apiBase()}${path}`, {
+    method: "DELETE",
+    headers: headers(),
+    credentials: "include"
+  });
+  const res = await handle(raw);
+  return (await res.json()) as T;
+}

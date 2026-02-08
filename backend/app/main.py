@@ -12,10 +12,15 @@ from .routers.purchases import router as purchases_router
 from .routers.reports import router as reports_router
 from .routers.ai import router as ai_router
 from .routers.suppliers import router as suppliers_router
+from .routers import party_addresses
 from .routers.customers import router as customers_router
 from .routers.intercompany import router as intercompany_router
 from .routers.users import router as users_router
 from .routers.coa import router as coa_router
+from .routers.accounting import router as accounting_router
+from .routers.banking import router as banking_router
+from .routers.pricing import router as pricing_router
+from .routers.promotions import router as promotions_router
 from .routers.auth import router as auth_router
 from .config import settings
 from .deps import require_company_access
@@ -49,9 +54,14 @@ app.include_router(reports_router, dependencies=[Depends(require_company_access)
 app.include_router(ai_router, dependencies=[Depends(require_company_access)])
 app.include_router(suppliers_router, dependencies=[Depends(require_company_access)])
 app.include_router(customers_router, dependencies=[Depends(require_company_access)])
+app.include_router(party_addresses.router, dependencies=[Depends(require_company_access)])
 app.include_router(intercompany_router, dependencies=[Depends(require_company_access)])
 app.include_router(users_router, dependencies=[Depends(require_company_access)])
 app.include_router(coa_router, dependencies=[Depends(require_company_access)])
+app.include_router(accounting_router, dependencies=[Depends(require_company_access)])
+app.include_router(banking_router, dependencies=[Depends(require_company_access)])
+app.include_router(pricing_router, dependencies=[Depends(require_company_access)])
+app.include_router(promotions_router, dependencies=[Depends(require_company_access)])
 
 @app.get("/health")
 def health():

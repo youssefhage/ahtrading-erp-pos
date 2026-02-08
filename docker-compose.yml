@@ -91,12 +91,37 @@ services:
       context: .
       dockerfile: apps/admin/Dockerfile
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://api:8000
+      # Keep browser requests same-origin (`/api/...`) and let Next.js proxy to the API container.
+      # `apiBase()` defaults to `/api` when NEXT_PUBLIC_API_BASE_URL is unset.
+      API_PROXY_TARGET: http://api:8000
     depends_on:
       api:
         condition: service_healthy
     ports:
       - "${ADMIN_PORT:-3000}:3000"
+
+  pos-agent:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    working_dir: /app/pos-desktop
+    volumes:
+      - ./pos-desktop:/app/pos-desktop
+      - ./pos:/app/pos
+    environment:
+      POS_PORT: "7070"
+      # Inside Docker, the API is reachable via the compose service name.
+      POS_API_BASE_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    command:
+      - sh
+      - -lc
+      - |
+        exec python3 -u /app/pos-desktop/agent.py --port 7070
+    ports:
+      - "${POS_AGENT_PORT:-7071}:7070"
 
 volumes:
   pgdata:

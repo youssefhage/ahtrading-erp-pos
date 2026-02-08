@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,6 +10,9 @@ import { Input } from "@/components/ui/input";
 type StockRow = {
   item_id: string;
   warehouse_id: string;
+  batch_id?: string | null;
+  batch_no?: string | null;
+  expiry_date?: string | null;
   qty_on_hand: string | number;
 };
 
@@ -23,6 +25,7 @@ export default function StockPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
+  const [byBatch, setByBatch] = useState(false);
 
   const itemById = useMemo(() => {
     const m = new Map<string, Item>();
@@ -62,7 +65,7 @@ export default function StockPage() {
     setStatus("Loading...");
     try {
       const [stock, itemsRes, whRes] = await Promise.all([
-        apiGet<{ stock: StockRow[] }>("/inventory/stock"),
+        apiGet<{ stock: StockRow[] }>(`/inventory/stock?by_batch=${byBatch ? "true" : "false"}`),
         apiGet<{ items: Item[] }>("/items"),
         apiGet<{ warehouses: Warehouse[] }>("/warehouses")
       ]);
@@ -78,11 +81,10 @@ export default function StockPage() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [byBatch]);
 
   return (
-    <AppShell title="Stock">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6">
         {status ? (
           <Card>
             <CardHeader>
@@ -107,27 +109,40 @@ export default function StockPage() {
               <div className="w-full md:w-96">
                 <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search item or warehouse..." />
               </div>
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 text-xs text-slate-700">
+                  <input type="checkbox" checked={byBatch} onChange={(e) => setByBatch(e.target.checked)} />
+                  By batch
+                </label>
+                <Button variant="outline" onClick={load}>
+                  Refresh
+                </Button>
+              </div>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">SKU</th>
                     <th className="px-3 py-2">Item</th>
                     <th className="px-3 py-2">Warehouse</th>
+                    {byBatch ? <th className="px-3 py-2">Batch</th> : null}
                     <th className="px-3 py-2 text-right">Qty On Hand</th>
                   </tr>
                 </thead>
                 <tbody>
                   {enriched.map((r) => (
-                    <tr key={`${r.item_id}:${r.warehouse_id}`} className="border-t border-slate-100">
+                    <tr key={`${r.item_id}:${r.warehouse_id}:${(r as any).batch_id || ""}`} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{r.sku}</td>
                       <td className="px-3 py-2">{r.name || <span className="text-slate-500">Unknown</span>}</td>
                       <td className="px-3 py-2">{r.warehouse_name}</td>
+                      {byBatch ? (
+                        <td className="px-3 py-2 font-mono text-xs">
+                          {(r.batch_no as any) || "-"}
+                          {r.expiry_date ? ` · ${String(r.expiry_date).slice(0, 10)}` : ""}
+                        </td>
+                      ) : null}
                       <td className="px-3 py-2 text-right font-mono text-xs">
                         {Number(r.qty_on_hand || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
                       </td>
@@ -135,7 +150,7 @@ export default function StockPage() {
                   ))}
                   {enriched.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-slate-500" colSpan={4}>
+                      <td className="px-3 py-6 text-center text-slate-500" colSpan={byBatch ? 5 : 4}>
                         No stock rows yet.
                       </td>
                     </tr>
@@ -145,8 +160,5 @@ export default function StockPage() {
             </div>
           </CardContent>
         </Card>
-      </div>
-    </AppShell>
-  );
+      </div>);
 }
-
