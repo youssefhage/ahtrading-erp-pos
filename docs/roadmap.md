@@ -10,6 +10,7 @@ The immediate focus is to reduce operational drift and productize the Admin UI:
   - `docs/audits/platform-audit-2026-02-08-deep-dive.md`
 - Admin UI/UX phased plan:
   - `docs/admin-ui-ux-audit.md`
+ - AI layer is now visibly embedded in core screens (items/AP/expiry + dashboard counts) as a practical assist layer.
 
 ## Near-Term Focus (Next 2-4 Weeks)
 
