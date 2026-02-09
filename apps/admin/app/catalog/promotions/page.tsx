@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -444,8 +445,16 @@ export default function PromotionsPage() {
                 <tbody>
                   {promoItems.map((pi) => (
                     <tr key={pi.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{pi.sku}</td>
-                      <td className="px-3 py-2">{pi.name}</td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(pi.item_id)}`} title="Open item" className="font-mono text-xs">
+                          {pi.sku}
+                        </ShortcutLink>
+                      </td>
+                      <td className="px-3 py-2">
+                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(pi.item_id)}`} title="Open item">
+                          {pi.name}
+                        </ShortcutLink>
+                      </td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(pi.min_qty || 0).toLocaleString("en-US")}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(pi.promo_price_usd || 0).toFixed(2)}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(pi.promo_price_lbp || 0).toLocaleString("en-US")}</td>

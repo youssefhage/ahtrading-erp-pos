@@ -1,5 +1,4 @@
 import Link, { type LinkProps } from "next/link";
-import { ArrowRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -8,23 +7,24 @@ export function ShortcutLink(
     className?: string;
     children: React.ReactNode;
     title?: string;
+    stopPropagation?: boolean;
   }
 ) {
-  const { className, children, title, ...linkProps } = props;
+  const { className, children, title, stopPropagation = true, onClick, ...linkProps } = props as any;
 
-  // Default: look like normal text. On hover/focus: become obviously clickable (color + underline + arrow).
+  // Default: looks like normal text. On hover/focus: becomes obviously clickable.
+  // We also stop event bubbling by default so it works inside "clickable rows" tables.
   return (
     <Link
       {...linkProps}
       title={title}
-      className={cn(
-        "group inline-flex items-center gap-1 rounded-sm px-1 -mx-1 text-foreground hover:text-primary hover:underline underline-offset-4 focus-ring",
-        className
-      )}
+      className={cn("ui-shortcut", className)}
+      onClick={(e) => {
+        if (stopPropagation) e.stopPropagation();
+        onClick?.(e);
+      }}
     >
       {children}
-      <ArrowRight className="h-3 w-3 opacity-0 -translate-x-0.5 transition-all group-hover:opacity-100 group-hover:translate-x-0 group-focus-visible:opacity-100 group-focus-visible:translate-x-0" />
     </Link>
   );
 }
-

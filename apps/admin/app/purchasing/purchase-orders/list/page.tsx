@@ -8,6 +8,7 @@ import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -150,14 +151,25 @@ export default function PurchaseOrdersListPage() {
                     {filtered.map((o) => (
                       <tr key={o.id} className="ui-tr ui-tr-hover">
                         <td className="px-3 py-2">
-                          <Link className="focus-ring inline-flex flex-col" href={`/purchasing/purchase-orders/${encodeURIComponent(o.id)}`}>
+                          <Link
+                            className="ui-link inline-flex flex-col items-start"
+                            href={`/purchasing/purchase-orders/${encodeURIComponent(o.id)}`}
+                          >
                             <span className="font-medium text-foreground">{o.order_no || "(draft)"}</span>
                             {o.supplier_ref ? <span className="font-mono text-[11px] text-fg-muted">Ref: {o.supplier_ref}</span> : null}
                             {o.expected_delivery_date ? <span className="font-mono text-[11px] text-fg-muted">ETA: {o.expected_delivery_date}</span> : null}
                             <span className="font-mono text-[10px] text-fg-subtle">{o.id}</span>
                           </Link>
                         </td>
-                        <td className="px-3 py-2">{o.supplier_name || o.supplier_id || "-"}</td>
+                        <td className="px-3 py-2">
+                          {o.supplier_id ? (
+                            <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(o.supplier_id)}`} title="Open supplier">
+                              {o.supplier_name || o.supplier_id}
+                            </ShortcutLink>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
                         <td className="px-3 py-2">{o.warehouse_name || o.warehouse_id || "-"}</td>
                         <td className="px-3 py-2">
                           <StatusChip value={o.status} />

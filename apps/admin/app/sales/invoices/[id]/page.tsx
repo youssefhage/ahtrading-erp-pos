@@ -344,7 +344,15 @@ function SalesInvoiceShowInner() {
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                   <p className="text-xs text-fg-muted">Customer</p>
-                  <p className="text-sm font-medium text-foreground">{detail.invoice.customer_name || (detail.invoice.customer_id ? detail.invoice.customer_id : "Walk-in")}</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {detail.invoice.customer_id ? (
+                      <ShortcutLink href={`/partners/customers/${encodeURIComponent(detail.invoice.customer_id)}`} title="Open customer">
+                        {detail.invoice.customer_name || detail.invoice.customer_id}
+                      </ShortcutLink>
+                    ) : (
+                      "Walk-in"
+                    )}
+                  </p>
                 </div>
                 <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                   <p className="text-xs text-fg-muted">Warehouse</p>

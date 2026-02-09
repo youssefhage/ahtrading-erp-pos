@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -60,8 +61,27 @@ export default function StockPage() {
 
   const columns = useMemo(() => {
     const cols: Array<DataTableColumn<EnrichedRow>> = [
-      { id: "sku", header: "SKU", sortable: true, mono: true },
-      { id: "name", header: "Item", sortable: true },
+      {
+        id: "sku",
+        header: "SKU",
+        sortable: true,
+        mono: true,
+        cell: (r) => (
+          <ShortcutLink href={`/catalog/items/${encodeURIComponent((r as any).item_id)}`} title="Open item" className="font-mono text-xs">
+            {(r as any).sku}
+          </ShortcutLink>
+        )
+      },
+      {
+        id: "name",
+        header: "Item",
+        sortable: true,
+        cell: (r) => (
+          <ShortcutLink href={`/catalog/items/${encodeURIComponent((r as any).item_id)}`} title="Open item">
+            {(r as any).name || "-"}
+          </ShortcutLink>
+        )
+      },
       { id: "warehouse_name", header: "Warehouse", sortable: true },
     ];
     if (byBatch) {

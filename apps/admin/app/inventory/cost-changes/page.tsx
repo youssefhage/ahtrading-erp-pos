@@ -114,7 +114,7 @@ function Inner() {
                   <tr key={r.id} className="ui-tr-hover">
                     <td className="px-3 py-2 text-xs font-mono text-fg-muted">{fmtIso(r.changed_at)}</td>
                     <td className="px-3 py-2">
-                      <Link className="focus-ring text-primary hover:underline" href={`/catalog/items/${encodeURIComponent(r.item_id)}`}>
+                      <Link className="ui-link inline-flex flex-col items-start" href={`/catalog/items/${encodeURIComponent(r.item_id)}`}>
                         <div className="flex flex-col gap-0.5">
                           <div className="font-medium">{r.sku}</div>
                           <div className="text-xs text-fg-muted">{r.name}</div>
@@ -152,4 +152,3 @@ export default function CostChangesPage() {
     </Suspense>
   );
 }
-

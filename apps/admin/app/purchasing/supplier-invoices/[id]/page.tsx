@@ -11,6 +11,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { DocumentAttachments } from "@/components/document-attachments";
 import { DocumentTimeline } from "@/components/document-timeline";
 import { MoneyInput } from "@/components/money-input";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -420,10 +421,18 @@ function SupplierInvoiceShowInner() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
 	                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
 	                  <p className="text-xs text-fg-muted">Supplier</p>
-	                  <p className="text-sm font-medium text-foreground">{detail.invoice.supplier_name || detail.invoice.supplier_id || "-"}</p>
+	                  <p className="text-sm font-medium text-foreground">
+                      {detail.invoice.supplier_id ? (
+                        <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(detail.invoice.supplier_id)}`} title="Open supplier">
+                          {detail.invoice.supplier_name || detail.invoice.supplier_id}
+                        </ShortcutLink>
+                      ) : (
+                        "-"
+                      )}
+                    </p>
 	                </div>
 	                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
 	                  <p className="text-xs text-fg-muted">Supplier Ref</p>
@@ -431,7 +440,19 @@ function SupplierInvoiceShowInner() {
 	                </div>
 	                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
 	                  <p className="text-xs text-fg-muted">Goods Receipt</p>
-	                  <p className="text-sm data-mono text-foreground">{detail.invoice.goods_receipt_no || "-"}</p>
+	                  <p className="text-sm data-mono text-foreground">
+                      {detail.invoice.goods_receipt_id ? (
+                        <ShortcutLink
+                          href={`/purchasing/goods-receipts/${encodeURIComponent(detail.invoice.goods_receipt_id)}`}
+                          title="Open goods receipt"
+                          className="data-mono"
+                        >
+                          {detail.invoice.goods_receipt_no || detail.invoice.goods_receipt_id.slice(0, 8)}
+                        </ShortcutLink>
+                      ) : (
+                        detail.invoice.goods_receipt_no || "-"
+                      )}
+                    </p>
 	                </div>
                 <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                   <p className="text-xs text-fg-muted">Dates</p>
@@ -483,7 +504,17 @@ function SupplierInvoiceShowInner() {
                           {(((aiInsight as any).recommendation_json?.price_changes as any[]) || []).slice(0, 10).map((c, idx) => (
                             <tr key={String(c.item_id || idx)} className="border-t border-border-subtle align-top">
                               <td className="px-3 py-2 text-xs">
-                                <div className="font-mono text-[10px] text-fg-subtle">{c.item_id}</div>
+                                {c.item_id ? (
+                                  <ShortcutLink
+                                    href={`/catalog/items/${encodeURIComponent(String(c.item_id))}`}
+                                    title="Open item"
+                                    className="font-mono text-[10px] text-fg-subtle"
+                                  >
+                                    {String(c.item_id)}
+                                  </ShortcutLink>
+                                ) : (
+                                  <div className="font-mono text-[10px] text-fg-subtle">-</div>
+                                )}
                                 <div className="text-xs text-foreground">
                                   {c.supplier_item_code ? <span className="font-mono">{c.supplier_item_code}</span> : null}
                                   {c.supplier_item_name ? <span>{c.supplier_item_code ? " · " : ""}{c.supplier_item_name}</span> : null}
@@ -555,7 +586,9 @@ function SupplierInvoiceShowInner() {
                               {l.item_sku || l.item_name ? (
                                 <div>
                                   <div>
-                                    <span className="font-mono text-xs">{l.item_sku || "-"}</span> · {l.item_name || "-"}
+                                    <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
+                                      <span className="font-mono text-xs">{l.item_sku || "-"}</span> · {l.item_name || "-"}
+                                    </ShortcutLink>
                                   </div>
                                   {l.supplier_item_code || l.supplier_item_name ? (
                                     <div className="mt-1 text-[10px] text-fg-subtle">
@@ -565,7 +598,9 @@ function SupplierInvoiceShowInner() {
                                   ) : null}
                                 </div>
                               ) : (
-                                <span className="font-mono text-xs">{l.item_id}</span>
+                                <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
+                                  {l.item_id}
+                                </ShortcutLink>
                               )}
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">

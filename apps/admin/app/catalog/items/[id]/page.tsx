@@ -4,8 +4,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Check, Copy } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentAttachments } from "@/components/document-attachments";
@@ -13,6 +15,8 @@ import { DocumentTimeline } from "@/components/document-timeline";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Chip } from "@/components/ui/chip";
+
+type TaxCode = { id: string; name: string; rate: string | number };
 
 type Item = {
   id: string;
@@ -59,6 +63,78 @@ type ItemSupplierLinkRow = {
   last_cost_lbp: string | number;
 };
 
+function shortId(v: string, head = 8, tail = 4) {
+  const s = (v || "").trim();
+  if (!s) return "-";
+  if (s.length <= head + tail + 3) return s;
+  return `${s.slice(0, head)}…${s.slice(-tail)}`;
+}
+
+function itemTypeLabel(t?: Item["item_type"]) {
+  if (t === "service") return "Service";
+  if (t === "bundle") return "Bundle";
+  return "Stocked";
+}
+
+function fmtRate(v: string | number) {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return "";
+  // Most rates are stored as "11" for 11%, so keep it simple and readable.
+  const s = String(n);
+  return `${s.replace(/\.0+$/, "")}%`;
+}
+
+function CopyIconButton(props: { text: string; label?: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const text = (props.text || "").trim();
+  const disabled = !text || text === "-";
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className={cn("h-8 w-8 text-fg-muted hover:text-foreground", props.className)}
+      disabled={disabled}
+      onClick={async () => {
+        if (disabled) return;
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1200);
+        } catch {
+          // ignore
+        }
+      }}
+      title={disabled ? undefined : `Copy${props.label ? ` ${props.label}` : ""}`}
+    >
+      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+      <span className="sr-only">{copied ? "Copied" : "Copy"}</span>
+    </Button>
+  );
+}
+
+function SummaryField(props: { label: string; value: string; mono?: boolean; copyText?: string; hint?: string }) {
+  return (
+    <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
+        {props.copyText ? <CopyIconButton text={props.copyText} label={props.label} className="h-7 w-7" /> : null}
+      </div>
+      <p
+        className={cn(
+          "mt-1 text-[15px] font-semibold leading-snug text-foreground",
+          props.mono && "font-mono text-[14px] font-medium"
+        )}
+        title={props.value}
+      >
+        {props.value}
+      </p>
+      {props.hint ? <p className="mt-1 text-xs text-fg-subtle">{props.hint}</p> : null}
+    </div>
+  );
+}
+
 export default function ItemViewPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -69,24 +145,28 @@ export default function ItemViewPage() {
   const [item, setItem] = useState<Item | null>(null);
   const [barcodes, setBarcodes] = useState<ItemBarcode[]>([]);
   const [suppliers, setSuppliers] = useState<ItemSupplierLinkRow[]>([]);
+  const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
 
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setErr(null);
     try {
-      const [it, bc, sup] = await Promise.all([
+      const [it, bc, sup, tc] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
         apiGet<{ barcodes: ItemBarcode[] }>(`/items/${encodeURIComponent(id)}/barcodes`).catch(() => ({ barcodes: [] as ItemBarcode[] })),
         apiGet<{ suppliers: ItemSupplierLinkRow[] }>(`/suppliers/items/${encodeURIComponent(id)}`).catch(() => ({ suppliers: [] as ItemSupplierLinkRow[] })),
+        apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
       ]);
       setItem(it.item || null);
       setBarcodes(bc.barcodes || []);
       setSuppliers(sup.suppliers || []);
+      setTaxCodes(tc.tax_codes || []);
     } catch (e) {
       setItem(null);
       setBarcodes([]);
       setSuppliers([]);
+      setTaxCodes([]);
       setErr(e);
     } finally {
       setLoading(false);
@@ -103,13 +183,19 @@ export default function ItemViewPage() {
     return "Item";
   }, [loading, item]);
 
+  const taxById = useMemo(() => new Map(taxCodes.map((t) => [t.id, t])), [taxCodes]);
+  const taxMeta = useMemo(() => (item?.tax_code_id ? taxById.get(item.tax_code_id) : undefined), [item?.tax_code_id, taxById]);
+
   if (err) {
     return (
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-semibold text-foreground">Item</h1>
-            <p className="text-sm text-fg-muted">{id}</p>
+            <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+              <span className="font-mono text-xs">{shortId(id)}</span>
+              <CopyIconButton text={id} label="ID" className="h-7 w-7" />
+            </p>
           </div>
           <Button type="button" variant="outline" onClick={() => router.push("/catalog/items/list")}>
             Back
@@ -133,12 +219,13 @@ export default function ItemViewPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-          <p className="text-sm text-fg-muted">
-            <span className="font-mono text-xs">{id}</span>
+          <p className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+            <span className="font-mono text-xs">{shortId(id)}</span>
+            <CopyIconButton text={id} label="ID" className="h-7 w-7" />
             {item ? (
               <>
-                {" "}
-                · <Chip variant={item.is_active === false ? "default" : "success"}>{item.is_active === false ? "inactive" : "active"}</Chip>
+                <span className="text-fg-subtle">·</span>
+                <Chip variant={item.is_active === false ? "default" : "success"}>{item.is_active === false ? "inactive" : "active"}</Chip>
               </>
             ) : null}
           </p>
@@ -165,33 +252,32 @@ export default function ItemViewPage() {
               <CardTitle>Summary</CardTitle>
               <CardDescription>Core catalog fields.</CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">SKU</p>
-                <p className="font-mono text-sm text-foreground">{item.sku}</p>
-              </div>
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">UOM</p>
-                <p className="font-mono text-sm text-foreground">{item.unit_of_measure}</p>
-              </div>
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">Primary Barcode</p>
-                <p className="font-mono text-sm text-foreground">{item.barcode || "-"}</p>
-              </div>
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">Type</p>
-                <p className="text-sm text-foreground">{item.item_type || "stocked"}</p>
-              </div>
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">Tax Code</p>
-                <p className="font-mono text-sm text-foreground">{item.tax_code_id || "-"}</p>
-              </div>
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">Reorder</p>
-                <p className="font-mono text-sm text-foreground">
-                  {String(item.reorder_point ?? "-")} / {String(item.reorder_qty ?? "-")}
-                </p>
-              </div>
+            <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <SummaryField label="SKU" value={item.sku || "-"} copyText={item.sku || ""} mono />
+              <SummaryField label="UOM" value={item.unit_of_measure || "-"} />
+              <SummaryField label="Primary Barcode" value={item.barcode || "-"} copyText={item.barcode || ""} mono />
+              <SummaryField label="Type" value={itemTypeLabel(item.item_type)} />
+              <SummaryField
+                label="Tax"
+                value={
+                  item.tax_code_id
+                    ? taxMeta
+                      ? `${taxMeta.name}${taxMeta.rate !== undefined && taxMeta.rate !== null ? ` (${fmtRate(taxMeta.rate)})` : ""}`
+                      : shortId(item.tax_code_id)
+                    : "-"
+                }
+                copyText={item.tax_code_id || ""}
+                hint={item.tax_code_id && taxMeta ? `ID: ${shortId(item.tax_code_id)}` : undefined}
+              />
+              <SummaryField
+                label="Reorder"
+                value={
+                  item.reorder_point == null && item.reorder_qty == null
+                    ? "-"
+                    : `Point: ${String(item.reorder_point ?? "-")}  Qty: ${String(item.reorder_qty ?? "-")}`
+                }
+                mono
+              />
             </CardContent>
           </Card>
 
@@ -231,7 +317,12 @@ export default function ItemViewPage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-fg-subtle">No image.</p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-fg-subtle">No image.</p>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Add image</Link>
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -246,26 +337,31 @@ export default function ItemViewPage() {
                 <table className="ui-table">
                   <thead className="ui-thead">
                     <tr>
-                      <th className="px-3 py-2">Barcode</th>
-                      <th className="px-3 py-2 text-right">Factor</th>
-                      <th className="px-3 py-2">Label</th>
-                      <th className="px-3 py-2">Primary</th>
+                      <th>Barcode</th>
+                      <th className="text-right">Factor</th>
+                      <th>Label</th>
+                      <th>Primary</th>
                     </tr>
                   </thead>
                   <tbody>
                     {barcodes.map((b) => (
-                      <tr key={b.id} className="ui-tr-hover">
-                        <td className="px-3 py-2 font-mono text-xs">{b.barcode}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(b.qty_factor || 1)}</td>
-                        <td className="px-3 py-2 text-xs text-fg-muted">{b.label || "-"}</td>
-                        <td className="px-3 py-2">
+                      <tr key={b.id} className="ui-tr ui-tr-hover">
+                        <td>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-sm">{b.barcode}</span>
+                            <CopyIconButton text={b.barcode} label="barcode" className="h-7 w-7" />
+                          </div>
+                        </td>
+                        <td className="text-right font-mono text-sm">{String(b.qty_factor || 1)}</td>
+                        <td className="text-sm text-fg-muted">{b.label || "-"}</td>
+                        <td>
                           {b.is_primary ? <Chip variant="primary">yes</Chip> : <Chip variant="default">no</Chip>}
                         </td>
                       </tr>
                     ))}
                     {barcodes.length === 0 ? (
                       <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
+                        <td className="py-6 text-center text-fg-subtle" colSpan={4}>
                           No barcodes.
                         </td>
                       </tr>
@@ -286,28 +382,28 @@ export default function ItemViewPage() {
                 <table className="ui-table">
                   <thead className="ui-thead">
                     <tr>
-                      <th className="px-3 py-2">Supplier</th>
-                      <th className="px-3 py-2">Primary</th>
-                      <th className="px-3 py-2 text-right">Lead (days)</th>
-                      <th className="px-3 py-2 text-right">Min Qty</th>
-                      <th className="px-3 py-2 text-right">Last Cost USD</th>
-                      <th className="px-3 py-2 text-right">Last Cost LL</th>
+                      <th>Supplier</th>
+                      <th>Primary</th>
+                      <th className="text-right">Lead (days)</th>
+                      <th className="text-right">Min Qty</th>
+                      <th className="text-right">Last Cost USD</th>
+                      <th className="text-right">Last Cost LL</th>
                     </tr>
                   </thead>
                   <tbody>
                     {suppliers.map((s) => (
-                      <tr key={s.id} className="ui-tr-hover">
-                        <td className="px-3 py-2 text-sm">{s.name}</td>
-                        <td className="px-3 py-2">{s.is_primary ? <Chip variant="primary">yes</Chip> : <Chip variant="default">no</Chip>}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(s.lead_time_days || 0)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(s.min_order_qty || 0)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(s.last_cost_usd || 0)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(s.last_cost_lbp || 0)}</td>
+                      <tr key={s.id} className="ui-tr ui-tr-hover">
+                        <td className="text-sm">{s.name}</td>
+                        <td>{s.is_primary ? <Chip variant="primary">yes</Chip> : <Chip variant="default">no</Chip>}</td>
+                        <td className="text-right font-mono text-sm">{String(s.lead_time_days || 0)}</td>
+                        <td className="text-right font-mono text-sm">{String(s.min_order_qty || 0)}</td>
+                        <td className="text-right font-mono text-sm">{String(s.last_cost_usd || 0)}</td>
+                        <td className="text-right font-mono text-sm">{String(s.last_cost_lbp || 0)}</td>
                       </tr>
                     ))}
                     {suppliers.length === 0 ? (
                       <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
+                        <td className="py-6 text-center text-fg-subtle" colSpan={6}>
                           No suppliers linked.
                         </td>
                       </tr>
@@ -325,4 +421,3 @@ export default function ItemViewPage() {
     </div>
   );
 }
-

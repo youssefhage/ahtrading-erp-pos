@@ -8,6 +8,7 @@ import { fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -361,8 +362,20 @@ function SalesPaymentsPageInner() {
                   {payments.map((p) => (
                     <tr key={p.id} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{p.created_at}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{p.invoice_no}</td>
-                      <td className="px-3 py-2">{p.customer_name || (p.customer_id ? customerById.get(p.customer_id)?.name : null) || "Walk-in"}</td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        <ShortcutLink href={`/sales/invoices/${encodeURIComponent(p.invoice_id)}`} title="Open invoice" className="font-mono text-xs">
+                          {p.invoice_no}
+                        </ShortcutLink>
+                      </td>
+                      <td className="px-3 py-2">
+                        {p.customer_id ? (
+                          <ShortcutLink href={`/partners/customers/${encodeURIComponent(p.customer_id)}`} title="Open customer">
+                            {p.customer_name || customerById.get(p.customer_id)?.name || p.customer_id}
+                          </ShortcutLink>
+                        ) : (
+                          "Walk-in"
+                        )}
+                      </td>
                       <td className="px-3 py-2 font-mono text-xs">{p.method}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(p.amount_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(p.amount_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>

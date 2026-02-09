@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -197,11 +198,13 @@ export default function InventoryAlertsPage() {
                         <td className="px-3 py-2 font-mono text-xs">{(r.expiry_date || "").slice(0, 10) || "-"}</td>
                         <td className="px-3 py-2">
                           {it ? (
-                            <span>
+                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
                               <span className="font-mono text-xs">{it.sku}</span> · {it.name}
-                            </span>
+                            </ShortcutLink>
                           ) : (
-                            <span className="font-mono text-xs">{r.item_id}</span>
+                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item" className="font-mono text-xs">
+                              {r.item_id}
+                            </ShortcutLink>
                           )}
                         </td>
 	                        <td className="px-3 py-2">{wh?.name || r.warehouse_id}</td>
@@ -268,9 +271,9 @@ export default function InventoryAlertsPage() {
                   {reorder.map((r) => (
                     <tr key={`${r.item_id}:${r.warehouse_id}`} className="ui-tr-hover">
                       <td className="px-3 py-2">
-                        <span>
+                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
                           <span className="font-mono text-xs">{r.sku}</span> · {r.name}
-                        </span>
+                        </ShortcutLink>
                       </td>
                       <td className="px-3 py-2">{whById.get(r.warehouse_id)?.name || r.warehouse_id}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">

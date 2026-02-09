@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import { fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -142,7 +143,10 @@ function Inner() {
                 {filtered.map((r) => (
                   <tr key={r.id} className="ui-tr-hover">
                     <td className="px-3 py-2 font-medium">
-                      <Link className="focus-ring inline-flex flex-col text-primary hover:underline" href={`/purchasing/goods-receipts/${encodeURIComponent(r.id)}`}>
+                      <Link
+                        className="ui-link inline-flex flex-col items-start"
+                        href={`/purchasing/goods-receipts/${encodeURIComponent(r.id)}`}
+                      >
                         <div className="flex flex-col gap-0.5">
                           <div>{r.receipt_no || "(draft)"}</div>
                           {r.supplier_ref ? <div className="font-mono text-[11px] text-fg-muted">Ref: {r.supplier_ref}</div> : null}
@@ -150,7 +154,15 @@ function Inner() {
                         </div>
                       </Link>
                     </td>
-                    <td className="px-3 py-2">{supplierById.get(r.supplier_id || "")?.name || "-"}</td>
+                    <td className="px-3 py-2">
+                      {r.supplier_id ? (
+                        <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(r.supplier_id)}`} title="Open supplier">
+                          {supplierById.get(r.supplier_id)?.name || r.supplier_id}
+                        </ShortcutLink>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
                     <td className="px-3 py-2">{whById.get(r.warehouse_id || "")?.name || "-"}</td>
                     <td className="px-3 py-2">
                       <StatusChip value={r.status} />
@@ -181,4 +193,3 @@ export default function GoodsReceiptsListPage() {
     </Suspense>
   );
 }
-

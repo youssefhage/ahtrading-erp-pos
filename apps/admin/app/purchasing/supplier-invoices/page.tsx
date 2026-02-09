@@ -7,6 +7,7 @@ import { Paperclip } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -224,7 +225,11 @@ function SupplierInvoicesListInner() {
                   >
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
-                        <div className="data-mono text-xs text-foreground">{inv.invoice_no || "(draft)"}</div>
+                        <div className="data-mono text-xs text-foreground">
+                          <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(inv.id)}`} title="Open supplier invoice">
+                            {inv.invoice_no || "(draft)"}
+                          </ShortcutLink>
+                        </div>
                         {Number(inv.attachment_count || 0) > 0 ? (
                           <span className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-muted px-2 py-0.5 text-[10px] text-fg-muted">
                             <Paperclip className="h-3 w-3" />
@@ -235,8 +240,28 @@ function SupplierInvoicesListInner() {
                       {inv.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {inv.supplier_ref}</div> : null}
                       <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
                     </td>
-                    <td className="px-3 py-2">{inv.supplier_name || inv.supplier_id || "-"}</td>
-                    <td className="px-3 py-2 data-mono text-xs">{inv.goods_receipt_no || "-"}</td>
+                    <td className="px-3 py-2">
+                      {inv.supplier_id ? (
+                        <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(inv.supplier_id)}`} title="Open supplier">
+                          {inv.supplier_name || inv.supplier_id}
+                        </ShortcutLink>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    <td className="px-3 py-2 data-mono text-xs">
+                      {inv.goods_receipt_id ? (
+                        <ShortcutLink
+                          href={`/purchasing/goods-receipts/${encodeURIComponent(inv.goods_receipt_id)}`}
+                          title="Open goods receipt"
+                          className="font-mono text-xs"
+                        >
+                          {inv.goods_receipt_no || inv.goods_receipt_id.slice(0, 8)}
+                        </ShortcutLink>
+                      ) : (
+                        inv.goods_receipt_no || "-"
+                      )}
+                    </td>
                     <td className="px-3 py-2">
                       <StatusChip value={inv.status} />
                       {inv.is_on_hold ? (

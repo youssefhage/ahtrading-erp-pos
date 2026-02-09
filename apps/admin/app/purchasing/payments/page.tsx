@@ -7,6 +7,7 @@ import { fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -343,8 +344,24 @@ export default function SupplierPaymentsPage() {
                   {payments.map((p) => (
                     <tr key={p.id} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{p.created_at}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{p.invoice_no || p.supplier_invoice_id}</td>
-                      <td className="px-3 py-2">{p.supplier_name || (p.supplier_id ? supplierById.get(p.supplier_id)?.name : null) || "-"}</td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        <ShortcutLink
+                          href={`/purchasing/supplier-invoices/${encodeURIComponent(p.supplier_invoice_id)}`}
+                          title="Open supplier invoice"
+                          className="font-mono text-xs"
+                        >
+                          {p.invoice_no || p.supplier_invoice_id.slice(0, 8)}
+                        </ShortcutLink>
+                      </td>
+                      <td className="px-3 py-2">
+                        {p.supplier_id ? (
+                          <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(p.supplier_id)}`} title="Open supplier">
+                            {p.supplier_name || supplierById.get(p.supplier_id)?.name || p.supplier_id}
+                          </ShortcutLink>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                       <td className="px-3 py-2 font-mono text-xs">{p.method}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(p.amount_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(p.amount_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -156,11 +157,13 @@ export default function InventoryMovementsPage() {
                         <td className="px-3 py-2 font-mono text-xs">{m.created_at}</td>
                         <td className="px-3 py-2">
                           {it ? (
-                            <span>
+                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(m.item_id)}`} title="Open item">
                               <span className="font-mono text-xs">{it.sku}</span> · {it.name}
-                            </span>
+                            </ShortcutLink>
                           ) : (
-                            <span className="font-mono text-xs">{m.item_id}</span>
+                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(m.item_id)}`} title="Open item" className="font-mono text-xs">
+                              {m.item_id}
+                            </ShortcutLink>
                           )}
                         </td>
                         <td className="px-3 py-2">{wh?.name || m.warehouse_id}</td>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -400,8 +401,16 @@ export default function PriceListsPage() {
                       const it = itemById.get(li.item_id);
                       return (
                         <tr key={li.id} className="ui-tr-hover">
-                          <td className="px-3 py-2 font-mono text-xs">{it?.sku || "-"}</td>
-                          <td className="px-3 py-2">{it?.name || li.item_id}</td>
+                          <td className="px-3 py-2 font-mono text-xs">
+                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(li.item_id)}`} title="Open item" className="font-mono text-xs">
+                              {it?.sku || "-"}
+                            </ShortcutLink>
+                          </td>
+                          <td className="px-3 py-2">
+                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(li.item_id)}`} title="Open item">
+                              {it?.name || li.item_id}
+                            </ShortcutLink>
+                          </td>
                           <td className="px-3 py-2 font-mono text-xs">{li.price_usd}</td>
                           <td className="px-3 py-2 font-mono text-xs">{li.price_lbp}</td>
                           <td className="px-3 py-2 text-xs">{li.effective_from}</td>

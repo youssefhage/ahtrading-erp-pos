@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -229,7 +230,9 @@ export default function InventoryBatchesPage() {
                   return (
                     <tr key={b.id} className="ui-tr-hover">
                       <td className="px-3 py-2">
-                        <span className="font-mono text-xs">{it?.sku || b.item_sku || "-"}</span> · {it?.name || b.item_name || "-"}
+                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(b.item_id)}`} title="Open item">
+                          <span className="font-mono text-xs">{it?.sku || b.item_sku || "-"}</span> · {it?.name || b.item_name || "-"}
+                        </ShortcutLink>
                       </td>
                       <td className="px-3 py-2 font-mono text-xs">{b.batch_no || "-"}</td>
                       <td className="px-3 py-2 font-mono text-xs">{fmtIso(b.expiry_date)}</td>

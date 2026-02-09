@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -198,7 +199,13 @@ export default function SalesReturnsPage() {
                             <td className="px-3 py-2 font-mono text-xs">{r.return_no || r.id}</td>
                             <td className="px-3 py-2">
                               {r.invoice_id ? (
-                                <span className="font-mono text-xs">{invoiceById.get(r.invoice_id)?.invoice_no || r.invoice_id}</span>
+                                <ShortcutLink
+                                  href={`/sales/invoices/${encodeURIComponent(r.invoice_id)}`}
+                                  title="Open sales invoice"
+                                  className="font-mono text-xs"
+                                >
+                                  {invoiceById.get(r.invoice_id)?.invoice_no || r.invoice_id.slice(0, 8)}
+                                </ShortcutLink>
                               ) : (
                                 <span className="text-fg-subtle">-</span>
                               )}
@@ -242,7 +249,17 @@ export default function SalesReturnsPage() {
                           </div>
                           <div>
                             <span className="text-fg-subtle">Invoice:</span>{" "}
-                            {detail.return.invoice_id ? invoiceById.get(detail.return.invoice_id)?.invoice_no || detail.return.invoice_id : "-"}
+                            {detail.return.invoice_id ? (
+                              <ShortcutLink
+                                href={`/sales/invoices/${encodeURIComponent(detail.return.invoice_id)}`}
+                                title="Open sales invoice"
+                                className="font-mono text-xs"
+                              >
+                                {invoiceById.get(detail.return.invoice_id)?.invoice_no || detail.return.invoice_id.slice(0, 8)}
+                              </ShortcutLink>
+                            ) : (
+                              "-"
+                            )}
                           </div>
                           <div>
                             <span className="text-fg-subtle">Warehouse:</span>{" "}
@@ -307,11 +324,13 @@ export default function SalesReturnsPage() {
                                   <tr key={l.id} className="ui-tr-hover">
                                     <td className="px-3 py-2">
                                       {it ? (
-                                        <span>
+                                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
                                           <span className="font-mono text-xs">{it.sku}</span> · {it.name}
-                                        </span>
+                                        </ShortcutLink>
                                       ) : (
-                                        <span className="font-mono text-xs">{l.item_id}</span>
+                                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
+                                          {l.item_id}
+                                        </ShortcutLink>
                                       )}
                                     </td>
                                     <td className="px-3 py-2 text-right font-mono text-xs">

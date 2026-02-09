@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -139,10 +140,22 @@ function SalesInvoicesListInner() {
                     onClick={() => router.push(`/sales/invoices/${inv.id}`)}
                   >
                     <td className="px-3 py-2">
-                      <div className="data-mono text-xs text-foreground">{inv.invoice_no || "(draft)"}</div>
+                      <div className="data-mono text-xs text-foreground">
+                        <ShortcutLink href={`/sales/invoices/${encodeURIComponent(inv.id)}`} title="Open invoice">
+                          {inv.invoice_no || "(draft)"}
+                        </ShortcutLink>
+                      </div>
                       <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
                     </td>
-                    <td className="px-3 py-2">{inv.customer_name || (inv.customer_id ? inv.customer_id : "Walk-in")}</td>
+                    <td className="px-3 py-2">
+                      {inv.customer_id ? (
+                        <ShortcutLink href={`/partners/customers/${encodeURIComponent(inv.customer_id)}`} title="Open customer">
+                          {inv.customer_name || inv.customer_id}
+                        </ShortcutLink>
+                      ) : (
+                        "Walk-in"
+                      )}
+                    </td>
                     <td className="px-3 py-2">{inv.warehouse_name || inv.warehouse_id || "-"}</td>
                     <td className="px-3 py-2">
                       <StatusChip value={inv.status} />

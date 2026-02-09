@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -157,8 +158,24 @@ export default function ApAgingPage() {
                   {(data?.rows || []).map((r) => (
                     <tr key={r.invoice_id} className="ui-tr-hover">
                       <td className="px-3 py-2 text-xs">{r.bucket}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{r.invoice_no}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{r.supplier_name || "-"}</td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        <ShortcutLink
+                          href={`/purchasing/supplier-invoices/${encodeURIComponent(r.invoice_id)}`}
+                          title="Open supplier invoice"
+                          className="font-mono text-xs"
+                        >
+                          {r.invoice_no}
+                        </ShortcutLink>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">
+                        {r.supplier_id ? (
+                          <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(r.supplier_id)}`} title="Open supplier">
+                            {r.supplier_name || r.supplier_id}
+                          </ShortcutLink>
+                        ) : (
+                          r.supplier_name || "-"
+                        )}
+                      </td>
                       <td className="px-3 py-2 font-mono text-xs">
                         {r.due_date}{" "}
                         <span className="text-fg-subtle">

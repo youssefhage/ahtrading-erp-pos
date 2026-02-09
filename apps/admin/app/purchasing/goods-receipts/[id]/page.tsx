@@ -11,6 +11,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentAttachments } from "@/components/document-attachments";
 import { DocumentTimeline } from "@/components/document-timeline";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -262,7 +263,14 @@ export default function GoodsReceiptViewPage({ params }: { params: { id: string 
                 <span className="text-fg-subtle">Status:</span> <StatusChip value={detail.receipt.status} />
               </div>
               <div>
-                <span className="text-fg-subtle">Supplier:</span> {supplierById.get(detail.receipt.supplier_id || "")?.name || "-"}
+                <span className="text-fg-subtle">Supplier:</span>{" "}
+                {detail.receipt.supplier_id ? (
+                  <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(detail.receipt.supplier_id)}`} title="Open supplier">
+                    {supplierById.get(detail.receipt.supplier_id)?.name || detail.receipt.supplier_id}
+                  </ShortcutLink>
+                ) : (
+                  "-"
+                )}
               </div>
               <div>
                 <span className="text-fg-subtle">Supplier Ref:</span> {(detail.receipt as any).supplier_ref || "-"}
@@ -272,7 +280,14 @@ export default function GoodsReceiptViewPage({ params }: { params: { id: string 
               </div>
               {detail.receipt.purchase_order_id ? (
                 <div>
-                  <span className="text-fg-subtle">PO:</span> {detail.receipt.purchase_order_no || detail.receipt.purchase_order_id}
+                  <span className="text-fg-subtle">PO:</span>{" "}
+                  <ShortcutLink
+                    href={`/purchasing/purchase-orders/${encodeURIComponent(detail.receipt.purchase_order_id)}`}
+                    title="Open purchase order"
+                    className="data-mono"
+                  >
+                    {detail.receipt.purchase_order_no || detail.receipt.purchase_order_id.slice(0, 8)}
+                  </ShortcutLink>
                 </div>
               ) : null}
               <div>
@@ -355,12 +370,18 @@ export default function GoodsReceiptViewPage({ params }: { params: { id: string 
                       <tr key={l.id} className="ui-tr-hover">
                         <td className="px-3 py-2">
                           {itemById.get(l.item_id) ? (
-                            <>
+                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
                               <span className="font-mono text-xs text-fg-muted">{itemById.get(l.item_id)?.sku}</span>{" "}
                               <span className="text-foreground">· {itemById.get(l.item_id)?.name}</span>
-                            </>
+                            </ShortcutLink>
                           ) : (
-                            <span className="font-mono text-xs text-fg-muted">{l.item_id}</span>
+                            <ShortcutLink
+                              href={`/catalog/items/${encodeURIComponent(l.item_id)}`}
+                              title="Open item"
+                              className="font-mono text-xs text-fg-muted"
+                            >
+                              {l.item_id}
+                            </ShortcutLink>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.qty || 0).toFixed(2)}</td>

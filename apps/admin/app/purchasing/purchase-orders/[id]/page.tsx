@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/empty-state";
 import { ViewRaw } from "@/components/view-raw";
 import { DocumentAttachments } from "@/components/document-attachments";
 import { DocumentTimeline } from "@/components/document-timeline";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -263,7 +264,14 @@ export default function PurchaseOrderViewPage({ params }: { params: { id: string
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <div>
-            <span className="text-fg-subtle">Supplier:</span> {order?.supplier_name || order?.supplier_id || "-"}
+            <span className="text-fg-subtle">Supplier:</span>{" "}
+            {order?.supplier_id ? (
+              <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(order.supplier_id)}`} title="Open supplier">
+                {order.supplier_name || order.supplier_id}
+              </ShortcutLink>
+            ) : (
+              "-"
+            )}
           </div>
           <div>
             <span className="text-fg-subtle">Warehouse:</span> {order?.warehouse_name || order?.warehouse_id || "-"}
@@ -319,11 +327,13 @@ export default function PurchaseOrderViewPage({ params }: { params: { id: string
                         <div className="flex flex-col gap-0.5">
                           <div className="font-medium text-foreground">
                             {it ? (
-                              <>
+                              <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
                                 <span className="font-mono text-xs text-fg-muted">{it.sku}</span> · {it.name}
-                              </>
+                              </ShortcutLink>
                             ) : (
-                              <span className="font-mono text-xs">{l.item_id}</span>
+                              <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
+                                {l.item_id}
+                              </ShortcutLink>
                             )}
                           </div>
                           {it?.unit_of_measure ? <div className="font-mono text-[10px] text-fg-subtle">UOM: {String(it.unit_of_measure)}</div> : null}
