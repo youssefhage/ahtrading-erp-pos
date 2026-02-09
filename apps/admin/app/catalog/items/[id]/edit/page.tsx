@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, apiPostForm } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
+import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentAttachments } from "@/components/document-attachments";
 import { DocumentTimeline } from "@/components/document-timeline";
-import { ComboboxInput } from "@/components/combobox-input";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,6 +71,22 @@ type ItemSupplierLinkRow = {
   last_cost_lbp: string | number;
 };
 
+type PriceSuggest = {
+  item_id: string;
+  target_margin_pct: string;
+  rounding: { usd_step: string; lbp_step: string };
+  current: {
+    price_usd: string;
+    price_lbp: string;
+    avg_cost_usd: string;
+    avg_cost_lbp: string;
+    margin_usd: string | null;
+    margin_lbp: string | null;
+  };
+  suggested: { price_usd: string | null; price_lbp: string | null };
+  last_cost_change?: any;
+};
+
 function toNum(v: string) {
   const r = parseNumberInput(v);
   return r.ok ? r.value : 0;
@@ -85,8 +101,6 @@ function parseTags(input: string): string[] | null {
   return uniq.length ? uniq : null;
 }
 
-const DEFAULT_UOMS = ["EA", "PCS", "KG", "G", "L", "ML", "BOX", "PACK", "DOZ", "SET", "M", "CM"];
-
 export default function ItemEditPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -99,6 +113,7 @@ export default function ItemEditPage() {
   const [item, setItem] = useState<Item | null>(null);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [uoms, setUoms] = useState<string[]>([]);
 
   const [barcodes, setBarcodes] = useState<ItemBarcode[]>([]);
   const [newBarcode, setNewBarcode] = useState("");
@@ -117,6 +132,8 @@ export default function ItemEditPage() {
 
   const [saving, setSaving] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
+  const [priceSuggest, setPriceSuggest] = useState<PriceSuggest | null>(null);
+  const [priceBusy, setPriceBusy] = useState(false);
 
   // Editable fields
   const [editSku, setEditSku] = useState("");
@@ -146,10 +163,11 @@ export default function ItemEditPage() {
     setLoading(true);
     setErr(null);
     try {
-      const [it, tc, cats, bc, sup, links] = await Promise.all([
+      const [it, tc, cats, uo, bc, sup, links] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
         apiGet<{ categories: Category[] }>("/item-categories").catch(() => ({ categories: [] as Category[] })),
+        apiGet<{ uoms: string[] }>("/items/uoms?limit=200").catch(() => ({ uoms: [] as string[] })),
         apiGet<{ barcodes: ItemBarcode[] }>(`/items/${encodeURIComponent(id)}/barcodes`).catch(() => ({ barcodes: [] as ItemBarcode[] })),
         apiGet<{ suppliers: SupplierRow[] }>("/suppliers").catch(() => ({ suppliers: [] as SupplierRow[] })),
         apiGet<{ suppliers: ItemSupplierLinkRow[] }>(`/suppliers/items/${encodeURIComponent(id)}`).catch(() => ({ suppliers: [] as ItemSupplierLinkRow[] })),
@@ -158,6 +176,7 @@ export default function ItemEditPage() {
       setItem(row);
       setTaxCodes(tc.tax_codes || []);
       setCategories(cats.categories || []);
+      setUoms((uo.uoms || []).map((x) => String(x || "").trim()).filter(Boolean));
       setBarcodes(bc.barcodes || []);
       setSuppliers(sup.suppliers || []);
       setItemLinks(links.suppliers || []);
@@ -186,6 +205,13 @@ export default function ItemEditPage() {
         setEditImageAlt((row.image_alt as any) || "");
       }
 
+      try {
+        const ps = await apiGet<PriceSuggest>(`/pricing/items/${encodeURIComponent(id)}/suggested-price`);
+        setPriceSuggest(ps || null);
+      } catch {
+        setPriceSuggest(null);
+      }
+
       setStatus("");
     } catch (e) {
       setItem(null);
@@ -198,6 +224,24 @@ export default function ItemEditPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const uomOptions = useMemo(() => {
+    const out: Array<{ value: string; label: string }> = [];
+    const seen = new Set<string>();
+    const cur = String(editUom || "").trim();
+    if (cur && !seen.has(cur) && !(uoms || []).includes(cur)) {
+      // If DB contains an unexpected UOM, still show it so the user can correct it.
+      seen.add(cur);
+      out.push({ value: cur, label: `${cur} (current)` });
+    }
+    for (const x of uoms || []) {
+      const v = String(x || "").trim();
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      out.push({ value: v, label: v });
+    }
+    return out;
+  }, [uoms, editUom]);
 
   const title = useMemo(() => {
     if (loading) return "Loading...";
@@ -247,6 +291,37 @@ export default function ItemEditPage() {
     }
   }
 
+  async function applySuggestedPrice() {
+    if (!item) return;
+    if (!priceSuggest?.suggested?.price_usd && !priceSuggest?.suggested?.price_lbp) {
+      setStatus("No suggested price available (missing cost or price).");
+      return;
+    }
+    setPriceBusy(true);
+    setStatus("Applying suggested price...");
+    try {
+      const usd = priceSuggest?.suggested?.price_usd
+        ? Number(priceSuggest.suggested.price_usd)
+        : Number(priceSuggest?.current?.price_usd || 0);
+      const lbp = priceSuggest?.suggested?.price_lbp
+        ? Number(priceSuggest.suggested.price_lbp)
+        : Number(priceSuggest?.current?.price_lbp || 0);
+      const today = new Date().toISOString().slice(0, 10);
+      await apiPost(`/items/${encodeURIComponent(item.id)}/prices`, {
+        price_usd: usd,
+        price_lbp: lbp,
+        effective_from: today,
+        effective_to: null
+      });
+      await load();
+      setStatus("");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPriceBusy(false);
+    }
+  }
+
   async function uploadImage(file: File) {
     if (!item) return;
     setImageUploading(true);
@@ -256,9 +331,7 @@ export default function ItemEditPage() {
       fd.set("entity_type", "item_image");
       fd.set("entity_id", item.id);
       fd.set("file", file);
-      const raw = await fetch(`/api/attachments`, { method: "POST", body: fd, credentials: "include" });
-      if (!raw.ok) throw new Error(await raw.text());
-      const res = (await raw.json()) as { id: string };
+      const res = await apiPostForm<{ id: string }>("/attachments", fd);
       await apiPatch(`/items/${encodeURIComponent(item.id)}`, { image_attachment_id: res.id });
       setEditImageAttachmentId(res.id);
       await load();
@@ -451,6 +524,60 @@ export default function ItemEditPage() {
         <>
           <Card>
             <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <CardTitle>Pricing</CardTitle>
+                  <CardDescription>Current margin and a safe suggested sell price (v1).</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" onClick={load} disabled={priceBusy || saving || loading}>
+                    Refresh
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={applySuggestedPrice}
+                    disabled={priceBusy || saving || !(priceSuggest?.suggested?.price_usd || priceSuggest?.suggested?.price_lbp)}
+                  >
+                    Apply Suggested
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-3 text-sm md:grid-cols-3">
+              <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+                <div className="text-xs font-medium text-fg-muted">Current Price</div>
+                <div className="mt-1 data-mono font-medium">
+                  {fmtUsd(priceSuggest?.current?.price_usd || 0)} · {fmtLbp(priceSuggest?.current?.price_lbp || 0)}
+                </div>
+                <div className="mt-2 text-xs text-fg-subtle">
+                  Target margin: {priceSuggest ? `${(Number(priceSuggest.target_margin_pct) * 100).toFixed(0)}%` : "-"}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+                <div className="text-xs font-medium text-fg-muted">Average Cost</div>
+                <div className="mt-1 data-mono font-medium">
+                  {fmtUsd(priceSuggest?.current?.avg_cost_usd || 0)} · {fmtLbp(priceSuggest?.current?.avg_cost_lbp || 0)}
+                </div>
+                <div className="mt-2 text-xs text-fg-subtle">
+                  Current margin (USD):{" "}
+                  {priceSuggest?.current?.margin_usd != null ? `${(Number(priceSuggest.current.margin_usd) * 100).toFixed(1)}%` : "-"}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+                <div className="text-xs font-medium text-fg-muted">Suggested Price</div>
+                <div className="mt-1 data-mono font-medium">
+                  {priceSuggest?.suggested?.price_usd ? fmtUsd(priceSuggest.suggested.price_usd) : "-"} ·{" "}
+                  {priceSuggest?.suggested?.price_lbp ? fmtLbp(priceSuggest.suggested.price_lbp) : "-"}
+                </div>
+                <div className="mt-2 text-xs text-fg-subtle">
+                  Rounding: USD step {priceSuggest?.rounding?.usd_step || "-"} · LBP step {priceSuggest?.rounding?.lbp_step || "-"}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Item</CardTitle>
               <CardDescription>Core fields used by Sales, Purchasing, and Inventory.</CardDescription>
             </CardHeader>
@@ -475,13 +602,13 @@ export default function ItemEditPage() {
                 </div>
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">UOM</label>
-                  <ComboboxInput
+                  <SearchableSelect
                     value={editUom}
                     onChange={setEditUom}
                     disabled={saving}
-                    endpoint="/items/uoms"
-                    responseKey="uoms"
-                    fallbackSuggestions={DEFAULT_UOMS}
+                    placeholder="Select UOM..."
+                    searchPlaceholder="Search UOMs..."
+                    options={uomOptions}
                   />
                 </div>
                 <div className="space-y-1 md:col-span-2">

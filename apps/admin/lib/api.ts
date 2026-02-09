@@ -28,6 +28,12 @@ export function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
 }
 
+export function apiUrl(path: string): string {
+  const base = apiBase().replace(/\/+$/, "");
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${p}`;
+}
+
 export function getCompanyId(): string {
   if (typeof window === "undefined") return "";
   return window.localStorage.getItem(storageKeys.companyId) || "";
@@ -75,6 +81,22 @@ function headers(extra?: Record<string, string>) {
   return { ...h, ...(extra || {}) };
 }
 
+function headersForm(extra?: Record<string, string>) {
+  const rid = (() => {
+    try {
+      return globalThis.crypto && "randomUUID" in globalThis.crypto
+        ? (globalThis.crypto as Crypto).randomUUID()
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  const h: Record<string, string> = {};
+  // Don't set Content-Type for FormData; the browser will set the boundary.
+  if (rid) h["X-Request-Id"] = rid;
+  return { ...h, ...(extra || {}) };
+}
+
 function extractJsonMessage(body: unknown): string {
   if (!body || typeof body !== "object") return "";
   const b = body as Record<string, unknown>;
@@ -117,7 +139,7 @@ async function handle(res: Response) {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const raw = await fetch(`${apiBase()}${path}`, {
+  const raw = await fetch(apiUrl(path), {
     headers: headers(),
     credentials: "include"
   });
@@ -126,7 +148,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const raw = await fetch(`${apiBase()}${path}`, {
+  const raw = await fetch(apiUrl(path), {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(body),
@@ -137,7 +159,7 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
-  const raw = await fetch(`${apiBase()}${path}`, {
+  const raw = await fetch(apiUrl(path), {
     method: "PATCH",
     headers: headers(),
     body: JSON.stringify(body),
@@ -148,9 +170,20 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {
-  const raw = await fetch(`${apiBase()}${path}`, {
+  const raw = await fetch(apiUrl(path), {
     method: "DELETE",
     headers: headers(),
+    credentials: "include"
+  });
+  const res = await handle(raw);
+  return (await res.json()) as T;
+}
+
+export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
+  const raw = await fetch(apiUrl(path), {
+    method: "POST",
+    headers: headersForm(),
+    body,
     credentials: "include"
   });
   const res = await handle(raw);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPostForm, apiUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorBanner } from "@/components/error-banner";
@@ -67,8 +67,7 @@ export function DocumentAttachments(props: {
       fd.set("entity_type", props.entityType);
       fd.set("entity_id", props.entityId);
       fd.set("file", f);
-      const raw = await fetch("/api/attachments", { method: "POST", body: fd, credentials: "include" });
-      if (!raw.ok) throw new Error(await raw.text());
+      await apiPostForm<{ id: string }>("/attachments", fd);
       await load();
       if (input) input.value = "";
     } catch (e2) {
@@ -130,12 +129,12 @@ export function DocumentAttachments(props: {
                   <td className="px-3 py-2 text-right">
                     <div className="inline-flex items-center gap-2">
                       <Button asChild size="sm" variant="outline">
-                        <a href={`/api/attachments/${encodeURIComponent(a.id)}/view`} target="_blank" rel="noreferrer">
+                        <a href={apiUrl(`/attachments/${encodeURIComponent(a.id)}/view`)} target="_blank" rel="noreferrer">
                           View
                         </a>
                       </Button>
                       <Button asChild size="sm" variant="outline">
-                        <a href={`/api/attachments/${encodeURIComponent(a.id)}/download`} target="_blank" rel="noreferrer">
+                        <a href={apiUrl(`/attachments/${encodeURIComponent(a.id)}/download`)} target="_blank" rel="noreferrer">
                           Download
                         </a>
                       </Button>
@@ -157,4 +156,3 @@ export function DocumentAttachments(props: {
     </Card>
   );
 }
-

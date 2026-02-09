@@ -521,19 +521,36 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
 
 
 @router.post("/{item_id}/prices", dependencies=[Depends(require_permission("items:write"))])
-def add_item_price(item_id: str, data: ItemPriceIn, company_id: str = Depends(get_company_id)):
+def add_item_price(item_id: str, data: ItemPriceIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to)
-                VALUES (gen_random_uuid(), %s, %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (item_id, data.price_usd, data.price_lbp, data.effective_from, data.effective_to),
-            )
-            return {"id": cur.fetchone()["id"]}
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM items WHERE company_id=%s AND id=%s",
+                    (company_id, item_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="item not found")
+
+                cur.execute(
+                    """
+                    INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to, source_type, source_id)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, 'manual', gen_random_uuid())
+                    RETURNING id
+                    """,
+                    (item_id, data.price_usd, data.price_lbp, data.effective_from, data.effective_to),
+                )
+                price_id = cur.fetchone()["id"]
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_price_added', 'item', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], item_id, json.dumps({"item_price_id": str(price_id), **data.model_dump()}, default=str)),
+                )
+                return {"id": price_id}
 
 
 @router.get("/{item_id}/prices", dependencies=[Depends(require_permission("items:read"))])
