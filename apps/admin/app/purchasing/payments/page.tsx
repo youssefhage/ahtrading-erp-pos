@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtUsd } from "@/lib/money";
+import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
+import { MoneyInput } from "@/components/money-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -37,8 +39,8 @@ type SupplierPaymentRow = {
 };
 
 function toNum(v: string) {
-  const n = Number(v || 0);
-  return Number.isFinite(n) ? n : 0;
+  const r = parseNumberInput(v);
+  return r.ok ? r.value : 0;
 }
 
 export default function SupplierPaymentsPage() {
@@ -239,16 +241,28 @@ export default function SupplierPaymentsPage() {
                             {a.name} ({a.currency})
                           </option>
                         ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Amount USD</label>
-                      <Input value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} />
-                    </div>
-                    <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Amount LL</label>
-                      <Input value={amountLbp} onChange={(e) => setAmountLbp(e.target.value)} />
-                    </div>
+                  </select>
+                </div>
+                <MoneyInput
+                  className="md:col-span-3"
+                  label="Amount"
+                  currency="USD"
+                  value={amountUsd}
+                  onChange={setAmountUsd}
+                  placeholder="0"
+                  quick={[0, 1, 10]}
+                  disabled={creating}
+                />
+                <MoneyInput
+                  className="md:col-span-3"
+                  label="Amount"
+                  currency="LBP"
+                  value={amountLbp}
+                  onChange={setAmountLbp}
+                  placeholder="0"
+                  quick={[0, 1, 10]}
+                  disabled={creating}
+                />
                     <div className="flex justify-end md:col-span-6">
                       <Button type="submit" disabled={creating}>
                         {creating ? "..." : "Post Payment"}

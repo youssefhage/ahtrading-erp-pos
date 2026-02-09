@@ -313,6 +313,18 @@ export function DataTable<T>(props: DataTableProps<T>) {
                   key={key}
                   className={cn("ui-tr ui-tr-hover", onRowClick && "cursor-pointer")}
                   onClick={onRowClick ? () => onRowClick(r) : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  role={onRowClick ? "button" : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onRowClick(r);
+                          }
+                        }
+                      : undefined
+                  }
                 >
                   {visibleColumns.map((c) => (
                     <td

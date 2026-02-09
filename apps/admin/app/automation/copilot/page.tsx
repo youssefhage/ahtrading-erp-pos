@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { AiSetupGate } from "@/components/ai-setup-gate";
 import { ViewRaw } from "@/components/view-raw";
+import { Page } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -79,7 +81,8 @@ export default function CopilotChatPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page>
+        {err ? <AiSetupGate error={err} /> : null}
         {err ? <ErrorBanner error={err} /> : null}
 
         <Card>
@@ -321,5 +324,5 @@ export default function CopilotChatPage() {
             </CardContent>
           </Card>
         ) : null}
-      </div>);
+      </Page>);
 }

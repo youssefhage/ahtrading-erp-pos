@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { parseNumberInput } from "@/lib/numbers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
+import { MoneyInput } from "@/components/money-input";
 
 type BankAccountRow = {
   id: string;
@@ -134,8 +136,14 @@ export default function BankingReconciliationPage() {
   async function createTxn(e: React.FormEvent) {
     e.preventDefault();
     if (!txnBankAccountId) return setStatus("Pick a bank account.");
-    const usd = Number(amountUsd || 0);
-    const lbp = Number(amountLbp || 0);
+    const usd = (() => {
+      const r = parseNumberInput(amountUsd);
+      return r.ok ? r.value : 0;
+    })();
+    const lbp = (() => {
+      const r = parseNumberInput(amountLbp);
+      return r.ok ? r.value : 0;
+    })();
     if (usd <= 0 && lbp <= 0) return setStatus("Enter an amount.");
     setCreating(true);
     setStatus("Creating...");
@@ -407,14 +415,24 @@ export default function BankingReconciliationPage() {
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Amount USD</label>
-                        <Input value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} inputMode="decimal" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Amount LL</label>
-                        <Input value={amountLbp} onChange={(e) => setAmountLbp(e.target.value)} inputMode="decimal" />
-                      </div>
+                      <MoneyInput
+                        label="Amount"
+                        currency="USD"
+                        value={amountUsd}
+                        onChange={setAmountUsd}
+                        placeholder="0"
+                        quick={[0, 1, 10]}
+                        disabled={creating}
+                      />
+                      <MoneyInput
+                        label="Amount"
+                        currency="LBP"
+                        value={amountLbp}
+                        onChange={setAmountLbp}
+                        placeholder="0"
+                        quick={[0, 1, 10]}
+                        disabled={creating}
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">

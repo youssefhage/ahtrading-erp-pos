@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { AiSetupGate } from "@/components/ai-setup-gate";
 import { ViewRaw } from "@/components/view-raw";
+import { Page } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -135,7 +137,8 @@ export default function OpsCopilotPage() {
   const recentJobFailures = data?.jobs.recent_failed_runs || [];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page>
+        {err ? <AiSetupGate error={err} /> : null}
         {err ? <ErrorBanner error={err} onRetry={load} /> : null}
 
         <div className="flex items-center justify-between gap-3">
@@ -170,7 +173,34 @@ export default function OpsCopilotPage() {
                   Pending By Agent
                 </div>
                 <div className="mt-2">
-                  <ViewRaw value={pendingByAgent} />
+                  {Object.keys(pendingByAgent).length ? (
+                    <div className="space-y-2">
+                      <div className="ui-table-wrap">
+                        <table className="ui-table">
+                          <thead className="ui-thead">
+                            <tr>
+                              <th className="px-3 py-2">Agent</th>
+                              <th className="px-3 py-2 text-right">Pending</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(pendingByAgent)
+                              .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+                              .slice(0, 12)
+                              .map(([k, v]) => (
+                                <tr key={k} className="ui-tr ui-tr-hover">
+                                  <td className="px-3 py-2 font-mono text-xs text-fg-muted">{k}</td>
+                                  <td className="px-3 py-2 text-right data-mono">{String(v || 0)}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <ViewRaw value={pendingByAgent} label="View raw pending by agent" />
+                    </div>
+                  ) : (
+                    <div className="text-xs text-fg-subtle">No pending recommendations.</div>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -376,5 +406,5 @@ export default function OpsCopilotPage() {
             </CardContent>
           </Card>
         </div>
-      </div>);
+      </Page>);
 }

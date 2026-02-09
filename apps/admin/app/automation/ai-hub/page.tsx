@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { AiSetupGate } from "@/components/ai-setup-gate";
 import { ViewRaw } from "@/components/view-raw";
+import { Page } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -287,7 +289,8 @@ export default function AiHubPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page>
+        {err ? <AiSetupGate error={err} /> : null}
         {err ? <ErrorBanner error={err} onRetry={load} /> : null}
 
         <div className="flex items-center justify-end">
@@ -731,5 +734,5 @@ export default function AiHubPage() {
             </div>
           </CardContent>
         </Card>
-      </div>);
+      </Page>);
 }

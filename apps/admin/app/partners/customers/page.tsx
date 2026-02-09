@@ -149,7 +149,21 @@ export default function CustomersPage() {
   const columns = useMemo(() => {
     const cols: Array<DataTableColumn<Customer>> = [
       { id: "code", header: "Code", sortable: true, mono: true, defaultHidden: true, accessor: (c) => c.code || "" },
-      { id: "name", header: "Name", sortable: true, accessor: (c) => c.name, cell: (c) => <span className="font-medium">{c.name}</span> },
+      {
+        id: "name",
+        header: "Name",
+        sortable: true,
+        accessor: (c) => c.name,
+        cell: (c) => (
+          <button
+            type="button"
+            className="ui-link text-left font-medium"
+            onClick={() => setCustomerId(c.id)}
+          >
+            {c.name}
+          </button>
+        )
+      },
       {
         id: "party_type",
         header: "Type",
@@ -755,20 +769,19 @@ export default function CustomersPage() {
 	          </CardHeader>
 
 	          <CardContent className="space-y-3">
-              <DataTable
-                tableId="partners.customers"
-                rows={customers}
-                columns={columns}
-                getRowId={(c) => c.id}
-                onRowClick={(c) => setCustomerId(c.id)}
-                globalFilterPlaceholder="Search name, code, phone, email, VAT, tax id, membership..."
-                emptyText="No customers yet."
-                actions={
-                  <Button size="sm" variant="outline" onClick={load}>
-                    Refresh
-                  </Button>
-                }
-              />
+	              <DataTable
+	                tableId="partners.customers"
+	                rows={customers}
+	                columns={columns}
+	                getRowId={(c) => c.id}
+	                globalFilterPlaceholder="Search name, code, phone, email, VAT, tax id, membership..."
+	                emptyText="No customers yet."
+	                actions={
+	                  <Button size="sm" variant="outline" onClick={load}>
+	                    Refresh
+	                  </Button>
+	                }
+	              />
 
 	            {detail ? (
 	              <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
