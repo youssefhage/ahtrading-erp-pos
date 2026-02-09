@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from ..ai.policy import is_external_ai_allowed
+from ..ai.providers import get_ai_provider_config
 from ..ai.purchase_invoice_import import (
     openai_extract_purchase_invoice_from_image,
     openai_extract_purchase_invoice_from_text,
@@ -119,13 +120,21 @@ def extract_purchase_invoice_best_effort(
         warnings.append("External AI processing is disabled for this company; created draft + attached file only.")
         return None
 
-    if not os.environ.get("OPENAI_API_KEY"):
-        warnings.append("OPENAI_API_KEY is not configured; created draft + attached file only.")
+    cfg = get_ai_provider_config(cur, company_id)
+    if not cfg.get("api_key"):
+        warnings.append("AI provider API key is not configured; created draft + attached file only.")
         return None
 
     ct = (content_type or "application/octet-stream").strip().lower()
     if ct.startswith("image/"):
-        return openai_extract_purchase_invoice_from_image(raw=raw, content_type=content_type, filename=filename)
+        return openai_extract_purchase_invoice_from_image(
+            raw=raw,
+            content_type=content_type,
+            filename=filename,
+            model=cfg.get("invoice_vision_model"),
+            base_url=cfg.get("base_url"),
+            api_key=cfg.get("api_key"),
+        )
 
     if ct == "application/pdf":
         # Best-effort PDF text extraction (works for text-based PDFs).
@@ -152,7 +161,13 @@ def extract_purchase_invoice_best_effort(
 
             if pdf_text:
                 try:
-                    return openai_extract_purchase_invoice_from_text(text=pdf_text, filename=filename)
+                    return openai_extract_purchase_invoice_from_text(
+                        text=pdf_text,
+                        filename=filename,
+                        model=cfg.get("invoice_text_model"),
+                        base_url=cfg.get("base_url"),
+                        api_key=cfg.get("api_key"),
+                    )
                 except Exception as ex:
                     warnings.append(f"Text extraction parse failed: {ex}")
 
@@ -178,7 +193,14 @@ def extract_purchase_invoice_best_effort(
                     if not img_raw:
                         warnings.append("Rendered PDF page image was empty (unexpected).")
                         return None
-                    return openai_extract_purchase_invoice_from_image(raw=img_raw, content_type="image/png", filename=filename)
+                    return openai_extract_purchase_invoice_from_image(
+                        raw=img_raw,
+                        content_type="image/png",
+                        filename=filename,
+                        model=cfg.get("invoice_vision_model"),
+                        base_url=cfg.get("base_url"),
+                        api_key=cfg.get("api_key"),
+                    )
             except FileNotFoundError:
                 warnings.append("pdftoppm is not installed; image-based PDF import needs poppler-utils.")
                 return None

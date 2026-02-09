@@ -6,25 +6,23 @@ import urllib.error
 from typing import Any, Optional
 
 
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com").rstrip("/")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
-
-
 def _b64_data_url(content_type: str, raw: bytes) -> str:
     ct = (content_type or "application/octet-stream").strip() or "application/octet-stream"
     b64 = base64.b64encode(raw).decode("ascii")
     return f"data:{ct};base64,{b64}"
 
 
-def _responses_api_call(payload: dict[str, Any]) -> dict[str, Any]:
-    if not OPENAI_API_KEY:
+def _responses_api_call(payload: dict[str, Any], *, base_url: str | None = None, api_key: str | None = None) -> dict[str, Any]:
+    use_base = (base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com").rstrip("/")
+    use_key = (api_key or os.environ.get("OPENAI_API_KEY") or "").strip()
+    if not use_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
-    url = f"{OPENAI_BASE_URL}/v1/responses"
+    url = f"{use_base}/v1/responses"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Authorization": f"Bearer {use_key}",
             "Content-Type": "application/json",
         },
         method="POST",
@@ -57,6 +55,8 @@ def openai_extract_purchase_invoice_from_image(
     content_type: str,
     filename: str,
     model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     Use an OpenAI vision-capable model to extract a purchase invoice into structured JSON.
@@ -154,7 +154,7 @@ def openai_extract_purchase_invoice_from_image(
         },
     }
 
-    res = _responses_api_call(payload)
+    res = _responses_api_call(payload, base_url=base_url, api_key=api_key)
     out_text = _extract_output_text(res)
     try:
         return json.loads(out_text)
@@ -167,6 +167,8 @@ def openai_extract_purchase_invoice_from_text(
     text: str,
     filename: str,
     model: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     Extract invoice info from already-extracted text (e.g., pdftotext output).
@@ -232,10 +234,9 @@ def openai_extract_purchase_invoice_from_text(
         "input": [{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
         "text": {"format": {"type": "json_schema", "name": "purchase_invoice_extract_text", "strict": True, "schema": schema}},
     }
-    res = _responses_api_call(payload)
+    res = _responses_api_call(payload, base_url=base_url, api_key=api_key)
     out_text = _extract_output_text(res)
     try:
         return json.loads(out_text)
     except Exception as e:
         raise RuntimeError(f"OpenAI returned invalid JSON: {out_text[:500]}") from e
-

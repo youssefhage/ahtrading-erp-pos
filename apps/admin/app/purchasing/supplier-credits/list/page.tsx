@@ -1,0 +1,238 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { apiGet } from "@/lib/api";
+import { fmtLbp, fmtUsd } from "@/lib/money";
+import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
+import { ShortcutLink } from "@/components/shortcut-link";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { ErrorBanner } from "@/components/error-banner";
+
+type CreditRow = {
+  id: string;
+  credit_no: string;
+  status: "draft" | "posted" | "canceled";
+  kind: "expense" | "receipt";
+  supplier_id: string;
+  supplier_name: string | null;
+  goods_receipt_id: string | null;
+  goods_receipt_status: string | null;
+  credit_date: string;
+  total_usd: string | number;
+  total_lbp: string | number;
+  applied_usd: string | number;
+  applied_lbp: string | number;
+  remaining_usd: string | number;
+  remaining_lbp: string | number;
+  created_at: string;
+  posted_at: string | null;
+};
+
+type Res = { credits: CreditRow[] };
+
+export default function SupplierCreditsListPage() {
+  const [status, setStatus] = useState("");
+  const [data, setData] = useState<Res | null>(null);
+
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [docStatus, setDocStatus] = useState("");
+  const [supplierId, setSupplierId] = useState("");
+  const [supplierLabel, setSupplierLabel] = useState("");
+
+  const totals = useMemo(() => {
+    let remainingUsd = 0;
+    let remainingLbp = 0;
+    for (const r of data?.credits || []) {
+      remainingUsd += Number(r.remaining_usd || 0);
+      remainingLbp += Number(r.remaining_lbp || 0);
+    }
+    return { remainingUsd, remainingLbp };
+  }, [data]);
+
+  const load = useCallback(async () => {
+    setStatus("Loading...");
+    try {
+      const params = new URLSearchParams();
+      if (q.trim()) params.set("q", q.trim());
+      if (docStatus) params.set("status", docStatus);
+      if (supplierId) params.set("supplier_id", supplierId);
+      const res = await apiGet<Res>(`/purchases/credits${params.toString() ? `?${params.toString()}` : ""}`);
+      setData(res);
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }, [q, docStatus, supplierId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  function onSelectSupplier(s: SupplierTypeaheadSupplier) {
+    setSupplierId(s.id);
+    setSupplierLabel(`${s.code ? `${s.code} · ` : ""}${s.name}`);
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-6">
+      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Supplier Credits</CardTitle>
+          <CardDescription>Vendor rebates/credit notes: post to GL and apply to invoices.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-2">
+          <Button variant="outline" onClick={load}>
+            Refresh
+          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline">Filters</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Filters</DialogTitle>
+                  <DialogDescription>Search and narrow down supplier credits.</DialogDescription>
+                </DialogHeader>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-medium text-fg-muted">Search</label>
+                    <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Credit no or memo..." />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Status</label>
+                    <select className="ui-select w-full" value={docStatus} onChange={(e) => setDocStatus(e.target.value)}>
+                      <option value="">All</option>
+                      <option value="draft">draft</option>
+                      <option value="posted">posted</option>
+                      <option value="canceled">canceled</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Supplier</label>
+                    <SupplierTypeahead
+                      onSelect={onSelectSupplier}
+                      onClear={() => {
+                        setSupplierId("");
+                        setSupplierLabel("");
+                      }}
+                      placeholder={supplierLabel || "Search supplier..."}
+                    />
+                    {supplierId ? (
+                      <div className="text-[11px] text-fg-muted">
+                        Filtering by supplier.{" "}
+                        <button
+                          type="button"
+                          className="underline"
+                          onClick={() => {
+                            setSupplierId("");
+                            setSupplierLabel("");
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex justify-end md:col-span-2">
+                    <Button
+                      onClick={async () => {
+                        setFiltersOpen(false);
+                        await load();
+                      }}
+                    >
+                      Apply
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
+            <Button asChild>
+              <a href="/purchasing/supplier-credits/new">New Credit</a>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Totals</CardTitle>
+          <CardDescription>Remaining credit across returned rows.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="rounded-md border border-border bg-bg-elevated p-3">
+            <div className="text-xs text-fg-subtle">Remaining USD</div>
+            <div className="mt-1 data-mono text-sm">{fmtUsd(totals.remainingUsd)}</div>
+          </div>
+          <div className="rounded-md border border-border bg-bg-elevated p-3">
+            <div className="text-xs text-fg-subtle">Remaining LL</div>
+            <div className="mt-1 data-mono text-sm">{fmtLbp(totals.remainingLbp)}</div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Credits</CardTitle>
+          <CardDescription>{data?.credits?.length || 0} credits</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="ui-table-wrap">
+            <table className="ui-table">
+              <thead className="ui-thead">
+                <tr>
+                  <th className="px-3 py-2">Credit</th>
+                  <th className="px-3 py-2">Supplier</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Kind</th>
+                  <th className="px-3 py-2 text-right">Total</th>
+                  <th className="px-3 py-2 text-right">Remaining</th>
+                  <th className="px-3 py-2">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.credits || []).map((c) => (
+                  <tr key={c.id} className="ui-tr-hover">
+                    <td className="px-3 py-2 font-mono text-xs">
+                      <ShortcutLink href={`/purchasing/supplier-credits/${encodeURIComponent(c.id)}`} title="Open credit">
+                        {c.credit_no}
+                      </ShortcutLink>
+                    </td>
+                    <td className="px-3 py-2 text-xs">{c.supplier_name || c.supplier_id}</td>
+                    <td className="px-3 py-2 text-xs">{c.status}</td>
+                    <td className="px-3 py-2 text-xs">{c.kind}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs">
+                      {fmtUsd(c.total_usd)}
+                      <div className="text-[11px] text-fg-muted">{fmtLbp(c.total_lbp)}</div>
+                    </td>
+                    <td className="px-3 py-2 text-right data-mono text-xs">
+                      {fmtUsd(c.remaining_usd)}
+                      <div className="text-[11px] text-fg-muted">{fmtLbp(c.remaining_lbp)}</div>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-fg-muted">{c.credit_date}</td>
+                  </tr>
+                ))}
+                {(data?.credits || []).length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
+                      No credits found.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+

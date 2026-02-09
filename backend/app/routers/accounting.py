@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Literal, Optional
 import json
@@ -101,6 +101,51 @@ class ManualJournalIn(BaseModel):
     exchange_rate: Optional[Decimal] = None
     memo: Optional[str] = None
     lines: List[JournalLineIn]
+
+
+class JournalTemplateLineIn(BaseModel):
+    account_id: Optional[str] = None
+    account_code: Optional[str] = None
+    side: Literal["debit", "credit"]
+    amount_usd: Optional[Decimal] = None
+    amount_lbp: Optional[Decimal] = None
+    memo: Optional[str] = None
+    cost_center_id: Optional[str] = None
+    project_id: Optional[str] = None
+
+
+class JournalTemplateIn(BaseModel):
+    name: str
+    is_active: bool = True
+    memo: Optional[str] = None
+    default_rate_type: RateType = "market"
+    lines: List[JournalTemplateLineIn]
+
+
+class JournalTemplateUpdateIn(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+    memo: Optional[str] = None
+    default_rate_type: Optional[RateType] = None
+    lines: Optional[List[JournalTemplateLineIn]] = None
+
+
+class CreateFromTemplateIn(BaseModel):
+    journal_date: date
+    rate_type: Optional[RateType] = None
+    exchange_rate: Optional[Decimal] = None
+    memo: Optional[str] = None
+
+
+def _month_range(as_of: date) -> tuple[date, date]:
+    start = as_of.replace(day=1)
+    # next month start
+    if start.month == 12:
+        nxt = start.replace(year=start.year + 1, month=1)
+    else:
+        nxt = start.replace(month=start.month + 1)
+    end = nxt - timedelta(days=1)
+    return start, end
 
 def _fetch_account_defaults(cur, company_id: str) -> dict:
     cur.execute(
@@ -467,6 +512,646 @@ def create_manual_journal(
                 )
 
                 return {"id": journal_id, "journal_no": journal_no}
+
+
+@router.get("/journal-templates", dependencies=[Depends(require_permission("accounting:read"))])
+def list_journal_templates(company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.id, t.name, t.is_active, t.memo, t.default_rate_type,
+                       t.created_at, t.updated_at,
+                       u.email AS created_by_email,
+                       COALESCE(cnt.line_count, 0) AS line_count
+                FROM journal_templates t
+                LEFT JOIN users u ON u.id = t.created_by_user_id
+                LEFT JOIN (
+                  SELECT journal_template_id, COUNT(*)::int AS line_count
+                  FROM journal_template_lines
+                  WHERE company_id=%s
+                  GROUP BY journal_template_id
+                ) cnt ON cnt.journal_template_id = t.id
+                WHERE t.company_id=%s
+                ORDER BY t.created_at DESC
+                """,
+                (company_id, company_id),
+            )
+            return {"templates": cur.fetchall()}
+
+
+@router.get("/journal-templates/{template_id}", dependencies=[Depends(require_permission("accounting:read"))])
+def get_journal_template(template_id: str, company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t.*
+                FROM journal_templates t
+                WHERE t.company_id=%s AND t.id=%s
+                """,
+                (company_id, template_id),
+            )
+            tpl = cur.fetchone()
+            if not tpl:
+                raise HTTPException(status_code=404, detail="template not found")
+            cur.execute(
+                """
+                SELECT l.id, l.line_no, l.account_id, a.account_code, a.name_en,
+                       l.side, l.amount_usd, l.amount_lbp, l.memo,
+                       l.cost_center_id, cc.code AS cost_center_code, cc.name AS cost_center_name,
+                       l.project_id, pr.code AS project_code, pr.name AS project_name
+                FROM journal_template_lines l
+                JOIN company_coa_accounts a ON a.id = l.account_id
+                LEFT JOIN cost_centers cc ON cc.id = l.cost_center_id
+                LEFT JOIN projects pr ON pr.id = l.project_id
+                WHERE l.company_id=%s AND l.journal_template_id=%s
+                ORDER BY l.line_no ASC
+                """,
+                (company_id, template_id),
+            )
+            return {"template": tpl, "lines": cur.fetchall()}
+
+
+@router.post("/journal-templates", dependencies=[Depends(require_permission("accounting:write"))])
+def create_journal_template(data: JournalTemplateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if not data.lines:
+        raise HTTPException(status_code=400, detail="at least one line is required")
+    if len(data.lines) > 200:
+        raise HTTPException(status_code=400, detail="too many lines (max 200)")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO journal_templates
+                      (id, company_id, name, is_active, memo, default_rate_type, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (company_id, name, bool(data.is_active), (data.memo or "").strip() or None, data.default_rate_type, user["user_id"]),
+                )
+                tid = cur.fetchone()["id"]
+
+                total_debit_usd = Decimal("0")
+                total_credit_usd = Decimal("0")
+                total_debit_lbp = Decimal("0")
+                total_credit_lbp = Decimal("0")
+
+                for idx, line in enumerate(data.lines, start=1):
+                    account_id = (line.account_id or "").strip() or None
+                    if not account_id and (line.account_code or "").strip():
+                        cur.execute(
+                            "SELECT id FROM company_coa_accounts WHERE company_id=%s AND account_code=%s",
+                            (company_id, (line.account_code or "").strip()),
+                        )
+                        row = cur.fetchone()
+                        if not row:
+                            raise HTTPException(status_code=400, detail=f"line {idx}: account_code not found")
+                        account_id = row["id"]
+                    if not account_id:
+                        raise HTTPException(status_code=400, detail=f"line {idx}: account_id or account_code is required")
+
+                    amount_usd = Decimal(str(line.amount_usd or 0))
+                    amount_lbp = Decimal(str(line.amount_lbp or 0))
+                    if amount_usd == 0 and amount_lbp == 0:
+                        raise HTTPException(status_code=400, detail=f"line {idx}: amount_usd or amount_lbp is required")
+
+                    if line.side == "debit":
+                        total_debit_usd += q_usd(amount_usd)
+                        total_debit_lbp += q_lbp(amount_lbp)
+                    else:
+                        total_credit_usd += q_usd(amount_usd)
+                        total_credit_lbp += q_lbp(amount_lbp)
+
+                    cost_center_id = (line.cost_center_id or "").strip() or None
+                    if cost_center_id:
+                        cur.execute("SELECT 1 FROM cost_centers WHERE company_id=%s AND id=%s", (company_id, cost_center_id))
+                        if not cur.fetchone():
+                            raise HTTPException(status_code=400, detail=f"line {idx}: cost_center_id not found")
+                    project_id = (line.project_id or "").strip() or None
+                    if project_id:
+                        cur.execute("SELECT 1 FROM projects WHERE company_id=%s AND id=%s", (company_id, project_id))
+                        if not cur.fetchone():
+                            raise HTTPException(status_code=400, detail=f"line {idx}: project_id not found")
+
+                    cur.execute(
+                        """
+                        INSERT INTO journal_template_lines
+                          (id, company_id, journal_template_id, line_no, account_id, side, amount_usd, amount_lbp, memo, cost_center_id, project_id)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            company_id,
+                            tid,
+                            idx,
+                            account_id,
+                            line.side,
+                            q_usd(amount_usd),
+                            q_lbp(amount_lbp),
+                            (line.memo or "").strip() or None,
+                            cost_center_id,
+                            project_id,
+                        ),
+                    )
+
+                # Guardrail: templates should be balanced so they can run without surprises.
+                if q_usd(total_debit_usd - total_credit_usd) != 0 or q_lbp(total_debit_lbp - total_credit_lbp) != 0:
+                    raise HTTPException(status_code=400, detail="template is imbalanced (debits != credits)")
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'accounting.journal_template.create', 'journal_template', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], tid, json.dumps({"name": name, "line_count": len(data.lines)})),
+                )
+                return {"id": tid}
+
+
+@router.patch("/journal-templates/{template_id}", dependencies=[Depends(require_permission("accounting:write"))])
+def update_journal_template(template_id: str, data: JournalTemplateUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    patch = data.model_dump(exclude_none=True)
+    if not patch:
+        return {"ok": True}
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM journal_templates WHERE company_id=%s AND id=%s FOR UPDATE",
+                    (company_id, template_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="template not found")
+
+                sets = []
+                params = []
+                for k in ["name", "is_active", "memo", "default_rate_type"]:
+                    if k in patch:
+                        val = patch.get(k)
+                        if k == "name":
+                            val = (val or "").strip()
+                            if not val:
+                                raise HTTPException(status_code=400, detail="name cannot be empty")
+                        if k == "memo":
+                            val = (val or "").strip() or None
+                        sets.append(f"{k}=%s")
+                        params.append(val)
+                if sets:
+                    params.extend([company_id, template_id])
+                    cur.execute(
+                        f"""
+                        UPDATE journal_templates
+                        SET {', '.join(sets)}, updated_at=now()
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        params,
+                    )
+
+                if "lines" in patch:
+                    lines = patch.get("lines") or []
+                    if not lines:
+                        raise HTTPException(status_code=400, detail="lines cannot be empty")
+                    if len(lines) > 200:
+                        raise HTTPException(status_code=400, detail="too many lines (max 200)")
+                    cur.execute("DELETE FROM journal_template_lines WHERE company_id=%s AND journal_template_id=%s", (company_id, template_id))
+
+                    total_debit_usd = Decimal("0")
+                    total_credit_usd = Decimal("0")
+                    total_debit_lbp = Decimal("0")
+                    total_credit_lbp = Decimal("0")
+
+                    for idx, line in enumerate(lines, start=1):
+                        account_id = (line.get("account_id") or "").strip() or None
+                        if not account_id and (line.get("account_code") or "").strip():
+                            cur.execute(
+                                "SELECT id FROM company_coa_accounts WHERE company_id=%s AND account_code=%s",
+                                (company_id, (line.get("account_code") or "").strip()),
+                            )
+                            row = cur.fetchone()
+                            if not row:
+                                raise HTTPException(status_code=400, detail=f"line {idx}: account_code not found")
+                            account_id = row["id"]
+                        if not account_id:
+                            raise HTTPException(status_code=400, detail=f"line {idx}: account_id or account_code is required")
+                        amount_usd = Decimal(str(line.get("amount_usd") or 0))
+                        amount_lbp = Decimal(str(line.get("amount_lbp") or 0))
+                        if amount_usd == 0 and amount_lbp == 0:
+                            raise HTTPException(status_code=400, detail=f"line {idx}: amount_usd or amount_lbp is required")
+
+                        side = (line.get("side") or "").strip()
+                        if side not in {"debit", "credit"}:
+                            raise HTTPException(status_code=400, detail=f"line {idx}: side must be debit or credit")
+
+                        if side == "debit":
+                            total_debit_usd += q_usd(amount_usd)
+                            total_debit_lbp += q_lbp(amount_lbp)
+                        else:
+                            total_credit_usd += q_usd(amount_usd)
+                            total_credit_lbp += q_lbp(amount_lbp)
+
+                        cost_center_id = (line.get("cost_center_id") or "").strip() or None
+                        if cost_center_id:
+                            cur.execute("SELECT 1 FROM cost_centers WHERE company_id=%s AND id=%s", (company_id, cost_center_id))
+                            if not cur.fetchone():
+                                raise HTTPException(status_code=400, detail=f"line {idx}: cost_center_id not found")
+                        project_id = (line.get("project_id") or "").strip() or None
+                        if project_id:
+                            cur.execute("SELECT 1 FROM projects WHERE company_id=%s AND id=%s", (company_id, project_id))
+                            if not cur.fetchone():
+                                raise HTTPException(status_code=400, detail=f"line {idx}: project_id not found")
+
+                        cur.execute(
+                            """
+                            INSERT INTO journal_template_lines
+                              (id, company_id, journal_template_id, line_no, account_id, side, amount_usd, amount_lbp, memo, cost_center_id, project_id)
+                            VALUES
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                company_id,
+                                template_id,
+                                idx,
+                                account_id,
+                                side,
+                                q_usd(amount_usd),
+                                q_lbp(amount_lbp),
+                                (line.get("memo") or "").strip() or None,
+                                cost_center_id,
+                                project_id,
+                            ),
+                        )
+
+                    if q_usd(total_debit_usd - total_credit_usd) != 0 or q_lbp(total_debit_lbp - total_credit_lbp) != 0:
+                        raise HTTPException(status_code=400, detail="template is imbalanced (debits != credits)")
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'accounting.journal_template.update', 'journal_template', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], template_id, json.dumps({"updated": sorted(patch.keys())})),
+                )
+                return {"ok": True}
+
+
+@router.post("/journal-templates/{template_id}/create-journal", dependencies=[Depends(require_permission("accounting:write"))])
+def create_journal_from_template(
+    template_id: str,
+    data: CreateFromTemplateIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                assert_period_open(cur, company_id, data.journal_date)
+                cur.execute(
+                    "SELECT id, name, is_active, memo, default_rate_type FROM journal_templates WHERE company_id=%s AND id=%s",
+                    (company_id, template_id),
+                )
+                tpl = cur.fetchone()
+                if not tpl:
+                    raise HTTPException(status_code=404, detail="template not found")
+                if not tpl.get("is_active"):
+                    raise HTTPException(status_code=400, detail="template is inactive")
+
+                cur.execute(
+                    """
+                    SELECT account_id, side, amount_usd, amount_lbp, memo, cost_center_id, project_id
+                    FROM journal_template_lines
+                    WHERE company_id=%s AND journal_template_id=%s
+                    ORDER BY line_no ASC
+                    """,
+                    (company_id, template_id),
+                )
+                lines = cur.fetchall() or []
+                if not lines:
+                    raise HTTPException(status_code=400, detail="template has no lines")
+
+                rate_type = data.rate_type or tpl.get("default_rate_type") or "market"
+                rate = data.exchange_rate
+                if rate is None or rate == 0:
+                    rate = _fetch_exchange_rate(cur, company_id, data.journal_date, rate_type)
+                rate = Decimal(str(rate))
+                if rate <= 0:
+                    raise HTTPException(status_code=400, detail="exchange_rate must be > 0")
+
+                resolved_lines = []
+                total_debit_usd = Decimal("0")
+                total_credit_usd = Decimal("0")
+                total_debit_lbp = Decimal("0")
+                total_credit_lbp = Decimal("0")
+
+                for idx, line in enumerate(lines, start=1):
+                    amount_usd = Decimal(str(line.get("amount_usd") or 0))
+                    amount_lbp = Decimal(str(line.get("amount_lbp") or 0))
+                    if amount_usd == 0 and amount_lbp == 0:
+                        raise HTTPException(status_code=400, detail=f"template line {idx}: amount is zero")
+
+                    if amount_usd == 0 and amount_lbp != 0:
+                        amount_usd = amount_lbp / rate
+                    elif amount_lbp == 0 and amount_usd != 0:
+                        amount_lbp = amount_usd * rate
+
+                    amount_usd = q_usd(amount_usd)
+                    amount_lbp = q_lbp(amount_lbp)
+
+                    debit_usd = Decimal("0")
+                    credit_usd = Decimal("0")
+                    debit_lbp = Decimal("0")
+                    credit_lbp = Decimal("0")
+                    if line["side"] == "debit":
+                        debit_usd = amount_usd
+                        debit_lbp = amount_lbp
+                        total_debit_usd += debit_usd
+                        total_debit_lbp += debit_lbp
+                    else:
+                        credit_usd = amount_usd
+                        credit_lbp = amount_lbp
+                        total_credit_usd += credit_usd
+                        total_credit_lbp += credit_lbp
+
+                    resolved_lines.append(
+                        {
+                            "account_id": line["account_id"],
+                            "debit_usd": debit_usd,
+                            "credit_usd": credit_usd,
+                            "debit_lbp": debit_lbp,
+                            "credit_lbp": credit_lbp,
+                            "memo": (line.get("memo") or "").strip() or None,
+                            "cost_center_id": line.get("cost_center_id"),
+                            "project_id": line.get("project_id"),
+                        }
+                    )
+
+                diff_usd = q_usd(total_debit_usd - total_credit_usd)
+                diff_lbp = q_lbp(total_debit_lbp - total_credit_lbp)
+                if diff_usd != 0 or diff_lbp != 0:
+                    sign_usd = _sign(diff_usd)
+                    sign_lbp = _sign(diff_lbp)
+                    if sign_usd and sign_lbp and sign_usd != sign_lbp:
+                        raise HTTPException(status_code=400, detail="journal is imbalanced (USD/LBP signs differ)")
+                    if abs(diff_usd) > Decimal("0.05") or abs(diff_lbp) > Decimal("5000"):
+                        raise HTTPException(status_code=400, detail="journal is imbalanced (too large to auto-balance)")
+                    rounding_acc = _get_rounding_account(cur, company_id)
+                    if not rounding_acc:
+                        raise HTTPException(status_code=400, detail="journal is imbalanced; missing ROUNDING account default")
+                    sign = sign_usd or sign_lbp
+                    if sign > 0:
+                        resolved_lines.append(
+                            {"account_id": rounding_acc, "debit_usd": Decimal("0"), "credit_usd": abs(diff_usd), "debit_lbp": Decimal("0"), "credit_lbp": abs(diff_lbp), "memo": "Rounding (auto-balance)"}
+                        )
+                    else:
+                        resolved_lines.append(
+                            {"account_id": rounding_acc, "debit_usd": abs(diff_usd), "credit_usd": Decimal("0"), "debit_lbp": abs(diff_lbp), "credit_lbp": Decimal("0"), "memo": "Rounding (auto-balance)"}
+                        )
+
+                journal_no = _next_doc_no(cur, company_id, "MJ")
+                memo = (data.memo or "").strip() or (tpl.get("memo") or "").strip() or f"Template: {tpl.get('name')}"
+                cur.execute(
+                    """
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type,
+                       exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'journal_template', %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (company_id, journal_no, template_id, data.journal_date, rate_type, rate, memo[:240] or None, user["user_id"]),
+                )
+                journal_id = cur.fetchone()["id"]
+
+                for l in resolved_lines:
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries
+                          (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, cost_center_id, project_id)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            journal_id,
+                            l["account_id"],
+                            l["debit_usd"],
+                            l["credit_usd"],
+                            l["debit_lbp"],
+                            l["credit_lbp"],
+                            l.get("memo"),
+                            l.get("cost_center_id"),
+                            l.get("project_id"),
+                        ),
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'accounting.journal_template.run', 'gl_journal', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], journal_id, json.dumps({"journal_no": journal_no, "template_id": str(template_id), "template_name": tpl.get("name")})),
+                )
+                return {"id": journal_id, "journal_no": journal_no}
+
+
+@router.get("/close-checklist", dependencies=[Depends(require_permission("accounting:read"))])
+def close_checklist(
+    as_of: Optional[date] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Period-close checklist (v1): surfaces common blockers/risk signals before locking a period.
+    """
+    as_of = as_of or date.today()
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+    if not start_date or not end_date:
+        ms, me = _month_range(as_of)
+        start_date = start_date or ms
+        end_date = end_date or me
+
+    checks: list[dict] = []
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            # Draft docs within period window.
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM sales_invoices
+                WHERE company_id=%s AND status='draft'
+                  AND invoice_date BETWEEN %s AND %s
+                """,
+                (company_id, start_date, end_date),
+            )
+            sales_drafts = int(cur.fetchone()["c"])
+            checks.append(
+                {
+                    "code": "sales_drafts",
+                    "title": "Sales invoices still in draft",
+                    "level": "warn" if sales_drafts else "ok",
+                    "count": sales_drafts,
+                    "href": "/sales/invoices",
+                }
+            )
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM supplier_invoices
+                WHERE company_id=%s AND status='draft'
+                  AND invoice_date BETWEEN %s AND %s
+                """,
+                (company_id, start_date, end_date),
+            )
+            purchase_drafts = int(cur.fetchone()["c"])
+            checks.append(
+                {
+                    "code": "supplier_invoice_drafts",
+                    "title": "Supplier invoices still in draft",
+                    "level": "warn" if purchase_drafts else "ok",
+                    "count": purchase_drafts,
+                    "href": "/purchasing/supplier-invoices",
+                }
+            )
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM supplier_invoices
+                WHERE company_id=%s AND status='draft' AND is_on_hold=true
+                """,
+                (company_id,),
+            )
+            held = int(cur.fetchone()["c"])
+            checks.append(
+                {
+                    "code": "supplier_invoices_on_hold",
+                    "title": "Supplier invoices on hold",
+                    "level": "warn" if held else "ok",
+                    "count": held,
+                    "href": "/purchasing/3-way-match",
+                }
+            )
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM goods_receipts
+                WHERE company_id=%s AND status='draft'
+                  AND created_at::date BETWEEN %s AND %s
+                """,
+                (company_id, start_date, end_date),
+            )
+            gr_drafts = int(cur.fetchone()["c"])
+            checks.append(
+                {
+                    "code": "goods_receipt_drafts",
+                    "title": "Goods receipts still in draft",
+                    "level": "warn" if gr_drafts else "ok",
+                    "count": gr_drafts,
+                    "href": "/purchasing/goods-receipts",
+                }
+            )
+
+            # Bank reconciliation signal: unmatched statement lines in period.
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM bank_transactions
+                WHERE company_id=%s
+                  AND txn_date BETWEEN %s AND %s
+                  AND matched_journal_id IS NULL
+                """,
+                (company_id, start_date, end_date),
+            )
+            unmatched_bank = int(cur.fetchone()["c"])
+            checks.append(
+                {
+                    "code": "bank_unmatched",
+                    "title": "Bank statement lines not matched to journals",
+                    "level": "warn" if unmatched_bank else "ok",
+                    "count": unmatched_bank,
+                    "href": "/accounting/banking/reconciliation",
+                }
+            )
+
+            # Worker/outbox failures (ops correctness).
+            cur.execute("SELECT COUNT(*)::int AS c FROM pos_events_outbox WHERE status IN ('failed','dead')", ())
+            outbox_failed = int(cur.fetchone()["c"])
+            checks.append(
+                {
+                    "code": "pos_outbox_failed",
+                    "title": "POS outbox failures",
+                    "level": "error" if outbox_failed else "ok",
+                    "count": outbox_failed,
+                    "href": "/system/outbox",
+                }
+            )
+
+            # Open shifts can create surprises during close.
+            cur.execute("SELECT COUNT(*)::int AS c FROM pos_shifts WHERE company_id=%s AND status='open'", (company_id,))
+            open_shifts = int(cur.fetchone()["c"])
+            checks.append(
+                {
+                    "code": "pos_open_shifts",
+                    "title": "Open POS shifts",
+                    "level": "warn" if open_shifts else "ok",
+                    "count": open_shifts,
+                    "href": "/system/pos-shifts",
+                }
+            )
+
+            # Negative stock indicates posting/costing data problems.
+            cur.execute(
+                "SELECT COUNT(*)::int AS c FROM item_warehouse_costs WHERE company_id=%s AND on_hand_qty < 0",
+                (company_id,),
+            )
+            neg = int(cur.fetchone()["c"])
+            checks.append(
+                {
+                    "code": "negative_stock",
+                    "title": "Negative stock positions",
+                    "level": "warn" if neg else "ok",
+                    "count": neg,
+                    "href": "/inventory/stock",
+                }
+            )
+
+            # Period lock presence (informational).
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM accounting_period_locks
+                WHERE company_id=%s AND locked=true
+                  AND start_date <= %s AND end_date >= %s
+                """,
+                (company_id, end_date, start_date),
+            )
+            locked = int(cur.fetchone()["c"])
+            checks.append(
+                {
+                    "code": "period_locked",
+                    "title": "Period is locked (posting blocked)",
+                    "level": "info" if locked else "ok",
+                    "count": locked,
+                    "href": "/accounting/period-locks",
+                }
+            )
+
+    return {"start_date": str(start_date), "end_date": str(end_date), "checks": checks}
 
 
 @router.post("/opening/ar/import", dependencies=[Depends(require_permission("accounting:write"))])

@@ -91,6 +91,7 @@ function iconForHref(href: string) {
     "/purchasing/purchase-orders": ClipboardList,
     "/purchasing/goods-receipts": PackageCheck,
     "/purchasing/supplier-invoices": FileText,
+    "/purchasing/supplier-credits": ReceiptText,
     "/purchasing/payments": BadgeDollarSign,
     "/purchasing/3-way-match": ClipboardList,
 
@@ -115,6 +116,8 @@ function iconForHref(href: string) {
     "/inventory/ops": Workflow,
 
     "/accounting/journals": BookOpen,
+    "/accounting/journal-templates": ClipboardList,
+    "/accounting/close-checklist": ClipboardList,
     "/accounting/coa": BookOpen,
     "/accounting/intercompany": Workflow,
     "/accounting/banking/accounts": Landmark,
@@ -128,6 +131,12 @@ function iconForHref(href: string) {
     "/accounting/reports/ar-aging": Timer,
     "/accounting/reports/ap-aging": Timer,
     "/accounting/reports/inventory-valuation": BadgeDollarSign,
+    "/accounting/reports/margin-by-item": TrendingUp,
+    "/accounting/reports/margin-by-customer": TrendingUp,
+    "/accounting/reports/margin-by-category": TrendingUp,
+    "/accounting/reports/expiry-exposure": BellRing,
+    "/accounting/reports/negative-stock-risk": BellRing,
+    "/accounting/reports/landed-cost-impact": BadgeDollarSign,
     "/accounting/reports/consolidated": Workflow,
 
     "/automation/ai-hub": Sparkles,
@@ -195,6 +204,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Purchase Orders", href: "/purchasing/purchase-orders" },
       { label: "Goods Receipts", href: "/purchasing/goods-receipts" },
       { label: "Supplier Invoices", href: "/purchasing/supplier-invoices" },
+      { label: "Supplier Credits", href: "/purchasing/supplier-credits" },
       { label: "3-Way Match", href: "/purchasing/3-way-match" },
       { label: "Supplier Payments", href: "/purchasing/payments" }
     ]
@@ -227,6 +237,8 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     label: "Accounting",
     items: [
       { label: "Journals", href: "/accounting/journals" },
+      { label: "Journal Templates", href: "/accounting/journal-templates" },
+      { label: "Close Checklist", href: "/accounting/close-checklist" },
       { label: "Chart of Accounts", href: "/accounting/coa" },
       { label: "Intercompany", href: "/accounting/intercompany" },
       { label: "Bank Accounts", href: "/accounting/banking/accounts" },
@@ -244,6 +256,12 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "AR Aging", href: "/accounting/reports/ar-aging" },
       { label: "AP Aging", href: "/accounting/reports/ap-aging" },
       { label: "Inventory Valuation", href: "/accounting/reports/inventory-valuation" },
+      { label: "Margin by Item", href: "/accounting/reports/margin-by-item" },
+      { label: "Margin by Customer", href: "/accounting/reports/margin-by-customer" },
+      { label: "Margin by Category", href: "/accounting/reports/margin-by-category" },
+      { label: "Expiry Exposure", href: "/accounting/reports/expiry-exposure" },
+      { label: "Negative Stock Risk", href: "/accounting/reports/negative-stock-risk" },
+      { label: "Landed Cost Impact", href: "/accounting/reports/landed-cost-impact" },
       { label: "Consolidated", href: "/accounting/reports/consolidated" }
     ]
   },

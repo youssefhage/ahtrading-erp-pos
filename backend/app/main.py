@@ -18,6 +18,7 @@ from .routers.item_categories import router as item_categories_router
 from .routers.inventory import router as inventory_router
 from .routers.sales import router as sales_router
 from .routers.purchases import router as purchases_router
+from .routers.supplier_credits import router as supplier_credits_router
 from .routers.reports import router as reports_router
 from .routers.ai import router as ai_router
 from .routers.suppliers import router as suppliers_router
@@ -148,6 +149,7 @@ app.include_router(item_categories_router, dependencies=[Depends(require_company
 app.include_router(inventory_router, dependencies=[Depends(require_company_access)])
 app.include_router(sales_router, dependencies=[Depends(require_company_access)])
 app.include_router(purchases_router, dependencies=[Depends(require_company_access)])
+app.include_router(supplier_credits_router, dependencies=[Depends(require_company_access)])
 app.include_router(reports_router, dependencies=[Depends(require_company_access)])
 app.include_router(ai_router, dependencies=[Depends(require_company_access)])
 app.include_router(suppliers_router, dependencies=[Depends(require_company_access)])

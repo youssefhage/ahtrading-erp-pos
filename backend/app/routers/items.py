@@ -9,6 +9,7 @@ from ..deps import get_current_user
 import json
 import os
 from ..ai.item_naming import heuristic_item_name_suggestions, openai_item_name_suggestions
+from ..ai.providers import get_ai_provider_config
 from ..ai.policy import is_external_ai_allowed
 
 router = APIRouter(prefix="/items", tags=["items"])
@@ -596,16 +597,25 @@ def suggest_item_names(data: ItemNameSuggestIn, company_id: str = Depends(get_co
         raise HTTPException(status_code=400, detail="raw_name is required")
 
     # Prefer an LLM if configured; otherwise fall back to deterministic normalization.
-    if os.environ.get("OPENAI_API_KEY"):
-        try:
-            with get_conn() as conn:
-                set_company_context(conn, company_id)
-                with conn.cursor() as cur:
-                    if is_external_ai_allowed(cur, company_id):
-                        return {"suggestions": openai_item_name_suggestions(raw, count=n)}
-        except Exception:
-            # Never fail the UI due to naming suggestions.
-            pass
+    try:
+        with get_conn() as conn:
+            set_company_context(conn, company_id)
+            with conn.cursor() as cur:
+                if is_external_ai_allowed(cur, company_id):
+                    cfg = get_ai_provider_config(cur, company_id)
+                    if cfg.get("api_key"):
+                        return {
+                            "suggestions": openai_item_name_suggestions(
+                                raw,
+                                count=n,
+                                model=cfg.get("item_naming_model"),
+                                base_url=cfg.get("base_url"),
+                                api_key=cfg.get("api_key"),
+                            )
+                        }
+    except Exception:
+        # Never fail the UI due to naming suggestions.
+        pass
     return {"suggestions": heuristic_item_name_suggestions(raw)[:n]}
 
 @router.get("/{item_id}/barcodes", dependencies=[Depends(require_permission("items:read"))])

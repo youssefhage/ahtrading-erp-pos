@@ -41,6 +41,12 @@ export default function ConfigPage() {
 
   // AI policy (company_settings.key='ai')
   const [allowExternalAi, setAllowExternalAi] = useState(true);
+  const [aiProvider, setAiProvider] = useState("openai");
+  const [aiBaseUrl, setAiBaseUrl] = useState("");
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [aiItemModel, setAiItemModel] = useState("");
+  const [aiInvoiceVisionModel, setAiInvoiceVisionModel] = useState("");
+  const [aiInvoiceTextModel, setAiInvoiceTextModel] = useState("");
   const [savingAiPolicy, setSavingAiPolicy] = useState(false);
 
   // Inventory policy (company_settings.key='inventory')
@@ -132,6 +138,12 @@ export default function ConfigPage() {
     const ai = settings.find((s) => s.key === "ai");
     const v = (ai?.value_json || {}) as any;
     setAllowExternalAi(Boolean(v?.allow_external_processing ?? true));
+    setAiProvider(String(v?.provider || "openai"));
+    setAiBaseUrl(String(v?.base_url || ""));
+    setAiApiKey(String(v?.api_key || ""));
+    setAiItemModel(String(v?.item_naming_model || ""));
+    setAiInvoiceVisionModel(String(v?.invoice_vision_model || ""));
+    setAiInvoiceTextModel(String(v?.invoice_text_model || ""));
   }, [settings]);
 
   useEffect(() => {
@@ -322,10 +334,19 @@ export default function ConfigPage() {
     setSavingAiPolicy(true);
     setStatus("Saving AI policy...");
     try {
+      const ai = settings.find((s) => s.key === "ai");
+      const current = (ai?.value_json || {}) as any;
       await apiPost("/pricing/company-settings", {
         key: "ai",
         value_json: {
-          allow_external_processing: Boolean(allowExternalAi)
+          ...current,
+          allow_external_processing: Boolean(allowExternalAi),
+          provider: (aiProvider || "openai").trim(),
+          base_url: aiBaseUrl.trim() || null,
+          api_key: aiApiKey.trim() || null,
+          item_naming_model: aiItemModel.trim() || null,
+          invoice_vision_model: aiInvoiceVisionModel.trim() || null,
+          invoice_text_model: aiInvoiceTextModel.trim() || null
         }
       });
       await load();
@@ -626,21 +647,68 @@ export default function ConfigPage() {
           <CardHeader>
             <CardTitle>AI Policy</CardTitle>
             <CardDescription>
-              Controls whether the platform can send documents/names to external AI services (OpenAI) when configured.
+              Controls whether the platform can send documents/names to external AI services and which provider to use.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <form onSubmit={saveAi} className="flex flex-wrap items-center justify-between gap-3">
-              <label className="flex items-center gap-2 text-sm text-fg-muted">
+            <form onSubmit={saveAi} className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <label className="flex items-center gap-2 text-sm text-fg-muted md:col-span-3">
                 <input type="checkbox" checked={allowExternalAi} onChange={(e) => setAllowExternalAi(e.target.checked)} />
                 Allow external AI processing
               </label>
-              <Button type="submit" disabled={savingAiPolicy}>
-                {savingAiPolicy ? "Saving..." : "Save AI Policy"}
-              </Button>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Provider</label>
+                <select className="ui-select w-full" value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
+                  <option value="openai">OpenAI (hosted)</option>
+                  <option value="openai_compatible">OpenAI-compatible (custom base URL)</option>
+                </select>
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs font-medium text-fg-muted">Base URL (optional)</label>
+                <Input
+                  value={aiBaseUrl}
+                  onChange={(e) => setAiBaseUrl(e.target.value)}
+                  placeholder="https://api.openai.com"
+                />
+              </div>
+              <div className="space-y-1 md:col-span-3">
+                <label className="text-xs font-medium text-fg-muted">API Key (optional)</label>
+                <Input
+                  type="password"
+                  value={aiApiKey}
+                  onChange={(e) => setAiApiKey(e.target.value)}
+                  placeholder="Leave blank to use server environment"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Item Naming Model</label>
+                <Input value={aiItemModel} onChange={(e) => setAiItemModel(e.target.value)} placeholder="gpt-4o-mini" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Invoice Vision Model</label>
+                <Input
+                  value={aiInvoiceVisionModel}
+                  onChange={(e) => setAiInvoiceVisionModel(e.target.value)}
+                  placeholder="gpt-4o-mini"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Invoice Text Model</label>
+                <Input
+                  value={aiInvoiceTextModel}
+                  onChange={(e) => setAiInvoiceTextModel(e.target.value)}
+                  placeholder="gpt-4o-mini"
+                />
+              </div>
+              <div className="flex justify-end md:col-span-3">
+                <Button type="submit" disabled={savingAiPolicy}>
+                  {savingAiPolicy ? "Saving..." : "Save AI Policy"}
+                </Button>
+              </div>
             </form>
             <p className="text-[11px] text-fg-subtle">
-              If disabled, AI import and AI naming will still work in “draft + attachment” mode, but without external extraction/suggestions.
+              If disabled, AI import and AI naming will still work in “draft + attachment” mode, but without external
+              extraction/suggestions. Leaving model/base URL/API key blank will fall back to server environment variables.
             </p>
           </CardContent>
         </Card>

@@ -927,10 +927,12 @@ def ap_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company
                   si.due_date,
                   si.total_usd,
                   si.total_lbp,
-                  COALESCE(SUM(sp.amount_usd), 0) AS paid_usd,
-                  COALESCE(SUM(sp.amount_lbp), 0) AS paid_lbp,
-                  (si.total_usd - COALESCE(SUM(sp.amount_usd), 0)) AS balance_usd,
-                  (si.total_lbp - COALESCE(SUM(sp.amount_lbp), 0)) AS balance_lbp,
+                  COALESCE(sp.paid_usd, 0) AS paid_usd,
+                  COALESCE(sp.paid_lbp, 0) AS paid_lbp,
+                  COALESCE(sc.credits_usd, 0) AS credits_usd,
+                  COALESCE(sc.credits_lbp, 0) AS credits_lbp,
+                  (si.total_usd - COALESCE(sp.paid_usd, 0) - COALESCE(sc.credits_usd, 0)) AS balance_usd,
+                  (si.total_lbp - COALESCE(sp.paid_lbp, 0) - COALESCE(sc.credits_lbp, 0)) AS balance_lbp,
                   GREATEST((%s::date - si.due_date), 0) AS days_past_due,
                   CASE
                     WHEN %s::date <= si.due_date THEN 0
@@ -948,14 +950,29 @@ def ap_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company
                   END AS bucket
                 FROM supplier_invoices si
                 LEFT JOIN suppliers s ON s.id = si.supplier_id
-                LEFT JOIN supplier_payments sp ON sp.supplier_invoice_id = si.id
+                LEFT JOIN (
+                  SELECT supplier_invoice_id,
+                         SUM(amount_usd) AS paid_usd,
+                         SUM(amount_lbp) AS paid_lbp
+                  FROM supplier_payments
+                  GROUP BY supplier_invoice_id
+                ) sp ON sp.supplier_invoice_id = si.id
+                LEFT JOIN (
+                  SELECT supplier_invoice_id,
+                         SUM(amount_usd) AS credits_usd,
+                         SUM(amount_lbp) AS credits_lbp
+                  FROM supplier_credit_note_applications
+                  WHERE company_id = %s
+                  GROUP BY supplier_invoice_id
+                ) sc ON sc.supplier_invoice_id = si.id
                 WHERE si.company_id = %s AND si.status = 'posted'
-                GROUP BY si.id, si.invoice_no, si.supplier_id, s.name, si.invoice_date, si.due_date, si.total_usd, si.total_lbp
-                HAVING (si.total_usd - COALESCE(SUM(sp.amount_usd), 0)) != 0
-                    OR (si.total_lbp - COALESCE(SUM(sp.amount_lbp), 0)) != 0
+                GROUP BY si.id, si.invoice_no, si.supplier_id, s.name, si.invoice_date, si.due_date, si.total_usd, si.total_lbp,
+                         sp.paid_usd, sp.paid_lbp, sc.credits_usd, sc.credits_lbp
+                HAVING (si.total_usd - COALESCE(sp.paid_usd, 0) - COALESCE(sc.credits_usd, 0)) != 0
+                    OR (si.total_lbp - COALESCE(sp.paid_lbp, 0) - COALESCE(sc.credits_lbp, 0)) != 0
                 ORDER BY bucket_order, si.due_date, si.invoice_no
                 """,
-                (as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, company_id),
+                (as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, company_id, company_id),
             )
             return {"as_of": str(as_of), "rows": cur.fetchall()}
 
@@ -1128,6 +1145,358 @@ def sales_margin_by_item(
                 "branch_id": branch_id,
                 "rows": rows,
             }
+
+
+@router.get("/sales/margin-by-customer", dependencies=[Depends(require_permission("reports:read"))])
+def sales_margin_by_customer(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    warehouse_id: Optional[str] = None,
+    branch_id: Optional[str] = None,
+    limit: int = 500,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Margin report (by customer) using posted sales invoices + stock_moves COGS.
+    """
+    if limit <= 0 or limit > 2000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    today = date.today()
+    start_date = start_date or today.replace(day=1)
+    end_date = end_date or today
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH rev AS (
+                  SELECT i.customer_id,
+                         COALESCE(SUM(l.line_total_usd), 0) AS revenue_usd,
+                         COALESCE(SUM(l.line_total_lbp), 0) AS revenue_lbp
+                  FROM sales_invoice_lines l
+                  JOIN sales_invoices i ON i.id = l.invoice_id
+                  WHERE i.company_id = %s
+                    AND i.status = 'posted'
+                    AND i.invoice_date BETWEEN %s AND %s
+                    AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
+                    AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
+                  GROUP BY i.customer_id
+                ),
+                cogs AS (
+                  SELECT i.customer_id,
+                         COALESCE(SUM(sm.qty_out * sm.unit_cost_usd), 0) AS cogs_usd,
+                         COALESCE(SUM(sm.qty_out * sm.unit_cost_lbp), 0) AS cogs_lbp
+                  FROM stock_moves sm
+                  JOIN sales_invoices i
+                    ON i.company_id = sm.company_id AND i.id = sm.source_id
+                  WHERE sm.company_id = %s
+                    AND sm.source_type = 'sales_invoice'
+                    AND i.status = 'posted'
+                    AND i.invoice_date BETWEEN %s AND %s
+                    AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
+                    AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
+                  GROUP BY i.customer_id
+                )
+                SELECT c.id AS customer_id,
+                       c.code AS customer_code,
+                       c.name AS customer_name,
+                       COALESCE(rev.revenue_usd, 0) AS revenue_usd,
+                       COALESCE(rev.revenue_lbp, 0) AS revenue_lbp,
+                       COALESCE(cogs.cogs_usd, 0) AS cogs_usd,
+                       COALESCE(cogs.cogs_lbp, 0) AS cogs_lbp,
+                       (COALESCE(rev.revenue_usd, 0) - COALESCE(cogs.cogs_usd, 0)) AS margin_usd,
+                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(cogs.cogs_lbp, 0)) AS margin_lbp
+                FROM customers c
+                LEFT JOIN rev ON rev.customer_id = c.id
+                LEFT JOIN cogs ON cogs.customer_id = c.id
+                WHERE c.company_id = %s
+                  AND (rev.customer_id IS NOT NULL OR cogs.customer_id IS NOT NULL)
+                ORDER BY COALESCE(rev.revenue_usd, 0) DESC, c.name ASC
+                LIMIT %s
+                """,
+                (
+                    company_id,
+                    start_date,
+                    end_date,
+                    warehouse_id,
+                    warehouse_id,
+                    branch_id,
+                    branch_id,
+                    company_id,
+                    start_date,
+                    end_date,
+                    warehouse_id,
+                    warehouse_id,
+                    branch_id,
+                    branch_id,
+                    company_id,
+                    limit,
+                ),
+            )
+            rows = cur.fetchall()
+            for r in rows:
+                rev_usd = Decimal(str(r.get("revenue_usd") or 0))
+                rev_lbp = Decimal(str(r.get("revenue_lbp") or 0))
+                mar_usd = Decimal(str(r.get("margin_usd") or 0))
+                mar_lbp = Decimal(str(r.get("margin_lbp") or 0))
+                r["margin_pct_usd"] = (mar_usd / rev_usd) if rev_usd else None
+                r["margin_pct_lbp"] = (mar_lbp / rev_lbp) if rev_lbp else None
+            return {
+                "start_date": str(start_date),
+                "end_date": str(end_date),
+                "warehouse_id": warehouse_id,
+                "branch_id": branch_id,
+                "rows": rows,
+            }
+
+
+@router.get("/sales/margin-by-category", dependencies=[Depends(require_permission("reports:read"))])
+def sales_margin_by_category(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    warehouse_id: Optional[str] = None,
+    branch_id: Optional[str] = None,
+    limit: int = 500,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Margin report (by item category) using posted sales invoices + stock_moves COGS.
+    """
+    if limit <= 0 or limit > 2000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    today = date.today()
+    start_date = start_date or today.replace(day=1)
+    end_date = end_date or today
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH rev AS (
+                  SELECT it.category_id,
+                         COALESCE(SUM(l.line_total_usd), 0) AS revenue_usd,
+                         COALESCE(SUM(l.line_total_lbp), 0) AS revenue_lbp
+                  FROM sales_invoice_lines l
+                  JOIN sales_invoices i ON i.id = l.invoice_id
+                  JOIN items it ON it.id = l.item_id
+                  WHERE i.company_id = %s
+                    AND i.status = 'posted'
+                    AND i.invoice_date BETWEEN %s AND %s
+                    AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
+                    AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
+                  GROUP BY it.category_id
+                ),
+                cogs AS (
+                  SELECT it.category_id,
+                         COALESCE(SUM(sm.qty_out * sm.unit_cost_usd), 0) AS cogs_usd,
+                         COALESCE(SUM(sm.qty_out * sm.unit_cost_lbp), 0) AS cogs_lbp
+                  FROM stock_moves sm
+                  JOIN sales_invoices i
+                    ON i.company_id = sm.company_id AND i.id = sm.source_id
+                  JOIN items it ON it.id = sm.item_id
+                  WHERE sm.company_id = %s
+                    AND sm.source_type = 'sales_invoice'
+                    AND i.status = 'posted'
+                    AND i.invoice_date BETWEEN %s AND %s
+                    AND (%s::uuid IS NULL OR i.warehouse_id = %s::uuid)
+                    AND (%s::uuid IS NULL OR i.branch_id = %s::uuid)
+                  GROUP BY it.category_id
+                )
+                SELECT cat.id AS category_id,
+                       cat.name,
+                       COALESCE(rev.revenue_usd, 0) AS revenue_usd,
+                       COALESCE(rev.revenue_lbp, 0) AS revenue_lbp,
+                       COALESCE(cogs.cogs_usd, 0) AS cogs_usd,
+                       COALESCE(cogs.cogs_lbp, 0) AS cogs_lbp,
+                       (COALESCE(rev.revenue_usd, 0) - COALESCE(cogs.cogs_usd, 0)) AS margin_usd,
+                       (COALESCE(rev.revenue_lbp, 0) - COALESCE(cogs.cogs_lbp, 0)) AS margin_lbp
+                FROM item_categories cat
+                LEFT JOIN rev ON rev.category_id = cat.id
+                LEFT JOIN cogs ON cogs.category_id = cat.id
+                WHERE cat.company_id = %s
+                  AND (rev.category_id IS NOT NULL OR cogs.category_id IS NOT NULL)
+                ORDER BY COALESCE(rev.revenue_usd, 0) DESC, cat.name ASC
+                LIMIT %s
+                """,
+                (
+                    company_id,
+                    start_date,
+                    end_date,
+                    warehouse_id,
+                    warehouse_id,
+                    branch_id,
+                    branch_id,
+                    company_id,
+                    start_date,
+                    end_date,
+                    warehouse_id,
+                    warehouse_id,
+                    branch_id,
+                    branch_id,
+                    company_id,
+                    limit,
+                ),
+            )
+            rows = cur.fetchall()
+            for r in rows:
+                rev_usd = Decimal(str(r.get("revenue_usd") or 0))
+                rev_lbp = Decimal(str(r.get("revenue_lbp") or 0))
+                mar_usd = Decimal(str(r.get("margin_usd") or 0))
+                mar_lbp = Decimal(str(r.get("margin_lbp") or 0))
+                r["margin_pct_usd"] = (mar_usd / rev_usd) if rev_usd else None
+                r["margin_pct_lbp"] = (mar_lbp / rev_lbp) if rev_lbp else None
+            return {
+                "start_date": str(start_date),
+                "end_date": str(end_date),
+                "warehouse_id": warehouse_id,
+                "branch_id": branch_id,
+                "rows": rows,
+            }
+
+
+@router.get("/inventory/expiry-exposure", dependencies=[Depends(require_permission("reports:read"))])
+def expiry_exposure(
+    days: int = 30,
+    warehouse_id: Optional[str] = None,
+    limit: int = 1000,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Expiry exposure report: batches expiring within N days with on-hand > 0.
+    Value is estimated using item_warehouse_costs.avg_cost_* (v1).
+    """
+    if days < 0 or days > 3650:
+        raise HTTPException(status_code=400, detail="days must be between 0 and 3650")
+    if limit <= 0 or limit > 5000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 5000")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH on_hand AS (
+                  SELECT sm.item_id, sm.warehouse_id, sm.batch_id, COALESCE(SUM(sm.qty_in - sm.qty_out), 0) AS on_hand_qty
+                  FROM stock_moves sm
+                  WHERE sm.company_id=%s
+                    AND sm.batch_id IS NOT NULL
+                    AND (%s::uuid IS NULL OR sm.warehouse_id = %s::uuid)
+                  GROUP BY sm.item_id, sm.warehouse_id, sm.batch_id
+                  HAVING COALESCE(SUM(sm.qty_in - sm.qty_out), 0) > 0
+                )
+                SELECT b.id AS batch_id,
+                       b.batch_no,
+                       b.expiry_date,
+                       b.status AS batch_status,
+                       (b.expiry_date - CURRENT_DATE) AS days_to_expiry,
+                       it.id AS item_id,
+                       it.sku,
+                       it.name AS item_name,
+                       oh.warehouse_id,
+                       w.name AS warehouse_name,
+                       oh.on_hand_qty,
+                       COALESCE(c.avg_cost_usd, 0) AS avg_cost_usd,
+                       COALESCE(c.avg_cost_lbp, 0) AS avg_cost_lbp,
+                       (oh.on_hand_qty * COALESCE(c.avg_cost_usd, 0)) AS est_value_usd,
+                       (oh.on_hand_qty * COALESCE(c.avg_cost_lbp, 0)) AS est_value_lbp
+                FROM on_hand oh
+                JOIN batches b ON b.company_id=%s AND b.id=oh.batch_id
+                JOIN items it ON it.company_id=%s AND it.id=oh.item_id
+                JOIN warehouses w ON w.company_id=%s AND w.id=oh.warehouse_id
+                LEFT JOIN item_warehouse_costs c
+                  ON c.company_id=%s AND c.item_id=oh.item_id AND c.warehouse_id=oh.warehouse_id
+                WHERE b.expiry_date IS NOT NULL
+                  AND b.expiry_date <= CURRENT_DATE + %s::int
+                  AND b.status IN ('available','quarantine')
+                ORDER BY b.expiry_date ASC, it.sku ASC
+                LIMIT %s
+                """,
+                (company_id, warehouse_id, warehouse_id, company_id, company_id, company_id, company_id, days, limit),
+            )
+            return {"days": days, "warehouse_id": warehouse_id, "rows": cur.fetchall()}
+
+
+@router.get("/inventory/negative-stock-risk", dependencies=[Depends(require_permission("reports:read"))])
+def negative_stock_risk(company_id: str = Depends(get_company_id), limit: int = 2000):
+    """
+    Negative stock risk report: detailed rows where on_hand_qty < 0.
+    """
+    if limit <= 0 or limit > 20000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 20000")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.item_id, it.sku, it.name AS item_name,
+                       c.warehouse_id, w.name AS warehouse_name,
+                       c.on_hand_qty, c.avg_cost_usd, c.avg_cost_lbp,
+                       (c.on_hand_qty * c.avg_cost_usd) AS est_value_usd,
+                       (c.on_hand_qty * c.avg_cost_lbp) AS est_value_lbp
+                FROM item_warehouse_costs c
+                JOIN items it ON it.company_id=c.company_id AND it.id=c.item_id
+                JOIN warehouses w ON w.company_id=c.company_id AND w.id=c.warehouse_id
+                WHERE c.company_id=%s AND c.on_hand_qty < 0
+                ORDER BY c.on_hand_qty ASC, it.sku ASC
+                LIMIT %s
+                """,
+                (company_id, limit),
+            )
+            return {"rows": cur.fetchall()}
+
+
+@router.get("/purchases/landed-cost-impact", dependencies=[Depends(require_permission("reports:read"))])
+def landed_cost_impact(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    limit: int = 500,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Landed cost impact report (v1): landed costs posted in the period, grouped by goods receipt.
+    """
+    if limit <= 0 or limit > 5000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 5000")
+    today = date.today()
+    start_date = start_date or today.replace(day=1)
+    end_date = end_date or today
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT gr.id AS goods_receipt_id,
+                       gr.receipt_no AS goods_receipt_no,
+                       s.name AS supplier_name,
+                       gr.total_usd AS receipt_total_usd,
+                       gr.total_lbp AS receipt_total_lbp,
+                       COALESCE(SUM(lc.total_usd), 0) AS landed_cost_usd,
+                       COALESCE(SUM(lc.total_lbp), 0) AS landed_cost_lbp,
+                       COUNT(lc.id)::int AS landed_cost_docs,
+                       MIN(lc.posted_at) AS first_posted_at,
+                       MAX(lc.posted_at) AS last_posted_at
+                FROM goods_receipts gr
+                LEFT JOIN suppliers s ON s.id = gr.supplier_id
+                JOIN landed_costs lc ON lc.company_id=gr.company_id AND lc.goods_receipt_id=gr.id
+                WHERE gr.company_id=%s
+                  AND gr.status='posted'
+                  AND lc.status='posted'
+                  AND lc.posted_at::date BETWEEN %s AND %s
+                GROUP BY gr.id, gr.receipt_no, s.name, gr.total_usd, gr.total_lbp
+                ORDER BY COALESCE(SUM(lc.total_usd), 0) DESC, gr.receipt_no ASC
+                LIMIT %s
+                """,
+                (company_id, start_date, end_date, limit),
+            )
+            return {"start_date": str(start_date), "end_date": str(end_date), "rows": cur.fetchall()}
 
 
 @router.get("/balance-sheet", dependencies=[Depends(require_permission("reports:read"))])

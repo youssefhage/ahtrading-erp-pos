@@ -158,6 +158,7 @@ Recommendation:
 
 Executed (2026-02-08):
 - Added a company-level AI policy setting (`company_settings.key='ai'` with `allow_external_processing`) surfaced in Admin (`System → Config`).
+ - AI policy now supports per-company provider + model overrides (OpenAI or OpenAI-compatible base URL + model names), configurable in Admin.
 - When disabled, invoice import and item naming skip external AI calls and return a warning (draft + attachments still work).
 - For a flawless UX, move extraction to an async background job:
   - Upload returns immediately (draft + attachment)

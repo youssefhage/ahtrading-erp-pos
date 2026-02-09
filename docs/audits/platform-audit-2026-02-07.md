@@ -564,6 +564,7 @@ Implemented:
 - AI-assisted item naming (v1):
   - `POST /items/name-suggestions` returns improved item-name suggestions for messy strings (LLM if configured; deterministic fallback).
   - Company policy gate exists (`company_settings.key='ai'` / `allow_external_processing`) to disable external AI processing when desired.
+  - AI policy now supports per-company provider + model overrides (OpenAI or OpenAI-compatible base URL + model names), configurable in Admin.
 
 Missing useful data / controls:
 - Stronger “approval” workflow states (requested, approved, queued, executed, rejected) with reasons.

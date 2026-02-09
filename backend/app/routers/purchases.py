@@ -1142,9 +1142,16 @@ def list_supplier_payments(
 @router.get("/receipts", dependencies=[Depends(require_permission("purchases:read"))])
 def list_goods_receipts(
     status: str = Query("", description="Optional status filter (draft|posted|canceled)"),
+    supplier_id: str = Query("", description="Optional supplier id filter"),
+    q: str = Query("", description="Search receipt no / supplier ref"),
+    limit: int = Query(200, ge=1, le=2000),
     company_id: str = Depends(get_company_id),
 ):
     status = (status or "").strip().lower()
+    if status and status not in {"draft", "posted", "canceled"}:
+        raise HTTPException(status_code=400, detail="invalid status")
+    supplier_id = (supplier_id or "").strip()
+    qq = (q or "").strip()
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -1153,6 +1160,13 @@ def list_goods_receipts(
             if status:
                 where += " AND r.status = %s"
                 params.append(status)
+            if supplier_id:
+                where += " AND r.supplier_id = %s"
+                params.append(supplier_id)
+            if qq:
+                like = f"%{qq}%"
+                where += " AND (r.receipt_no ILIKE %s OR COALESCE(r.supplier_ref,'') ILIKE %s)"
+                params.extend([like, like])
             cur.execute(
                 f"""
                 SELECT r.id, r.receipt_no, r.supplier_id, s.name AS supplier_name, r.supplier_ref,
@@ -1168,8 +1182,9 @@ def list_goods_receipts(
                   ON po.company_id = r.company_id AND po.id = r.purchase_order_id
                 {where}
                 ORDER BY r.created_at DESC
+                LIMIT %s
                 """,
-                params,
+                [*params, limit],
             )
             return {"receipts": cur.fetchall()}
 

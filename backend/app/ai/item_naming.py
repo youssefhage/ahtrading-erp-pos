@@ -6,18 +6,16 @@ import urllib.error
 from typing import Any
 
 
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com").rstrip("/")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
-
-
-def _responses_api_call(payload: dict[str, Any]) -> dict[str, Any]:
-    if not OPENAI_API_KEY:
+def _responses_api_call(payload: dict[str, Any], *, base_url: str | None = None, api_key: str | None = None) -> dict[str, Any]:
+    use_base = (base_url or os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com").rstrip("/")
+    use_key = (api_key or os.environ.get("OPENAI_API_KEY") or "").strip()
+    if not use_key:
         raise RuntimeError("OPENAI_API_KEY is not configured")
-    url = f"{OPENAI_BASE_URL}/v1/responses"
+    url = f"{use_base}/v1/responses"
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+        headers={"Authorization": f"Bearer {use_key}", "Content-Type": "application/json"},
         method="POST",
     )
     try:
@@ -70,7 +68,14 @@ def heuristic_item_name_suggestions(raw_name: str) -> list[dict[str, str]]:
     return out[:3]
 
 
-def openai_item_name_suggestions(raw_name: str, count: int = 3, model: str | None = None) -> list[dict[str, str]]:
+def openai_item_name_suggestions(
+    raw_name: str,
+    count: int = 3,
+    model: str | None = None,
+    *,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> list[dict[str, str]]:
     use_model = (model or os.environ.get("OPENAI_ITEM_NAMING_MODEL") or "gpt-4o-mini").strip()
     n = max(1, min(int(count or 3), 6))
 
@@ -107,7 +112,7 @@ def openai_item_name_suggestions(raw_name: str, count: int = 3, model: str | Non
         "input": [{"role": "user", "content": [{"type": "input_text", "text": prompt}]}],
         "text": {"format": {"type": "json_schema", "name": "item_name_suggestions", "strict": True, "schema": schema}},
     }
-    res = _responses_api_call(payload)
+    res = _responses_api_call(payload, base_url=base_url, api_key=api_key)
     out_text = _extract_output_text(res)
     obj = json.loads(out_text)
     sug = obj.get("suggestions") or []
@@ -121,4 +126,3 @@ def openai_item_name_suggestions(raw_name: str, count: int = 3, model: str | Non
         if len(out) >= n:
             break
     return out
-
