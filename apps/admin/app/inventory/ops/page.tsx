@@ -133,7 +133,7 @@ export default function InventoryOpsPage() {
     const wid = (warehouseId || "").trim();
     if (!wid) return set([]);
     try {
-      const res = await apiGet<{ locations: Location[] }>(`/warehouses/${encodeURIComponent(wid)}/locations`);
+      const res = await apiGet<{ locations: Location[] }>(`/inventory/warehouses/${encodeURIComponent(wid)}/locations`);
       set(res.locations || []);
     } catch {
       set([]);

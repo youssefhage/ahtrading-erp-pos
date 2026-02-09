@@ -261,7 +261,7 @@ Missing (practical operations gaps):
   - POS sale posting allocates FEFO and supports explicit line-level batch/expiry in the payload when provided.
 - Implemented v1 (2026-02-09): server-side policy + API support for manual lot selection vs auto-FEFO:
   - Company inventory policy `company_settings.key='inventory'.require_manual_lot_selection` (Admin: System → Config → Inventory Policy)
-  - POS helper endpoint `GET /pos/items/{item_id}/batches?warehouse_id=...` to list eligible batches + on-hand in FEFO order
+  - POS helper endpoint `GET /pos/items/{item_id}/batches?warehouse_id=...` to list eligible batches + on-hand in FEFO order (for expiry-managed items, lots without expiry are hidden)
   - Worker enforces manual selection when the policy is enabled (tracked items must specify `batch_no` and/or `expiry_date`)
   - Remaining (product): POS UI pick/confirm flow for physical picking.
 - Expiry monitoring module exists:
@@ -273,8 +273,8 @@ Missing (practical operations gaps):
     - receiving attribution (`received_at`, `received_source_type/source_id`, `received_supplier_id`)
     - lot status (`status`: available/quarantine/expired + `hold_reason/notes`)
   - Implemented v1 (2026-02-09):
-    - Receiving can capture bin placement: `goods_receipt_lines.location_id` + Admin Goods Receipt Draft editor supports line-level Location selection.
-    - Intra-warehouse bin moves are supported: `/inventory/transfer` now allows same-warehouse transfers when locations differ.
+    - Receiving can capture bin placement: `goods_receipt_lines.location_id` + Admin Goods Receipt Draft editor supports line-level Location selection (and optional landed cost totals per line).
+    - Intra-warehouse bin moves are supported: `/inventory/transfer` allows same-warehouse transfers when locations differ (and validates location IDs belong to the specified warehouses).
     - Per-batch cost trace is implemented: `batch_cost_layers` + recording on goods receipt posting + `GET /inventory/batches/{batch_id}/cost-layers`.
   - Remaining: landed cost allocation workflows and vendor rebates/credits per batch.
 
@@ -306,6 +306,7 @@ Operational control:
   - location_id on stock moves and batch placement
   - Implemented v1: `warehouse_locations` master table + optional `stock_moves.location_id` + Admin management page (`System → Warehouse Locations`).
   - Implemented v1 (2026-02-09): receiving UI (Admin goods receipts line Locations) + intra-warehouse moves (location-aware transfers).
+  - Implemented v1 (2026-02-09): operational location listing endpoint for day-to-day flows: `GET /inventory/warehouses/{warehouse_id}/locations` (active bins only).
   - Remaining (product): pick/pack confirmation UX and tighter location-aware allocation rules.
 
 Traceability:

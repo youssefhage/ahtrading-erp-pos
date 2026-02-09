@@ -13,6 +13,28 @@ from ..journal_utils import auto_balance_journal
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
+
+@router.get("/warehouses/{warehouse_id}/locations", dependencies=[Depends(require_permission("inventory:read"))])
+def list_locations_for_warehouse_ops(warehouse_id: str, company_id: str = Depends(get_company_id)):
+    """
+    Operational read endpoint for warehouse locations.
+    Unlike the config-scoped `/warehouses/{id}/locations`, this is intended for day-to-day flows
+    (receiving, transfers) and returns only active locations.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, warehouse_id, code, name, is_active, created_at, updated_at
+                FROM warehouse_locations
+                WHERE company_id=%s AND warehouse_id=%s AND is_active=true
+                ORDER BY code ASC
+                """,
+                (company_id, warehouse_id),
+            )
+            return {"locations": cur.fetchall()}
+
 def _safe_journal_no(cur, company_id: str, base: str) -> str:
     base = (base or "").strip() or "J"
     base = base[:40]

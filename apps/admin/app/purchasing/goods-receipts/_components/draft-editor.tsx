@@ -178,7 +178,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
         return;
       }
       try {
-        const res = await apiGet<{ locations: WarehouseLocation[] }>(`/warehouses/${encodeURIComponent(warehouseId)}/locations`);
+        const res = await apiGet<{ locations: WarehouseLocation[] }>(`/inventory/warehouses/${encodeURIComponent(warehouseId)}/locations`);
         if (!cancelled) setLocations((res.locations || []).filter((x) => x.is_active));
       } catch {
         // Purchasing users may not have config:read; keep location optional.

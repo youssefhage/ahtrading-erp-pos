@@ -29,6 +29,30 @@ type BatchRow = {
   updated_at: string;
 };
 
+type CostLayerRow = {
+  id: string;
+  batch_id: string;
+  warehouse_id: string | null;
+  warehouse_name: string | null;
+  location_id: string | null;
+  location_code: string | null;
+  location_name: string | null;
+  source_type: string;
+  source_id: string;
+  goods_receipt_no: string | null;
+  source_line_type: string | null;
+  source_line_id: string | null;
+  qty: string | number;
+  unit_cost_usd: string | number;
+  unit_cost_lbp: string | number;
+  line_total_usd: string | number;
+  line_total_lbp: string | number;
+  landed_cost_total_usd: string | number;
+  landed_cost_total_lbp: string | number;
+  notes: string | null;
+  created_at: string;
+};
+
 function fmtIso(iso?: string | null) {
   return String(iso || "").slice(0, 10) || "-";
 }
@@ -53,6 +77,11 @@ export default function InventoryBatchesPage() {
   const [editHoldReason, setEditHoldReason] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const [layersOpen, setLayersOpen] = useState(false);
+  const [layersBatch, setLayersBatch] = useState<BatchRow | null>(null);
+  const [layersRows, setLayersRows] = useState<CostLayerRow[]>([]);
+  const [layersLoading, setLayersLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,6 +120,23 @@ export default function InventoryBatchesPage() {
     setEditHoldReason(b.hold_reason || "");
     setEditNotes(b.notes || "");
     setEditOpen(true);
+  }
+
+  async function openLayers(b: BatchRow) {
+    setLayersBatch(b);
+    setLayersRows([]);
+    setLayersOpen(true);
+    setLayersLoading(true);
+    try {
+      const res = await apiGet<{ cost_layers: CostLayerRow[] }>(`/inventory/batches/${encodeURIComponent(b.id)}/cost-layers?limit=200`);
+      setLayersRows(res.cost_layers || []);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(msg);
+      setLayersRows([]);
+    } finally {
+      setLayersLoading(false);
+    }
   }
 
   async function saveEdit(e: React.FormEvent) {
@@ -200,9 +246,14 @@ export default function InventoryBatchesPage() {
                         </div>
                       </td>
                       <td className="px-3 py-2 text-right">
-                        <Button variant="outline" size="sm" onClick={() => openEdit(b)}>
-                          Edit
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={() => openLayers(b)}>
+                            Costs
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => openEdit(b)}>
+                            Edit
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -219,6 +270,75 @@ export default function InventoryBatchesPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={layersOpen} onOpenChange={setLayersOpen}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Batch Cost Layers</DialogTitle>
+            <DialogDescription>
+              {layersBatch ? (
+                <span className="font-mono text-xs">
+                  {layersBatch.item_sku} · {layersBatch.batch_no || "-"} · exp {fmtIso(layersBatch.expiry_date)}
+                </span>
+              ) : (
+                "Per-batch cost trace (goods receipt layers)."
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="ui-table-wrap">
+            <table className="ui-table">
+              <thead className="ui-thead">
+                <tr>
+                  <th className="px-3 py-2">Created</th>
+                  <th className="px-3 py-2">Source</th>
+                  <th className="px-3 py-2">Warehouse</th>
+                  <th className="px-3 py-2">Location</th>
+                  <th className="px-3 py-2 text-right">Qty</th>
+                  <th className="px-3 py-2 text-right">Unit USD</th>
+                  <th className="px-3 py-2 text-right">Unit LL</th>
+                  <th className="px-3 py-2 text-right">Landed USD</th>
+                  <th className="px-3 py-2 text-right">Landed LL</th>
+                </tr>
+              </thead>
+              <tbody className={layersLoading ? "opacity-70" : ""}>
+                {layersRows.map((r) => (
+                  <tr key={r.id} className="ui-tr-hover">
+                    <td className="px-3 py-2 font-mono text-xs">{fmtIso(r.created_at)}</td>
+                    <td className="px-3 py-2 text-xs">
+                      <div className="font-mono text-[10px] text-fg-muted">{r.source_type}</div>
+                      <div className="text-fg-subtle">{r.goods_receipt_no ? `GR ${r.goods_receipt_no}` : r.source_id}</div>
+                    </td>
+                    <td className="px-3 py-2 text-xs">{r.warehouse_name || "-"}</td>
+                    <td className="px-3 py-2 text-xs">
+                      <div className="font-mono text-[10px]">{r.location_code || "-"}</div>
+                      {r.location_name ? <div className="text-[10px] text-fg-subtle">{r.location_name}</div> : null}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-xs">{String(r.qty ?? "")}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs">{String(r.unit_cost_usd ?? "")}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs">{String(r.unit_cost_lbp ?? "")}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs">{String(r.landed_cost_total_usd ?? "")}</td>
+                    <td className="px-3 py-2 text-right font-mono text-xs">{String(r.landed_cost_total_lbp ?? "")}</td>
+                  </tr>
+                ))}
+                {!layersLoading && layersRows.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-8 text-center text-fg-subtle" colSpan={9}>
+                      No cost layers recorded for this batch.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-end">
+            <Button variant="outline" onClick={() => setLayersOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-xl">
