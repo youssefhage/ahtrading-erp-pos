@@ -24,6 +24,17 @@ def _json_log(level: str, event: str, **fields):
     rec = {"level": level, "event": event, **fields}
     print(json.dumps(rec, default=str), file=sys.stderr)
 
+def _set_company_context_session(cur, company_id: str):
+    """
+    Important for this job: we run with `conn.autocommit = True` to avoid holding long transactions
+    during external AI calls. `set_company_context()` uses `set_config(..., is_local=true)`, which
+    only persists for the current transaction. With autocommit enabled, each statement is its own
+    transaction, so the RLS context would be lost between statements.
+
+    Use a session-level setting for this job only.
+    """
+    cur.execute("SELECT set_config('app.current_company_id', %s::text, false)", (company_id,))
+
 
 def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2) -> dict[str, Any]:
     """
@@ -51,7 +62,7 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
             invoice_row = None
             with conn.transaction():
                 with conn.cursor() as cur:
-                    set_company_context(cur, company_id)
+                    _set_company_context_session(cur, company_id)
                     cur.execute(
                         """
                         SELECT id, exchange_rate, tax_code_id, import_attachment_id, import_options_json
@@ -91,7 +102,7 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
             warnings: list[str] = []
             try:
                 with conn.cursor() as cur:
-                    set_company_context(cur, company_id)
+                    _set_company_context_session(cur, company_id)
                     cur.execute(
                         """
                         SELECT filename, content_type, bytes
@@ -165,7 +176,7 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
                 try:
                     with conn.transaction():
                         with conn.cursor() as cur3:
-                            set_company_context(cur3, company_id)
+                            _set_company_context_session(cur3, company_id)
                             cur3.execute(
                                 """
                                 UPDATE supplier_invoices
@@ -187,4 +198,3 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
                 failed += 1
 
     return {"ok": True, "filled": filled, "skipped": skipped, "failed": failed}
-
