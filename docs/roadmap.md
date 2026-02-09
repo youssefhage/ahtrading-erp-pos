@@ -66,7 +66,9 @@ Canonical execution documents:
   - DB trigger logs meaningful avg-cost changes into `item_cost_change_log`.
   - New worker agent `AI_PRICE_IMPACT` runs hourly and creates actionable review tasks (AI Hub queue).
   - Admin page: `Inventory → Cost Changes` (backed by `GET /pricing/cost-changes`).
-- Next: surface recommended price updates directly in the item editor and add “sell price change log” views.
+- Completed (2026-02-09, v1):
+  - Item editor shows pricing/cost/margin, suggested sell price, and “Apply Suggested” (backed by `GET /pricing/items/{item_id}/suggested-price`).
+  - Sell price change log view exists (`Inventory → Price Changes`, backed by `GET /pricing/price-changes`).
 
 4) Audit coverage completion (business-grade)
 - Ensure all document lifecycle actions write `audit_logs`:

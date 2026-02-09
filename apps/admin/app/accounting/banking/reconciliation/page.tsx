@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
 import { useToast } from "@/components/toast-provider";
+import { Page, PageHeader } from "@/components/page";
 
 type BankAccountRow = {
   id: string;
@@ -58,7 +59,8 @@ function fmt(n: string | number, frac = 2) {
 
 export default function BankingReconciliationPage() {
   const toast = useToast();
-  const [status, setStatus] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loadingTxns, setLoadingTxns] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([]);
   const [coaAccounts, setCoaAccounts] = useState<CoaAccount[]>([]);
   const [txns, setTxns] = useState<BankTxnRow[]>([]);
@@ -103,7 +105,8 @@ export default function BankingReconciliationPage() {
   }
 
   const loadTxns = useCallback(async () => {
-    setStatus("Loading...");
+    setLoadingTxns(true);
+    setError(null);
     try {
       const qs = new URLSearchParams();
       if (bankAccountId) qs.set("bank_account_id", bankAccountId);
@@ -113,10 +116,11 @@ export default function BankingReconciliationPage() {
       qs.set("limit", "500");
       const res = await apiGet<{ transactions: BankTxnRow[] }>(`/banking/transactions?${qs.toString()}`);
       setTxns(res.transactions || []);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(message);
+    } finally {
+      setLoadingTxns(false);
     }
   }, [bankAccountId, matched, dateFrom, dateTo]);
 
@@ -126,7 +130,7 @@ export default function BankingReconciliationPage() {
         await Promise.all([loadBankAccounts(), loadCoa()]);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        setStatus(message);
+        setError(message);
       }
     })();
   }, []);
@@ -137,7 +141,7 @@ export default function BankingReconciliationPage() {
 
   async function createTxn(e: React.FormEvent) {
     e.preventDefault();
-    if (!txnBankAccountId) return setStatus("Pick a bank account.");
+    if (!txnBankAccountId) return setError("Pick a bank account.");
     const usd = (() => {
       const r = parseNumberInput(amountUsd);
       return r.ok ? r.value : 0;
@@ -146,9 +150,9 @@ export default function BankingReconciliationPage() {
       const r = parseNumberInput(amountLbp);
       return r.ok ? r.value : 0;
     })();
-    if (usd <= 0 && lbp <= 0) return setStatus("Enter an amount.");
+    if (usd <= 0 && lbp <= 0) return setError("Enter an amount.");
     setCreating(true);
-    setStatus("Creating...");
+    setError(null);
     try {
       await apiPost<{ id: string }>("/banking/transactions", {
         bank_account_id: txnBankAccountId,
@@ -171,10 +175,9 @@ export default function BankingReconciliationPage() {
       setReference("");
       setCounterparty("");
       await loadTxns();
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(message);
     } finally {
       setCreating(false);
     }
@@ -205,21 +208,21 @@ export default function BankingReconciliationPage() {
     const bankAcc = bankAccounts.find((b) => b.id === t.bank_account_id);
     const bankGlId = bankAcc?.gl_account_id as string | undefined;
     if (!bankGlId) {
-      setStatus("Bank account GL mapping is missing. Set it in Bank Accounts.");
+      setError("Bank account GL mapping is missing. Set it in Bank Accounts.");
       return;
     }
 
     const code = (offsetAccountCode || "").trim();
     const offset = coaAccounts.find((a) => a.account_code === code);
     if (!offset) {
-      setStatus("Offset account code is invalid.");
+      setError("Offset account code is invalid.");
       return;
     }
 
     const usd = Number(t.amount_usd || 0);
     const lbp = Number(t.amount_lbp || 0);
     if (usd === 0 && lbp === 0) {
-      setStatus("Transaction amount is zero.");
+      setError("Transaction amount is zero.");
       return;
     }
 
@@ -238,7 +241,7 @@ export default function BankingReconciliationPage() {
         ];
 
     setCreatingJournal(true);
-    setStatus("Creating journal...");
+    setError(null);
     try {
       const res = await apiPost<{ id: string; journal_no: string }>("/accounting/manual-journals", {
         journal_date: journalDate,
@@ -247,15 +250,14 @@ export default function BankingReconciliationPage() {
         memo,
         lines
       });
-      setStatus("Matching...");
       await apiPost(`/banking/transactions/${createTxnId}/match`, { journal_id: res.id });
       setCreateJournalOpen(false);
       setCreateTxnId("");
       await loadTxns();
-      setStatus(`Created ${res.journal_no} and matched.`);
+      toast.success("Matched", `Created ${res.journal_no} and matched successfully.`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(message);
     } finally {
       setCreatingJournal(false);
     }
@@ -289,39 +291,43 @@ export default function BankingReconciliationPage() {
 
   async function match() {
     if (!matchTxnId) return;
-    if (!journalId.trim()) return setStatus("Journal ID is required.");
+    if (!journalId.trim()) return setError("Journal ID is required.");
     setMatching(true);
-    setStatus("Matching...");
+    setError(null);
     try {
       await apiPost(`/banking/transactions/${matchTxnId}/match`, { journal_id: journalId.trim() });
       setMatchOpen(false);
       await loadTxns();
-      setStatus("");
+      toast.success("Matched", "Transaction linked to journal.");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(message);
     } finally {
       setMatching(false);
     }
   }
 
   async function unmatch(txnId: string) {
-    setStatus("Unmatching...");
+    setError(null);
     try {
       await apiPost(`/banking/transactions/${txnId}/unmatch`, {});
       await loadTxns();
-      setStatus("");
+      toast.success("Unmatched", "Transaction unlinked.");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setError(message);
     }
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={loadTxns} /> : null}
+    <Page width="lg">
+      <PageHeader
+        title="Banking Reconciliation"
+        description="Record statement lines and match them to accounting journals."
+      />
+      {error ? <ErrorBanner error={error} onRetry={loadTxns} /> : null}
 
-        <Card>
+      <Card>
           <CardHeader>
             <CardTitle>Filters</CardTitle>
             <CardDescription>Limit transactions for faster matching.</CardDescription>
@@ -365,15 +371,15 @@ export default function BankingReconciliationPage() {
           </CardContent>
         </Card>
 
-        <Card>
+      <Card>
           <CardHeader>
             <CardTitle>Transactions</CardTitle>
             <CardDescription>{txns.length} rows</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={loadTxns}>
-                Refresh
+              <Button variant="outline" onClick={loadTxns} disabled={loadingTxns}>
+                {loadingTxns ? "..." : "Refresh"}
               </Button>
               <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogTrigger asChild>
@@ -521,7 +527,7 @@ export default function BankingReconciliationPage() {
           </CardContent>
         </Card>
 
-        <Dialog open={matchOpen} onOpenChange={setMatchOpen}>
+      <Dialog open={matchOpen} onOpenChange={setMatchOpen}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Match Transaction</DialogTitle>
@@ -576,7 +582,7 @@ export default function BankingReconciliationPage() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={createJournalOpen} onOpenChange={setCreateJournalOpen}>
+      <Dialog open={createJournalOpen} onOpenChange={setCreateJournalOpen}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Create Journal From Transaction</DialogTitle>
@@ -616,5 +622,6 @@ export default function BankingReconciliationPage() {
             </div>
           </DialogContent>
         </Dialog>
-      </div>);
+    </Page>
+  );
 }

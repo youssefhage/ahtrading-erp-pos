@@ -289,7 +289,8 @@ Missing (practical operations gaps):
     - Receiving can capture bin placement: `goods_receipt_lines.location_id` + Admin Goods Receipt Draft editor supports line-level Location selection (and optional landed cost totals per line).
     - Intra-warehouse bin moves are supported: `/inventory/transfer` allows same-warehouse transfers when locations differ (and validates location IDs belong to the specified warehouses).
     - Per-batch cost trace is implemented: `batch_cost_layers` + recording on goods receipt posting + `GET /inventory/batches/{batch_id}/cost-layers`.
-  - Remaining: landed cost allocation workflows and vendor rebates/credits per batch.
+  - Implemented v1 (2026-02-09): landed cost allocation workflows (Landed Cost docs + allocation into GRN/batches).
+  - Remaining: vendor rebates/credits per batch.
 
 ### Inventory / Warehousing
 

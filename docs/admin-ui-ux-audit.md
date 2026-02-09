@@ -116,7 +116,7 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
   - Plain `<button>` without type:
     - `apps/admin/app/dashboard/page.tsx` (ok because not in a form)
     - `apps/admin/app/login/page.tsx` (ok because not in a form)
-    - `apps/admin/app/accounting/banking/reconciliation/page.tsx` (needs review)
+    - `apps/admin/app/accounting/banking/reconciliation/page.tsx` (reviewed)
 - Fix:
   - Use links/buttons inside cells, not `<tr onClick>`.
   - Add `type="button"` for non-submit actions when inside forms.
