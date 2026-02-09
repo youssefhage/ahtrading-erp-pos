@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
@@ -11,11 +11,14 @@ import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentTimeline } from "@/components/document-timeline";
 import { ItemTypeahead, ItemTypeaheadItem } from "@/components/item-typeahead";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { StatusChip } from "@/components/ui/status-chip";
+
+type LocationRow = { id: string; code: string; name: string | null; is_active: boolean };
 
 type TransferDoc = {
   id: string;
@@ -25,6 +28,12 @@ type TransferDoc = {
   from_warehouse_name?: string | null;
   to_warehouse_id: string;
   to_warehouse_name?: string | null;
+  from_location_id?: string | null;
+  from_location_code?: string | null;
+  from_location_name?: string | null;
+  to_location_id?: string | null;
+  to_location_code?: string | null;
+  to_location_name?: string | null;
   memo?: string | null;
   created_at: string;
   picked_at?: string | null;
@@ -73,6 +82,12 @@ function Inner({ id }: { id: string }) {
 
   const [editMode, setEditMode] = useState(false);
   const [memo, setMemo] = useState("");
+  const [fromLocationId, setFromLocationId] = useState("");
+  const [toLocationId, setToLocationId] = useState("");
+  const [fromLocCode, setFromLocCode] = useState("");
+  const [toLocCode, setToLocCode] = useState("");
+  const [fromLocations, setFromLocations] = useState<LocationRow[]>([]);
+  const [toLocations, setToLocations] = useState<LocationRow[]>([]);
   const [linesDraft, setLinesDraft] = useState<Array<{ item_id: string; item_sku: string; item_name: string; qty: string; notes: string }>>([]);
   const [saving, setSaving] = useState(false);
 
@@ -84,6 +99,10 @@ function Inner({ id }: { id: string }) {
   const [cancelReason, setCancelReason] = useState("");
   const [canceling, setCanceling] = useState(false);
   const [lastWarnings, setLastWarnings] = useState<string[]>([]);
+
+  const [reverseOpen, setReverseOpen] = useState(false);
+  const [reversing, setReversing] = useState(false);
+  const [reverseReason, setReverseReason] = useState("");
 
   const tr = detail?.transfer;
   const lines = detail?.lines || [];
@@ -97,6 +116,8 @@ function Inner({ id }: { id: string }) {
       const d = await apiGet<Detail>(`/inventory/transfers/${encodeURIComponent(id)}`);
       setDetail(d);
       setMemo(String(d.transfer?.memo || ""));
+      setFromLocationId(String(d.transfer?.from_location_id || ""));
+      setToLocationId(String(d.transfer?.to_location_id || ""));
       setLinesDraft(
         (d.lines || []).map((l) => ({
           item_id: l.item_id,
@@ -117,6 +138,75 @@ function Inner({ id }: { id: string }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!tr?.from_warehouse_id) {
+        setFromLocations([]);
+        return;
+      }
+      try {
+        const res = await apiGet<{ locations: LocationRow[] }>(
+          `/inventory/locations?warehouse_id=${encodeURIComponent(tr.from_warehouse_id)}&limit=500`
+        );
+        if (cancelled) return;
+        setFromLocations(res.locations || []);
+      } catch {
+        if (cancelled) return;
+        setFromLocations([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tr?.from_warehouse_id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!tr?.to_warehouse_id) {
+        setToLocations([]);
+        return;
+      }
+      try {
+        const res = await apiGet<{ locations: LocationRow[] }>(
+          `/inventory/locations?warehouse_id=${encodeURIComponent(tr.to_warehouse_id)}&limit=500`
+        );
+        if (cancelled) return;
+        setToLocations(res.locations || []);
+      } catch {
+        if (cancelled) return;
+        setToLocations([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tr?.to_warehouse_id]);
+
+  const fromLocOptions = useMemo(() => {
+    return (fromLocations || []).map((l) => ({
+      value: l.id,
+      label: `${l.code}${l.name ? ` · ${l.name}` : ""}`,
+      keywords: `${l.code} ${l.name || ""}`.trim(),
+    }));
+  }, [fromLocations]);
+
+  const toLocOptions = useMemo(() => {
+    return (toLocations || []).map((l) => ({
+      value: l.id,
+      label: `${l.code}${l.name ? ` · ${l.name}` : ""}`,
+      keywords: `${l.code} ${l.name || ""}`.trim(),
+    }));
+  }, [toLocations]);
+
+  function pickLocationByCode(code: string, locs: LocationRow[]): string {
+    const t = String(code || "").trim().toLowerCase();
+    if (!t) return "";
+    const exact = (locs || []).find((l) => String(l.code || "").trim().toLowerCase() === t);
+    return exact ? exact.id : "";
+  }
 
   function addItem(it: ItemTypeaheadItem) {
     setLinesDraft((prev) => {
@@ -157,6 +247,8 @@ function Inner({ id }: { id: string }) {
     try {
       const payload = {
         memo: memo.trim() || undefined,
+        from_location_id: fromLocationId || undefined,
+        to_location_id: toLocationId || undefined,
         lines: (linesDraft || [])
           .map((ln) => ({
             item_id: ln.item_id,
@@ -228,10 +320,29 @@ function Inner({ id }: { id: string }) {
     }
   }
 
+  async function doReverse(e: React.FormEvent) {
+    e.preventDefault();
+    if (!tr) return;
+    setReversing(true);
+    setErr(null);
+    try {
+      const res = await apiPost<{ id: string }>(`/inventory/transfers/${encodeURIComponent(tr.id)}/reverse-draft`, {
+        reason: reverseReason.trim() || undefined,
+      });
+      setReverseOpen(false);
+      router.push(`/inventory/transfers/${encodeURIComponent(res.id)}`);
+    } catch (e2) {
+      setErr(e2);
+    } finally {
+      setReversing(false);
+    }
+  }
+
   const canEdit = tr?.status === "draft";
   const canPick = tr?.status === "draft" || tr?.status === "picked";
   const canPost = tr?.status === "picked";
   const canCancel = tr?.status === "draft" || tr?.status === "picked";
+  const canReverse = tr?.status === "posted";
 
   if (!loading && !detail && !err) {
     return (
@@ -279,6 +390,11 @@ function Inner({ id }: { id: string }) {
               Post
             </Button>
           ) : null}
+          {canReverse ? (
+            <Button type="button" variant="outline" onClick={() => setReverseOpen(true)}>
+              Reverse
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -322,6 +438,18 @@ function Inner({ id }: { id: string }) {
                   <span className="font-medium">{tr.to_warehouse_name || tr.to_warehouse_id.slice(0, 8)}</span>
                 </div>
               </div>
+              <div>
+                <div className="text-xs text-fg-muted">Locations</div>
+                <div className="mt-1 text-sm">
+                  <span className="font-medium">
+                    {tr.from_location_code || tr.from_location_id ? (tr.from_location_code || String(tr.from_location_id).slice(0, 8)) : "(none)"}
+                  </span>
+                  <span className="mx-2 text-fg-subtle">→</span>
+                  <span className="font-medium">
+                    {tr.to_location_code || tr.to_location_id ? (tr.to_location_code || String(tr.to_location_id).slice(0, 8)) : "(none)"}
+                  </span>
+                </div>
+              </div>
               <div className="md:col-span-2">
                 <div className="text-xs text-fg-muted">Memo</div>
                 <div className="mt-1">{tr.memo || "-"}</div>
@@ -359,6 +487,53 @@ function Inner({ id }: { id: string }) {
                     <div className="text-xs text-fg-muted">Memo</div>
                     <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Optional" />
                   </label>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <div className="text-xs text-fg-muted">From location (optional)</div>
+                      <Input
+                        value={fromLocCode}
+                        onChange={(e) => setFromLocCode(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const id = pickLocationByCode(fromLocCode, fromLocations);
+                            if (id) setFromLocationId(id);
+                          }
+                        }}
+                        placeholder="Scan/type location code"
+                      />
+                      <SearchableSelect
+                        value={fromLocationId}
+                        onChange={setFromLocationId}
+                        placeholder="Select location..."
+                        searchPlaceholder="Search locations..."
+                        options={[{ value: "", label: "(none)" }, ...fromLocOptions]}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-fg-muted">To location (optional)</div>
+                      <Input
+                        value={toLocCode}
+                        onChange={(e) => setToLocCode(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const id = pickLocationByCode(toLocCode, toLocations);
+                            if (id) setToLocationId(id);
+                          }
+                        }}
+                        placeholder="Scan/type location code"
+                      />
+                      <SearchableSelect
+                        value={toLocationId}
+                        onChange={setToLocationId}
+                        placeholder="Select location..."
+                        searchPlaceholder="Search locations..."
+                        options={[{ value: "", label: "(none)" }, ...toLocOptions]}
+                      />
+                    </div>
+                  </div>
 
                   <div className="max-w-xl">
                     <ItemTypeahead onSelect={addItem} onClear={() => {}} />
@@ -560,15 +735,42 @@ function Inner({ id }: { id: string }) {
           </form>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={reverseOpen} onOpenChange={setReverseOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Reversal Draft</DialogTitle>
+            <DialogDescription>
+              This creates a new transfer draft that swaps From/To and copies moved quantities. You can pick and post it like a normal transfer.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={doReverse} className="space-y-3">
+            <label className="space-y-1">
+              <div className="text-xs text-fg-muted">Reason (optional)</div>
+              <Input value={reverseReason} onChange={(e) => setReverseReason(e.target.value)} placeholder="Why reverse this transfer?" />
+            </label>
+            <div className="flex items-center justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setReverseOpen(false)} disabled={reversing}>
+                Close
+              </Button>
+              <Button type="submit" disabled={reversing}>
+                {reversing ? "Creating..." : "Create Draft"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-export default function TransferViewPage({ params }: { params: { id: string } }) {
+export default function TransferViewPage() {
+  const paramsObj = useParams();
+  const idParam = (paramsObj as Record<string, string | string[] | undefined>)?.id;
+  const id = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? (idParam[0] || "") : "";
   return (
     <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
-      <Inner id={params.id} />
+      <Inner id={id} />
     </Suspense>
   );
 }
-

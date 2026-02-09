@@ -7,11 +7,13 @@ import { apiGet, apiPost } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
 import { ItemTypeahead, ItemTypeaheadItem } from "@/components/item-typeahead";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 type WarehouseRow = { id: string; name: string };
+type LocationRow = { id: string; code: string; name: string | null; is_active: boolean };
 
 type LineDraft = {
   item_id: string;
@@ -35,6 +37,12 @@ function Inner() {
 
   const [fromWarehouseId, setFromWarehouseId] = useState("");
   const [toWarehouseId, setToWarehouseId] = useState("");
+  const [fromLocationId, setFromLocationId] = useState("");
+  const [toLocationId, setToLocationId] = useState("");
+  const [fromLocCode, setFromLocCode] = useState("");
+  const [toLocCode, setToLocCode] = useState("");
+  const [fromLocations, setFromLocations] = useState<LocationRow[]>([]);
+  const [toLocations, setToLocations] = useState<LocationRow[]>([]);
   const [memo, setMemo] = useState("");
 
   const [lines, setLines] = useState<LineDraft[]>([]);
@@ -61,6 +69,77 @@ function Inner() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!fromWarehouseId) {
+        setFromLocations([]);
+        setFromLocationId("");
+        return;
+      }
+      try {
+        const res = await apiGet<{ locations: LocationRow[] }>(
+          `/inventory/locations?warehouse_id=${encodeURIComponent(fromWarehouseId)}&limit=500`
+        );
+        if (cancelled) return;
+        setFromLocations(res.locations || []);
+      } catch {
+        if (cancelled) return;
+        setFromLocations([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fromWarehouseId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!toWarehouseId) {
+        setToLocations([]);
+        setToLocationId("");
+        return;
+      }
+      try {
+        const res = await apiGet<{ locations: LocationRow[] }>(
+          `/inventory/locations?warehouse_id=${encodeURIComponent(toWarehouseId)}&limit=500`
+        );
+        if (cancelled) return;
+        setToLocations(res.locations || []);
+      } catch {
+        if (cancelled) return;
+        setToLocations([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [toWarehouseId]);
+
+  const fromLocOptions = useMemo(() => {
+    return (fromLocations || []).map((l) => ({
+      value: l.id,
+      label: `${l.code}${l.name ? ` · ${l.name}` : ""}`,
+      keywords: `${l.code} ${l.name || ""}`.trim(),
+    }));
+  }, [fromLocations]);
+
+  const toLocOptions = useMemo(() => {
+    return (toLocations || []).map((l) => ({
+      value: l.id,
+      label: `${l.code}${l.name ? ` · ${l.name}` : ""}`,
+      keywords: `${l.code} ${l.name || ""}`.trim(),
+    }));
+  }, [toLocations]);
+
+  function pickLocationByCode(code: string, locs: LocationRow[]): string {
+    const t = String(code || "").trim().toLowerCase();
+    if (!t) return "";
+    const exact = (locs || []).find((l) => String(l.code || "").trim().toLowerCase() === t);
+    return exact ? exact.id : "";
+  }
 
   function addItem(it: ItemTypeaheadItem) {
     setLines((prev) => {
@@ -114,6 +193,8 @@ function Inner() {
     const payload = {
       from_warehouse_id: fromWarehouseId,
       to_warehouse_id: toWarehouseId,
+      from_location_id: fromLocationId || undefined,
+      to_location_id: toLocationId || undefined,
       memo: memo.trim() || undefined,
       lines: (lines || [])
         .map((ln) => ({
@@ -168,7 +249,7 @@ function Inner() {
         <Card>
           <CardHeader>
             <CardTitle>Header</CardTitle>
-            <CardDescription>Warehouse transfer header and memo.</CardDescription>
+            <CardDescription>Warehouse and (optional) bin/location context.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm md:grid-cols-2">
             <label className="space-y-1">
@@ -193,6 +274,61 @@ function Inner() {
                 ))}
               </select>
             </label>
+
+            <div className="space-y-1">
+              <div className="text-xs text-fg-muted">From location (optional)</div>
+              <div className="grid grid-cols-1 gap-2">
+                <Input
+                  value={fromLocCode}
+                  onChange={(e) => setFromLocCode(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const id = pickLocationByCode(fromLocCode, fromLocations);
+                      if (id) setFromLocationId(id);
+                    }
+                  }}
+                  placeholder="Scan/type location code"
+                  disabled={!fromWarehouseId}
+                />
+                <SearchableSelect
+                  value={fromLocationId}
+                  onChange={setFromLocationId}
+                  disabled={!fromWarehouseId}
+                  placeholder="Select location..."
+                  searchPlaceholder="Search locations..."
+                  options={[{ value: "", label: "(none)" }, ...fromLocOptions]}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-xs text-fg-muted">To location (optional)</div>
+              <div className="grid grid-cols-1 gap-2">
+                <Input
+                  value={toLocCode}
+                  onChange={(e) => setToLocCode(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const id = pickLocationByCode(toLocCode, toLocations);
+                      if (id) setToLocationId(id);
+                    }
+                  }}
+                  placeholder="Scan/type location code"
+                  disabled={!toWarehouseId}
+                />
+                <SearchableSelect
+                  value={toLocationId}
+                  onChange={setToLocationId}
+                  disabled={!toWarehouseId}
+                  placeholder="Select location..."
+                  searchPlaceholder="Search locations..."
+                  options={[{ value: "", label: "(none)" }, ...toLocOptions]}
+                />
+              </div>
+            </div>
+
             <label className="space-y-1 md:col-span-2">
               <div className="text-xs text-fg-muted">Memo (optional)</div>
               <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="e.g. Move to Branch B for wholesale order..." />
@@ -276,4 +412,3 @@ export default function TransferNewPage() {
     </Suspense>
   );
 }
-

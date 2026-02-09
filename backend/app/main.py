@@ -36,6 +36,7 @@ from .routers.telegram import router as telegram_router
 from .routers.whatsapp import router as whatsapp_router
 from .routers.landed_costs import router as landed_costs_router
 from .routers.stock_transfers import router as stock_transfers_router
+from .routers.inventory_locations import router as inventory_locations_router
 from .routers.devtools import router as devtools_router
 from .routers.auth import router as auth_router
 from .config import settings
@@ -164,6 +165,7 @@ app.include_router(telegram_router)
 app.include_router(whatsapp_router)
 app.include_router(landed_costs_router, dependencies=[Depends(require_company_access)])
 app.include_router(stock_transfers_router, dependencies=[Depends(require_company_access)])
+app.include_router(inventory_locations_router, dependencies=[Depends(require_company_access)])
 # Dev-only helpers (route handlers self-disable outside local/dev).
 app.include_router(devtools_router, dependencies=[Depends(require_company_access)])
 

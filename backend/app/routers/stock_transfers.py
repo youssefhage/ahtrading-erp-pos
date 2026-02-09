@@ -66,10 +66,14 @@ def list_transfers(
                 SELECT t.id, t.transfer_no, t.status,
                        t.from_warehouse_id, wf.name AS from_warehouse_name,
                        t.to_warehouse_id, wt.name AS to_warehouse_name,
+                       t.from_location_id, lf.code AS from_location_code, lf.name AS from_location_name,
+                       t.to_location_id, lt.code AS to_location_code, lt.name AS to_location_name,
                        t.memo, t.created_at, t.picked_at, t.posted_at
                 FROM stock_transfers t
                 LEFT JOIN warehouses wf ON wf.company_id=t.company_id AND wf.id=t.from_warehouse_id
                 LEFT JOIN warehouses wt ON wt.company_id=t.company_id AND wt.id=t.to_warehouse_id
+                LEFT JOIN warehouse_locations lf ON lf.company_id=t.company_id AND lf.id=t.from_location_id
+                LEFT JOIN warehouse_locations lt ON lt.company_id=t.company_id AND lt.id=t.to_location_id
                 WHERE t.company_id=%s
             """
             params: list = [company_id]
@@ -95,10 +99,16 @@ def get_transfer(transfer_id: str, company_id: str = Depends(get_company_id)):
                 """
                 SELECT t.*,
                        wf.name AS from_warehouse_name,
-                       wt.name AS to_warehouse_name
+                       wt.name AS to_warehouse_name,
+                       lf.code AS from_location_code,
+                       lf.name AS from_location_name,
+                       lt.code AS to_location_code,
+                       lt.name AS to_location_name
                 FROM stock_transfers t
                 LEFT JOIN warehouses wf ON wf.company_id=t.company_id AND wf.id=t.from_warehouse_id
                 LEFT JOIN warehouses wt ON wt.company_id=t.company_id AND wt.id=t.to_warehouse_id
+                LEFT JOIN warehouse_locations lf ON lf.company_id=t.company_id AND lf.id=t.from_location_id
+                LEFT JOIN warehouse_locations lt ON lt.company_id=t.company_id AND lt.id=t.to_location_id
                 WHERE t.company_id=%s AND t.id=%s
                 """,
                 (company_id, transfer_id),
@@ -648,3 +658,106 @@ def cancel_transfer(transfer_id: str, data: CancelIn, company_id: str = Depends(
                     (company_id, user["user_id"], transfer_id, json.dumps({"reason": reason})),
                 )
                 return {"ok": True}
+
+
+class ReverseDraftIn(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/{transfer_id}/reverse-draft", dependencies=[Depends(require_permission("inventory:write"))])
+def create_reverse_draft(
+    transfer_id: str,
+    data: ReverseDraftIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    """
+    Create a reversal transfer draft for a posted transfer (v1).
+    The reversal draft swaps from/to warehouses (and locations if available) and copies moved quantities.
+    User can pick/post the reversal as a normal transfer (safer than mutating the posted document).
+    """
+    reason = (data.reason or "").strip()
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, transfer_no, status,
+                           from_warehouse_id, to_warehouse_id,
+                           from_location_id, to_location_id,
+                           memo
+                    FROM stock_transfers
+                    WHERE company_id=%s AND id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, transfer_id),
+                )
+                doc = cur.fetchone()
+                if not doc:
+                    raise HTTPException(status_code=404, detail="transfer not found")
+                if doc["status"] != "posted":
+                    raise HTTPException(status_code=409, detail="only posted transfers can be reversed")
+
+                cur.execute(
+                    """
+                    SELECT item_id, qty, picked_qty, notes
+                    FROM stock_transfer_lines
+                    WHERE company_id=%s AND stock_transfer_id=%s
+                    ORDER BY line_no ASC
+                    """,
+                    (company_id, transfer_id),
+                )
+                lines = cur.fetchall() or []
+                if not lines:
+                    raise HTTPException(status_code=400, detail="transfer has no lines")
+
+                no = _next_doc_no(cur, company_id)
+                memo = f"Reversal of {doc['transfer_no']}"
+                if reason:
+                    memo += f": {reason}"
+
+                cur.execute(
+                    """
+                    INSERT INTO stock_transfers
+                      (id, company_id, transfer_no, status, from_warehouse_id, to_warehouse_id,
+                       from_location_id, to_location_id, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'draft', %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (
+                        company_id,
+                        no,
+                        doc["to_warehouse_id"],
+                        doc["from_warehouse_id"],
+                        doc.get("to_location_id"),
+                        doc.get("from_location_id"),
+                        memo,
+                        user["user_id"],
+                    ),
+                )
+                new_id = cur.fetchone()["id"]
+
+                for idx, ln in enumerate(lines, start=1):
+                    q = Decimal(str(ln.get("picked_qty") or 0)) or Decimal(str(ln.get("qty") or 0))
+                    if q <= 0:
+                        continue
+                    cur.execute(
+                        """
+                        INSERT INTO stock_transfer_lines
+                          (id, company_id, stock_transfer_id, line_no, item_id, qty, picked_qty, notes)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, 0, %s)
+                        """,
+                        (company_id, new_id, idx, ln["item_id"], q, (ln.get("notes") or "").strip() or None),
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'stock_transfer_reverse_draft_created', 'stock_transfer', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], new_id, json.dumps({"reverses_transfer_id": str(transfer_id), "reverses_transfer_no": doc["transfer_no"]})),
+                )
+                return {"id": new_id, "transfer_no": no}
