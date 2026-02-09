@@ -133,12 +133,70 @@ def attention(company_id: str = Depends(get_company_id)):
 
             cur.execute(
                 """
+                WITH on_hand AS (
+                  SELECT batch_id, SUM(qty_in - qty_out) AS on_hand_qty
+                  FROM stock_moves
+                  WHERE company_id=%s AND batch_id IS NOT NULL
+                  GROUP BY batch_id
+                )
+                SELECT COUNT(*)::int AS c
+                FROM on_hand h
+                JOIN batches b ON b.company_id=%s AND b.id=h.batch_id
+                WHERE h.on_hand_qty > 0
+                  AND b.status = 'quarantine'
+                """,
+                (company_id, company_id),
+            )
+            quarantine_batches = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                WITH on_hand AS (
+                  SELECT batch_id, SUM(qty_in - qty_out) AS on_hand_qty
+                  FROM stock_moves
+                  WHERE company_id=%s AND batch_id IS NOT NULL
+                  GROUP BY batch_id
+                )
+                SELECT COUNT(*)::int AS c
+                FROM on_hand h
+                JOIN batches b ON b.company_id=%s AND b.id=h.batch_id
+                WHERE h.on_hand_qty > 0
+                  AND b.status = 'expired'
+                """,
+                (company_id, company_id),
+            )
+            expired_batches = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
                 SELECT COUNT(*)::int AS c
                 FROM pos_events_outbox
                 WHERE status='failed'
                 """,
             )
             outbox_failed = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM ai_recommendations
+                WHERE company_id=%s AND status='pending'
+                """,
+                (company_id,),
+            )
+            pending_ai = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM sales_invoices
+                WHERE company_id=%s
+                  AND status='draft'
+                  AND created_at < now() - interval '2 days'
+                """,
+                (company_id,),
+            )
+            sales_stale_drafts = int(cur.fetchone()["c"])
 
             # POS shift variance signals (last 7 days).
             cur.execute(
@@ -278,6 +336,26 @@ def attention(company_id: str = Depends(get_company_id)):
                 "href": "/inventory/alerts",
             }
         )
+    if quarantine_batches:
+        items.append(
+            {
+                "key": "quarantine_batches",
+                "severity": "warning",
+                "label": "Quarantine batches with stock on hand",
+                "count": quarantine_batches,
+                "href": "/inventory/batches",
+            }
+        )
+    if expired_batches:
+        items.append(
+            {
+                "key": "expired_batches",
+                "severity": "critical",
+                "label": "Expired batches with stock on hand",
+                "count": expired_batches,
+                "href": "/inventory/batches",
+            }
+        )
     if outbox_failed:
         items.append(
             {
@@ -286,6 +364,26 @@ def attention(company_id: str = Depends(get_company_id)):
                 "label": "POS outbox failed events",
                 "count": outbox_failed,
                 "href": "/system/outbox",
+            }
+        )
+    if pending_ai:
+        items.append(
+            {
+                "key": "pending_ai_recommendations",
+                "severity": "info",
+                "label": "Pending AI recommendations",
+                "count": pending_ai,
+                "href": "/automation/ai-hub",
+            }
+        )
+    if sales_stale_drafts:
+        items.append(
+            {
+                "key": "sales_invoice_stale_drafts",
+                "severity": "warning",
+                "label": "Sales invoice drafts older than 2 days",
+                "count": sales_stale_drafts,
+                "href": "/sales/invoices",
             }
         )
 
