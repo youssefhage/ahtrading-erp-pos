@@ -44,7 +44,8 @@ def run_price_impact_agent(
                   SELECT p.item_id, p.price_usd, p.price_lbp,
                          ROW_NUMBER() OVER (PARTITION BY p.item_id ORDER BY p.effective_from DESC, p.created_at DESC, p.id DESC) AS rn
                   FROM item_prices p
-                  WHERE p.company_id = %s
+                  JOIN items itp ON itp.id = p.item_id
+                  WHERE itp.company_id = %s
                     AND p.effective_from <= CURRENT_DATE
                     AND (p.effective_to IS NULL OR p.effective_to >= CURRENT_DATE)
                 )
@@ -156,4 +157,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
