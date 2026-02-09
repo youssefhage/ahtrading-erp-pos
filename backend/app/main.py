@@ -24,6 +24,7 @@ from .routers.suppliers import router as suppliers_router
 from .routers import party_addresses
 from .routers.attachments import router as attachments_router
 from .routers.customers import router as customers_router
+from .routers.audit import router as audit_router
 from .routers.intercompany import router as intercompany_router
 from .routers.users import router as users_router
 from .routers.coa import router as coa_router
@@ -148,6 +149,7 @@ app.include_router(suppliers_router, dependencies=[Depends(require_company_acces
 app.include_router(customers_router, dependencies=[Depends(require_company_access)])
 app.include_router(party_addresses.router, dependencies=[Depends(require_company_access)])
 app.include_router(attachments_router, dependencies=[Depends(require_company_access)])
+app.include_router(audit_router, dependencies=[Depends(require_company_access)])
 app.include_router(intercompany_router, dependencies=[Depends(require_company_access)])
 app.include_router(users_router, dependencies=[Depends(require_company_access)])
 app.include_router(coa_router, dependencies=[Depends(require_company_access)])

@@ -3,6 +3,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
 import hashlib
+import json
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
@@ -84,7 +85,31 @@ def upload_attachment(
                 """,
                 (company_id, entity_type, entity_id, filename, content_type, len(raw), sha, raw, user["user_id"]),
             )
-            return {"id": cur.fetchone()["id"]}
+            attachment_id = cur.fetchone()["id"]
+            # Keep attachments discoverable in the same Timeline/Audit stream as the document itself.
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s::jsonb)
+                """,
+                (
+                    company_id,
+                    user["user_id"],
+                    "attachment_uploaded",
+                    entity_type,
+                    entity_id,
+                    json.dumps(
+                        {
+                            "attachment_id": attachment_id,
+                            "filename": filename,
+                            "content_type": content_type,
+                            "size_bytes": len(raw),
+                            "sha256": sha,
+                        }
+                    ),
+                ),
+            )
+            return {"id": attachment_id}
 
 
 @router.get("/{attachment_id}/download")

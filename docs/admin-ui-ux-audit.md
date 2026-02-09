@@ -44,6 +44,8 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
   - Purchase Orders now follow `/purchasing/purchase-orders/list|new|[id]|[id]/edit`.
   - Goods Receipts now follow `/purchasing/goods-receipts/list|new|[id]|[id]/edit`.
   - Suppliers now follow `/partners/suppliers|new|[id]|[id]/edit` (with `/partners/suppliers/list` as an alias entrypoint).
+  - Items now follow `/catalog/items/list|new|[id]|[id]/edit` (and `/catalog/items` redirects to `/catalog/items/list`).
+  - Customers now follow `/partners/customers/list|new|[id]|[id]/edit` (and `/partners/customers` redirects to `/partners/customers/list`).
 
 2) Replace raw “Status” `<pre>` error surfaces with productized error/empty states
 - Problem:
@@ -135,6 +137,8 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
 2) Expand and enforce color rules for status semantics
 - The design-token lint bans slate/white (good), but status colors still use raw Tailwind greens/reds in some places (dashboard, login).
 - Consider extending `check-design-tokens.mjs` to also forbid `text-green-*`, `bg-green-*`, `text-red-*`, `bg-red-*` in TS/TSX, pushing everyone to semantic status tokens.
+- Executed (v1):
+  - `apps/admin/scripts/check-design-tokens.mjs` now blocks Tailwind palette usage for common status colors (green/red/yellow/amber/orange/blue) in TS/TSX so we converge on semantic status tokens.
 
 3) Make “company selection” human-friendly
 - Company select shows UUIDs only (`apps/admin/app/company/select/page.tsx`).
@@ -148,6 +152,8 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
   - quick set buttons (0, 1, 10)
   - always show currency label next to amount inputs
   - consistent date pickers and ISO display formatting
+- Executed (v1):
+  - High-usage money entry flows now use `MoneyInput` (currency prefix + quick buttons) and consistent parsing via `parseNumberInput`.
 
 ## Nice To Have
 

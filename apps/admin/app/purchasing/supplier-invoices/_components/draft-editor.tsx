@@ -50,6 +50,11 @@ type InvoiceDetail = {
     goods_receipt_id?: string | null;
     invoice_date: string;
     due_date: string;
+    import_status?: string | null;
+    import_error?: string | null;
+    import_started_at?: string | null;
+    import_finished_at?: string | null;
+    import_attachment_id?: string | null;
   };
   lines: Array<{
     item_id: string;
@@ -105,6 +110,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [goodsReceiptId, setGoodsReceiptId] = useState("");
 
   const [lines, setLines] = useState<InvoiceLineDraft[]>([]);
+  const [importStatus, setImportStatus] = useState("");
+  const [importError, setImportError] = useState("");
 
   const [addItem, setAddItem] = useState<ItemTypeaheadItem | null>(null);
   const [addQty, setAddQty] = useState("1");
@@ -127,6 +134,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         if (!id) throw new Error("missing invoice id");
         const det = await apiGet<InvoiceDetail>(`/purchases/invoices/${id}`);
         if (det.invoice.status !== "draft") throw new Error("Only draft invoices can be edited.");
+
+        setImportStatus(String((det.invoice as any).import_status || ""));
+        setImportError(String((det.invoice as any).import_error || ""));
 
         setSupplierId(det.invoice.supplier_id || "");
         setSupplierLabel(String((det.invoice as any).supplier_name || ""));
@@ -168,6 +178,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setGoodsReceiptId("");
         setLines([]);
         setAttachments([]);
+        setImportStatus("");
+        setImportError("");
       }
 
       setStatus("");
@@ -182,6 +194,17 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   useEffect(() => {
     load();
   }, [load]);
+
+  // If this draft was created via async import, poll until the worker fills it.
+  useEffect(() => {
+    if (props.mode !== "edit") return;
+    const st = (importStatus || "").toLowerCase();
+    if (st !== "pending" && st !== "processing") return;
+    const t = window.setTimeout(() => {
+      load();
+    }, 2000);
+    return () => window.clearTimeout(t);
+  }, [props.mode, importStatus, load]);
 
   async function fetchSupplierLastCost(itemId: string): Promise<{ usd: number; lbp: number } | null> {
     const sup = (supplierId || "").trim();
@@ -366,7 +389,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
       const raw = await fetch("/api/purchases/invoices/drafts/import-file", { method: "POST", body: fd, credentials: "include" });
       if (!raw.ok) throw new Error(await raw.text());
-      const res = (await raw.json()) as { id: string; invoice_no: string; ai_extracted: boolean; warnings?: string[] };
+      const res = (await raw.json()) as { id: string; invoice_no: string; queued?: boolean; ai_extracted?: boolean; warnings?: string[] };
       if (Array.isArray(res.warnings) && res.warnings.length) {
         setStatus(`Imported with warnings:\n${res.warnings.slice(0, 10).join("\n")}`);
       } else {
@@ -469,6 +492,34 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
       {status ? (
         <ErrorBanner error={status} onRetry={load} />
+      ) : null}
+
+      {props.mode === "edit" && importStatus ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Import Status</CardTitle>
+            <CardDescription>
+              {String(importStatus).toLowerCase() === "pending" || String(importStatus).toLowerCase() === "processing"
+                ? "Import is in progress. This page will refresh automatically."
+                : "Import has finished."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div>
+              <span className="text-fg-subtle">Status:</span> <span className="font-mono text-xs">{importStatus}</span>
+            </div>
+            {importError ? (
+              <div className="rounded-md border border-border bg-bg-sunken/30 p-2 text-xs whitespace-pre-wrap">
+                {importError}
+              </div>
+            ) : null}
+            <div className="flex items-center justify-end gap-2">
+              <Button type="button" variant="outline" onClick={load} disabled={loading}>
+                Refresh
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       ) : null}
 
       {props.mode === "create" ? (

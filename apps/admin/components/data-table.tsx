@@ -42,6 +42,7 @@ export type DataTableProps<T> = {
   onRowClick?: (row: T) => void;
   emptyText?: string;
   className?: string;
+  initialSort?: { columnId: string; dir: SortDir } | null;
 
   // Toolbar
   enableGlobalFilter?: boolean;
@@ -94,6 +95,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
     onRowClick,
     emptyText = "No rows.",
     className,
+    initialSort = null,
     enableGlobalFilter = true,
     globalFilterPlaceholder = "Search...",
     actions,
@@ -109,7 +111,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>(defaultVisibility);
   const [globalFilter, setGlobalFilter] = useState("");
-  const [sort, setSort] = useState<{ columnId: string; dir: SortDir } | null>(null);
+  const [sort, setSort] = useState<{ columnId: string; dir: SortDir } | null>(initialSort);
 
   // Load persisted table prefs once.
   useEffect(() => {
@@ -136,7 +138,10 @@ export function DataTable<T>(props: DataTableProps<T>) {
     }
 
     if (typeof saved?.globalFilter === "string") setGlobalFilter(saved.globalFilter);
-    if (saved?.sort && typeof saved.sort === "object") setSort(saved.sort);
+    if (saved && Object.prototype.hasOwnProperty.call(saved, "sort")) {
+      // Respect explicit null (user cleared sort), but only apply when the key exists in saved prefs.
+      setSort(saved.sort ?? null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 

@@ -8,6 +8,9 @@ import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
+import { DocumentAttachments } from "@/components/document-attachments";
+import { DocumentTimeline } from "@/components/document-timeline";
+import { MoneyInput } from "@/components/money-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -470,6 +473,9 @@ function SalesInvoiceShowInner() {
             </CardContent>
           </Card>
 
+          <DocumentAttachments entityType="sales_invoice" entityId={detail.invoice.id} allowUpload={detail.invoice.status === "draft"} />
+          <DocumentTimeline entityType="sales_invoice" entityId={detail.invoice.id} />
+
           <Dialog open={postOpen} onOpenChange={setPostOpen}>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
@@ -537,14 +543,8 @@ function SalesInvoiceShowInner() {
                         ))}
                       </select>
                     </div>
-                    <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Amount USD</label>
-                      <Input value={postUsd} onChange={(e) => setPostUsd(e.target.value)} />
-                    </div>
-                    <div className="space-y-1 md:col-span-3">
-                      <label className="text-xs font-medium text-fg-muted">Amount LL</label>
-                      <Input value={postLbp} onChange={(e) => setPostLbp(e.target.value)} />
-                    </div>
+                    <MoneyInput label="Amount" currency="USD" value={postUsd} onChange={setPostUsd} quick={[0, 1, 10, 100]} className="md:col-span-3" />
+                    <MoneyInput label="Amount" currency="LBP" value={postLbp} onChange={setPostLbp} quick={[0, 100000, 500000, 1000000]} className="md:col-span-3" />
                   </>
                 ) : null}
                 <div className="md:col-span-6 flex justify-end">

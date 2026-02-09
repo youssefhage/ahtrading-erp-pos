@@ -9,6 +9,8 @@ import { fmtLbp, fmtUsd } from "@/lib/money";
 
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
+import { DocumentAttachments } from "@/components/document-attachments";
+import { DocumentTimeline } from "@/components/document-timeline";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -386,6 +388,9 @@ export default function GoodsReceiptViewPage({ params }: { params: { id: string 
             </CardContent>
           </Card>
 
+          <DocumentAttachments entityType="goods_receipt" entityId={detail.receipt.id} allowUpload={detail.receipt.status === "draft"} />
+          <DocumentTimeline entityType="goods_receipt" entityId={detail.receipt.id} />
+
           <Dialog open={postOpen} onOpenChange={setPostOpen}>
             <DialogContent className="max-w-lg">
               <DialogHeader>
@@ -501,4 +506,3 @@ export default function GoodsReceiptViewPage({ params }: { params: { id: string 
     </div>
   );
 }
-

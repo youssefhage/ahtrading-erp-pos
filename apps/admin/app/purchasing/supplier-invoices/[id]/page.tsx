@@ -8,6 +8,9 @@ import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
+import { DocumentAttachments } from "@/components/document-attachments";
+import { DocumentTimeline } from "@/components/document-timeline";
+import { MoneyInput } from "@/components/money-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -124,7 +127,6 @@ function SupplierInvoiceShowInner() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
-  const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
   const [aiInsight, setAiInsight] = useState<AiRecRow | null>(null);
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodMapping[]>([]);
@@ -166,14 +168,6 @@ function SupplierInvoiceShowInner() {
       ]);
       setDetail(det);
       setPaymentMethods(pm.methods || []);
-
-      // Attachments are optional; don't block the page if attachment permissions are missing.
-      try {
-        const a = await apiGet<{ attachments: AttachmentRow[] }>(`/attachments?entity_type=supplier_invoice&entity_id=${encodeURIComponent(id)}`);
-        setAttachments(a.attachments || []);
-      } catch {
-        setAttachments([]);
-      }
 
       // AI insights are optional; don't block if ai:read is missing.
       try {
@@ -459,54 +453,12 @@ function SupplierInvoiceShowInner() {
                 </div>
               </div>
 
-              {attachments.length ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Attachments</CardTitle>
-                    <CardDescription>Original documents linked to this invoice.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="ui-table-wrap">
-                      <table className="ui-table">
-                        <thead className="ui-thead">
-                          <tr>
-                            <th className="px-3 py-2">File</th>
-                            <th className="px-3 py-2">Type</th>
-                            <th className="px-3 py-2">Uploaded</th>
-                            <th className="px-3 py-2 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {attachments.slice(0, 10).map((a) => (
-                            <tr key={a.id} className="border-t border-border-subtle">
-                              <td className="px-3 py-2">
-                                <div className="text-xs font-medium text-foreground">{a.filename}</div>
-                                <div className="font-mono text-[10px] text-fg-subtle">{a.id}</div>
-                              </td>
-                              <td className="px-3 py-2 font-mono text-xs text-fg-muted">{a.content_type}</td>
-                              <td className="px-3 py-2 font-mono text-xs text-fg-muted">{fmtIso(a.uploaded_at)}</td>
-                              <td className="px-3 py-2 text-right">
-                                <div className="flex justify-end gap-2">
-                                  <Button asChild size="sm" variant="outline">
-                                    <a href={`/api/attachments/${a.id}/view`} target="_blank" rel="noreferrer">
-                                      View
-                                    </a>
-                                  </Button>
-                                  <Button asChild size="sm" variant="outline">
-                                    <a href={`/api/attachments/${a.id}/download`} target="_blank" rel="noreferrer">
-                                      Download
-                                    </a>
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : null}
+              <DocumentAttachments
+                entityType="supplier_invoice"
+                entityId={detail.invoice.id}
+                allowUpload={detail.invoice.status === "draft"}
+              />
+              <DocumentTimeline entityType="supplier_invoice" entityId={detail.invoice.id} />
 
               {aiInsight ? (
                 <Card>
@@ -753,24 +705,22 @@ function SupplierInvoiceShowInner() {
                             ))}
                           </select>
                         </div>
-                        <div className="md:col-span-3">
-                          <Input
-                            value={p.amount_usd}
-                            onChange={(e) =>
-                              setPostPayments((prev) => prev.map((x, i) => (i === idx ? { ...x, amount_usd: e.target.value } : x)))
-                            }
-                            placeholder="USD"
-                          />
-                        </div>
-                        <div className="md:col-span-3">
-                            <Input
-                              value={p.amount_lbp}
-                              onChange={(e) =>
-                                setPostPayments((prev) => prev.map((x, i) => (i === idx ? { ...x, amount_lbp: e.target.value } : x)))
-                              }
-                              placeholder="LL"
-                            />
-                          </div>
+                        <MoneyInput
+                          label="Amount"
+                          currency="USD"
+                          value={p.amount_usd}
+                          onChange={(next) => setPostPayments((prev) => prev.map((x, i) => (i === idx ? { ...x, amount_usd: next } : x)))}
+                          quick={[0]}
+                          className="md:col-span-3"
+                        />
+                        <MoneyInput
+                          label="Amount"
+                          currency="LBP"
+                          value={p.amount_lbp}
+                          onChange={(next) => setPostPayments((prev) => prev.map((x, i) => (i === idx ? { ...x, amount_lbp: next } : x)))}
+                          quick={[0]}
+                          className="md:col-span-3"
+                        />
                         <div className="md:col-span-2 flex justify-end">
                           <Button type="button" variant="outline" size="sm" onClick={() => setPostPayments((prev) => prev.filter((_, i) => i !== idx))}>
                             Remove

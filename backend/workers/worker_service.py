@@ -34,6 +34,7 @@ try:
     from .ai_ap_guard import run_ap_guard_agent
     from .ai_expiry_ops import run_expiry_ops_agent
     from .ai_action_executor import run_executor
+    from .supplier_invoice_import_job import run_supplier_invoice_import_job
 except ImportError:  # pragma: no cover
     # Allow running as a script: `python3 backend/workers/worker_service.py`
     from pos_processor import process_events, DB_URL_DEFAULT, MAX_ATTEMPTS_DEFAULT, set_company_context
@@ -48,6 +49,7 @@ except ImportError:  # pragma: no cover
     from ai_ap_guard import run_ap_guard_agent
     from ai_expiry_ops import run_expiry_ops_agent
     from ai_action_executor import run_executor
+    from supplier_invoice_import_job import run_supplier_invoice_import_job
 
 
 DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
@@ -65,6 +67,8 @@ DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
     "AI_SHRINKAGE": {"interval_seconds": 3600, "options_json": {}},
     "AI_ANOMALY": {"interval_seconds": 3600, "options_json": {"lookback_days": 7, "return_rate": 0.20, "min_return_qty": 2, "adjustment_usd": 250}},
     "AI_EXECUTOR": {"interval_seconds": 60, "options_json": {"limit": 20}},
+    # Queue-first supplier invoice import: fills drafts created by the upload endpoint.
+    "SUPPLIER_INVOICE_IMPORT": {"interval_seconds": 30, "options_json": {"limit": 2}},
 }
 
 WORKER_NAME = "outbox-worker"
@@ -229,6 +233,10 @@ def execute_job(db_url: str, company_id: str, job_code: str, options: dict):
     if job_code == "AI_EXECUTOR":
         limit = int(options.get("limit") or 20)
         run_executor(db_url, company_id, limit=limit)
+        return
+    if job_code == "SUPPLIER_INVOICE_IMPORT":
+        limit = int(options.get("limit") or 2)
+        run_supplier_invoice_import_job(db_url, company_id, limit=limit)
         return
     raise ValueError(f"unknown job_code: {job_code}")
 

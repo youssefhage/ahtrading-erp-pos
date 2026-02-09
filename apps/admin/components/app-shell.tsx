@@ -92,9 +92,11 @@ function iconForHref(href: string) {
     "/purchasing/payments": BadgeDollarSign,
 
     "/partners/customers": UsersRound,
+    "/partners/customers/list": UsersRound,
     "/partners/suppliers": Users,
 
     "/catalog/items": Package,
+    "/catalog/items/list": Package,
     "/catalog/item-categories": Percent,
     "/catalog/price-lists": BadgeDollarSign,
     "/catalog/promotions": Sparkles,
@@ -191,9 +193,9 @@ const FULL_NAV_SECTIONS: NavSection[] = [
   {
     label: "Master Data",
     items: [
-      { label: "Customers", href: "/partners/customers" },
+      { label: "Customers", href: "/partners/customers/list" },
       { label: "Suppliers", href: "/partners/suppliers" },
-      { label: "Items", href: "/catalog/items" },
+      { label: "Items", href: "/catalog/items/list" },
       { label: "Categories", href: "/catalog/item-categories" },
       { label: "Price Lists", href: "/catalog/price-lists" },
       { label: "Promotions", href: "/catalog/promotions" }
@@ -262,8 +264,8 @@ const LITE_NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Dashboard", href: "/dashboard" },
       { label: "Sales Invoices", href: "/sales/invoices" },
-      { label: "Customers", href: "/partners/customers" },
-      { label: "Items", href: "/catalog/items" },
+      { label: "Customers", href: "/partners/customers/list" },
+      { label: "Items", href: "/catalog/items/list" },
       { label: "Stock", href: "/inventory/stock" }
     ]
   },

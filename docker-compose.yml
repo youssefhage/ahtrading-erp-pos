@@ -109,6 +109,8 @@ services:
       - ./pos-desktop:/app/pos-desktop
       - ./pos:/app/pos
     environment:
+      # Bind to all interfaces so the host port mapping works.
+      POS_HOST: "0.0.0.0"
       POS_PORT: "7070"
       # Inside Docker, the API is reachable via the compose service name.
       POS_API_BASE_URL: http://api:8000

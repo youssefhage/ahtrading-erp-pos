@@ -45,14 +45,14 @@ Canonical execution documents:
 
 1) Admin UI: complete the document-first experience
 - Completed (2026-02-09): Purchase Orders, Goods Receipts, Suppliers now follow consistent list/new/[id]/edit routes.
-- Next: convert Items + Customers into the same route pattern (reduce dialog state, improve deep-linking and QA).
-- Standardize “Attachments” and “Timeline/Audit” tabs across documents (Sales, Purchasing, Inventory docs) so operators always know where to look.
+- Completed (2026-02-09): Items + Customers now follow the same route pattern (reduces dialog state, improves deep-linking and QA).
+- Completed (2026-02-09): Standardized “Attachments” and “Timeline/Audit” across document-style pages (Sales, Purchasing, Catalog, Partners) so operators always know where to look.
 - Keep tightening error/empty states (use `ApiError.status` mapping + “Details” expander everywhere).
 
 2) Purchasing: make invoice ingestion feel flawless
-- Move invoice extraction to async background jobs:
-  - Upload returns immediately (draft + attachment).
-  - Worker fills lines later and posts a recommendation with confidence + explainability.
+- Completed (2026-02-09): invoice extraction moved to async background jobs:
+  - Upload returns immediately (draft + attachment, queued).
+  - Worker fills lines later (import status is visible on the draft).
 - Matching UX (human-in-the-loop):
   - Show top candidate matches per line and require user confirmation before creating new items.
   - Improve alias learning reliability (code/name normalization, recency weighting).
@@ -69,7 +69,7 @@ Canonical execution documents:
 
 5) Go-live hardening (practical)
 - Preflight is now largely green; remaining common blocker is POS device setup.
-- Add a “Create first POS device” guided wizard (device + default warehouse/branch + token + test sale).
+- Completed (2026-02-09, v1): “Create first POS device” wizard improvements in `System → POS Devices` (branch picker + copy-ready `pos-desktop/config.json` snippet).
 
 ## Next 1-3 Months (Competitive Differentiators)
 

@@ -17,8 +17,15 @@ type DeviceRow = {
   has_token: boolean;
 };
 
+type BranchRow = {
+  id: string;
+  name: string;
+  address: string | null;
+};
+
 export default function PosDevicesPage() {
   const [devices, setDevices] = useState<DeviceRow[]>([]);
+  const [branches, setBranches] = useState<BranchRow[]>([]);
   const [status, setStatus] = useState("");
   const [registerOpen, setRegisterOpen] = useState(false);
 
@@ -30,8 +37,12 @@ export default function PosDevicesPage() {
   async function load() {
     setStatus("Loading...");
     try {
-      const res = await apiGet<{ devices: DeviceRow[] }>("/pos/devices");
+      const [res, br] = await Promise.all([
+        apiGet<{ devices: DeviceRow[] }>("/pos/devices"),
+        apiGet<{ branches: BranchRow[] }>("/branches").catch(() => ({ branches: [] as BranchRow[] })),
+      ]);
       setDevices(res.devices || []);
+      setBranches(br.branches || []);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -96,103 +107,144 @@ export default function PosDevicesPage() {
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        {lastToken ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Device Token</CardTitle>
-              <CardDescription>
-                This token is shown once. Copy it into the POS agent `config.json`.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-fg-muted">Device ID</span>
-                <code className="rounded bg-bg-sunken/30 px-2 py-1 text-xs">{lastToken.id}</code>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-fg-muted">Token</span>
-                <code className="rounded bg-bg-sunken/30 px-2 py-1 text-xs break-all">
-                  {lastToken.token || "(token not returned; already registered)"}
-                </code>
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
-
+      {devices.length === 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Devices</CardTitle>
-            <CardDescription>{devices.length} devices</CardDescription>
+            <CardTitle>Create Your First POS Device</CardTitle>
+            <CardDescription>Register a device, copy the one-time token, then run the POS agent.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
-                <DialogTrigger asChild>
-                  <Button>Register Device</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Register POS Device</DialogTitle>
-                    <DialogDescription>Creates a device and returns a one-time token.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={registerDevice} className="grid grid-cols-1 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Device Code</label>
-                      <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} placeholder="POS-01" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Branch ID (optional)</label>
-                      <Input value={branchId} onChange={(e) => setBranchId(e.target.value)} placeholder="uuid" />
-                    </div>
-                    <div className="flex justify-end">
-                      <Button type="submit" disabled={registering}>
-                        {registering ? "..." : "Register"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
-
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Code</th>
-                    <th className="px-3 py-2">Device ID</th>
-                    <th className="px-3 py-2">Branch</th>
-                    <th className="px-3 py-2">Token</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {devices.map((d) => (
-                    <tr key={d.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{d.device_code}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{d.id}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{d.branch_id || "-"}</td>
-                      <td className="px-3 py-2 text-xs">{d.has_token ? "set" : "missing"}</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button variant="outline" size="sm" onClick={() => resetToken(d.id)}>
-                          Reset Token
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {devices.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No devices yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
+          <CardContent className="space-y-3 text-sm">
+            <ol className="list-decimal space-y-1 pl-5 text-fg-subtle">
+              <li>Click Register Device, choose an optional Branch, and set a device code like POS-01.</li>
+              <li>Copy the one-time token (shown once).</li>
+              <li>Paste it into `pos-desktop/config.json` as `device_id` + `device_token`.</li>
+              <li>Start the stack and verify the agent can sync.</li>
+            </ol>
+            <div className="flex justify-end">
+              <Button onClick={() => setRegisterOpen(true)}>Register Device</Button>
             </div>
           </CardContent>
         </Card>
-      </div>);
+      ) : null}
+
+      {lastToken ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Device Token (One-Time)</CardTitle>
+            <CardDescription>This token is shown once. Copy it into the POS agent `pos-desktop/config.json`.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-fg-muted">Device ID</span>
+              <code className="rounded bg-bg-sunken/30 px-2 py-1 text-xs">{lastToken.id}</code>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-fg-muted">Token</span>
+              <code className="rounded bg-bg-sunken/30 px-2 py-1 text-xs break-all">{lastToken.token || "(token not returned; already registered)"}</code>
+            </div>
+            {lastToken.token ? (
+              <div className="space-y-1">
+                <div className="text-xs font-medium text-fg-muted">Suggested `pos-desktop/config.json`</div>
+                <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken/30 p-3 text-xs">
+                  {JSON.stringify(
+                    {
+                      api_base_url: "http://localhost:8001",
+                      device_id: lastToken.id,
+                      device_token: lastToken.token,
+                    },
+                    null,
+                    2
+                  )}
+                </pre>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Devices</CardTitle>
+          <CardDescription>{devices.length} devices</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+            <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
+              <DialogTrigger asChild>
+                <Button>Register Device</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Register POS Device</DialogTitle>
+                  <DialogDescription>Creates a device and returns a one-time token.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={registerDevice} className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Device Code</label>
+                    <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} placeholder="POS-01" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Branch (optional)</label>
+                    <select className="ui-select" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+                      <option value="">No branch</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                    {branchId ? <div className="text-[11px] text-fg-subtle">Branch ID: {branchId}</div> : null}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={registering}>
+                      {registering ? "..." : "Register"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <div className="ui-table-wrap">
+            <table className="ui-table">
+              <thead className="ui-thead">
+                <tr>
+                  <th className="px-3 py-2">Code</th>
+                  <th className="px-3 py-2">Device ID</th>
+                  <th className="px-3 py-2">Branch</th>
+                  <th className="px-3 py-2">Token</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {devices.map((d) => (
+                  <tr key={d.id} className="ui-tr-hover">
+                    <td className="px-3 py-2 font-mono text-xs">{d.device_code}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{d.id}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{d.branch_id || "-"}</td>
+                    <td className="px-3 py-2 text-xs">{d.has_token ? "set" : "missing"}</td>
+                    <td className="px-3 py-2 text-right">
+                      <Button variant="outline" size="sm" onClick={() => resetToken(d.id)}>
+                        Reset Token
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {devices.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
+                      No devices yet.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }

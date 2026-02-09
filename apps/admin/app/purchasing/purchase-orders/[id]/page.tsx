@@ -9,6 +9,8 @@ import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { ViewRaw } from "@/components/view-raw";
+import { DocumentAttachments } from "@/components/document-attachments";
+import { DocumentTimeline } from "@/components/document-timeline";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -349,6 +351,13 @@ export default function PurchaseOrderViewPage({ params }: { params: { id: string
         </CardContent>
       </Card>
 
+      {order ? (
+        <>
+          <DocumentAttachments entityType="purchase_order" entityId={order.id} allowUpload={order.status === "draft"} />
+          <DocumentTimeline entityType="purchase_order" entityId={order.id} />
+        </>
+      ) : null}
+
       <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -379,4 +388,3 @@ export default function PurchaseOrderViewPage({ params }: { params: { id: string
     </div>
   );
 }
-

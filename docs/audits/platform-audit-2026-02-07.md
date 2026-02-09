@@ -99,6 +99,10 @@ Additional execution completed on 2026-02-09 (Admin UX + scalability):
 - Removed remaining clickable-row patterns (`<tr onClick>`) and standardized on explicit buttons/links (keyboard accessible).
 - Replaced remaining raw “Status” `<pre>` panels across Admin with `ErrorBanner` + a “View raw” expander (uses `ApiError.status` for 401/403/409/422).
 - Sales Invoice Draft editor now uses a pricing-aware async item picker backed by `GET /pricing/catalog/typeahead` (no longer loads the full pricing catalog into memory), while still auto-filling unit price and showing UOM.
+- Standardized “Attachments” + “Timeline” UI across document pages, with a permission-aware Timeline endpoint (`GET /audit/logs`) so timelines don’t require report permissions.
+- Converted Items + Customers to the same document-first route pattern (`/list|new|[id]|[id]/edit`) to reduce dialog state and improve deep-linking/back-button behavior.
+- Supplier invoice import now supports async background extraction (draft is created immediately with the original attachment; the worker fills lines later and updates `import_status`).
+- POS device setup friction reduced: `System → POS Devices` now offers a Branch picker (no UUID copy/paste) and a copy-ready `pos-desktop/config.json` snippet after registration/token reset.
 
 ## P0 (Must Fix)
 

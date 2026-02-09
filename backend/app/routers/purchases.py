@@ -5,22 +5,18 @@ from typing import List, Optional
 from decimal import Decimal
 from datetime import date, timedelta
 import uuid
-import os
 import re
-import tempfile
-import subprocess
-import hashlib
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
 import json
 from ..journal_utils import auto_balance_journal
 from ..validation import DocStatus, PaymentMethod, CurrencyCode
-from ..ai.purchase_invoice_import import (
-    openai_extract_purchase_invoice_from_image,
-    openai_extract_purchase_invoice_from_text,
+from ..importers.supplier_invoice_import import (
+    apply_extracted_purchase_invoice_to_draft,
+    extract_purchase_invoice_best_effort,
+    store_attachment_for_invoice,
 )
-from ..ai.policy import is_external_ai_allowed
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
@@ -583,14 +579,19 @@ def import_supplier_invoice_draft_from_file(
     tax_code_id: Optional[str] = Form(None),
     auto_create_supplier: bool = Form(True),
     auto_create_items: bool = Form(True),
+    async_import: bool = Form(True),
     company_id: str = Depends(get_company_id),
     user=Depends(get_current_user),
 ):
     """
     Create a draft Supplier Invoice from an uploaded image/PDF.
-    - Always stores the file as a document attachment on the created draft invoice.
-    - Best-effort AI extraction when OPENAI_API_KEY is configured.
-    - Preserves supplier-provided item names/codes on invoice lines for future matching.
+
+    Always stores the file as an attachment on the created draft invoice.
+
+    Default (async_import=true): returns quickly (draft + attachment) and queues a background
+    worker to fill the draft later.
+
+    Optional (async_import=false): extract + fill immediately (useful for local debugging).
     """
     raw = file.file.read() or b""
     if len(raw) > 5 * 1024 * 1024:
@@ -601,8 +602,21 @@ def import_supplier_invoice_draft_from_file(
     tax_code_id = (tax_code_id or "").strip() or None
 
     warnings: list[str] = []
-    extracted: dict | None = None
-    attachment_id = None
+
+    # Respect permissions deterministically: if the user can't create suppliers/items,
+    # disable those flags now so a background worker doesn't do it later.
+    if auto_create_supplier:
+        try:
+            require_permission("suppliers:write")(company_id=company_id, user=user)
+        except HTTPException:
+            warnings.append("Missing suppliers:write permission; will not auto-create supplier.")
+            auto_create_supplier = False
+    if auto_create_items:
+        try:
+            require_permission("items:write")(company_id=company_id, user=user)
+        except HTTPException:
+            warnings.append("Missing items:write permission; will not auto-create items.")
+            auto_create_items = False
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -623,29 +637,28 @@ def import_supplier_invoice_draft_from_file(
                     INSERT INTO supplier_invoices
                       (id, company_id, invoice_no, supplier_ref, supplier_id, goods_receipt_id, status,
                        total_usd, total_lbp, exchange_rate, source_event_id,
-                       invoice_date, due_date, tax_code_id)
+                       invoice_date, due_date, tax_code_id,
+                       import_status, import_error, import_attachment_id, import_options_json)
                     VALUES
                       (gen_random_uuid(), %s, %s, NULL, NULL, NULL, 'draft',
                        0, 0, %s, NULL,
-                       %s, %s, %s)
+                       %s, %s, %s,
+                       'none', NULL, NULL, NULL)
                     RETURNING id
                     """,
                     (company_id, invoice_no, ex, inv_date, due_date, tax_code_id),
                 )
                 invoice_id = cur.fetchone()["id"]
 
-                sha = hashlib.sha256(raw).hexdigest() if raw else None
-                cur.execute(
-                    """
-                    INSERT INTO document_attachments
-                      (id, company_id, entity_type, entity_id, filename, content_type, size_bytes, sha256, bytes, uploaded_by_user_id)
-                    VALUES
-                      (gen_random_uuid(), %s, 'supplier_invoice', %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id
-                    """,
-                    (company_id, invoice_id, filename, content_type, len(raw), sha, raw, user["user_id"]),
+                attachment_id = store_attachment_for_invoice(
+                    cur=cur,
+                    company_id=company_id,
+                    invoice_id=invoice_id,
+                    raw=raw,
+                    filename=filename,
+                    content_type=content_type,
+                    user_id=user["user_id"],
                 )
-                attachment_id = cur.fetchone()["id"]
 
                 cur.execute(
                     """
@@ -656,556 +669,93 @@ def import_supplier_invoice_draft_from_file(
                         company_id,
                         user["user_id"],
                         invoice_id,
-                        json.dumps({"invoice_no": invoice_no, "attachment_id": str(attachment_id), "filename": filename, "content_type": content_type}),
+                        json.dumps({"attachment_id": str(attachment_id), "filename": filename, "content_type": content_type, "size_bytes": len(raw)}),
                     ),
                 )
 
-        # Phase 2: best-effort extraction + draft filling.
-        with conn.cursor() as cur:
-            external_ai_allowed = is_external_ai_allowed(cur, company_id)
-        try:
-            if not external_ai_allowed:
-                warnings.append("External AI processing is disabled for this company; created draft + attached file only.")
-            elif os.environ.get("OPENAI_API_KEY"):
-                if content_type.lower().startswith("image/"):
-                    extracted = openai_extract_purchase_invoice_from_image(raw=raw, content_type=content_type, filename=filename)
-                elif content_type.lower() == "application/pdf":
-                    # Best-effort PDF text extraction (works for text-based PDFs).
-                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as f:
-                        f.write(raw)
-                        f.flush()
-                        try:
-                            proc = subprocess.run(
-                                ["pdftotext", "-layout", f.name, "-"],
-                                capture_output=True,
-                                timeout=12,
-                                check=False,
-                            )
-                            pdf_text = (proc.stdout or b"").decode("utf-8", errors="replace").strip()
-                            if proc.returncode != 0:
-                                warnings.append("pdftotext failed (PDF may be image-only).")
-                            elif not pdf_text:
-                                warnings.append("PDF text extraction returned empty text (PDF may be image-only).")
-                            else:
-                                extracted = openai_extract_purchase_invoice_from_text(text=pdf_text, filename=filename)
-                        except FileNotFoundError:
-                            warnings.append("pdftotext is not installed; PDF import needs poppler-utils.")
+                if async_import:
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoices
+                        SET import_status='pending',
+                            import_attachment_id=%s,
+                            import_options_json=%s::jsonb,
+                            import_error=NULL,
+                            import_started_at=NULL,
+                            import_finished_at=NULL
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (
+                            attachment_id,
+                            json.dumps({"auto_create_supplier": bool(auto_create_supplier), "auto_create_items": bool(auto_create_items)}),
+                            company_id,
+                            invoice_id,
+                        ),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                        VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_queued', 'supplier_invoice', %s, %s::jsonb)
+                        """,
+                        (company_id, user["user_id"], invoice_id, json.dumps({"attachment_id": str(attachment_id), "filename": filename})),
+                    )
 
-                        # Fallback for image-based PDFs: render first page to PNG and run vision extraction.
-                        if not extracted:
-                            try:
-                                with tempfile.TemporaryDirectory() as td:
-                                    out_prefix = os.path.join(td, "page1")
-                                    proc2 = subprocess.run(
-                                        ["pdftoppm", "-f", "1", "-l", "1", "-png", "-singlefile", f.name, out_prefix],
-                                        capture_output=True,
-                                        timeout=15,
-                                        check=False,
-                                    )
-                                    png_path = out_prefix + ".png"
-                                    if proc2.returncode != 0:
-                                        warnings.append("pdftoppm failed (cannot render PDF to image).")
-                                    elif not os.path.exists(png_path):
-                                        warnings.append("pdftoppm did not produce an image (unexpected).")
-                                    else:
-                                        with open(png_path, "rb") as pf:
-                                            img_raw = pf.read() or b""
-                                        if img_raw:
-                                            extracted = openai_extract_purchase_invoice_from_image(
-                                                raw=img_raw,
-                                                content_type="image/png",
-                                                filename=filename,
-                                            )
-                            except FileNotFoundError:
-                                warnings.append("pdftoppm is not installed; image-based PDF import needs poppler-utils.")
-                            except Exception as ex2:
-                                warnings.append(f"PDF image fallback failed: {ex2}")
-                else:
-                    warnings.append("Unsupported content type for AI extraction (use image/* or application/pdf).")
-            else:
-                warnings.append("OPENAI_API_KEY is not configured; created draft + attached file only.")
+        if async_import:
+            warnings.append("Import queued: the worker will fill this draft in the background.")
+            return {"id": invoice_id, "invoice_no": invoice_no, "attachment_id": attachment_id, "queued": True, "warnings": warnings}
+
+        # Sync fallback: extract + fill now.
+        extracted: dict | None = None
+        try:
+            with conn.cursor() as cur3:
+                extracted = extract_purchase_invoice_best_effort(
+                    raw=raw,
+                    content_type=content_type,
+                    filename=filename,
+                    company_id=company_id,
+                    cur=cur3,
+                    warnings=warnings,
+                )
         except Exception as ex:
             warnings.append(f"AI extraction failed: {ex}")
             extracted = None
 
-        if extracted:
-            with conn.transaction():
-                with conn.cursor() as cur:
-                    # Exchange rate: user-provided > extracted > default.
-                    ex = Decimal(str(exchange_rate or 0)) if exchange_rate is not None else Decimal("0")
-                    try:
-                        ex2 = extracted.get("invoice", {}).get("exchange_rate")
-                        if ex <= 0 and ex2 is not None:
-                            ex = Decimal(str(ex2 or 0))
-                    except Exception:
-                        pass
-                    if ex <= 0:
-                        ex = _default_exchange_rate(cur, company_id)
-
-                    supplier_id = None
-                    supplier_created = False
-                    supplier_name = (extracted.get("supplier", {}) or {}).get("name")
-                    supplier_name = (supplier_name or "").strip() or None
-
-                    if supplier_name:
-                        # Match supplier by exact name, then ILIKE.
-                        cur.execute(
-                            "SELECT id FROM suppliers WHERE company_id=%s AND lower(name)=lower(%s) ORDER BY created_at ASC LIMIT 1",
-                            (company_id, supplier_name),
-                        )
-                        r = cur.fetchone()
-                        if r:
-                            supplier_id = r["id"]
-                        else:
-                            cur.execute(
-                                "SELECT id FROM suppliers WHERE company_id=%s AND name ILIKE %s ORDER BY created_at ASC LIMIT 1",
-                                (company_id, f"%{supplier_name}%"),
-                            )
-                            r = cur.fetchone()
-                            supplier_id = r["id"] if r else None
-
-                    if not supplier_id and supplier_name and auto_create_supplier:
-                        # Require suppliers:write only when we need to create. If missing, keep draft and warn.
-                        try:
-                            require_permission("suppliers:write")(company_id=company_id, user=user)
-                        except HTTPException:
-                            warnings.append("Missing suppliers:write permission; could not auto-create supplier.")
-                            auto_create_supplier = False
-
-                    if not supplier_id and supplier_name and auto_create_supplier:
-                        vat_no = ((extracted.get("supplier", {}) or {}).get("vat_no") or "").strip() or None
-                        phone = ((extracted.get("supplier", {}) or {}).get("phone") or "").strip() or None
-                        email = ((extracted.get("supplier", {}) or {}).get("email") or "").strip() or None
-                        cur.execute(
-                            """
-                            INSERT INTO suppliers
-                              (id, company_id, name, phone, email, payment_terms_days, party_type, vat_no, is_active)
-                            VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, 0, 'business', %s, true)
-                            RETURNING id
-                            """,
-                            (company_id, supplier_name, phone, email, vat_no),
-                        )
-                        supplier_id = cur.fetchone()["id"]
-                        supplier_created = True
-                        cur.execute(
-                            """
-                            INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
-                            VALUES (gen_random_uuid(), %s, %s, 'supplier_create_ai', 'supplier', %s, %s::jsonb)
-                            """,
-                            (company_id, user["user_id"], supplier_id, json.dumps({"name": supplier_name, "source": "purchase_invoice_import"})),
-                        )
-
-                    inv = extracted.get("invoice", {}) or {}
-                    supplier_ref = (inv.get("supplier_ref") or inv.get("invoice_no") or "").strip() or None
-                    inv_date = None
-                    due_date = None
-                    try:
-                        if inv.get("invoice_date"):
-                            inv_date = date.fromisoformat(str(inv.get("invoice_date"))[:10])
-                    except Exception:
-                        warnings.append("invoice_date could not be parsed; kept today.")
-                    try:
-                        if inv.get("due_date"):
-                            due_date = date.fromisoformat(str(inv.get("due_date"))[:10])
-                    except Exception:
-                        warnings.append("due_date could not be parsed; will compute from terms.")
-
-                    if not inv_date:
-                        inv_date = date.today()
-
-                    if not due_date and supplier_id:
-                        cur.execute(
-                            "SELECT payment_terms_days FROM suppliers WHERE company_id=%s AND id=%s",
-                            (company_id, supplier_id),
-                        )
-                        srow = cur.fetchone()
-                        terms = int(srow.get("payment_terms_days") or 0) if srow else 0
-                        due_date = inv_date + timedelta(days=terms) if terms > 0 else inv_date
-                    if not due_date:
-                        due_date = inv_date
-
-                    # Fill header.
-                    if supplier_id and supplier_ref:
-                        # Avoid unique violations on (company_id, supplier_id, supplier_ref) by pre-checking.
-                        cur.execute(
-                            """
-                            SELECT 1
-                            FROM supplier_invoices
-                            WHERE company_id=%s
-                              AND supplier_id=%s
-                              AND supplier_ref=%s
-                              AND status <> 'canceled'
-                              AND id <> %s
-                            LIMIT 1
-                            """,
-                            (company_id, supplier_id, supplier_ref, invoice_id),
-                        )
-                        if cur.fetchone():
-                            warnings.append(f"Duplicate supplier_ref for this supplier ({supplier_ref}); left supplier_ref blank on the draft.")
-                            supplier_ref = None
-
-                    cur.execute(
+        with conn.transaction():
+            with conn.cursor() as cur4:
+                if not extracted:
+                    cur4.execute(
                         """
                         UPDATE supplier_invoices
-                        SET supplier_id = %s,
-                            supplier_ref = %s,
-                            exchange_rate = %s,
-                            invoice_date = %s,
-                            due_date = %s
-                        WHERE company_id = %s AND id = %s
-                        """,
-                        (supplier_id, supplier_ref, ex, inv_date, due_date, company_id, invoice_id),
-                    )
-
-                    # Insert lines (delete any existing just in case).
-                    cur.execute("DELETE FROM supplier_invoice_lines WHERE company_id=%s AND supplier_invoice_id=%s", (company_id, invoice_id))
-
-                    created_items = 0
-                    price_changes: list[dict] = []
-                    for idx, ln in enumerate(extracted.get("lines") or []):
-                        qty = Decimal(str(ln.get("qty") or 0))
-                        unit_price = Decimal(str(ln.get("unit_price") or 0))
-                        if qty <= 0 or unit_price <= 0:
-                            continue
-
-                        line_currency = (ln.get("currency") or inv.get("currency") or (extracted.get("totals", {}) or {}).get("currency") or "").strip().upper()
-                        if line_currency not in {"USD", "LBP"}:
-                            line_currency = "USD"  # safe default (we keep the raw supplier name/code anyway)
-
-                        unit_usd = unit_price if line_currency == "USD" else (unit_price / ex if ex else Decimal("0"))
-                        unit_lbp = unit_price if line_currency == "LBP" else (unit_price * ex)
-                        unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
-                        line_total_usd = qty * unit_usd
-                        line_total_lbp = qty * unit_lbp
-
-                        supplier_item_code = (ln.get("supplier_item_code") or "").strip() or None
-                        supplier_item_name = (ln.get("supplier_item_name") or "").strip() or None
-                        ncode = _norm_code(supplier_item_code)
-                        nname = _norm_name(supplier_item_name)
-
-                        item_id = None
-                        if supplier_id and ncode:
-                            cur.execute(
-                                """
-                                SELECT item_id
-                                FROM supplier_item_aliases
-                                WHERE company_id=%s AND supplier_id=%s AND normalized_code=%s
-                                ORDER BY last_seen_at DESC
-                                LIMIT 1
-                                """,
-                                (company_id, supplier_id, ncode),
-                            )
-                            r = cur.fetchone()
-                            item_id = r["item_id"] if r else None
-
-                        # Next-best: exact normalized name match in our learned alias table.
-                        if not item_id and supplier_id and nname:
-                            cur.execute(
-                                """
-                                SELECT item_id
-                                FROM supplier_item_aliases
-                                WHERE company_id=%s AND supplier_id=%s AND normalized_name=%s
-                                ORDER BY last_seen_at DESC
-                                LIMIT 1
-                                """,
-                                (company_id, supplier_id, nname),
-                            )
-                            r = cur.fetchone()
-                            item_id = r["item_id"] if r else None
-
-                        if not item_id and ncode:
-                            cur.execute("SELECT id FROM items WHERE company_id=%s AND upper(sku)=upper(%s) LIMIT 1", (company_id, ncode))
-                            r = cur.fetchone()
-                            item_id = r["id"] if r else None
-                            if not item_id:
-                                cur.execute(
-                                    "SELECT item_id FROM item_barcodes WHERE company_id=%s AND barcode=%s ORDER BY is_primary DESC LIMIT 1",
-                                    (company_id, ncode),
-                                )
-                                r = cur.fetchone()
-                                item_id = r["item_id"] if r else None
-
-                        if not item_id and nname:
-                            # Very lightweight matching: direct substring on name.
-                            cur.execute(
-                                "SELECT id FROM items WHERE company_id=%s AND lower(name) LIKE %s ORDER BY updated_at DESC, created_at DESC LIMIT 1",
-                                (company_id, f"%{nname}%"),
-                            )
-                            r = cur.fetchone()
-                            item_id = r["id"] if r else None
-
-                        if not item_id and auto_create_items:
-                            try:
-                                require_permission("items:write")(company_id=company_id, user=user)
-                            except HTTPException:
-                                warnings.append("Missing items:write permission; could not auto-create items.")
-                                auto_create_items = False
-
-                        if not item_id and auto_create_items:
-                            # SKU: prefer supplier code if it looks usable; otherwise generate.
-                            sku = None
-                            if ncode:
-                                sku = ncode[:64]
-                                cur.execute("SELECT 1 FROM items WHERE company_id=%s AND upper(sku)=upper(%s) LIMIT 1", (company_id, sku))
-                                if cur.fetchone():
-                                    sku = None
-                            if not sku:
-                                sku = f"AUTO-{uuid.uuid4().hex[:8].upper()}"
-                            name = _clean_item_name(supplier_item_name or supplier_item_code or "New Item")
-                            cur.execute(
-                                """
-                                INSERT INTO items (id, company_id, sku, barcode, name, item_type, tags, unit_of_measure, tax_code_id, reorder_point, reorder_qty, is_active)
-                                VALUES (gen_random_uuid(), %s, %s, NULL, %s, 'stocked', NULL, 'EA', NULL, 0, 0, true)
-                                RETURNING id
-                                """,
-                                (company_id, sku, name),
-                            )
-                            item_id = cur.fetchone()["id"]
-                            created_items += 1
-                            cur.execute(
-                                """
-                                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
-                                VALUES (gen_random_uuid(), %s, %s, 'item_create_ai', 'item', %s, %s::jsonb)
-                                """,
-                                (company_id, user["user_id"], item_id, json.dumps({"sku": sku, "name": name, "source": "purchase_invoice_import"})),
-                            )
-
-                        if not item_id:
-                            warnings.append(f"line {idx+1}: could not match/create item (missing items:write?)")
-                            continue
-
-                        # Persist supplier->item mapping and last cost when possible.
-                        if supplier_id:
-                            # Capture price deltas before updating last_cost.
-                            try:
-                                cur.execute(
-                                    """
-                                    SELECT last_cost_usd, last_cost_lbp
-                                    FROM item_suppliers
-                                    WHERE company_id=%s AND item_id=%s AND supplier_id=%s
-                                    """,
-                                    (company_id, item_id, supplier_id),
-                                )
-                                prev = cur.fetchone()
-                                prev_usd = Decimal(str(prev.get("last_cost_usd") or 0)) if prev else Decimal("0")
-                                prev_lbp = Decimal(str(prev.get("last_cost_lbp") or 0)) if prev else Decimal("0")
-                                if prev_usd > 0 and unit_usd > prev_usd * Decimal("1.05"):
-                                    pct = (unit_usd - prev_usd) / prev_usd
-                                    # Best-effort selling price lookup (for margin impact).
-                                    cur.execute(
-                                        """
-                                        SELECT price_usd, price_lbp
-                                        FROM item_prices
-                                        WHERE item_id = %s
-                                          AND effective_from <= CURRENT_DATE
-                                          AND (effective_to IS NULL OR effective_to >= CURRENT_DATE)
-                                        ORDER BY effective_from DESC
-                                        LIMIT 1
-                                        """,
-                                        (item_id,),
-                                    )
-                                    pr = cur.fetchone() or {}
-                                    sell_usd = Decimal(str(pr.get("price_usd") or 0))
-                                    margin_before = ((sell_usd - prev_usd) / sell_usd) if sell_usd > 0 else None
-                                    margin_after = ((sell_usd - unit_usd) / sell_usd) if sell_usd > 0 else None
-                                    price_changes.append(
-                                        {
-                                            "item_id": str(item_id),
-                                            "supplier_item_code": supplier_item_code,
-                                            "supplier_item_name": supplier_item_name,
-                                            "prev_unit_cost_usd": str(prev_usd),
-                                            "new_unit_cost_usd": str(unit_usd),
-                                            "pct_increase": float(pct),
-                                            "sell_price_usd": str(sell_usd) if sell_usd > 0 else None,
-                                            "margin_before": (float(margin_before) if margin_before is not None else None),
-                                            "margin_after": (float(margin_after) if margin_after is not None else None),
-                                        }
-                                    )
-                                elif prev_lbp > 0 and unit_lbp > prev_lbp * Decimal("1.05"):
-                                    pct = (unit_lbp - prev_lbp) / prev_lbp
-                                    price_changes.append(
-                                        {
-                                            "item_id": str(item_id),
-                                            "supplier_item_code": supplier_item_code,
-                                            "supplier_item_name": supplier_item_name,
-                                            "prev_unit_cost_lbp": str(prev_lbp),
-                                            "new_unit_cost_lbp": str(unit_lbp),
-                                            "pct_increase": float(pct),
-                                        }
-                                    )
-                            except Exception:
-                                pass
-
-                            cur.execute(
-                                """
-                                INSERT INTO item_suppliers (id, company_id, item_id, supplier_id, is_primary, lead_time_days, min_order_qty, last_cost_usd, last_cost_lbp)
-                                VALUES (gen_random_uuid(), %s, %s, %s, false, 0, 0, %s, %s)
-                                ON CONFLICT (company_id, item_id, supplier_id) DO UPDATE
-                                SET last_cost_usd = EXCLUDED.last_cost_usd,
-                                    last_cost_lbp = EXCLUDED.last_cost_lbp
-                                """,
-                                (company_id, item_id, supplier_id, unit_usd, unit_lbp),
-                            )
-
-                            if ncode or nname:
-                                if ncode:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO supplier_item_aliases
-                                          (id, company_id, supplier_id, item_id,
-                                           supplier_item_code, supplier_item_name,
-                                           normalized_code, normalized_name,
-                                           last_unit_cost_usd, last_unit_cost_lbp, last_seen_at)
-                                        VALUES
-                                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
-                                        ON CONFLICT (company_id, supplier_id, normalized_code)
-                                        WHERE normalized_code IS NOT NULL AND normalized_code <> ''
-                                        DO UPDATE SET item_id = EXCLUDED.item_id,
-                                                      supplier_item_name = COALESCE(EXCLUDED.supplier_item_name, supplier_item_aliases.supplier_item_name),
-                                                      normalized_name = COALESCE(EXCLUDED.normalized_name, supplier_item_aliases.normalized_name),
-                                                      last_unit_cost_usd = EXCLUDED.last_unit_cost_usd,
-                                                      last_unit_cost_lbp = EXCLUDED.last_unit_cost_lbp,
-                                                      last_seen_at = now()
-                                        """,
-                                        (company_id, supplier_id, item_id, supplier_item_code, supplier_item_name, ncode, nname, unit_usd, unit_lbp),
-                                    )
-                                else:
-                                    # No stable code; keep a history row (name-only matching can evolve later).
-                                    cur.execute(
-                                        """
-                                        INSERT INTO supplier_item_aliases
-                                          (id, company_id, supplier_id, item_id,
-                                           supplier_item_code, supplier_item_name,
-                                           normalized_code, normalized_name,
-                                           last_unit_cost_usd, last_unit_cost_lbp, last_seen_at)
-                                        VALUES
-                                          (gen_random_uuid(), %s, %s, %s, %s, %s, NULL, %s, %s, %s, now())
-                                        """,
-                                        (company_id, supplier_id, item_id, supplier_item_code, supplier_item_name, nname, unit_usd, unit_lbp),
-                                    )
-
-                        cur.execute(
-                            """
-                            INSERT INTO supplier_invoice_lines
-                              (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
-                               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
-                               supplier_item_code, supplier_item_name)
-                            VALUES
-                              (gen_random_uuid(), %s, %s, NULL, %s, NULL, %s,
-                               %s, %s, %s, %s,
-                               %s, %s)
-                            """,
-                            (
-                                company_id,
-                                invoice_id,
-                                item_id,
-                                qty,
-                                unit_usd,
-                                unit_lbp,
-                                line_total_usd,
-                                line_total_lbp,
-                                supplier_item_code,
-                                supplier_item_name,
-                            ),
-                        )
-
-                    if price_changes:
-                        key = f"pi:{invoice_id}"
-                        cur.execute(
-                            """
-                            SELECT 1
-                            FROM ai_recommendations
-                            WHERE company_id=%s
-                              AND agent_code='AI_PURCHASE_INVOICE_INSIGHTS'
-                              AND status='pending'
-                              AND recommendation_json->>'key'=%s
-                            """,
-                            (company_id, key),
-                        )
-                        if not cur.fetchone():
-                            rec_payload = {
-                                "kind": "purchase_invoice_insights",
-                                "key": key,
-                                "invoice_id": str(invoice_id),
-                                "supplier_id": (str(supplier_id) if supplier_id else None),
-                                "invoice_no": inv.get("invoice_no") or None,
-                                "supplier_ref": supplier_ref,
-                                "price_changes": price_changes,
-                                "suggestions": [
-                                    "Review selling prices for impacted items (margin may have changed).",
-                                    "If you price-protect key wholesale clients, consider notifying them proactively.",
-                                    "If the increase is temporary, consider alternative suppliers or negotiated terms.",
-                                ],
-                            }
-                            cur.execute(
-                                """
-                                INSERT INTO ai_recommendations (id, company_id, agent_code, recommendation_json, status)
-                                VALUES (gen_random_uuid(), %s, 'AI_PURCHASE_INVOICE_INSIGHTS', %s::jsonb, 'pending')
-                                """,
-                                (company_id, json.dumps(rec_payload)),
-                            )
-
-                    # Recompute totals + tax.
-                    cur.execute(
-                        """
-                        SELECT COALESCE(SUM(line_total_usd),0) AS base_usd, COALESCE(SUM(line_total_lbp),0) AS base_lbp
-                        FROM supplier_invoice_lines
-                        WHERE company_id = %s AND supplier_invoice_id = %s
-                        """,
-                        (company_id, invoice_id),
-                    )
-                    sums = cur.fetchone() or {}
-                    base_usd = Decimal(str(sums.get("base_usd") or 0))
-                    base_lbp = Decimal(str(sums.get("base_lbp") or 0))
-
-                    tax_rate = Decimal("0")
-                    if tax_code_id:
-                        cur.execute("SELECT rate FROM tax_codes WHERE company_id=%s AND id=%s", (company_id, tax_code_id))
-                        r = cur.fetchone()
-                        if r:
-                            tax_rate = Decimal(str(r["rate"] or 0))
-                    tax_lbp = base_lbp * tax_rate
-                    tax_usd = (tax_lbp / ex) if ex else Decimal("0")
-                    total_usd = base_usd + tax_usd
-                    total_lbp = base_lbp + tax_lbp
-
-                    cur.execute(
-                        """
-                        UPDATE supplier_invoices
-                        SET total_usd=%s, total_lbp=%s, exchange_rate=%s
+                        SET import_status='skipped', import_finished_at=now(), import_error=%s
                         WHERE company_id=%s AND id=%s
                         """,
-                        (total_usd, total_lbp, ex, company_id, invoice_id),
+                        ("\n".join(warnings[:10]) if warnings else None, company_id, invoice_id),
                     )
+                    return {"id": invoice_id, "invoice_no": invoice_no, "attachment_id": attachment_id, "queued": False, "ai_extracted": False, "warnings": warnings}
 
-                    cur.execute(
-                        """
-                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
-                        VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_ai_filled', 'supplier_invoice', %s, %s::jsonb)
-                        """,
-                        (
-                            company_id,
-                            user["user_id"],
-                            invoice_id,
-                            json.dumps(
-                                {
-                                    "supplier_id": (str(supplier_id) if supplier_id else None),
-                                    "supplier_created": supplier_created,
-                                    "created_items": created_items,
-                                    "warnings": warnings,
-                                }
-                            ),
-                        ),
-                    )
+                apply_extracted_purchase_invoice_to_draft(
+                    company_id=company_id,
+                    invoice_id=invoice_id,
+                    extracted=extracted,
+                    exchange_rate_hint=exchange_rate,
+                    tax_code_id_hint=tax_code_id,
+                    auto_create_supplier=bool(auto_create_supplier),
+                    auto_create_items=bool(auto_create_items),
+                    cur=cur4,
+                    warnings=warnings,
+                    user_id=user["user_id"],
+                )
+                cur4.execute(
+                    """
+                    UPDATE supplier_invoices
+                    SET import_status='filled', import_finished_at=now(), import_error=NULL
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (company_id, invoice_id),
+                )
 
-        return {
-            "id": invoice_id,
-            "invoice_no": invoice_no,
-            "attachment_id": attachment_id,
-            "ai_extracted": bool(extracted),
-            "warnings": warnings,
-        }
+        return {"id": invoice_id, "invoice_no": invoice_no, "attachment_id": attachment_id, "queued": False, "ai_extracted": True, "warnings": warnings}
+
 
 @router.get("/payments", dependencies=[Depends(require_permission("purchases:read"))])
 def list_supplier_payments(
@@ -1417,6 +967,7 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
                 SELECT i.id, i.invoice_no, i.supplier_ref, i.supplier_id, s.name AS supplier_name,
                        i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
                        i.is_on_hold, i.hold_reason, i.hold_details, i.held_at, i.released_at,
+                       i.import_status, i.import_error, i.import_started_at, i.import_finished_at, i.import_attachment_id,
                        i.status, i.total_usd, i.total_lbp, i.exchange_rate, i.tax_code_id, i.invoice_date, i.due_date, i.created_at
                 FROM supplier_invoices i
                 LEFT JOIN goods_receipts gr
