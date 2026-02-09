@@ -140,17 +140,32 @@ def attention(company_id: str = Depends(get_company_id)):
             )
             outbox_failed = int(cur.fetchone()["c"])
 
+            # Only surface jobs whose *latest* run (within 24h) is failing, to avoid
+            # "sticky red" after a transient failure.
             cur.execute(
                 """
-                SELECT job_code, COUNT(*)::int AS count
-                FROM background_job_runs
-                WHERE company_id=%s
-                  AND status='failed'
-                  AND started_at >= now() - interval '1 day'
-                GROUP BY job_code
-                ORDER BY count DESC, job_code
+                WITH fail_counts AS (
+                  SELECT job_code, COUNT(*)::int AS count
+                  FROM background_job_runs
+                  WHERE company_id=%s
+                    AND status='failed'
+                    AND started_at >= now() - interval '1 day'
+                  GROUP BY job_code
+                ),
+                latest AS (
+                  SELECT DISTINCT ON (job_code) job_code, status
+                  FROM background_job_runs
+                  WHERE company_id=%s
+                    AND started_at >= now() - interval '1 day'
+                  ORDER BY job_code, started_at DESC
+                )
+                SELECT f.job_code, f.count
+                FROM fail_counts f
+                JOIN latest l ON l.job_code = f.job_code
+                WHERE l.status = 'failed'
+                ORDER BY f.count DESC, f.job_code
                 """,
-                (company_id,),
+                (company_id, company_id),
             )
             failed_jobs = cur.fetchall() or []
 
