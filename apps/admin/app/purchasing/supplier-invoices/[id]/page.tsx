@@ -8,8 +8,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
-import { DocumentAttachments } from "@/components/document-attachments";
-import { DocumentTimeline } from "@/components/document-timeline";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { MoneyInput } from "@/components/money-input";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
@@ -420,6 +419,12 @@ function SupplierInvoiceShowInner() {
                       Void Invoice
                     </Button>
                   ) : null}
+                  <DocumentUtilitiesDrawer
+                    entityType="supplier_invoice"
+                    entityId={detail.invoice.id}
+                    allowUploadAttachments={detail.invoice.status === "draft"}
+                    className="ml-1"
+                  />
                 </div>
               </div>
             </CardHeader>
@@ -476,13 +481,7 @@ function SupplierInvoiceShowInner() {
                   <p className="text-sm font-medium text-foreground">{detail.invoice.status}</p>
                 </div>
               </div>
-
-              <DocumentAttachments
-                entityType="supplier_invoice"
-                entityId={detail.invoice.id}
-                allowUpload={detail.invoice.status === "draft"}
-              />
-              <DocumentTimeline entityType="supplier_invoice" entityId={detail.invoice.id} />
+              {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
 
               {aiInsight ? (
                 <Card>

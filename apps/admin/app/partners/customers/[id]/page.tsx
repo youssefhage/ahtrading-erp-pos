@@ -8,8 +8,7 @@ import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
-import { DocumentAttachments } from "@/components/document-attachments";
-import { DocumentTimeline } from "@/components/document-timeline";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { PartyAddresses } from "@/components/party-addresses";
 import { PartyContacts } from "@/components/party-contacts";
 import { Button } from "@/components/ui/button";
@@ -145,6 +144,7 @@ export default function CustomerViewPage() {
           <Button asChild>
             <Link href="/partners/customers/new">New Customer</Link>
           </Button>
+          {customer ? <DocumentUtilitiesDrawer entityType="customer" entityId={customer.id} allowUploadAttachments={true} className="ml-1" /> : null}
         </div>
       </div>
 
@@ -224,11 +224,9 @@ export default function CustomerViewPage() {
           <PartyAddresses partyKind="customer" partyId={customer.id} />
           <PartyContacts partyKind="customer" partyId={customer.id} />
 
-          <DocumentAttachments entityType="customer" entityId={customer.id} allowUpload={true} />
-          <DocumentTimeline entityType="customer" entityId={customer.id} />
+          {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
         </>
       ) : null}
     </div>
   );
 }
-

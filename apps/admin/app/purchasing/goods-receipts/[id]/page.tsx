@@ -9,8 +9,7 @@ import { fmtLbp, fmtUsd } from "@/lib/money";
 
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
-import { DocumentAttachments } from "@/components/document-attachments";
-import { DocumentTimeline } from "@/components/document-timeline";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -254,6 +253,14 @@ export default function GoodsReceiptViewPage() {
               Edit Draft
             </Button>
           ) : null}
+          {detail?.receipt ? (
+            <DocumentUtilitiesDrawer
+              entityType="goods_receipt"
+              entityId={detail.receipt.id}
+              allowUploadAttachments={detail.receipt.status === "draft"}
+              className="ml-1"
+            />
+          ) : null}
         </div>
       </div>
 
@@ -416,9 +423,6 @@ export default function GoodsReceiptViewPage() {
               </div>
             </CardContent>
           </Card>
-
-          <DocumentAttachments entityType="goods_receipt" entityId={detail.receipt.id} allowUpload={detail.receipt.status === "draft"} />
-          <DocumentTimeline entityType="goods_receipt" entityId={detail.receipt.id} />
 
           <Dialog open={postOpen} onOpenChange={setPostOpen}>
             <DialogContent className="max-w-lg">

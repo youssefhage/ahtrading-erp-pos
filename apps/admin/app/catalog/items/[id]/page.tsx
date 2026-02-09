@@ -10,8 +10,7 @@ import { apiGet, apiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
-import { DocumentAttachments } from "@/components/document-attachments";
-import { DocumentTimeline } from "@/components/document-timeline";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Chip } from "@/components/ui/chip";
@@ -242,6 +241,7 @@ export default function ItemViewPage() {
           <Button asChild disabled={loading}>
             <Link href="/catalog/items/new">New Item</Link>
           </Button>
+          {item ? <DocumentUtilitiesDrawer entityType="item" entityId={item.id} allowUploadAttachments={true} className="ml-1" /> : null}
         </div>
       </div>
 
@@ -416,8 +416,7 @@ export default function ItemViewPage() {
             </CardContent>
           </Card>
 
-          <DocumentAttachments entityType="item" entityId={item.id} allowUpload={true} />
-          <DocumentTimeline entityType="item" entityId={item.id} />
+          {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
         </>
       ) : null}
     </div>

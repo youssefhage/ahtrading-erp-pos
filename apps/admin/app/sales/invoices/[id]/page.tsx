@@ -8,8 +8,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
-import { DocumentAttachments } from "@/components/document-attachments";
-import { DocumentTimeline } from "@/components/document-timeline";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { MoneyInput } from "@/components/money-input";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
@@ -337,6 +336,12 @@ function SalesInvoiceShowInner() {
                       Void Invoice
                     </Button>
                   ) : null}
+                  <DocumentUtilitiesDrawer
+                    entityType="sales_invoice"
+                    entityId={detail.invoice.id}
+                    allowUploadAttachments={detail.invoice.status === "draft"}
+                    className="ml-1"
+                  />
                 </div>
               </div>
             </CardHeader>
@@ -487,9 +492,6 @@ function SalesInvoiceShowInner() {
               </div>
             </CardContent>
           </Card>
-
-          <DocumentAttachments entityType="sales_invoice" entityId={detail.invoice.id} allowUpload={detail.invoice.status === "draft"} />
-          <DocumentTimeline entityType="sales_invoice" entityId={detail.invoice.id} />
 
           <Dialog open={postOpen} onOpenChange={setPostOpen}>
             <DialogContent className="max-w-2xl">

@@ -9,7 +9,7 @@ import { fmtLbp, fmtUsd } from "@/lib/money";
 
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
-import { DocumentTimeline } from "@/components/document-timeline";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -156,6 +156,7 @@ function Inner({ id }: { id: string }) {
               </Button>
             </>
           ) : null}
+          {lc ? <DocumentUtilitiesDrawer entityType="landed_cost" entityId={lc.id} showAttachments={false} className="ml-1" /> : null}
         </div>
       </div>
 
@@ -260,7 +261,7 @@ function Inner({ id }: { id: string }) {
             </CardContent>
           </Card>
 
-          <DocumentTimeline entityType="landed_cost" entityId={lc.id} />
+          {/* Audit trail is available via the right-rail utilities drawer. */}
         </>
       ) : null}
 

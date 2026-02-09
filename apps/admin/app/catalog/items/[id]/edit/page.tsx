@@ -8,8 +8,7 @@ import { parseNumberInput } from "@/lib/numbers";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
-import { DocumentAttachments } from "@/components/document-attachments";
-import { DocumentTimeline } from "@/components/document-timeline";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -515,6 +514,7 @@ export default function ItemEditPage() {
           <Button type="button" variant="outline" onClick={load} disabled={saving || loading}>
             Refresh
           </Button>
+          <DocumentUtilitiesDrawer entityType="item" entityId={id} allowUploadAttachments={true} className="ml-1" />
         </div>
       </div>
 
@@ -922,8 +922,7 @@ export default function ItemEditPage() {
             </CardContent>
           </Card>
 
-          <DocumentAttachments entityType="item" entityId={item.id} allowUpload={true} />
-          <DocumentTimeline entityType="item" entityId={item.id} />
+          {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
         </>
       ) : null}
     </div>

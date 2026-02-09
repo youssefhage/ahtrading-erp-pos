@@ -30,6 +30,7 @@ export function DocumentAttachments(props: {
   title?: string;
   description?: string;
   allowUpload?: boolean;
+  variant?: "card" | "embedded";
 }) {
   const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
   const [err, setErr] = useState<unknown>(null);
@@ -80,6 +81,84 @@ export function DocumentAttachments(props: {
   const title = props.title || "Attachments";
   const description = props.description || "Supporting files for audit and reconciliation.";
 
+  const content = (
+    <>
+      {err ? <ErrorBanner error={err} onRetry={load} /> : null}
+
+      {props.allowUpload ? (
+        <form onSubmit={upload} className="flex flex-wrap items-end gap-2">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-fg-muted">Upload (max configured, 5MB default)</label>
+            <input type="file" className="block text-xs" disabled={uploading} />
+          </div>
+          <Button type="submit" disabled={uploading}>
+            {uploading ? "Uploading..." : "Upload"}
+          </Button>
+        </form>
+      ) : null}
+
+      <div className="ui-table-wrap">
+        <table className="ui-table">
+          <thead className="ui-thead">
+            <tr>
+              <th className="px-3 py-2">File</th>
+              <th className="px-3 py-2">Type</th>
+              <th className="px-3 py-2">Size</th>
+              <th className="px-3 py-2 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {attachments.map((a) => (
+              <tr key={a.id} className="ui-tr-hover">
+                <td className="px-3 py-2 text-sm">{a.filename}</td>
+                <td className="px-3 py-2 text-xs text-fg-muted">{a.content_type}</td>
+                <td className="px-3 py-2 text-xs text-fg-muted">{fmtBytes(a.size_bytes)}</td>
+                <td className="px-3 py-2 text-right">
+                  <div className="inline-flex items-center gap-2">
+                    <Button asChild size="sm" variant="outline">
+                      <a href={apiUrl(`/attachments/${encodeURIComponent(a.id)}/view`)} target="_blank" rel="noreferrer">
+                        View
+                      </a>
+                    </Button>
+                    <Button asChild size="sm" variant="outline">
+                      <a href={apiUrl(`/attachments/${encodeURIComponent(a.id)}/download`)} target="_blank" rel="noreferrer">
+                        Download
+                      </a>
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {attachments.length === 0 ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
+                  No attachments.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+
+  if (props.variant === "embedded") {
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-foreground">{title}</div>
+            <div className="text-xs text-fg-subtle">{description}</div>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={load}>
+            Refresh
+          </Button>
+        </div>
+        {content}
+      </div>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -95,64 +174,7 @@ export function DocumentAttachments(props: {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {err ? <ErrorBanner error={err} onRetry={load} /> : null}
-
-        {props.allowUpload ? (
-          <form onSubmit={upload} className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Upload (max configured, 5MB default)</label>
-              <input type="file" className="block text-xs" disabled={uploading} />
-            </div>
-            <Button type="submit" disabled={uploading}>
-              {uploading ? "Uploading..." : "Upload"}
-            </Button>
-          </form>
-        ) : null}
-
-        <div className="ui-table-wrap">
-          <table className="ui-table">
-            <thead className="ui-thead">
-              <tr>
-                <th className="px-3 py-2">File</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2">Size</th>
-                <th className="px-3 py-2 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {attachments.map((a) => (
-                <tr key={a.id} className="ui-tr-hover">
-                  <td className="px-3 py-2 text-sm">{a.filename}</td>
-                  <td className="px-3 py-2 text-xs text-fg-muted">{a.content_type}</td>
-                  <td className="px-3 py-2 text-xs text-fg-muted">{fmtBytes(a.size_bytes)}</td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="inline-flex items-center gap-2">
-                      <Button asChild size="sm" variant="outline">
-                        <a href={apiUrl(`/attachments/${encodeURIComponent(a.id)}/view`)} target="_blank" rel="noreferrer">
-                          View
-                        </a>
-                      </Button>
-                      <Button asChild size="sm" variant="outline">
-                        <a href={apiUrl(`/attachments/${encodeURIComponent(a.id)}/download`)} target="_blank" rel="noreferrer">
-                          Download
-                        </a>
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {attachments.length === 0 ? (
-                <tr>
-                  <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                    No attachments.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
+      <CardContent className="space-y-3">{content}</CardContent>
     </Card>
   );
 }

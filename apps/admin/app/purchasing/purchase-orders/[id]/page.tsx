@@ -9,8 +9,7 @@ import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { ViewRaw } from "@/components/view-raw";
-import { DocumentAttachments } from "@/components/document-attachments";
-import { DocumentTimeline } from "@/components/document-timeline";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -269,6 +268,14 @@ export default function PurchaseOrderViewPage() {
                   Cancel
                 </Button>
               ) : null}
+              {order ? (
+                <DocumentUtilitiesDrawer
+                  entityType="purchase_order"
+                  entityId={order.id}
+                  allowUploadAttachments={order.status === "draft"}
+                  className="ml-1"
+                />
+              ) : null}
             </div>
           </div>
         </CardHeader>
@@ -375,12 +382,7 @@ export default function PurchaseOrderViewPage() {
         </CardContent>
       </Card>
 
-      {order ? (
-        <>
-          <DocumentAttachments entityType="purchase_order" entityId={order.id} allowUpload={order.status === "draft"} />
-          <DocumentTimeline entityType="purchase_order" entityId={order.id} />
-        </>
-      ) : null}
+      {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
 
       <Dialog open={receiveOpen} onOpenChange={setReceiveOpen}>
         <DialogContent className="max-w-2xl">

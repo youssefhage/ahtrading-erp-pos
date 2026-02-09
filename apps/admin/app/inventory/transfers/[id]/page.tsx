@@ -9,7 +9,7 @@ import { parseNumberInput } from "@/lib/numbers";
 
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
-import { DocumentTimeline } from "@/components/document-timeline";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ItemTypeahead, ItemTypeaheadItem } from "@/components/item-typeahead";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
@@ -445,6 +445,7 @@ function Inner({ id }: { id: string }) {
               Reverse
             </Button>
           ) : null}
+          {tr ? <DocumentUtilitiesDrawer entityType="stock_transfer" entityId={tr.id} showAttachments={false} className="ml-1" /> : null}
         </div>
       </div>
 
@@ -741,7 +742,7 @@ function Inner({ id }: { id: string }) {
             </CardContent>
           </Card>
 
-          <DocumentTimeline entityType="stock_transfer" entityId={tr.id} />
+          {/* Audit trail is available via the right-rail utilities drawer. */}
         </>
       ) : null}
 

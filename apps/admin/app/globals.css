@@ -240,6 +240,8 @@
   /* Date inputs: make calendar pickers feel consistent and readable */
   input[type="date"] {
     @apply data-mono;
+    /* Keep text clear of the native calendar icon (esp. WebKit). */
+    padding-right: 2.5rem;
   }
 
   input[type="date"]::-webkit-calendar-picker-indicator {

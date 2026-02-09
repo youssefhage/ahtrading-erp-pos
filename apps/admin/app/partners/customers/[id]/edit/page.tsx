@@ -7,8 +7,7 @@ import { apiGet, apiPatch } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
-import { DocumentAttachments } from "@/components/document-attachments";
-import { DocumentTimeline } from "@/components/document-timeline";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { PartyAddresses } from "@/components/party-addresses";
 import { PartyContacts } from "@/components/party-contacts";
 import { MoneyInput } from "@/components/money-input";
@@ -197,6 +196,7 @@ export default function CustomerEditPage() {
           <Button type="button" variant="outline" onClick={load} disabled={saving || loading}>
             Refresh
           </Button>
+          <DocumentUtilitiesDrawer entityType="customer" entityId={id} allowUploadAttachments={true} className="ml-1" />
         </div>
       </div>
 
@@ -306,11 +306,9 @@ export default function CustomerEditPage() {
           <PartyAddresses partyKind="customer" partyId={customer.id} />
           <PartyContacts partyKind="customer" partyId={customer.id} />
 
-          <DocumentAttachments entityType="customer" entityId={customer.id} allowUpload={true} />
-          <DocumentTimeline entityType="customer" entityId={customer.id} />
+          {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
         </>
       ) : null}
     </div>
   );
 }
-
