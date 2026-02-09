@@ -88,6 +88,7 @@ def catalog(company_id: str = Depends(get_company_id)):
 def catalog_typeahead(
     q: str = Query("", description="Search SKU/name/barcode"),
     limit: int = Query(30, ge=1, le=100),
+    include_inactive: bool = Query(False, description="Include inactive items"),
     company_id: str = Depends(get_company_id),
 ):
     """
@@ -155,7 +156,9 @@ def catalog_typeahead(
                     FROM item_barcodes b
                     WHERE b.company_id = i.company_id AND b.item_id = i.id
                 ) bc ON true
-                WHERE i.sku ILIKE %s
+                WHERE (%s = true OR i.is_active = true)
+                  AND (
+                    i.sku ILIKE %s
                    OR i.name ILIKE %s
                    OR i.barcode ILIKE %s
                    OR EXISTS (
@@ -165,6 +168,7 @@ def catalog_typeahead(
                          AND b2.item_id = i.id
                          AND b2.barcode ILIKE %s
                    )
+                  )
                 ORDER BY
                   CASE
                     WHEN lower(i.sku) = lower(%s) THEN 0
@@ -184,6 +188,7 @@ def catalog_typeahead(
                 (
                     default_pl_id,
                     default_pl_id,
+                    include_inactive,
                     like,
                     like,
                     like,
