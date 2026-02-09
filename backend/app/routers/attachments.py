@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional
 import hashlib
 import json
+import os
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
@@ -67,8 +68,16 @@ def upload_attachment(
     raw = file.file.read()
     if raw is None:
         raw = b""
-    if len(raw) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="attachment too large (max 5MB in v1)")
+    # Default size cap is intentionally conservative since we currently store bytes in Postgres.
+    # Override via env var for on-prem deployments where larger attachments are required.
+    try:
+        max_mb = int(os.environ.get("ATTACHMENT_MAX_MB", "5"))
+    except Exception:
+        max_mb = 5
+    max_mb = max(1, min(max_mb, 100))
+    max_bytes = max_mb * 1024 * 1024
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"attachment too large (max {max_mb}MB)")
     sha = hashlib.sha256(raw).hexdigest() if raw else None
     filename = (file.filename or "attachment").strip() or "attachment"
     content_type = (file.content_type or "application/octet-stream").strip() or "application/octet-stream"
