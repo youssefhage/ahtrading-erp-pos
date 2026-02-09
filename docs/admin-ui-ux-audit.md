@@ -46,6 +46,7 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
   - Suppliers now follow `/partners/suppliers|new|[id]|[id]/edit` (with `/partners/suppliers/list` as an alias entrypoint).
   - Items now follow `/catalog/items/list|new|[id]|[id]/edit` (and `/catalog/items` redirects to `/catalog/items/list`).
   - Customers now follow `/partners/customers/list|new|[id]|[id]/edit` (and `/partners/customers` redirects to `/partners/customers/list`).
+  - Stock Transfers now follow `/inventory/transfers/list|new|[id]` (document-first warehouse ops).
 
 2) Replace raw “Status” `<pre>` error surfaces with productized error/empty states
 - Problem:
