@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -88,7 +89,7 @@ export default function StockPage() {
       cell: (r) => Number((r as any).qty_on_hand || 0).toLocaleString("en-US", { maximumFractionDigits: 3 }),
       cellClassName: (r) => {
         const n = Number((r as any).qty_on_hand || 0);
-        if (n < 0) return "text-red-600";
+        if (n < 0) return "text-danger";
         if (n === 0) return "text-fg-subtle";
         return "text-foreground";
       },
@@ -104,7 +105,7 @@ export default function StockPage() {
         cell: (r) => Number((r as any).reserved_qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 }),
         cellClassName: (r) => {
           const n = Number((r as any).reserved_qty || 0);
-          if (n > 0) return "text-amber-700 dark:text-amber-200";
+          if (n > 0) return "text-warning";
           return "text-fg-subtle";
         },
       });
@@ -121,7 +122,7 @@ export default function StockPage() {
         },
         cellClassName: (r) => {
           const v = Number((r as any).qty_available ?? (Number((r as any).qty_on_hand || 0) - Number((r as any).reserved_qty || 0)));
-          if (v < 0) return "text-red-600";
+          if (v < 0) return "text-danger";
           if (v === 0) return "text-fg-subtle";
           return "text-foreground";
         },
@@ -136,7 +137,7 @@ export default function StockPage() {
         cell: (r) => Number((r as any).incoming_qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 }),
         cellClassName: (r) => {
           const n = Number((r as any).incoming_qty || 0);
-          if (n > 0) return "text-emerald-700 dark:text-emerald-200";
+          if (n > 0) return "text-success";
           return "text-fg-subtle";
         },
       });
@@ -168,17 +169,7 @@ export default function StockPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>API errors will show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
         <Card>
           <CardHeader>

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ErrorBanner } from "@/components/error-banner";
 
 type TaxCode = { id: string; name: string; rate: string | number; tax_type: string; reporting_currency: string };
 type ExchangeRateRow = { id: string; rate_date: string; rate_type: string; usd_to_lbp: string | number };
@@ -41,6 +42,10 @@ export default function ConfigPage() {
   // AI policy (company_settings.key='ai')
   const [allowExternalAi, setAllowExternalAi] = useState(true);
   const [savingAiPolicy, setSavingAiPolicy] = useState(false);
+
+  // Inventory policy (company_settings.key='inventory')
+  const [requireManualLotSelection, setRequireManualLotSelection] = useState(false);
+  const [savingInventoryPolicy, setSavingInventoryPolicy] = useState(false);
 
   // Tax code form
   const [taxName, setTaxName] = useState("");
@@ -113,6 +118,12 @@ export default function ConfigPage() {
     const ai = settings.find((s) => s.key === "ai");
     const v = (ai?.value_json || {}) as any;
     setAllowExternalAi(Boolean(v?.allow_external_processing ?? true));
+  }, [settings]);
+
+  useEffect(() => {
+    const inv = settings.find((s) => s.key === "inventory");
+    const v = (inv?.value_json || {}) as any;
+    setRequireManualLotSelection(Boolean(v?.require_manual_lot_selection ?? false));
   }, [settings]);
 
   useEffect(() => {
@@ -272,25 +283,69 @@ export default function ConfigPage() {
     }
   }
 
+  async function saveInventory(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingInventoryPolicy(true);
+    setStatus("Saving inventory policy...");
+    try {
+      const inv = settings.find((s) => s.key === "inventory");
+      const current = (inv?.value_json || {}) as any;
+      await apiPost("/pricing/company-settings", {
+        key: "inventory",
+        value_json: {
+          ...current,
+          require_manual_lot_selection: Boolean(requireManualLotSelection)
+        }
+      });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSavingInventoryPolicy(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>API errors will show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
         <div className="flex items-center justify-end">
           <Button variant="outline" onClick={load}>
             Refresh
           </Button>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Inventory Policy</CardTitle>
+            <CardDescription>Operational guardrails for batch/expiry-managed items.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <form onSubmit={saveInventory} className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs font-medium text-fg-muted">Manual Lot Selection Required</label>
+                <select
+                  className="ui-select"
+                  value={requireManualLotSelection ? "yes" : "no"}
+                  onChange={(e) => setRequireManualLotSelection(e.target.value === "yes")}
+                >
+                  <option value="no">no (auto-FEFO allowed)</option>
+                  <option value="yes">yes (POS must select a batch/expiry)</option>
+                </select>
+                <p className="text-xs text-fg-muted">
+                  When enabled, sales posting for expiry/batch-tracked items requires explicit lot selection (no auto allocation).
+                </p>
+              </div>
+              <div className="md:col-span-1 flex items-end justify-end">
+                <Button type="submit" disabled={savingInventoryPolicy}>
+                  {savingInventoryPolicy ? "..." : "Save Inventory Policy"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

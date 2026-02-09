@@ -49,6 +49,61 @@ def list_suppliers(company_id: str = Depends(get_company_id)):
             )
             return {"suppliers": cur.fetchall()}
 
+@router.get("/typeahead", dependencies=[Depends(require_permission("suppliers:read"))])
+def typeahead_suppliers(
+    q: str = "",
+    limit: int = 50,
+    include_inactive: bool = False,
+    company_id: str = Depends(get_company_id),
+):
+    qq = (q or "").strip()
+    if limit <= 0 or limit > 200:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+    like = f"%{qq}%"
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, code, name, phone, email, is_active
+                FROM suppliers
+                WHERE company_id = %s
+                  AND (%s = true OR is_active = true)
+                  AND (
+                    %s = ''
+                    OR (code IS NOT NULL AND code ILIKE %s)
+                    OR name ILIKE %s
+                    OR (phone IS NOT NULL AND phone ILIKE %s)
+                    OR (email IS NOT NULL AND email ILIKE %s)
+                    OR (vat_no IS NOT NULL AND vat_no ILIKE %s)
+                    OR (tax_id IS NOT NULL AND tax_id ILIKE %s)
+                  )
+                ORDER BY name
+                LIMIT %s
+                """,
+                (company_id, include_inactive, qq, like, like, like, like, like, like, limit),
+            )
+            return {"suppliers": cur.fetchall()}
+
+
+@router.get("/{supplier_id}", dependencies=[Depends(require_permission("suppliers:read"))])
+def get_supplier(supplier_id: str, company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active
+                FROM suppliers
+                WHERE company_id = %s AND id = %s
+                """,
+                (company_id, supplier_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="supplier not found")
+            return {"supplier": row}
+
 
 @router.post("", dependencies=[Depends(require_permission("suppliers:write"))])
 def create_supplier(data: SupplierIn, company_id: str = Depends(get_company_id)):

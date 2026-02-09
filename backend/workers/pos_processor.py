@@ -110,6 +110,7 @@ def fetch_inventory_policy(cur, company_id: str) -> dict:
     Returns inventory policy JSON from company_settings key='inventory'.
     Supported keys:
     - allow_negative_stock: bool (default true for backward compatibility)
+    - require_manual_lot_selection: bool (default false)
     """
     set_company_context(cur, company_id)
     cur.execute(
@@ -125,7 +126,8 @@ def fetch_inventory_policy(cur, company_id: str) -> dict:
     allow = v.get("allow_negative_stock")
     # Default to True to preserve existing behavior unless explicitly disabled.
     allow_negative_stock = True if allow is None else bool(allow)
-    return {"allow_negative_stock": allow_negative_stock}
+    require_manual = bool(v.get("require_manual_lot_selection") or False)
+    return {"allow_negative_stock": allow_negative_stock, "require_manual_lot_selection": require_manual}
 
 
 def resolve_allow_negative_stock(cur, company_id: str, item_id: str, warehouse_id: Optional[str]) -> bool:
@@ -795,6 +797,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     warehouse_id = payload.get("warehouse_id")
     inv_policy = fetch_inventory_policy(cur, company_id)
     allow_negative_stock_default = bool(inv_policy.get("allow_negative_stock"))
+    require_manual_lot = bool(inv_policy.get("require_manual_lot_selection"))
     warehouse_min_days_default = 0
     warehouse_allow_negative = None
     if warehouse_id:
@@ -847,6 +850,8 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         qty_out = Decimal(str(l.get("qty", 0)))
         req_batch_no = l.get("batch_no") or None
         req_expiry = l.get("expiry_date") or None
+        if require_manual_lot and (bool(pol.get("track_batches")) or bool(pol.get("track_expiry"))) and not (req_batch_no or req_expiry):
+            raise ValueError("manual lot selection is required for this item")
         if req_batch_no or req_expiry:
             batch_id = find_batch_id(cur, company_id, item_id, req_batch_no, req_expiry)
             if not batch_id:
@@ -1064,6 +1069,43 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
     refund_method = (payload.get("refund_method") or "").strip().lower() or None
     cashier_id = payload.get("cashier_id") or None
 
+    # Optional restocking fee: reduces refund amount but keeps return totals intact.
+    restock_fee_usd = Decimal(str(payload.get("restocking_fee_usd", 0) or 0))
+    restock_fee_lbp = Decimal(str(payload.get("restocking_fee_lbp", 0) or 0))
+    fee_pct_raw = payload.get("restocking_fee_pct")
+    if fee_pct_raw is None:
+        fee_pct_raw = payload.get("restocking_fee_percent")
+    if fee_pct_raw is not None:
+        try:
+            pct = Decimal(str(fee_pct_raw or 0))
+        except Exception:
+            pct = Decimal("0")
+        # Accept either 0..1 or 0..100.
+        if pct > 1 and pct <= 100:
+            pct = pct / Decimal("100")
+        if pct < 0:
+            pct = Decimal("0")
+        if pct > 1:
+            pct = Decimal("1")
+        restock_fee_usd = (base_usd * pct)
+        restock_fee_lbp = (base_lbp * pct)
+
+    restock_fee_usd, restock_fee_lbp = normalize_dual_amounts(restock_fee_usd, restock_fee_lbp, exchange_rate)
+    if restock_fee_usd < 0:
+        restock_fee_usd = Decimal("0")
+    if restock_fee_lbp < 0:
+        restock_fee_lbp = Decimal("0")
+    if restock_fee_usd > base_usd or restock_fee_lbp > base_lbp:
+        raise ValueError("restocking fee cannot exceed return base amount")
+    restock_fee_reason = payload.get("restocking_fee_reason") or None
+    if isinstance(restock_fee_reason, str):
+        restock_fee_reason = restock_fee_reason.strip() or None
+
+    refund_total_usd = total_usd - restock_fee_usd
+    refund_total_lbp = total_lbp - restock_fee_lbp
+    if refund_total_usd < 0 or refund_total_lbp < 0:
+        raise ValueError("restocking fee cannot exceed return total")
+
     branch_id = None
     cur.execute("SELECT branch_id FROM pos_devices WHERE id=%s", (device_id,))
     drow = cur.fetchone()
@@ -1088,10 +1130,11 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         INSERT INTO sales_returns
           (id, company_id, return_no, invoice_id, status, total_usd, total_lbp, exchange_rate,
            warehouse_id, device_id, shift_id, refund_method, source_event_id, cashier_id,
-           branch_id, reason_id, reason, return_condition)
+           branch_id, reason_id, reason, return_condition,
+           restocking_fee_usd, restocking_fee_lbp, restocking_fee_reason)
         VALUES
           (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s, %s, %s, %s,
-           %s, %s, %s, %s)
+           %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
@@ -1111,6 +1154,9 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             reason_id,
             reason_text,
             return_condition,
+            restock_fee_usd,
+            restock_fee_lbp,
+            restock_fee_reason,
         ),
     )
     return_id = cur.fetchone()["id"]
@@ -1376,14 +1422,27 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         (journal_id, sales_returns, base_usd, base_lbp),
     )
 
-    # Credit receivable/cash
+    # Credit receivable/cash net of any restocking fee.
     cur.execute(
         """
         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
         VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Return refund')
         """,
-        (journal_id, receivable_account, total_usd, total_lbp),
+        (journal_id, receivable_account, refund_total_usd, refund_total_lbp),
     )
+
+    # Restocking fee income (optional).
+    if (restock_fee_usd > 0 or restock_fee_lbp > 0):
+        restock_income = account_defaults.get("RESTOCK_FEES")
+        if not restock_income:
+            raise ValueError("Missing account default RESTOCK_FEES for restocking fee posting")
+        cur.execute(
+            """
+            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Restocking fee')
+            """,
+            (journal_id, restock_income, restock_fee_usd, restock_fee_lbp),
+        )
 
     # VAT payable reduction (debit VAT payable)
     if tax and vat_payable:
@@ -1421,8 +1480,85 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                 credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0)
             WHERE company_id = %s AND id = %s
             """,
-            (total_usd, total_lbp, company_id, invoice_customer_id),
+            (refund_total_usd, refund_total_lbp, company_id, invoice_customer_id),
         )
+
+    # Persist a first-class refund transaction for reconciliation-grade workflows.
+    refund_method_norm = refund_method
+    if not refund_method_norm:
+        if is_credit_sale:
+            refund_method_norm = "credit"
+        elif primary_method:
+            refund_method_norm = primary_method
+        else:
+            refund_method_norm = "cash"
+    bank_account_id = payload.get("bank_account_id") or None
+
+    cur.execute(
+        """
+        INSERT INTO sales_refunds
+          (id, company_id, sales_return_id, method, amount_usd, amount_lbp,
+           settlement_currency, bank_account_id, reference, provider, auth_code, captured_at,
+           source_type, source_id, created_by_device_id, created_by_cashier_id)
+        VALUES
+          (gen_random_uuid(), %s, %s, %s, %s, %s,
+           %s, %s, %s, %s, %s, now(),
+           'pos_event', %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            company_id,
+            return_id,
+            refund_method_norm,
+            refund_total_usd,
+            refund_total_lbp,
+            (payload.get("settlement_currency") or "USD"),
+            bank_account_id,
+            (payload.get("reference") or None),
+            (payload.get("provider") or None),
+            (payload.get("auth_code") or None),
+            event_id,
+            device_id,
+            cashier_id,
+        ),
+    )
+    refund_id = cur.fetchone()["id"]
+
+    # Optionally write a linked bank transaction (outflow) when a bank account is specified.
+    if bank_account_id and refund_method_norm != "credit":
+        cur.execute(
+            """
+            SELECT 1
+            FROM bank_transactions
+            WHERE company_id=%s AND source_type='sales_refund' AND source_id=%s
+            LIMIT 1
+            """,
+            (company_id, refund_id),
+        )
+        if not cur.fetchone():
+            cur.execute(
+                """
+                INSERT INTO bank_transactions
+                  (id, company_id, bank_account_id, txn_date, direction,
+                   amount_usd, amount_lbp, description, reference, counterparty,
+                   source_type, source_id)
+                VALUES
+                  (gen_random_uuid(), %s, %s, %s, 'outflow',
+                   %s, %s, %s, %s, %s,
+                   'sales_refund', %s)
+                """,
+                (
+                    company_id,
+                    bank_account_id,
+                    return_date,
+                    refund_total_usd,
+                    refund_total_lbp,
+                    f"Return refund {return_no}",
+                    (payload.get("reference") or None),
+                    None,
+                    refund_id,
+                ),
+            )
 
     # Loyalty points reversal:
     # - If payload includes `loyalty_points`, treat it as an explicit override.
@@ -1523,9 +1659,10 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
             """
             INSERT INTO goods_receipt_lines
               (id, company_id, goods_receipt_id, item_id, batch_id, qty,
-               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+               location_id, landed_cost_total_usd, landed_cost_total_lbp)
             VALUES
-              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, 0, 0)
             """,
             (
                 gr_line_id,
@@ -1543,11 +1680,11 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
         cur.execute(
             """
             INSERT INTO stock_moves
-              (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
+              (id, company_id, item_id, warehouse_id, location_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
                source_type, source_id,
                created_by_device_id, created_by_cashier_id, reason, source_line_type, source_line_id)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s,
+              (gen_random_uuid(), %s, %s, %s, NULL, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s,
                %s, %s, %s, %s, %s)
             """,
             (
@@ -1566,6 +1703,35 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
                 gr_line_id,
             ),
         )
+        if batch_id:
+            cur.execute(
+                """
+                INSERT INTO batch_cost_layers
+                  (id, company_id, batch_id, warehouse_id, location_id,
+                   source_type, source_id, source_line_type, source_line_id,
+                   qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                   landed_cost_total_usd, landed_cost_total_lbp, notes)
+                VALUES
+                  (gen_random_uuid(), %s, %s, %s, NULL,
+                   'goods_receipt', %s, 'goods_receipt_line', %s,
+                   %s, %s, %s, %s, %s,
+                   0, 0, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (
+                    company_id,
+                    batch_id,
+                    warehouse_id,
+                    gr_id,
+                    gr_line_id,
+                    Decimal(str(l.get("qty", 0))),
+                    Decimal(str(l.get("unit_cost_usd", 0))),
+                    Decimal(str(l.get("unit_cost_lbp", 0))),
+                    Decimal(str(l.get("line_total_usd", 0))),
+                    Decimal(str(l.get("line_total_lbp", 0))),
+                    "POS goods receipt",
+                ),
+            )
 
     # GL posting: Dr Inventory, Cr GRNI
     account_defaults = fetch_account_defaults(cur, company_id)

@@ -111,14 +111,14 @@ function MetricCard({
           {trend && trendValue && (
             <div className="flex items-center gap-1 mt-1">
               {trend === "up" ? (
-                <TrendingUp className="h-3.5 w-3.5 text-green-400" />
+                <TrendingUp className="h-3.5 w-3.5 text-success" />
               ) : trend === "down" ? (
-                <TrendingDown className="h-3.5 w-3.5 text-red-400" />
+                <TrendingDown className="h-3.5 w-3.5 text-danger" />
               ) : null}
               <span
                 className={cn(
                   "text-xs",
-                  trend === "up" ? "text-green-400" : trend === "down" ? "text-red-400" : "text-fg-subtle"
+                  trend === "up" ? "text-success" : trend === "down" ? "text-danger" : "text-fg-subtle"
                 )}
               >
                 {trendValue}
@@ -144,6 +144,7 @@ function QuickAction({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className="flex w-full items-center gap-3 rounded-lg border border-border-subtle bg-bg-elevated/60 p-3 text-left transition-all duration-200 hover:border-border-strong hover:bg-bg-sunken/60"
     >
@@ -169,9 +170,9 @@ function StatusIndicator({
   status: "good" | "warning" | "critical";
 }) {
   const statusColors = {
-    good: "bg-green-500/20 text-green-400 border-green-500/30",
-    warning: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-    critical: "bg-red-500/20 text-red-400 border-red-500/30"
+    good: "bg-success/20 text-success border-success/30",
+    warning: "bg-warning/20 text-warning border-warning/30",
+    critical: "bg-danger/20 text-danger border-danger/30"
   };
 
   return (
@@ -293,12 +294,12 @@ export default function DashboardPage() {
 
       {/* Error State */}
       {status && status !== "Loading..." && (
-        <Card className="border-red-500/30 bg-red-500/10">
+        <Card className="border-danger/30 bg-danger/10">
           <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="h-5 w-5 text-red-400" />
+            <AlertTriangle className="h-5 w-5 text-danger" />
             <div>
-              <p className="text-sm font-medium text-red-400">Error loading metrics</p>
-              <p className="text-xs text-red-300/70">{status}</p>
+              <p className="text-sm font-medium text-danger">Error loading metrics</p>
+              <p className="text-xs text-danger/70">{status}</p>
             </div>
           </CardContent>
         </Card>
@@ -409,7 +410,7 @@ export default function DashboardPage() {
                   <span
                     className={cn(
                       "text-sm font-medium tabular-nums",
-                      (metrics?.low_stock_count || 0) > 0 ? "text-red-400" : "text-foreground"
+                      (metrics?.low_stock_count || 0) > 0 ? "text-danger" : "text-foreground"
                     )}
                   >
                     {fmtNumber(metrics?.low_stock_count || 0)}
@@ -443,19 +444,19 @@ export default function DashboardPage() {
               <>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-fg-muted">Data Hygiene</span>
-                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_DATA_HYGIENE") > 0 ? "text-yellow-400" : "text-foreground")}>
+                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_DATA_HYGIENE") > 0 ? "text-warning" : "text-foreground")}>
                     {aiCount("AI_DATA_HYGIENE")}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-fg-muted">AP Guard</span>
-                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_AP_GUARD") > 0 ? "text-yellow-400" : "text-foreground")}>
+                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_AP_GUARD") > 0 ? "text-warning" : "text-foreground")}>
                     {aiCount("AI_AP_GUARD")}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-fg-muted">Expiry Ops</span>
-                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_EXPIRY_OPS") > 0 ? "text-yellow-400" : "text-foreground")}>
+                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_EXPIRY_OPS") > 0 ? "text-warning" : "text-foreground")}>
                     {aiCount("AI_EXPIRY_OPS")}
                   </span>
                 </div>

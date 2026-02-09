@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { ErrorBanner } from "@/components/error-banner";
+import { ViewRaw } from "@/components/view-raw";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,8 +18,21 @@ type CopilotQueryResp = {
 
 type Message = { role: "user" | "assistant"; content: string; createdAt: string };
 
+function safeIso(iso: unknown): string {
+  const s = String(iso || "");
+  return s ? s.slice(0, 19).replace("T", " ") : "-";
+}
+
+function summarizeRecJson(v: unknown): string {
+  if (!v || typeof v !== "object") return "";
+  const o = v as Record<string, any>;
+  const candidates = [o.kind, o.type, o.title, o.reason, o.message, o.summary].filter((x) => typeof x === "string" && x.trim());
+  return String(candidates[0] || "").trim();
+}
+
 export default function CopilotChatPage() {
-  const [status, setStatus] = useState("");
+  const [err, setErr] = useState<unknown>(null);
+  const [thinking, setThinking] = useState(false);
   const [q, setQ] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [last, setLast] = useState<CopilotQueryResp | null>(null);
@@ -48,33 +63,24 @@ export default function CopilotChatPage() {
   async function ask(text: string) {
     const prompt = (text || "").trim();
     if (!prompt) return;
-    setStatus("Thinking...");
+    setErr(null);
+    setThinking(true);
     setMessages((m) => [...m, { role: "user", content: prompt, createdAt: new Date().toISOString() }]);
     setQ("");
     try {
       const res = await apiPost<CopilotQueryResp>("/ai/copilot/query", { query: prompt });
       setLast(res);
       setMessages((m) => [...m, { role: "assistant", content: res.answer, createdAt: new Date().toISOString() }]);
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setErr(err);
+    } finally {
+      setThinking(false);
     }
   }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>Errors will show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+        {err ? <ErrorBanner error={err} /> : null}
 
         <Card>
           <CardHeader>
@@ -84,7 +90,7 @@ export default function CopilotChatPage() {
           <CardContent className="space-y-3">
             <div className="flex flex-wrap gap-2">
               {suggestions.map((s) => (
-                <Button key={s} variant="outline" size="sm" onClick={() => ask(s)}>
+                <Button key={s} type="button" variant="outline" size="sm" onClick={() => ask(s)} disabled={thinking}>
                   {s}
                 </Button>
               ))}
@@ -98,10 +104,13 @@ export default function CopilotChatPage() {
               }}
             >
               <div className="flex-1">
-                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type a question..." />
+                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type a question..." disabled={thinking} />
               </div>
-              <Button type="submit">Ask</Button>
+              <Button type="submit" disabled={thinking}>
+                {thinking ? "..." : "Ask"}
+              </Button>
             </form>
+            {thinking ? <div className="text-xs text-fg-muted">Thinking...</div> : null}
           </CardContent>
         </Card>
 
@@ -121,7 +130,7 @@ export default function CopilotChatPage() {
                     className={
                       m.role === "user"
                         ? "rounded-lg border border-border bg-bg-elevated p-3"
-                        : "rounded-lg border border-emerald-200 bg-emerald-50 p-3"
+                        : "rounded-lg border border-success/30 bg-success/10 p-3"
                     }
                   >
                     <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-fg-subtle">
@@ -142,12 +151,175 @@ export default function CopilotChatPage() {
               <CardDescription>Structured data behind the latest answer.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="ui-table-wrap p-3">
-                <pre className="whitespace-pre-wrap text-xs text-fg-muted">{JSON.stringify(last.cards || [], null, 2)}</pre>
-              </div>
+              {(last.cards || []).length ? (
+                <div className="space-y-3">
+                  {(last.cards || []).map((c, idx) => {
+                    const rows = (c as any)?.rows as any[];
+                    const type = String((c as any)?.type || "card");
+
+                    if (!Array.isArray(rows) || rows.length === 0) {
+                      return (
+                        <Card key={`${type}:${idx}`}>
+                          <CardHeader>
+                            <CardTitle className="text-base">{type}</CardTitle>
+                            <CardDescription>No rows.</CardDescription>
+                          </CardHeader>
+                        </Card>
+                      );
+                    }
+
+                    if (type === "pos_outbox") {
+                      return (
+                        <Card key={`${type}:${idx}`}>
+                          <CardHeader>
+                            <CardTitle className="text-base">POS Outbox</CardTitle>
+                            <CardDescription>Breakdown by device and status.</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="ui-table-wrap">
+                              <table className="ui-table">
+                                <thead className="ui-thead">
+                                  <tr>
+                                    <th className="px-3 py-2">Device</th>
+                                    <th className="px-3 py-2">Status</th>
+                                    <th className="px-3 py-2 text-right">Count</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {rows.map((r, i) => (
+                                    <tr key={i} className="ui-tr">
+                                      <td className="px-3 py-2 font-mono text-xs">{String(r.device_code || "-")}</td>
+                                      <td className="px-3 py-2 text-fg-muted">{String(r.status || "-")}</td>
+                                      <td className="px-3 py-2 text-right data-mono">{String(r.count ?? 0)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    }
+
+                    if (type === "period_locks") {
+                      return (
+                        <Card key={`${type}:${idx}`}>
+                          <CardHeader>
+                            <CardTitle className="text-base">Period Locks</CardTitle>
+                            <CardDescription>Posting is blocked inside locked ranges.</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="ui-table-wrap">
+                              <table className="ui-table">
+                                <thead className="ui-thead">
+                                  <tr>
+                                    <th className="px-3 py-2">Start</th>
+                                    <th className="px-3 py-2">End</th>
+                                    <th className="px-3 py-2">Reason</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {rows.map((r, i) => (
+                                    <tr key={i} className="ui-tr">
+                                      <td className="px-3 py-2 font-mono text-xs">{String(r.start_date || "-")}</td>
+                                      <td className="px-3 py-2 font-mono text-xs">{String(r.end_date || "-")}</td>
+                                      <td className="px-3 py-2 text-sm text-fg-muted">{String(r.reason || "-")}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    }
+
+                    if (type === "reorder_recommendations" || type === "anomalies") {
+                      return (
+                        <Card key={`${type}:${idx}`}>
+                          <CardHeader>
+                            <CardTitle className="text-base">{type === "anomalies" ? "Anomalies / Shrinkage" : "Reorder Recommendations"}</CardTitle>
+                            <CardDescription>Queue-first view. Approve items in AI Hub.</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="ui-table-wrap">
+                              <table className="ui-table">
+                                <thead className="ui-thead">
+                                  <tr>
+                                    <th className="px-3 py-2">When</th>
+                                    <th className="px-3 py-2">Agent</th>
+                                    <th className="px-3 py-2">Summary</th>
+                                    <th className="px-3 py-2 font-mono text-xs">ID</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {rows.map((r, i) => (
+                                    <tr key={i} className="ui-tr">
+                                      <td className="px-3 py-2 font-mono text-xs">{safeIso(r.created_at)}</td>
+                                      <td className="px-3 py-2 text-xs text-fg-muted">{String(r.agent_code || "-")}</td>
+                                      <td className="px-3 py-2 text-sm text-foreground">
+                                        {summarizeRecJson(r.recommendation_json) || <span className="text-fg-subtle">View raw</span>}
+                                      </td>
+                                      <td className="px-3 py-2 font-mono text-[10px] text-fg-subtle">{String(r.id || "-")}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    }
+
+                    // Fallback: show a small table from object keys and keep raw behind a toggle.
+                    const first = rows[0] && typeof rows[0] === "object" ? (rows[0] as any) : null;
+                    const keys = first ? Object.keys(first).slice(0, 6) : [];
+                    return (
+                      <Card key={`${type}:${idx}`}>
+                        <CardHeader>
+                          <CardTitle className="text-base">{type}</CardTitle>
+                          <CardDescription>{rows.length} row(s)</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {keys.length ? (
+                            <div className="ui-table-wrap">
+                              <table className="ui-table">
+                                <thead className="ui-thead">
+                                  <tr>
+                                    {keys.map((k) => (
+                                      <th key={k} className="px-3 py-2">
+                                        {k}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {rows.slice(0, 25).map((r, i) => (
+                                    <tr key={i} className="ui-tr">
+                                      {keys.map((k) => (
+                                        <td key={k} className="px-3 py-2 font-mono text-xs text-fg-muted">
+                                          {String((r as any)?.[k] ?? "") || "-"}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : null}
+                          <ViewRaw value={c} label="View raw card" />
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-sm text-fg-muted">No cards for this answer.</div>
+              )}
+
+              <ViewRaw value={last} label="View raw response" />
             </CardContent>
           </Card>
         ) : null}
       </div>);
 }
-

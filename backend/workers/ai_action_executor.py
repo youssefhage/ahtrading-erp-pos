@@ -85,11 +85,27 @@ def amount_usd_for_action(agent_code: str, payload: dict) -> Decimal:
 def execute_purchase_action(cur, company_id: str, action_id: str, payload: dict):
     supplier_id = payload.get("supplier_id")
     item_id = payload.get("item_id")
+    warehouse_id = payload.get("warehouse_id") or None
     qty = Decimal(str(payload.get("reorder_qty", 0)))
     amount_usd = Decimal(str(payload.get("amount_usd", 0)))
 
     if not supplier_id or not item_id or qty <= 0:
         raise ValueError("Invalid purchase action payload")
+
+    # Idempotency: re-running the executor should not create duplicate POs.
+    set_company_context(cur, company_id)
+    cur.execute(
+        """
+        SELECT id
+        FROM purchase_orders
+        WHERE company_id=%s AND source_type='ai_action' AND source_id=%s
+        LIMIT 1
+        """,
+        (company_id, action_id),
+    )
+    existing = cur.fetchone()
+    if existing:
+        return existing["id"]
 
     rate = latest_rate(cur, company_id)
     unit_cost_usd = amount_usd / qty if qty else Decimal("0")
@@ -101,12 +117,12 @@ def execute_purchase_action(cur, company_id: str, action_id: str, payload: dict)
     cur.execute(
         """
         INSERT INTO purchase_orders
-          (id, company_id, supplier_id, status, total_usd, total_lbp, exchange_rate)
+          (id, company_id, supplier_id, warehouse_id, status, total_usd, total_lbp, exchange_rate, source_type, source_id)
         VALUES
-          (gen_random_uuid(), %s, %s, 'posted', %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, %s, 'ai_action', %s)
         RETURNING id
         """,
-        (company_id, supplier_id, total_usd, total_lbp, rate),
+        (company_id, supplier_id, warehouse_id, total_usd, total_lbp, rate, action_id),
     )
     po_id = cur.fetchone()["id"]
 
@@ -137,6 +153,20 @@ def execute_pricing_action(cur, company_id: str, action_id: str, payload: dict):
     if not item_id or suggested_price_usd is None:
         raise ValueError("Invalid pricing action payload")
 
+    # Idempotency: same action should not create duplicate price rows.
+    cur.execute(
+        """
+        SELECT id
+        FROM item_prices
+        WHERE source_type='ai_action' AND source_id=%s
+        LIMIT 1
+        """,
+        (action_id,),
+    )
+    existing = cur.fetchone()
+    if existing:
+        return existing["id"]
+
     price_usd = Decimal(str(suggested_price_usd))
     if price_usd <= 0:
         raise ValueError("suggested_price_usd must be > 0")
@@ -147,11 +177,11 @@ def execute_pricing_action(cur, company_id: str, action_id: str, payload: dict):
 
     cur.execute(
         """
-        INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to)
-        VALUES (gen_random_uuid(), %s, %s, %s, CURRENT_DATE, NULL)
+        INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to, source_type, source_id)
+        VALUES (gen_random_uuid(), %s, %s, %s, CURRENT_DATE, NULL, 'ai_action', %s)
         RETURNING id
         """,
-        (item_id, price_usd, price_lbp),
+        (item_id, price_usd, price_lbp, action_id),
     )
     price_id = cur.fetchone()["id"]
 
@@ -211,11 +241,14 @@ def run_executor(db_url: str, company_id: str, limit: int, max_attempts: int = M
                             continue
 
                         if a["agent_code"] == "AI_PURCHASE":
-                            execute_purchase_action(cur, company_id, a["id"], payload)
+                            created_id = execute_purchase_action(cur, company_id, a["id"], payload)
+                            created_type = "purchase_order"
                         elif a["agent_code"] == "AI_DEMAND":
-                            execute_purchase_action(cur, company_id, a["id"], payload)
+                            created_id = execute_purchase_action(cur, company_id, a["id"], payload)
+                            created_type = "purchase_order"
                         elif a["agent_code"] == "AI_PRICING":
-                            execute_pricing_action(cur, company_id, a["id"], payload)
+                            created_id = execute_pricing_action(cur, company_id, a["id"], payload)
+                            created_type = "item_price"
                         else:
                             raise ValueError(f"Unsupported agent_code {a['agent_code']}")
 
@@ -226,10 +259,18 @@ def run_executor(db_url: str, company_id: str, limit: int, max_attempts: int = M
                                 executed_at = now(),
                                 executed_by_user_id = queued_by_user_id,
                                 error_message = NULL,
+                                result_entity_type = %s,
+                                result_entity_id = %s,
+                                result_json = %s::jsonb,
                                 updated_at = now()
                             WHERE id = %s
                             """,
-                            (a["id"],),
+                            (
+                                created_type,
+                                created_id,
+                                json.dumps({"created_entity_type": created_type, "created_entity_id": str(created_id)}, default=str),
+                                a["id"],
+                            ),
                         )
 
                         if a.get("recommendation_id"):

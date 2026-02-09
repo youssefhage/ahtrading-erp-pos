@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { ErrorBanner } from "@/components/error-banner";
+import { ViewRaw } from "@/components/view-raw";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -107,18 +109,16 @@ function fmtInterval(seconds: number): string {
 }
 
 export default function OpsCopilotPage() {
-  const [status, setStatus] = useState("");
+  const [err, setErr] = useState<unknown>(null);
   const [data, setData] = useState<CopilotOverview | null>(null);
 
   async function load() {
-    setStatus("Loading...");
+    setErr(null);
     try {
       const res = await apiGet<CopilotOverview>("/ai/copilot/overview");
       setData(res);
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setErr(err);
     }
   }
 
@@ -136,17 +136,7 @@ export default function OpsCopilotPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>API errors will show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+        {err ? <ErrorBanner error={err} onRetry={load} /> : null}
 
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -179,9 +169,9 @@ export default function OpsCopilotPage() {
                 <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-fg-subtle">
                   Pending By Agent
                 </div>
-                <pre className="mt-2 whitespace-pre-wrap text-xs text-fg-muted">
-                  {JSON.stringify(pendingByAgent, null, 2)}
-                </pre>
+                <div className="mt-2">
+                  <ViewRaw value={pendingByAgent} />
+                </div>
               </div>
             </CardContent>
           </Card>

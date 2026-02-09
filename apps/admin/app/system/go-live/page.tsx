@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ErrorBanner } from "@/components/error-banner";
 
 type RateRow = { rate_date: string; rate_type: string; usd_to_lbp: string | number };
 type PreflightRes = { ok: boolean; checks: Array<{ name: string; status: string; detail: string }> };
@@ -341,17 +342,7 @@ export default function GoLivePage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      {status ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-            <CardDescription>Errors will show here.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-          </CardContent>
-        </Card>
-      ) : null}
+      {status ? <ErrorBanner error={status} onRetry={() => { loadDefaults(); reloadPreflight(); }} /> : null}
 
       <Card>
         <CardHeader>

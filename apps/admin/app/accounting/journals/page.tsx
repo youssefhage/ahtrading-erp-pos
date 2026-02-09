@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -13,6 +14,8 @@ type CoaAccount = {
   account_code: string;
   name_en: string | null;
 };
+
+type DimensionRow = { id: string; code: string; name: string; is_active: boolean };
 
 type JournalRow = {
   id: string;
@@ -37,6 +40,12 @@ type JournalEntry = {
   debit_lbp: string | number;
   credit_lbp: string | number;
   memo: string | null;
+  cost_center_id?: string | null;
+  cost_center_code?: string | null;
+  cost_center_name?: string | null;
+  project_id?: string | null;
+  project_code?: string | null;
+  project_name?: string | null;
 };
 
 type JournalDetail = {
@@ -54,6 +63,8 @@ type LineDraft = {
   memo: string;
   amount_usd: string;
   amount_lbp: string;
+  cost_center_id: string;
+  project_id: string;
 };
 
 function toNum(v: string) {
@@ -74,6 +85,8 @@ export default function JournalsPage() {
   const [journals, setJournals] = useState<JournalRow[]>([]);
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
   const [detail, setDetail] = useState<JournalDetail | null>(null);
+  const [costCenters, setCostCenters] = useState<DimensionRow[]>([]);
+  const [projects, setProjects] = useState<DimensionRow[]>([]);
 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -87,8 +100,8 @@ export default function JournalsPage() {
   const [exchangeRate, setExchangeRate] = useState("0");
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([
-    { key: "l1", side: "debit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "" },
-    { key: "l2", side: "credit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "" }
+    { key: "l1", side: "debit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "", cost_center_id: "", project_id: "" },
+    { key: "l2", side: "credit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "", cost_center_id: "", project_id: "" }
   ]);
   const [creating, setCreating] = useState(false);
 
@@ -128,12 +141,16 @@ export default function JournalsPage() {
       if (startDate) params.set("start_date", startDate);
       if (endDate) params.set("end_date", endDate);
       if (sourceType) params.set("source_type", sourceType);
-      const [j, a] = await Promise.all([
+      const [j, a, cc, pr] = await Promise.all([
         apiGet<{ journals: JournalRow[] }>(`/accounting/journals${params.toString() ? `?${params.toString()}` : ""}`),
-        apiGet<{ accounts: CoaAccount[] }>("/coa/accounts")
+        apiGet<{ accounts: CoaAccount[] }>("/coa/accounts"),
+        apiGet<{ cost_centers: DimensionRow[] }>("/dimensions/cost-centers"),
+        apiGet<{ projects: DimensionRow[] }>("/dimensions/projects")
       ]);
       setJournals(j.journals || []);
       setAccounts(a.accounts || []);
+      setCostCenters(cc.cost_centers || []);
+      setProjects(pr.projects || []);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -224,15 +241,17 @@ export default function JournalsPage() {
             side: l.side,
             amount_usd: Number(l.amount_usd || 0),
             amount_lbp: Number(l.amount_lbp || 0),
-            memo: l.memo.trim() || null
+            memo: l.memo.trim() || null,
+            cost_center_id: l.cost_center_id || null,
+            project_id: l.project_id || null
           }))
       };
       const res = await apiPost<{ id: string; journal_no: string }>("/accounting/manual-journals", payload);
       setCreateOpen(false);
       setMemo("");
       setLines([
-        { key: `l-${Date.now()}-1`, side: "debit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "" },
-        { key: `l-${Date.now()}-2`, side: "credit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "" }
+        { key: `l-${Date.now()}-1`, side: "debit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "", cost_center_id: "", project_id: "" },
+        { key: `l-${Date.now()}-2`, side: "credit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "", cost_center_id: "", project_id: "" }
       ]);
       await load();
       await loadDetail(res.id);
@@ -267,17 +286,7 @@ export default function JournalsPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>API errors and validations show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">
           <Card>
@@ -394,6 +403,8 @@ export default function JournalsPage() {
                               <th className="px-3 py-2 text-right">USD</th>
                               <th className="px-3 py-2 text-right">LL</th>
                               <th className="px-3 py-2">Memo</th>
+                              <th className="px-3 py-2">Cost Center</th>
+                              <th className="px-3 py-2">Project</th>
                               <th className="px-3 py-2"></th>
                             </tr>
                           </thead>
@@ -440,6 +451,34 @@ export default function JournalsPage() {
                                   <td className="px-3 py-2">
                                     <Input value={l.memo} onChange={(e) => updateLine(idx, { memo: e.target.value })} placeholder="Line memo..." />
                                   </td>
+                                  <td className="px-3 py-2">
+                                    <select
+                                      className="ui-select"
+                                      value={l.cost_center_id}
+                                      onChange={(e) => updateLine(idx, { cost_center_id: e.target.value })}
+                                    >
+                                      <option value="">-</option>
+                                      {costCenters
+                                        .filter((x) => x.is_active)
+                                        .map((x) => (
+                                          <option key={x.id} value={x.id}>
+                                            {x.code} {x.name ? `- ${x.name}` : ""}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <select className="ui-select" value={l.project_id} onChange={(e) => updateLine(idx, { project_id: e.target.value })}>
+                                      <option value="">-</option>
+                                      {projects
+                                        .filter((x) => x.is_active)
+                                        .map((x) => (
+                                          <option key={x.id} value={x.id}>
+                                            {x.code} {x.name ? `- ${x.name}` : ""}
+                                          </option>
+                                        ))}
+                                    </select>
+                                  </td>
                                   <td className="px-3 py-2 text-right">
                                     <Button
                                       type="button"
@@ -466,7 +505,7 @@ export default function JournalsPage() {
                               <td className="px-3 py-2 text-right font-mono text-xs">
                                 D {fmt(totals.dLbp, 2)} / C {fmt(totals.cLbp, 2)}
                               </td>
-                              <td className="px-3 py-2 text-xs text-fg-muted" colSpan={2}>
+                              <td className="px-3 py-2 text-xs text-fg-muted" colSpan={4}>
                                 Diff USD {fmt(totals.diffUsd, 4)} | Diff LL {fmt(totals.diffLbp, 2)}
                               </td>
                             </tr>
@@ -488,7 +527,9 @@ export default function JournalsPage() {
                                 account_id: null,
                                 memo: "",
                                 amount_usd: "",
-                                amount_lbp: ""
+                                amount_lbp: "",
+                                cost_center_id: "",
+                                project_id: ""
                               }
                             ])
                           }
@@ -597,6 +638,7 @@ export default function JournalsPage() {
                       <thead className="ui-thead">
                         <tr>
                           <th className="px-3 py-2">Account</th>
+                          <th className="px-3 py-2">Dims</th>
                           <th className="px-3 py-2 text-right">Debit USD</th>
                           <th className="px-3 py-2 text-right">Credit USD</th>
                           <th className="px-3 py-2 text-right">Debit LL</th>
@@ -610,6 +652,12 @@ export default function JournalsPage() {
                               <div className="font-mono text-xs">{e.account_code}</div>
                               <div className="text-xs text-fg-muted">{e.name_en || ""}</div>
                             </td>
+                            <td className="px-3 py-2">
+                              <div className="text-xs text-fg-muted">
+                                {e.cost_center_code ? <span className="font-mono">{e.cost_center_code}</span> : <span>-</span>}
+                                {e.project_code ? <span className="ml-2 font-mono">{e.project_code}</span> : null}
+                              </div>
+                            </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">{fmt(e.debit_usd, 4)}</td>
                             <td className="px-3 py-2 text-right font-mono text-xs">{fmt(e.credit_usd, 4)}</td>
                             <td className="px-3 py-2 text-right font-mono text-xs">{fmt(e.debit_lbp, 2)}</td>
@@ -618,7 +666,7 @@ export default function JournalsPage() {
                         ))}
                         {detail.entries.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
+                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                               No entries.
                             </td>
                           </tr>

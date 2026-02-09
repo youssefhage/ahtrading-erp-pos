@@ -11,6 +11,7 @@ from .routers.pos import router as pos_router
 from .routers.companies import router as companies_router
 from .routers.branches import router as branches_router
 from .routers.warehouses import router as warehouses_router
+from .routers.dimensions import router as dimensions_router
 from .routers.config import router as config_router
 from .routers.items import router as items_router
 from .routers.item_categories import router as item_categories_router
@@ -134,6 +135,7 @@ app.include_router(auth_router)
 app.include_router(companies_router)
 app.include_router(branches_router, dependencies=[Depends(require_company_access)])
 app.include_router(warehouses_router, dependencies=[Depends(require_company_access)])
+app.include_router(dimensions_router, dependencies=[Depends(require_company_access)])
 app.include_router(config_router, dependencies=[Depends(require_company_access)])
 app.include_router(items_router, dependencies=[Depends(require_company_access)])
 app.include_router(item_categories_router, dependencies=[Depends(require_company_access)])

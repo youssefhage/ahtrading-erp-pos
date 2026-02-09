@@ -195,6 +195,9 @@ def _compute_costed_lines(lines_in, exchange_rate: Decimal):
                 'unit_cost_lbp': unit_lbp,
                 'line_total_usd': line_total_usd,
                 'line_total_lbp': line_total_lbp,
+                'location_id': getattr(ln, 'location_id', None),
+                'landed_cost_total_usd': Decimal(str(getattr(ln, 'landed_cost_total_usd', 0) or 0)),
+                'landed_cost_total_lbp': Decimal(str(getattr(ln, 'landed_cost_total_lbp', 0) or 0)),
                 'batch_no': getattr(ln, 'batch_no', None),
                 'expiry_date': getattr(ln, 'expiry_date', None),
                 'supplier_item_code': getattr(ln, 'supplier_item_code', None),
@@ -328,6 +331,10 @@ class PurchaseLine(BaseModel):
     unit_cost_lbp: Decimal
     line_total_usd: Decimal
     line_total_lbp: Decimal
+    # Optional receiving placement + landed-cost metadata (used by goods receipts).
+    location_id: Optional[str] = None
+    landed_cost_total_usd: Decimal = Decimal("0")
+    landed_cost_total_lbp: Decimal = Decimal("0")
     batch_no: Optional[str] = None
     expiry_date: Optional[date] = None
 
@@ -441,6 +448,9 @@ class GoodsReceiptDraftLineIn(BaseModel):
     qty: Decimal
     unit_cost_usd: Decimal = Decimal("0")
     unit_cost_lbp: Decimal = Decimal("0")
+    location_id: Optional[str] = None
+    landed_cost_total_usd: Decimal = Decimal("0")
+    landed_cost_total_lbp: Decimal = Decimal("0")
     batch_no: Optional[str] = None
     expiry_date: Optional[date] = None
 
@@ -1224,10 +1234,15 @@ def list_goods_receipts(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT r.id, r.receipt_no, r.supplier_id, r.supplier_ref, r.warehouse_id,
+                SELECT r.id, r.receipt_no, r.supplier_id, s.name AS supplier_name, r.supplier_ref,
+                       r.warehouse_id, w.name AS warehouse_name,
                        r.purchase_order_id, po.order_no AS purchase_order_no,
                        r.status, r.total_usd, r.total_lbp, r.received_at, r.created_at
                 FROM goods_receipts r
+                LEFT JOIN suppliers s
+                  ON s.company_id = r.company_id AND s.id = r.supplier_id
+                LEFT JOIN warehouses w
+                  ON w.company_id = r.company_id AND w.id = r.warehouse_id
                 LEFT JOIN purchase_orders po
                   ON po.company_id = r.company_id AND po.id = r.purchase_order_id
                 WHERE r.company_id = %s
@@ -1244,10 +1259,15 @@ def get_goods_receipt(receipt_id: str, company_id: str = Depends(get_company_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT r.id, r.receipt_no, r.supplier_id, r.supplier_ref, r.warehouse_id,
+                SELECT r.id, r.receipt_no, r.supplier_id, s.name AS supplier_name, r.supplier_ref,
+                       r.warehouse_id, w.name AS warehouse_name,
                        r.purchase_order_id, po.order_no AS purchase_order_no,
                        r.status, r.total_usd, r.total_lbp, r.exchange_rate, r.received_at, r.created_at
                 FROM goods_receipts r
+                LEFT JOIN suppliers s
+                  ON s.company_id = r.company_id AND s.id = r.supplier_id
+                LEFT JOIN warehouses w
+                  ON w.company_id = r.company_id AND w.id = r.warehouse_id
                 LEFT JOIN purchase_orders po
                   ON po.company_id = r.company_id AND po.id = r.purchase_order_id
                 WHERE r.company_id = %s AND r.id = %s
@@ -1260,7 +1280,8 @@ def get_goods_receipt(receipt_id: str, company_id: str = Depends(get_company_id)
             cur.execute(
                 """
                 SELECT l.id, l.purchase_order_line_id, l.item_id, l.qty, l.unit_cost_usd, l.unit_cost_lbp, l.line_total_usd, l.line_total_lbp,
-                       l.batch_id, b.batch_no, b.expiry_date
+                       l.batch_id, b.batch_no, b.expiry_date,
+                       l.location_id, l.landed_cost_total_usd, l.landed_cost_total_lbp
                 FROM goods_receipt_lines l
                 LEFT JOIN batches b ON b.id = l.batch_id
                 WHERE l.company_id = %s AND l.goods_receipt_id = %s
@@ -1431,18 +1452,24 @@ def list_purchase_orders(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT id, order_no, supplier_id, warehouse_id, supplier_ref, expected_delivery_date,
-                           requested_by_user_id, requested_at, approved_by_user_id, approved_at,
-                           status, total_usd, total_lbp, created_at
-                    FROM purchase_orders
-                    WHERE company_id = %s
-                    ORDER BY created_at DESC
-                    """,
-                    (company_id,),
-                )
-                return {"orders": cur.fetchall()}
+            cur.execute(
+                """
+                SELECT po.id, po.order_no, po.supplier_id, po.warehouse_id, po.supplier_ref, po.expected_delivery_date,
+                       po.requested_by_user_id, po.requested_at, po.approved_by_user_id, po.approved_at,
+                       po.status, po.total_usd, po.total_lbp, po.created_at,
+                       s.name AS supplier_name,
+                       w.name AS warehouse_name
+                FROM purchase_orders po
+                LEFT JOIN suppliers s
+                  ON s.company_id = po.company_id AND s.id = po.supplier_id
+                LEFT JOIN warehouses w
+                  ON w.company_id = po.company_id AND w.id = po.warehouse_id
+                WHERE po.company_id = %s
+                ORDER BY po.created_at DESC
+                """,
+                (company_id,),
+            )
+            return {"orders": cur.fetchall()}
 
 @router.get("/orders/{order_id}", dependencies=[Depends(require_permission("purchases:read"))])
 def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id)):
@@ -1451,11 +1478,17 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, order_no, supplier_id, warehouse_id, supplier_ref, expected_delivery_date,
-                       requested_by_user_id, requested_at, approved_by_user_id, approved_at,
-                       status, total_usd, total_lbp, exchange_rate, created_at
-                FROM purchase_orders
-                WHERE company_id = %s AND id = %s
+                SELECT po.id, po.order_no, po.supplier_id, po.warehouse_id, po.supplier_ref, po.expected_delivery_date,
+                       po.requested_by_user_id, po.requested_at, po.approved_by_user_id, po.approved_at,
+                       po.status, po.total_usd, po.total_lbp, po.exchange_rate, po.created_at,
+                       s.name AS supplier_name,
+                       w.name AS warehouse_name
+                FROM purchase_orders po
+                LEFT JOIN suppliers s
+                  ON s.company_id = po.company_id AND s.id = po.supplier_id
+                LEFT JOIN warehouses w
+                  ON w.company_id = po.company_id AND w.id = po.warehouse_id
+                WHERE po.company_id = %s AND po.id = %s
                 """,
                 (company_id, order_id),
             )
@@ -2018,9 +2051,10 @@ def create_goods_receipt_draft_from_order(
                         """
                         INSERT INTO goods_receipt_lines
                           (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                           location_id, landed_cost_total_usd, landed_cost_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s, NULL, 0, 0)
                         """,
                         (
                             company_id,
@@ -2122,9 +2156,10 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                         """
                         INSERT INTO goods_receipt_lines
                           (id, company_id, goods_receipt_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                           location_id, landed_cost_total_usd, landed_cost_total_lbp)
                         VALUES
-                          (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                          (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             line_id,
@@ -2137,22 +2172,26 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                             l.unit_cost_lbp,
                             l.line_total_usd,
                             l.line_total_lbp,
+                            l.location_id,
+                            l.landed_cost_total_usd,
+                            l.landed_cost_total_lbp,
                         ),
                     )
                     cur.execute(
                         """
                         INSERT INTO stock_moves
-                          (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
+                          (id, company_id, item_id, warehouse_id, location_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
                            source_type, source_id,
                            created_by_user_id, reason, source_line_type, source_line_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s,
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s,
                            %s, %s, %s, %s)
                         """,
                         (
                             company_id,
                             l.item_id,
                             data.warehouse_id,
+                            l.location_id,
                             batch_id,
                             l.qty,
                             l.unit_cost_usd,
@@ -2164,6 +2203,38 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                             line_id,
                         ),
                     )
+                    if batch_id:
+                        cur.execute(
+                            """
+                            INSERT INTO batch_cost_layers
+                              (id, company_id, batch_id, warehouse_id, location_id,
+                               source_type, source_id, source_line_type, source_line_id,
+                               qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                               landed_cost_total_usd, landed_cost_total_lbp, notes)
+                            VALUES
+                              (gen_random_uuid(), %s, %s, %s, %s,
+                               'goods_receipt', %s, 'goods_receipt_line', %s,
+                               %s, %s, %s, %s, %s,
+                               %s, %s, %s)
+                            ON CONFLICT DO NOTHING
+                            """,
+                            (
+                                company_id,
+                                batch_id,
+                                data.warehouse_id,
+                                l.location_id,
+                                receipt_id,
+                                line_id,
+                                l.qty,
+                                l.unit_cost_usd,
+                                l.unit_cost_lbp,
+                                l.line_total_usd,
+                                l.line_total_lbp,
+                                l.landed_cost_total_usd,
+                                l.landed_cost_total_lbp,
+                                f"Goods receipt {receipt_no}",
+                            ),
+                        )
 
                 defaults = _fetch_account_defaults(cur, company_id)
                 inventory = defaults.get("INVENTORY")
@@ -2255,9 +2326,10 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                         """
                         INSERT INTO goods_receipt_lines
                           (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                           location_id, landed_cost_total_usd, landed_cost_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             company_id,
@@ -2270,6 +2342,9 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                             ln["unit_cost_lbp"],
                             ln["line_total_usd"],
                             ln["line_total_lbp"],
+                            ln.get("location_id"),
+                            ln.get("landed_cost_total_usd") or 0,
+                            ln.get("landed_cost_total_lbp") or 0,
                         ),
                     )
 
@@ -2330,9 +2405,10 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                             """
                             INSERT INTO goods_receipt_lines
                               (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
-                               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                               location_id, landed_cost_total_usd, landed_cost_total_lbp)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """,
                             (
                                 company_id,
@@ -2345,6 +2421,9 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                                 ln["unit_cost_lbp"],
                                 ln["line_total_usd"],
                                 ln["line_total_lbp"],
+                                ln.get("location_id"),
+                                ln.get("landed_cost_total_usd") or 0,
+                                ln.get("landed_cost_total_lbp") or 0,
                             ),
                         )
                 else:
@@ -2461,7 +2540,8 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
 
                 cur.execute(
                     """
-                    SELECT id, item_id, batch_id, qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp
+                    SELECT id, item_id, batch_id, qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                           location_id, landed_cost_total_usd, landed_cost_total_lbp
                     FROM goods_receipt_lines
                     WHERE company_id = %s AND goods_receipt_id = %s
                     ORDER BY id
@@ -2480,17 +2560,18 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                     cur.execute(
                         """
                         INSERT INTO stock_moves
-                          (id, company_id, item_id, warehouse_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
+                          (id, company_id, item_id, warehouse_id, location_id, batch_id, qty_in, unit_cost_usd, unit_cost_lbp, move_date,
                            source_type, source_id,
                            created_by_user_id, reason, source_line_type, source_line_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, 'goods_receipt', %s,
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, 'goods_receipt', %s,
                            %s, %s, %s, %s)
                         """,
                         (
                             company_id,
                             l["item_id"],
                             rec["warehouse_id"],
+                            l.get("location_id"),
                             l["batch_id"],
                             l["qty"],
                             l["unit_cost_usd"],
@@ -2503,6 +2584,38 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                             l["id"],
                         ),
                     )
+                    if l.get("batch_id"):
+                        cur.execute(
+                            """
+                            INSERT INTO batch_cost_layers
+                              (id, company_id, batch_id, warehouse_id, location_id,
+                               source_type, source_id, source_line_type, source_line_id,
+                               qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                               landed_cost_total_usd, landed_cost_total_lbp, notes)
+                            VALUES
+                              (gen_random_uuid(), %s, %s, %s, %s,
+                               'goods_receipt', %s, 'goods_receipt_line', %s,
+                               %s, %s, %s, %s, %s,
+                               %s, %s, %s)
+                            ON CONFLICT DO NOTHING
+                            """,
+                            (
+                                company_id,
+                                l["batch_id"],
+                                rec["warehouse_id"],
+                                l.get("location_id"),
+                                receipt_id,
+                                l["id"],
+                                l["qty"],
+                                l["unit_cost_usd"],
+                                l["unit_cost_lbp"],
+                                l["line_total_usd"],
+                                l["line_total_lbp"],
+                                l.get("landed_cost_total_usd") or 0,
+                                l.get("landed_cost_total_lbp") or 0,
+                                f"Goods receipt {receipt_no}",
+                            ),
+                        )
 
                 defaults = _fetch_account_defaults(cur, company_id)
                 inventory = defaults.get("INVENTORY")
@@ -2690,6 +2803,15 @@ def cancel_goods_receipt(receipt_id: str, data: GoodsReceiptCancelIn, company_id
                     WHERE company_id=%s AND id=%s
                     """,
                     (user["user_id"], reason, company_id, receipt_id),
+                )
+
+                # Keep per-batch cost trace consistent: canceling a receipt removes its cost layers.
+                cur.execute(
+                    """
+                    DELETE FROM batch_cost_layers
+                    WHERE company_id=%s AND source_type='goods_receipt' AND source_id=%s
+                    """,
+                    (company_id, receipt_id),
                 )
 
                 cur.execute(

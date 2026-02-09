@@ -99,7 +99,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
     actions,
   } = props;
 
-  const storageKey = `admin.tablePrefs.${tableId}.v1`;
+  const storageKey = `admin.tablePrefs.${tableId}.v2`;
 
   const defaultVisibility = useMemo(() => {
     const vis: ColumnVisibility = {};
@@ -111,7 +111,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const [globalFilter, setGlobalFilter] = useState("");
   const [sort, setSort] = useState<{ columnId: string; dir: SortDir } | null>(null);
 
-  // Load persisted column visibility once.
+  // Load persisted table prefs once.
   useEffect(() => {
     let raw: string | null = null;
     try {
@@ -119,26 +119,35 @@ export function DataTable<T>(props: DataTableProps<T>) {
     } catch {
       raw = null;
     }
-    const saved = safeJsonParse<{ columnVisibility?: ColumnVisibility }>(raw);
-    if (!saved?.columnVisibility) return;
-    // Only accept visibility keys that exist in current columns.
-    const next: ColumnVisibility = { ...defaultVisibility };
-    for (const c of columns) {
-      const v = saved.columnVisibility[c.id];
-      if (typeof v === "boolean") next[c.id] = v;
+    const saved = safeJsonParse<{
+      columnVisibility?: ColumnVisibility;
+      globalFilter?: string;
+      sort?: { columnId: string; dir: SortDir } | null;
+    }>(raw);
+
+    if (saved?.columnVisibility) {
+      // Only accept visibility keys that exist in current columns.
+      const next: ColumnVisibility = { ...defaultVisibility };
+      for (const c of columns) {
+        const v = saved.columnVisibility[c.id];
+        if (typeof v === "boolean") next[c.id] = v;
+      }
+      setColumnVisibility(next);
     }
-    setColumnVisibility(next);
+
+    if (typeof saved?.globalFilter === "string") setGlobalFilter(saved.globalFilter);
+    if (saved?.sort && typeof saved.sort === "object") setSort(saved.sort);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
-  // Persist column visibility.
+  // Persist table prefs.
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ columnVisibility }));
+      localStorage.setItem(storageKey, JSON.stringify({ columnVisibility, globalFilter, sort }));
     } catch {
       // ignore
     }
-  }, [columnVisibility, storageKey]);
+  }, [columnVisibility, globalFilter, sort, storageKey]);
 
   // If columns change, merge visibility with defaults (keeps persisted where possible).
   useEffect(() => {

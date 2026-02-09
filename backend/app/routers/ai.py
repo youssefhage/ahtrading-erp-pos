@@ -12,6 +12,8 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 class RecommendationDecision(BaseModel):
     status: AiRecommendationDecisionStatus
+    reason: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class AgentSetting(BaseModel):
@@ -155,10 +157,21 @@ def decide_recommendation(
                 cur.execute(
                     """
                     UPDATE ai_recommendations
-                    SET status = %s, decided_at = now()
+                    SET status = %s,
+                        decided_at = now(),
+                        decided_by_user_id = %s,
+                        decision_reason = %s,
+                        decision_notes = %s
                     WHERE id = %s AND company_id = %s
                     """,
-                    (data.status, rec_id, company_id),
+                    (
+                        data.status,
+                        user["user_id"],
+                        (data.reason or "").strip() or None,
+                        (data.notes or "").strip() or None,
+                        rec_id,
+                        company_id,
+                    ),
                 )
 
                 # For supported agents, approval creates an executable action.
@@ -227,7 +240,12 @@ def decide_recommendation(
                         INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                         VALUES (gen_random_uuid(), %s, %s, 'ai_reject', 'ai_recommendation', %s, %s::jsonb)
                         """,
-                        (company_id, user["user_id"], rec_id, json.dumps({"agent_code": rec["agent_code"]})),
+                        (
+                            company_id,
+                            user["user_id"],
+                            rec_id,
+                            json.dumps({"agent_code": rec["agent_code"], "reason": (data.reason or "").strip() or None}),
+                        ),
                     )
 
                 return {"ok": True}

@@ -1,6 +1,6 @@
 # Admin UI/UX Audit (Web Admin)
 
-Last updated: 2026-02-08
+Last updated: 2026-02-09
 
 Scope: Web Admin (`apps/admin`). Review focuses on usability for real operations (wholesale/warehouse/accounting), consistency, speed, error clarity, and reducing “operator mistakes”.
 
@@ -40,6 +40,10 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
 - Fix:
   - Convert to `/list`, `/new`, `/[id]`, `/[id]/edit` routes (same pattern as sales/supplier invoices).
   - Standardize “Draft vs Posted/Voided” lifecycle UI and primary action placements.
+- Executed (v1):
+  - Purchase Orders now follow `/purchasing/purchase-orders/list|new|[id]|[id]/edit`.
+  - Goods Receipts now follow `/purchasing/goods-receipts/list|new|[id]|[id]/edit`.
+  - Suppliers now follow `/partners/suppliers|new|[id]|[id]/edit` (with `/partners/suppliers/list` as an alias entrypoint).
 
 2) Replace raw “Status” `<pre>` error surfaces with productized error/empty states
 - Problem:
@@ -57,6 +61,9 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
       - “Details” expander for the raw text
       - “Retry” button
   - Use `ApiError.status` from `apps/admin/lib/api.ts` to specialize messages for 401/403/409/422.
+- Executed (v1):
+  - Added `apps/admin/components/error-banner.tsx` and `apps/admin/components/view-raw.tsx`.
+  - Replaced the “Status card + <pre>” pattern across System, Accounting reports, Purchasing editors, and key operational pages.
 
 3) Searchable selects / command-driven picking for large master data
 - Problem:
@@ -73,6 +80,10 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
 - Executed (v1):
   - Sales Invoice Draft and Supplier Invoice Draft now use a keyboard-friendly searchable Item Picker (SKU/name/barcode), show UOM by default, and auto-fill unit price/cost.
   - Added `GET /pricing/catalog` so Admin can fetch “effective prices” (default price list fallback) without needing POS device auth.
+  - Added scalable typeahead endpoints + pickers:
+    - `GET /items/typeahead`, `POST /items/lookup`
+    - `GET /suppliers/typeahead`
+    - `GET /pricing/catalog/typeahead` (pricing-aware picking for Sales Invoices)
 
 4) Automation / AI features still read like internal tooling
 - Problem:
@@ -86,6 +97,8 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
   - Keep JSON only behind “View raw” toggles.
   - Convert core lists to a scannable queue:
     - Recommendation type, why it fired, suggested action, risk level, and a single primary action (Approve/Reject/Open doc).
+- Executed (v1):
+  - AI Hub / Ops Copilot / Copilot now lead with “why” and “what next”, and keep raw JSON behind “View raw”.
 
 5) Accessibility and interaction correctness for “clickable rows” and plain `<button>`
 - Problem:
@@ -102,6 +115,9 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
 - Fix:
   - Use links/buttons inside cells, not `<tr onClick>`.
   - Add `type="button"` for non-submit actions when inside forms.
+- Executed (v1):
+  - Removed remaining `<tr onClick>` patterns and switched to explicit buttons/links.
+  - Audited common inline buttons to ensure non-submit actions use `type="button"` inside forms (where applicable).
 
 ## Less Critical Improvements
 
@@ -118,6 +134,8 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
 3) Make “company selection” human-friendly
 - Company select shows UUIDs only (`apps/admin/app/company/select/page.tsx`).
 - At minimum show company name/slug, and allow searching (future multi-company operators).
+- Executed (v1):
+  - Company select now shows company name (and legal name when available) and supports searching.
 
 4) Unify “numbers and dates” entry ergonomics
 - Some pages use strong numeric parsing, others accept raw strings and show generic errors.

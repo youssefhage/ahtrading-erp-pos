@@ -3,16 +3,29 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { apiPost, getCompanies } from "@/lib/api";
+import { apiGet, apiPost, getCompanies } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 export default function CompanySelectPage() {
   const router = useRouter();
-  const [companies, setCompanies] = useState<string[]>([]);
+  const [companyIds, setCompanyIds] = useState<string[]>([]);
+  const [companies, setCompanies] = useState<Array<{ id: string; name: string; legal_name?: string | null }>>([]);
+  const [q, setQ] = useState("");
 
   useEffect(() => {
-    setCompanies(getCompanies());
+    const ids = getCompanies();
+    setCompanyIds(ids);
+    (async () => {
+      try {
+        const res = await apiGet<{ companies: Array<{ id: string; name: string; legal_name?: string | null }> }>("/companies");
+        const list = (res.companies || []).filter((c) => ids.includes(c.id));
+        setCompanies(list);
+      } catch {
+        setCompanies([]);
+      }
+    })();
   }, []);
 
   async function selectCompany(id: string) {
@@ -24,6 +37,13 @@ export default function CompanySelectPage() {
     }
     router.push("/dashboard");
   }
+
+  const shown = (() => {
+    const needle = q.trim().toLowerCase();
+    const base = companies.length ? companies.map((c) => c) : companyIds.map((id) => ({ id, name: id, legal_name: null }));
+    if (!needle) return base;
+    return base.filter((c) => `${c.name} ${c.legal_name || ""} ${c.id}`.toLowerCase().includes(needle));
+  })();
 
   return (
     <main className="min-h-screen px-6 py-10">
@@ -40,7 +60,7 @@ export default function CompanySelectPage() {
             <CardDescription>Pick one to continue.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {companies.length === 0 ? (
+            {companyIds.length === 0 ? (
               <div className="rounded-2xl border border-[rgb(var(--border)/0.92)] bg-bg-elevated/60 p-4">
                 <p className="text-sm text-fg-muted">No companies in session. Login first.</p>
                 <div className="mt-3">
@@ -48,17 +68,27 @@ export default function CompanySelectPage() {
                 </div>
               </div>
             ) : (
-              companies.map((id) => (
-                <div
-                  key={id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[rgb(var(--border)/0.92)] bg-bg-elevated/60 px-4 py-3 shadow-sm"
-                >
-                  <code className="text-xs">{id}</code>
-                  <Button variant="secondary" size="sm" onClick={() => selectCompany(id)}>
-                    Use this company
-                  </Button>
+              <>
+                <div className="w-full">
+                  <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search company name..." />
                 </div>
-              ))
+                {shown.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[rgb(var(--border)/0.92)] bg-bg-elevated/60 px-4 py-3 shadow-sm"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-foreground">{c.name}</div>
+                      {c.legal_name ? <div className="truncate text-xs text-fg-subtle">{c.legal_name}</div> : null}
+                      <code className="mt-1 block truncate text-[11px] text-fg-muted">{c.id}</code>
+                    </div>
+                    <Button variant="secondary" size="sm" onClick={() => selectCompany(c.id)}>
+                      Use
+                    </Button>
+                  </div>
+                ))}
+                {!shown.length ? <p className="text-sm text-fg-muted">No matches.</p> : null}
+              </>
             )}
           </CardContent>
         </Card>

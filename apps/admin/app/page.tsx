@@ -110,7 +110,7 @@ export default function HomePage() {
             <Terminal className="h-4 w-4" />
             <span className="font-mono">system.ready</span>
             <span className="text-border-strong">|</span>
-            <span className="text-green-400">● online</span>
+            <span className="text-success">● online</span>
           </div>
           <div className="text-xs text-fg-subtle">
             Press <kbd className="rounded bg-bg-sunken px-1.5 py-0.5 font-mono text-fg-muted">Cmd</kbd> + <kbd className="rounded bg-bg-sunken px-1.5 py-0.5 font-mono text-fg-muted">K</kbd> for quick navigation

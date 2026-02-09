@@ -92,6 +92,14 @@ This audit was actively executed on 2026-02-08. Summary of where we stand:
 
 Remaining work in this audit is mostly “business robustness” (expiry/lot operations, document metadata completeness, richer audit timelines for all mutations, and deeper ERP workflows).
 
+## Status Update (2026-02-09)
+
+Additional execution completed on 2026-02-09 (Admin UX + scalability):
+
+- Removed remaining clickable-row patterns (`<tr onClick>`) and standardized on explicit buttons/links (keyboard accessible).
+- Replaced remaining raw “Status” `<pre>` panels across Admin with `ErrorBanner` + a “View raw” expander (uses `ApiError.status` for 401/403/409/422).
+- Sales Invoice Draft editor now uses a pricing-aware async item picker backed by `GET /pricing/catalog/typeahead` (no longer loads the full pricing catalog into memory), while still auto-filling unit price and showing UOM.
+
 ## P0 (Must Fix)
 
 ### 1) POS Desktop Agent Is Exposed On LAN (No Local Auth)
@@ -251,7 +259,11 @@ Missing (practical operations gaps):
   - Receiving enforces `track_batches/track_expiry` (and can auto-derive expiry from `default_shelf_life_days`).
   - Inventory adjustments enforce batch capture for tracked items.
   - POS sale posting allocates FEFO and supports explicit line-level batch/expiry in the payload when provided.
-- Still missing: POS-facing UX and policies for manual batch selection vs auto-FEFO (physical pick confirmation).
+- Implemented v1 (2026-02-09): server-side policy + API support for manual lot selection vs auto-FEFO:
+  - Company inventory policy `company_settings.key='inventory'.require_manual_lot_selection` (Admin: System → Config → Inventory Policy)
+  - POS helper endpoint `GET /pos/items/{item_id}/batches?warehouse_id=...` to list eligible batches + on-hand in FEFO order
+  - Worker enforces manual selection when the policy is enabled (tracked items must specify `batch_no` and/or `expiry_date`)
+  - Remaining (product): POS UI pick/confirm flow for physical picking.
 - Expiry monitoring module exists:
   - Admin expiry alerts UI exists (`/inventory/alerts`).
   - Expiry write-off endpoint exists (`POST /inventory/writeoff/expiry`).
@@ -260,7 +272,11 @@ Missing (practical operations gaps):
     - timestamps (`created_at/updated_at`)
     - receiving attribution (`received_at`, `received_source_type/source_id`, `received_supplier_id`)
     - lot status (`status`: available/quarantine/expired + `hold_reason/notes`)
-  - Still missing: location/bin placement and per-batch cost trace (landed cost / vendor rebates).
+  - Implemented v1 (2026-02-09):
+    - Receiving can capture bin placement: `goods_receipt_lines.location_id` + Admin Goods Receipt Draft editor supports line-level Location selection.
+    - Intra-warehouse bin moves are supported: `/inventory/transfer` now allows same-warehouse transfers when locations differ.
+    - Per-batch cost trace is implemented: `batch_cost_layers` + recording on goods receipt posting + `GET /inventory/batches/{batch_id}/cost-layers`.
+  - Remaining: landed cost allocation workflows and vendor rebates/credits per batch.
 
 ### Inventory / Warehousing
 
@@ -289,7 +305,8 @@ Operational control:
 - Bin/location support (if warehouses are large):
   - location_id on stock moves and batch placement
   - Implemented v1: `warehouse_locations` master table + optional `stock_moves.location_id` + Admin management page (`System → Warehouse Locations`).
-  - Still missing: end-to-end placement workflows (receiving UI, pick/pack confirmation, intra-warehouse moves).
+  - Implemented v1 (2026-02-09): receiving UI (Admin goods receipts line Locations) + intra-warehouse moves (location-aware transfers).
+  - Remaining (product): pick/pack confirmation UX and tighter location-aware allocation rules.
 
 Traceability:
 - Stock move “reason codes” (structured) vs free-text:
@@ -346,7 +363,10 @@ Returns/refunds:
 - Refund payments are not modeled as first-class “refund transactions” (today you have return documents + `refund_method` string).
 - Return reason codes and condition flags:
   - Implemented: `sales_return_reasons` + `sales_returns.reason_id/reason/return_condition` + `sales_return_lines.reason_id/line_condition`.
-- Still missing: restocking fee and first-class refund transaction objects (if we want reconciliation-grade refund workflows).
+- Implemented v1 (2026-02-09): restocking fee + first-class refund transactions:
+  - `sales_returns.restocking_fee_usd/lbp/reason` and GL posting support (requires account default `RESTOCK_FEES` when fee is non-zero).
+  - New `sales_refunds` table; POS return processing writes refund transactions and optionally linked bank transactions (when `bank_account_id` is provided).
+  - Admin Sales Returns page displays restocking fee + net refund + refund transaction list.
 
 ### Purchases (PO, GRN, Supplier Invoice, Payments)
 
@@ -399,6 +419,11 @@ Dimensions:
   - `branch_id`, `warehouse_id` (useful for reporting and auditability).
 - Still missing richer dimensions:
   - cost center, department, project, etc.
+  - Implemented v1 (2026-02-09): cost centers + projects:
+    - New master tables `cost_centers`, `projects`
+    - `gl_entries.cost_center_id/project_id`
+    - Admin UI to manage dimensions (System → Dimensions)
+    - Manual journal UI supports selecting dimensions per line.
 - Document attachments are implemented (`document_attachments` table; bytes stored in Postgres in v1).
 
 Close and controls:
@@ -524,6 +549,10 @@ Missing useful data / controls:
 - Stronger “approval” workflow states (requested, approved, queued, executed, rejected) with reasons.
 - Explainability metadata (why the recommendation was made; features used).
 - Safer idempotency: avoid creating duplicate purchase orders/prices if executor retries.
+  - Implemented v1 (2026-02-09):
+    - Decisions now store optional reason/notes (API accepts `reason`/`notes` on `/ai/recommendations/{id}/decide`).
+    - Deterministic agents now include `explain` metadata in `recommendation_json` (why + signals).
+    - Executor is idempotent for POs and item prices via `source_type='ai_action'`/`source_id=action_id` and result tracking on `ai_actions`.
 
 ## Suggested Next Steps (Practical)
 

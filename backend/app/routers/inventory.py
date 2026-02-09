@@ -870,6 +870,46 @@ def list_batches(
             return {"batches": cur.fetchall()}
 
 
+@router.get("/batches/{batch_id}/cost-layers", dependencies=[Depends(require_permission("inventory:read"))])
+def list_batch_cost_layers(
+    batch_id: str,
+    limit: int = 200,
+    company_id: str = Depends(get_company_id),
+):
+    if limit <= 0 or limit > 2000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT l.id, l.batch_id,
+                       l.warehouse_id, w.name AS warehouse_name,
+                       l.location_id, loc.code AS location_code, loc.name AS location_name,
+                       l.source_type, l.source_id,
+                       gr.receipt_no AS goods_receipt_no,
+                       l.source_line_type, l.source_line_id,
+                       l.qty,
+                       l.unit_cost_usd, l.unit_cost_lbp,
+                       l.line_total_usd, l.line_total_lbp,
+                       l.landed_cost_total_usd, l.landed_cost_total_lbp,
+                       l.notes, l.created_at
+                FROM batch_cost_layers l
+                LEFT JOIN warehouses w
+                  ON w.id = l.warehouse_id
+                LEFT JOIN warehouse_locations loc
+                  ON loc.id = l.location_id
+                LEFT JOIN goods_receipts gr
+                  ON l.source_type = 'goods_receipt' AND gr.id = l.source_id
+                WHERE l.company_id = %s AND l.batch_id = %s
+                ORDER BY l.created_at DESC, l.id DESC
+                LIMIT %s
+                """,
+                (company_id, batch_id, limit),
+            )
+            return {"cost_layers": cur.fetchall()}
+
+
 @router.patch("/batches/{batch_id}", dependencies=[Depends(require_permission("inventory:write"))])
 def update_batch(batch_id: str, data: BatchUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     patch = data.model_dump(exclude_none=True)
@@ -928,7 +968,11 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
     if data.qty <= 0:
         raise HTTPException(status_code=400, detail="qty must be > 0")
     if data.from_warehouse_id == data.to_warehouse_id:
-        raise HTTPException(status_code=400, detail="warehouses must differ")
+        # Allow intra-warehouse moves when location changes (bin-to-bin or to/from "no bin").
+        if data.from_location_id == data.to_location_id:
+            raise HTTPException(status_code=400, detail="when moving within a warehouse, from_location_id and to_location_id must differ")
+        if not (data.from_location_id or data.to_location_id):
+            raise HTTPException(status_code=400, detail="when moving within a warehouse, specify from_location_id and/or to_location_id")
 
     with get_conn() as conn:
         set_company_context(conn, company_id)

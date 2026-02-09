@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch } from "@/lib/api";
+import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -117,17 +118,7 @@ export default function InventoryBatchesPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      {status ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-            <CardDescription>API errors will show here.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-          </CardContent>
-        </Card>
-      ) : null}
+      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div className="grid w-full grid-cols-1 gap-2 md:grid-cols-12">
@@ -266,4 +257,3 @@ export default function InventoryBatchesPage() {
     </div>
   );
 }
-

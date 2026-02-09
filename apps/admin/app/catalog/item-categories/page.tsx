@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -117,17 +118,7 @@ export default function ItemCategoriesPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      {status ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-            <CardDescription>Errors and action results show here.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-          </CardContent>
-        </Card>
-      ) : null}
+      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
         <CardHeader>
@@ -212,17 +203,21 @@ export default function ItemCategoriesPage() {
               </thead>
               <tbody>
                 {filtered.map((c) => (
-                  <tr key={c.id} className="ui-tr-hover" style={{ cursor: "pointer" }} onClick={() => openEdit(c)}>
-                    <td className="px-3 py-2 font-medium">{c.name}</td>
+                  <tr key={c.id} className="ui-tr-hover">
+                    <td className="px-3 py-2 font-medium">
+                      <button type="button" className="ui-link text-left" onClick={() => openEdit(c)}>
+                        {c.name}
+                      </button>
+                    </td>
                     <td className="px-3 py-2">{c.parent_id ? parentNameById.get(c.parent_id) || c.parent_id : "-"}</td>
                     <td className="px-3 py-2">{c.is_active === false ? <span className="text-fg-subtle">No</span> : "Yes"}</td>
                     <td className="px-3 py-2 text-right">
                       <Button
                         size="sm"
                         variant="outline"
+                        type="button"
                         onClick={(e) => {
                           e.preventDefault();
-                          e.stopPropagation();
                           openEdit(c);
                         }}
                       >
@@ -279,4 +274,3 @@ export default function ItemCategoriesPage() {
     </div>
   );
 }
-

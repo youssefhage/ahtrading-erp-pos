@@ -25,6 +25,22 @@ const config: Config = {
           foreground: "rgb(var(--primary-fg))",
           dim: "rgb(var(--primary-dim))"
         },
+        success: {
+          DEFAULT: "rgb(var(--success))",
+          foreground: "rgb(var(--success-fg))"
+        },
+        warning: {
+          DEFAULT: "rgb(var(--warning))",
+          foreground: "rgb(var(--warning-fg))"
+        },
+        danger: {
+          DEFAULT: "rgb(var(--danger))",
+          foreground: "rgb(var(--danger-fg))"
+        },
+        info: {
+          DEFAULT: "rgb(var(--info))",
+          foreground: "rgb(var(--info-fg))"
+        },
         terminal: {
           green: "rgb(var(--terminal-green))",
           amber: "rgb(var(--terminal-amber))",

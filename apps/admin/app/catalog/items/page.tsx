@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { ErrorBanner } from "@/components/error-banner";
+import { ViewRaw } from "@/components/view-raw";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -744,17 +746,7 @@ export default function ItemsPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-	        {status ? (
-	          <Card>
-	            <CardHeader>
-	              <CardTitle>Status</CardTitle>
-	              <CardDescription>API errors will show here.</CardDescription>
-	            </CardHeader>
-	            <CardContent>
-	              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-	            </CardContent>
-	          </Card>
-	        ) : null}
+	        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
 	        {aiHygiene.length ? (
 	          <Card>
@@ -1274,7 +1266,7 @@ export default function ItemsPage() {
                   </DialogDescription>
                 </DialogHeader>
 
-                {barcodeStatus ? <pre className="whitespace-pre-wrap text-xs text-fg-muted">{barcodeStatus}</pre> : null}
+                {barcodeStatus ? <ViewRaw value={barcodeStatus} label="Details" /> : null}
 
                 <div className="ui-table-wrap">
                   <table className="ui-table">
@@ -1369,7 +1361,7 @@ export default function ItemsPage() {
                   </DialogDescription>
                 </DialogHeader>
 
-                {supplierStatus ? <pre className="whitespace-pre-wrap text-xs text-fg-muted">{supplierStatus}</pre> : null}
+                {supplierStatus ? <ViewRaw value={supplierStatus} label="Details" /> : null}
 
                 <div className="ui-table-wrap">
                   <table className="ui-table">

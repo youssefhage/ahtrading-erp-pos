@@ -1432,6 +1432,7 @@ def list_sales_returns(company_id: str = Depends(get_company_id)):
                 """
                 SELECT id, return_no, invoice_id, warehouse_id, device_id, shift_id, refund_method,
                        branch_id, reason_id, reason, return_condition,
+                       restocking_fee_usd, restocking_fee_lbp, restocking_fee_reason,
                        status, total_usd, total_lbp, created_at
                 FROM sales_returns
                 WHERE company_id = %s
@@ -1451,6 +1452,7 @@ def get_sales_return(return_id: str, company_id: str = Depends(get_company_id)):
                 """
                 SELECT id, return_no, invoice_id, warehouse_id, device_id, shift_id, refund_method,
                        branch_id, reason_id, reason, return_condition,
+                       restocking_fee_usd, restocking_fee_lbp, restocking_fee_reason,
                        status, total_usd, total_lbp, exchange_rate, created_at
                 FROM sales_returns
                 WHERE company_id = %s AND id = %s
@@ -1483,7 +1485,19 @@ def get_sales_return(return_id: str, company_id: str = Depends(get_company_id)):
                 (company_id, return_id),
             )
             tax_lines = cur.fetchall()
-            return {"return": ret, "lines": lines, "tax_lines": tax_lines}
+            cur.execute(
+                """
+                SELECT id, method, amount_usd, amount_lbp, settlement_currency,
+                       bank_account_id, reference, provider, auth_code, captured_at,
+                       source_type, source_id, created_at
+                FROM sales_refunds
+                WHERE company_id = %s AND sales_return_id = %s
+                ORDER BY created_at ASC, id ASC
+                """,
+                (company_id, return_id),
+            )
+            refunds = cur.fetchall()
+            return {"return": ret, "lines": lines, "tax_lines": tax_lines, "refunds": refunds}
 
 
 @router.post("/payments", dependencies=[Depends(require_permission("sales:write"))])

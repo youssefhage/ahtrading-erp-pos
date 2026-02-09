@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { ErrorBanner } from "@/components/error-banner";
+import { ViewRaw } from "@/components/view-raw";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -69,8 +71,35 @@ function toNum(v: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function describeRec(j: any): { kind: string; why: string; next: string; link?: string } {
+  const kind = String(j?.kind || "");
+  if (kind === "purchase_invoice_insights") {
+    const changes = Array.isArray(j?.price_changes) ? j.price_changes.length : 0;
+    const invId = String(j?.invoice_id || "");
+    const link = invId ? `/purchasing/supplier-invoices/${encodeURIComponent(invId)}` : undefined;
+    return {
+      kind,
+      why: changes ? `Detected cost increases on ${changes} item(s).` : "Detected purchase invoice pricing signals.",
+      next: "Review margins and selling prices for impacted items.",
+      link
+    };
+  }
+  if (kind === "supplier_invoice_hold") {
+    const invId = String(j?.invoice_id || "");
+    const link = invId ? `/purchasing/supplier-invoices/${encodeURIComponent(invId)}` : undefined;
+    return { kind, why: String(j?.hold_reason || "Invoice on hold."), next: "Open the invoice and resolve the hold reason.", link };
+  }
+  if (kind === "supplier_invoice_due_soon") {
+    const invId = String(j?.invoice_id || "");
+    const link = invId ? `/purchasing/supplier-invoices/${encodeURIComponent(invId)}` : undefined;
+    return { kind, why: `Due soon (${String(j?.due_date || "").slice(0, 10) || "-"})`, next: "Plan payment or confirm terms.", link };
+  }
+  const key = String(j?.key || "");
+  return { kind: kind || "recommendation", why: key || "Triggered by an internal rule.", next: "Open raw details and decide." };
+}
+
 export default function AiHubPage() {
-  const [status, setStatus] = useState("");
+  const [err, setErr] = useState<unknown>(null);
 
   const [filterStatus, setFilterStatus] = useState<string>("");
   const [filterAgent, setFilterAgent] = useState<string>("");
@@ -96,7 +125,7 @@ export default function AiHubPage() {
   const [savingSchedule, setSavingSchedule] = useState(false);
 
   async function load() {
-    setStatus("Loading...");
+    setErr(null);
     try {
       const recQs = new URLSearchParams();
       if (filterStatus) recQs.set("status", filterStatus);
@@ -120,10 +149,8 @@ export default function AiHubPage() {
       setActions(act.actions || []);
       setSchedules(sch.schedules || []);
       setRuns(run.runs || []);
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setErr(err);
     }
   }
 
@@ -133,33 +160,29 @@ export default function AiHubPage() {
   }, []);
 
   async function decide(recId: string, nextStatus: "approved" | "rejected" | "executed") {
-    setStatus("Saving decision...");
+    setErr(null);
     try {
       await apiPost(`/ai/recommendations/${recId}/decide`, { status: nextStatus });
       await load();
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setErr(err);
     }
   }
 
   async function saveSetting(row: AgentSettingRow) {
-    setStatus("Saving setting...");
+    setErr(null);
     try {
       await apiPost("/ai/settings", row);
       await load();
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setErr(err);
     }
   }
 
   async function createOrUpdateSetting(e: React.FormEvent) {
     e.preventDefault();
     if (!newAgentCode.trim()) {
-      setStatus("agent_code is required");
+      setErr(new Error("agent_code is required"));
       return;
     }
     const payload: AgentSettingRow = {
@@ -178,38 +201,32 @@ export default function AiHubPage() {
   }
 
   async function cancelAction(actionId: string) {
-    setStatus("Canceling action...");
+    setErr(null);
     try {
       await apiPost(`/ai/actions/${actionId}/cancel`, {});
       await load();
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setErr(err);
     }
   }
 
   async function requeueAction(actionId: string) {
-    setStatus("Requeuing action...");
+    setErr(null);
     try {
       await apiPost(`/ai/actions/${actionId}/requeue`, {});
       await load();
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setErr(err);
     }
   }
 
   async function queueAction(actionId: string) {
-    setStatus("Queueing action...");
+    setErr(null);
     try {
       await apiPost(`/ai/actions/${actionId}/queue`, {});
       await load();
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setErr(err);
     }
   }
 
@@ -224,24 +241,24 @@ export default function AiHubPage() {
   async function saveSchedule(e: React.FormEvent) {
     e.preventDefault();
     if (!scheduleJobCode.trim()) {
-      setStatus("job_code is required");
+      setErr(new Error("job_code is required"));
       return;
     }
     const interval = Math.floor(toNum(scheduleIntervalSeconds));
     if (interval <= 0) {
-      setStatus("interval_seconds must be > 0");
+      setErr(new Error("interval_seconds must be > 0"));
       return;
     }
     let options: unknown = {};
     try {
       options = JSON.parse(scheduleOptionsJson || "{}");
     } catch {
-      setStatus("options_json must be valid JSON");
+      setErr(new Error("options_json must be valid JSON"));
       return;
     }
 
     setSavingSchedule(true);
-    setStatus("Saving schedule...");
+    setErr(null);
     try {
       await apiPost("/ai/jobs/schedules", {
         job_code: scheduleJobCode.trim(),
@@ -251,10 +268,8 @@ export default function AiHubPage() {
       });
       setScheduleOpen(false);
       await load();
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setErr(err);
     } finally {
       setSavingSchedule(false);
     }
@@ -262,30 +277,18 @@ export default function AiHubPage() {
 
   async function runJobNow(jobCode: string) {
     if (!jobCode) return;
-    setStatus("Queueing job...");
+    setErr(null);
     try {
       await apiPost(`/ai/jobs/${encodeURIComponent(jobCode)}/run-now`, {});
       await load();
-      setStatus("");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      setErr(err);
     }
   }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>API errors will show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+        {err ? <ErrorBanner error={err} onRetry={load} /> : null}
 
         <div className="flex items-center justify-end">
           <Button variant="outline" onClick={load}>
@@ -383,9 +386,25 @@ export default function AiHubPage() {
                       <td className="px-3 py-2 font-mono text-xs">{r.agent_code}</td>
                       <td className="px-3 py-2 font-mono text-xs">{r.status}</td>
                       <td className="px-3 py-2">
-                        <pre className="max-w-[560px] whitespace-pre-wrap text-[11px] text-fg-muted">
-                          {JSON.stringify(r.recommendation_json, null, 2)}
-                        </pre>
+                        {(() => {
+                          const j: any = (r as any).recommendation_json || {};
+                          const d = describeRec(j);
+                          return (
+                            <div className="max-w-[560px] space-y-1">
+                              <div className="font-mono text-xs text-fg-muted">{d.kind}</div>
+                              <div className="text-sm text-foreground">{d.why}</div>
+                              <div className="text-sm text-fg-muted">{d.next}</div>
+                              {d.link ? (
+                                <div>
+                                  <a className="ui-link text-xs" href={d.link}>
+                                    Open related document
+                                  </a>
+                                </div>
+                              ) : null}
+                              <ViewRaw value={j} className="pt-1" />
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex flex-col items-end gap-2">
@@ -476,9 +495,7 @@ export default function AiHubPage() {
                         <span className="text-xs text-fg-muted">{a.error_message || ""}</span>
                       </td>
                       <td className="px-3 py-2">
-                        <pre className="max-w-[520px] whitespace-pre-wrap text-[11px] text-fg-muted">
-                          {JSON.stringify(a.action_json, null, 2)}
-                        </pre>
+                        <ViewRaw value={a.action_json} />
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex flex-col items-end gap-2">
@@ -542,9 +559,7 @@ export default function AiHubPage() {
                       <td className="px-3 py-2 font-mono text-xs">{s.next_run_at || ""}</td>
                       <td className="px-3 py-2 font-mono text-xs">{s.last_run_at || ""}</td>
                       <td className="px-3 py-2">
-                        <pre className="max-w-[420px] whitespace-pre-wrap text-[11px] text-fg-muted">
-                          {JSON.stringify(s.options_json, null, 2)}
-                        </pre>
+                        <ViewRaw value={s.options_json} />
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex flex-col items-end gap-2">

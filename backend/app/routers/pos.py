@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Literal
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import uuid
 from ..db import get_conn, set_company_context
 from ..deps import require_device, get_company_id, require_company_access, require_permission
@@ -574,6 +574,97 @@ def item_categories_catalog_delta(
         next_cursor = since.isoformat()
         next_cursor_id = str(since_id) if since_id else None
     return {"categories": rows, "next_cursor": next_cursor, "next_cursor_id": next_cursor_id}
+
+
+@router.get("/items/{item_id}/batches")
+def list_item_batches(
+    item_id: str,
+    warehouse_id: uuid.UUID,
+    limit: int = 200,
+    device=Depends(require_device),
+):
+    """
+    POS helper for manual lot/batch selection:
+    returns eligible batches with on-hand quantities, sorted by FEFO (earliest expiry first).
+    """
+    if limit <= 0 or limit > 2000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT track_batches, track_expiry,
+                       COALESCE(min_shelf_life_days_for_sale, 0)::int AS item_min_days
+                FROM items
+                WHERE company_id=%s AND id=%s
+                """,
+                (device["company_id"], item_id),
+            )
+            it = cur.fetchone()
+            if not it:
+                raise HTTPException(status_code=404, detail="item not found")
+
+            cur.execute(
+                """
+                SELECT COALESCE(min_shelf_life_days_for_sale_default, 0)::int AS wh_min_days
+                FROM warehouses
+                WHERE company_id=%s AND id=%s
+                """,
+                (device["company_id"], str(warehouse_id)),
+            )
+            wrow = cur.fetchone()
+            if not wrow:
+                raise HTTPException(status_code=404, detail="warehouse not found")
+
+            min_days = max(int(it.get("item_min_days") or 0), int(wrow.get("wh_min_days") or 0))
+            today = date.today()
+            min_expiry_date = (today + timedelta(days=min_days)) if min_days > 0 else None
+
+            cur.execute(
+                """
+                SELECT sm.batch_id,
+                       b.batch_no, b.expiry_date, b.status,
+                       COALESCE(SUM(sm.qty_in - sm.qty_out), 0) AS on_hand
+                FROM stock_moves sm
+                LEFT JOIN batches b
+                  ON b.id = sm.batch_id
+                WHERE sm.company_id=%s
+                  AND sm.item_id=%s
+                  AND sm.warehouse_id=%s
+                  AND sm.batch_id IS NOT NULL
+                  AND (b.status = 'available')
+                  AND (b.expiry_date IS NULL OR b.expiry_date >= %s)
+                  AND (%s::date IS NULL OR b.expiry_date IS NULL OR b.expiry_date >= %s)
+                GROUP BY sm.batch_id, b.batch_no, b.expiry_date, b.status
+                HAVING COALESCE(SUM(sm.qty_in - sm.qty_out), 0) > 0
+                ORDER BY b.expiry_date NULLS LAST, sm.batch_id
+                LIMIT %s
+                """,
+                (
+                    device["company_id"],
+                    item_id,
+                    str(warehouse_id),
+                    today,
+                    min_expiry_date,
+                    min_expiry_date,
+                    limit,
+                ),
+            )
+            rows = cur.fetchall()
+
+            # Add a small derived field (days_to_expiry) for POS UX.
+            out = []
+            for r in rows:
+                exp = r.get("expiry_date")
+                dte = None
+                if exp:
+                    try:
+                        dte = (exp - today).days
+                    except Exception:
+                        dte = None
+                out.append({**r, "days_to_expiry": dte, "min_shelf_life_days": min_days})
+            return {"batches": out, "server_time": datetime.utcnow().isoformat()}
 
 
 @router.get("/config")

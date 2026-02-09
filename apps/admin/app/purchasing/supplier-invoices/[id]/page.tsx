@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
+import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -357,17 +358,7 @@ function SupplierInvoiceShowInner() {
         </div>
       </div>
 
-      {status ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-            <CardDescription>API errors will show here.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-          </CardContent>
-        </Card>
-      ) : null}
+      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       {detail ? (
         <>
@@ -383,7 +374,7 @@ function SupplierInvoiceShowInner() {
                       <>
                         {" "}
                         ·{" "}
-                        <span className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-200">
+                        <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
                           HOLD{detail.invoice.hold_reason ? `: ${detail.invoice.hold_reason}` : ""}
                         </span>
                       </>

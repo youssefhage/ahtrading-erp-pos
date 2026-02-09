@@ -1,25 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ItemPicker, type ItemPickerItem } from "@/components/item-picker";
-
-type Supplier = { id: string; name: string };
-type CatalogItemBarcode = { id: string; barcode: string; qty_factor: string | number; label: string | null; is_primary: boolean };
-type Item = ItemPickerItem & {
-  barcode?: string | null;
-  unit_of_measure?: string | null;
-  is_active?: boolean;
-  price_usd?: string | number | null;
-  price_lbp?: string | number | null;
-  barcodes?: CatalogItemBarcode[] | null;
-};
+import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
+import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
+import { ErrorBanner } from "@/components/error-banner";
 type AttachmentRow = { id: string; filename: string; content_type: string; size_bytes: number; uploaded_at: string };
 
 type TaxCode = {
@@ -32,6 +24,9 @@ type TaxCode = {
 
 type InvoiceLineDraft = {
   item_id: string;
+  item_sku?: string | null;
+  item_name?: string | null;
+  unit_of_measure?: string | null;
   qty: string;
   unit_cost_usd: string;
   unit_cost_lbp: string;
@@ -42,21 +37,24 @@ type InvoiceLineDraft = {
   supplier_item_name?: string | null;
 };
 
-  type InvoiceDetail = {
-    invoice: {
-      id: string;
-      status: string;
-      supplier_id: string | null;
-      invoice_no: string;
-      supplier_ref?: string | null;
-      exchange_rate: string | number;
-      tax_code_id?: string | null;
-      goods_receipt_id?: string | null;
-      invoice_date: string;
-      due_date: string;
+type InvoiceDetail = {
+  invoice: {
+    id: string;
+    status: string;
+    supplier_id: string | null;
+    supplier_name?: string | null;
+    invoice_no: string;
+    supplier_ref?: string | null;
+    exchange_rate: string | number;
+    tax_code_id?: string | null;
+    goods_receipt_id?: string | null;
+    invoice_date: string;
+    due_date: string;
   };
   lines: Array<{
     item_id: string;
+    item_sku?: string | null;
+    item_name?: string | null;
     qty: string | number;
     unit_cost_usd: string | number;
     unit_cost_lbp: string | number;
@@ -88,12 +86,16 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [importAutoCreateItems, setImportAutoCreateItems] = useState(true);
   const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
-
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
 
+  const [nameSuggestOpen, setNameSuggestOpen] = useState(false);
+  const [nameSuggestLoading, setNameSuggestLoading] = useState(false);
+  const [nameSuggestItemId, setNameSuggestItemId] = useState("");
+  const [nameSuggestRaw, setNameSuggestRaw] = useState("");
+  const [nameSuggestSuggestions, setNameSuggestSuggestions] = useState<string[]>([]);
+
   const [supplierId, setSupplierId] = useState("");
+  const [supplierLabel, setSupplierLabel] = useState("");
   const [invoiceNo, setInvoiceNo] = useState("");
   const [supplierRef, setSupplierRef] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(() => todayIso());
@@ -104,16 +106,12 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
   const [lines, setLines] = useState<InvoiceLineDraft[]>([]);
 
-  const [addItemId, setAddItemId] = useState("");
+  const [addItem, setAddItem] = useState<ItemTypeaheadItem | null>(null);
   const [addQty, setAddQty] = useState("1");
   const [addUsd, setAddUsd] = useState("");
   const [addLbp, setAddLbp] = useState("");
   const [addBatchNo, setAddBatchNo] = useState("");
   const [addExpiry, setAddExpiry] = useState("");
-
-  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  const pickItems = useMemo(() => items.filter((i) => (i as any).is_active !== false), [items]);
-  const addItem = addItemId ? itemById.get(addItemId) : undefined;
   const addQtyRef = useRef<HTMLInputElement | null>(null);
   const supplierCostCache = useRef(new Map<string, { usd: number; lbp: number } | null>());
 
@@ -121,13 +119,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     setLoading(true);
     setStatus("Loading...");
     try {
-      const [s, i, tc] = await Promise.all([
-        apiGet<{ suppliers: Supplier[] }>("/suppliers"),
-        apiGet<{ items: Item[] }>("/pricing/catalog"),
-        apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes")
-      ]);
-      setSuppliers(s.suppliers || []);
-      setItems(i.items || []);
+      const tc = await apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes");
       setTaxCodes(tc.tax_codes || []);
 
       if (props.mode === "edit") {
@@ -137,6 +129,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         if (det.invoice.status !== "draft") throw new Error("Only draft invoices can be edited.");
 
         setSupplierId(det.invoice.supplier_id || "");
+        setSupplierLabel(String((det.invoice as any).supplier_name || ""));
         setInvoiceNo(det.invoice.invoice_no || "");
         setSupplierRef(String((det.invoice as any).supplier_ref || ""));
         setInvoiceDate(String(det.invoice.invoice_date || todayIso()).slice(0, 10));
@@ -147,6 +140,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setLines(
           (det.lines || []).map((l) => ({
             item_id: l.item_id,
+            item_sku: (l as any).item_sku || null,
+            item_name: (l as any).item_name || null,
+            unit_of_measure: null,
             qty: String(l.qty || 0),
             unit_cost_usd: String(l.unit_cost_usd || 0),
             unit_cost_lbp: String(l.unit_cost_lbp || 0),
@@ -162,6 +158,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         await reloadAttachments(id);
       } else {
         setSupplierId("");
+        setSupplierLabel("");
         setInvoiceNo("");
         setSupplierRef("");
         setInvoiceDate(todayIso());
@@ -207,8 +204,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     }
   }
 
-  async function onPickItem(it: Item) {
-    setAddItemId(it.id);
+  async function onPickItem(it: ItemTypeaheadItem) {
+    setAddItem(it);
     setAddQty("1");
     setAddBatchNo("");
     setAddExpiry("");
@@ -224,7 +221,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
   function addLine(e: React.FormEvent) {
     e.preventDefault();
-    if (!addItemId) return setStatus("Select an item.");
+    if (!addItem) return setStatus("Select an item.");
     const q = toNum(addQty);
     if (q <= 0) return setStatus("qty must be > 0");
     let unitUsd = toNum(addUsd);
@@ -238,7 +235,10 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     setLines((prev) => [
       ...prev,
       {
-        item_id: addItemId,
+        item_id: addItem.id,
+        item_sku: addItem.sku,
+        item_name: addItem.name,
+        unit_of_measure: (addItem as any).unit_of_measure ?? null,
         qty: String(q),
         unit_cost_usd: String(unitUsd),
         unit_cost_lbp: String(unitLbp),
@@ -248,7 +248,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         supplier_item_name: null
       }
     ]);
-    setAddItemId("");
+    setAddItem(null);
     setAddQty("1");
     setAddUsd("");
     setAddLbp("");
@@ -412,6 +412,47 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     }
   }
 
+  async function openNameSuggestions(line: InvoiceLineDraft) {
+    const raw = String(line.supplier_item_name || line.item_name || "").trim();
+    if (!raw) return setStatus("No item name to suggest from.");
+    setNameSuggestItemId(line.item_id);
+    setNameSuggestRaw(raw);
+    setNameSuggestSuggestions([]);
+    setNameSuggestOpen(true);
+    setNameSuggestLoading(true);
+    setStatus("Generating name suggestions...");
+    try {
+      const res = await apiPost<{ suggestions: string[] }>("/items/name-suggestions", { raw_name: raw, count: 5 });
+      setNameSuggestSuggestions((res.suggestions || []).filter((s) => String(s || "").trim()));
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+      setNameSuggestOpen(false);
+    } finally {
+      setNameSuggestLoading(false);
+    }
+  }
+
+  async function applyNameSuggestion(nextName: string) {
+    const itemId = (nameSuggestItemId || "").trim();
+    const name = String(nextName || "").trim();
+    if (!itemId || !name) return;
+    setNameSuggestLoading(true);
+    setStatus("Updating item name...");
+    try {
+      await apiPatch(`/items/${encodeURIComponent(itemId)}`, { name });
+      setLines((prev) => prev.map((l) => (l.item_id === itemId ? { ...l, item_name: name } : l)));
+      setStatus("");
+      setNameSuggestOpen(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setNameSuggestLoading(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -427,15 +468,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       </div>
 
       {status ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-            <CardDescription>Fix the issue and try again.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-          </CardContent>
-        </Card>
+        <ErrorBanner error={status} onRetry={load} />
       ) : null}
 
       {props.mode === "create" ? (
@@ -556,14 +589,14 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1 md:col-span-2">
                 <label className="text-xs font-medium text-fg-muted">Supplier</label>
-                <select className="ui-select" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} disabled={loading}>
-                  <option value="">Select supplier...</option>
-                  {suppliers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                <SupplierTypeahead
+                  disabled={loading}
+                  onSelect={(s) => {
+                    setSupplierId(s.id);
+                    setSupplierLabel(s.name);
+                  }}
+                />
+                {supplierId ? <div className="text-[11px] text-fg-subtle">Selected: {supplierLabel || supplierId}</div> : null}
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Internal Doc No (optional)</label>
@@ -622,7 +655,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
                   <div className="space-y-1 md:col-span-6">
                     <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
-                    <ItemPicker items={pickItems} onSelect={(it) => void onPickItem(it as Item)} disabled={loading} />
+                    <ItemTypeahead disabled={loading} onSelect={(it) => void onPickItem(it)} />
                     {addItem ? (
                       <p className="text-[11px] text-fg-subtle">
                         Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}
@@ -635,9 +668,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     <label className="text-xs font-medium text-fg-muted">Qty</label>
                     <div className="relative">
                       <Input ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} className="pr-14" />
-                      {addItem?.unit_of_measure ? (
+                      {(addItem as any)?.unit_of_measure ? (
                         <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[11px] text-fg-subtle">
-                          {String(addItem.unit_of_measure)}
+                          {String((addItem as any).unit_of_measure)}
                         </div>
                       ) : null}
                     </div>
@@ -680,42 +713,42 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     </thead>
                     <tbody>
                       {lines.map((l, idx) => {
-                        const it = itemById.get(l.item_id);
                         const qty = toNum(String(l.qty));
                         const unitUsd = toNum(String(l.unit_cost_usd));
                         const unitLbp = toNum(String(l.unit_cost_lbp));
                         return (
                           <tr key={`${l.item_id}-${idx}`} className="ui-tr-hover">
                             <td className="px-3 py-2">
-                              {it ? (
+                              <div>
                                 <div>
-                                  <div>
-                                    <span className="font-mono text-xs">{it.sku}</span> · {it.name}
-                                  </div>
-                                  {l.supplier_item_code || l.supplier_item_name ? (
-                                    <div className="mt-1 text-[10px] text-fg-subtle">
-                                      Supplier:{" "}
-                                      <span className="font-mono">{l.supplier_item_code || "-"}</span>
-                                      {l.supplier_item_name ? <span> · {l.supplier_item_name}</span> : null}
-                                    </div>
-                                  ) : null}
+                                  <span className="font-mono text-xs">{l.item_sku || l.item_id}</span>
+                                  {l.item_name ? <span> · {l.item_name}</span> : null}
                                 </div>
-                              ) : (
-                                <span className="font-mono text-xs">{l.item_id}</span>
-                              )}
+                                {l.supplier_item_code || l.supplier_item_name ? (
+                                  <div className="mt-1 text-[10px] text-fg-subtle">
+                                    Supplier: <span className="font-mono">{l.supplier_item_code || "-"}</span>
+                                    {l.supplier_item_name ? <span> · {l.supplier_item_name}</span> : null}
+                                  </div>
+                                ) : null}
+                              </div>
                             </td>
                             <td className="px-3 py-2 text-right data-mono text-xs">
                               {qty.toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
-                              {it?.unit_of_measure ? <span className="text-[10px] text-fg-subtle">{String(it.unit_of_measure)}</span> : null}
+                              {l.unit_of_measure ? <span className="text-[10px] text-fg-subtle">{String(l.unit_of_measure)}</span> : null}
                             </td>
                             <td className="px-3 py-2 text-right data-mono text-xs">{unitUsd.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
                             <td className="px-3 py-2 text-right data-mono text-xs">{unitLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}</td>
                             <td className="px-3 py-2 font-mono text-xs">{l.batch_no || "-"}</td>
                             <td className="px-3 py-2 font-mono text-xs">{l.expiry_date ? String(l.expiry_date).slice(0, 10) : "-"}</td>
                             <td className="px-3 py-2 text-right">
-                              <Button type="button" size="sm" variant="outline" onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}>
-                                Remove
-                              </Button>
+                              <div className="flex justify-end gap-2">
+                                <Button type="button" size="sm" variant="outline" onClick={() => void openNameSuggestions(l)} disabled={nameSuggestLoading}>
+                                  AI name
+                                </Button>
+                                <Button type="button" size="sm" variant="outline" onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))}>
+                                  Remove
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -741,6 +774,34 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={nameSuggestOpen} onOpenChange={(o) => setNameSuggestOpen(o)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>AI Item Name Suggestions</DialogTitle>
+            <DialogDescription>
+              Source name: <span className="font-mono text-xs">{nameSuggestRaw || "-"}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {!nameSuggestSuggestions.length ? (
+              <p className="text-sm text-fg-muted">{nameSuggestLoading ? "Generating..." : "No suggestions yet."}</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-2">
+                {nameSuggestSuggestions.map((s, i) => (
+                  <Button key={`${s}-${i}`} type="button" variant="outline" onClick={() => void applyNameSuggestion(s)} disabled={nameSuggestLoading}>
+                    {s}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-fg-subtle">
+              Applying a suggestion updates the Item master name (affects future documents). Supplier item code/name is preserved separately on the invoice line.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

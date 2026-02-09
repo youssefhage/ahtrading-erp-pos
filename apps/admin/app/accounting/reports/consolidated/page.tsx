@@ -7,6 +7,7 @@ import { fmtLbp, fmtUsd } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ErrorBanner } from "@/components/error-banner";
 
 type Company = { id: string; name: string };
 
@@ -145,15 +146,13 @@ export default function ConsolidatedReportsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-            <CardDescription>API errors will show here.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-          </CardContent>
-        </Card>
+        <ErrorBanner
+          error={status}
+          onRetry={() => {
+            if (!companies.length) return loadCompanies();
+            return loadReport();
+          }}
+        />
       ) : null}
 
       <Card>

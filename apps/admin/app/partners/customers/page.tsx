@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { ErrorBanner } from "@/components/error-banner";
 import { PartyAddresses } from "@/components/party-addresses";
 import { PartyContacts } from "@/components/party-contacts";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Chip } from "@/components/ui/chip";
+import { ViewRaw } from "@/components/view-raw";
 
 type PartyType = "individual" | "business";
 
@@ -186,7 +188,7 @@ export default function CustomersPage() {
         cell: (c) => fmt(c.credit_balance_usd),
         cellClassName: (c) => {
           const n = Number(c.credit_balance_usd || 0);
-          if (n < 0) return "text-red-600";
+          if (n < 0) return "text-danger";
           if (n > 0) return "text-primary";
           return "text-fg-subtle";
         },
@@ -201,7 +203,7 @@ export default function CustomersPage() {
         cell: (c) => fmt(c.credit_balance_lbp),
         cellClassName: (c) => {
           const n = Number(c.credit_balance_lbp || 0);
-          if (n < 0) return "text-red-600";
+          if (n < 0) return "text-danger";
           if (n > 0) return "text-primary";
           return "text-fg-subtle";
         },
@@ -492,17 +494,7 @@ export default function CustomersPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>Errors and action results show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
         <Card>
           <CardHeader>
@@ -839,7 +831,7 @@ export default function CustomersPage() {
                         Refresh
                       </Button>
                     </div>
-                    {loyaltyStatus ? <pre className="whitespace-pre-wrap text-xs text-fg-muted">{loyaltyStatus}</pre> : null}
+                    {loyaltyStatus ? <ViewRaw value={loyaltyStatus} label="Loyalty details" /> : null}
                     <div className="ui-table-wrap">
                       <table className="ui-table">
                         <thead className="ui-thead">

@@ -1,6 +1,6 @@
 # Roadmap
 
-Last updated: 2026-02-08
+Last updated: 2026-02-09
 
 Repo: `/Users/Youssef/oDocuments/Business/Codex POS`
 
@@ -32,7 +32,9 @@ Core platform is live-quality in the areas that cause real-world breakage:
     - Company setting `company_settings.key='ai'` / `allow_external_processing` can disable external AI processing while keeping “draft + attachment” working.
 - Admin UX speed upgrades (daily operator quality-of-life):
   - Added `GET /pricing/catalog` (effective prices + barcodes) for Admin.
-  - Sales Invoice Draft + Supplier Invoice Draft: searchable item picking (SKU/name/barcode), UOM shown by default, and unit price/cost auto-fill (editable).
+  - Sales Invoice Draft + Supplier Invoice Draft: searchable item picking (name/barcode/SKU), UOM shown by default, and unit price/cost auto-fill (editable).
+  - Sales Invoice Draft item picking now scales to large catalogs via `GET /pricing/catalog/typeahead` (no full catalog load).
+  - Replaced remaining raw “Status” `<pre>` blocks with `ErrorBanner` + “View raw” details (more actionable and less fragile).
 
 Canonical execution documents:
 - `/Users/Youssef/oDocuments/Business/Codex POS/docs/audits/platform-audit-2026-02-07.md`

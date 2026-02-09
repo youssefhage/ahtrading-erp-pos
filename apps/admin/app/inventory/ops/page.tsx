@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -10,6 +11,7 @@ import { Input } from "@/components/ui/input";
 
 type Item = { id: string; sku: string; name: string };
 type Warehouse = { id: string; name: string };
+type Location = { id: string; code: string; name: string | null; is_active: boolean };
 
 type AdjustDraft = {
   item_id: string;
@@ -25,6 +27,8 @@ type TransferDraft = {
   item_id: string;
   from_warehouse_id: string;
   to_warehouse_id: string;
+  from_location_id: string;
+  to_location_id: string;
   qty: string;
   unit_cost_usd: string;
   unit_cost_lbp: string;
@@ -65,11 +69,16 @@ export default function InventoryOpsPage() {
     item_id: "",
     from_warehouse_id: "",
     to_warehouse_id: "",
+    from_location_id: "",
+    to_location_id: "",
     qty: "1",
     unit_cost_usd: "0",
     unit_cost_lbp: "0",
     reason: ""
   });
+
+  const [fromLocations, setFromLocations] = useState<Location[]>([]);
+  const [toLocations, setToLocations] = useState<Location[]>([]);
 
   const [cycleWarehouseId, setCycleWarehouseId] = useState("");
   const [cycleReason, setCycleReason] = useState("");
@@ -119,6 +128,28 @@ export default function InventoryOpsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadLocations = useCallback(async (warehouseId: string, set: (rows: Location[]) => void) => {
+    const wid = (warehouseId || "").trim();
+    if (!wid) return set([]);
+    try {
+      const res = await apiGet<{ locations: Location[] }>(`/warehouses/${encodeURIComponent(wid)}/locations`);
+      set(res.locations || []);
+    } catch {
+      set([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadLocations(transfer.from_warehouse_id, setFromLocations);
+    // Reset invalid selections when switching warehouses.
+    setTransfer((p) => ({ ...p, from_location_id: "" }));
+  }, [transfer.from_warehouse_id, loadLocations]);
+
+  useEffect(() => {
+    loadLocations(transfer.to_warehouse_id, setToLocations);
+    setTransfer((p) => ({ ...p, to_location_id: "" }));
+  }, [transfer.to_warehouse_id, loadLocations]);
 
   function addCycleLine() {
     setCycleLines((prev) => [...prev, { item_id: "", counted_qty: "0" }]);
@@ -379,7 +410,10 @@ export default function InventoryOpsPage() {
     if (!transfer.item_id) return setStatus("item is required");
     if (!transfer.from_warehouse_id) return setStatus("from warehouse is required");
     if (!transfer.to_warehouse_id) return setStatus("to warehouse is required");
-    if (transfer.from_warehouse_id === transfer.to_warehouse_id) return setStatus("warehouses must differ");
+    if (transfer.from_warehouse_id === transfer.to_warehouse_id) {
+      if (transfer.from_location_id === transfer.to_location_id) return setStatus("for intra-warehouse moves, location must change");
+      if (!transfer.from_location_id && !transfer.to_location_id) return setStatus("for intra-warehouse moves, set from/to location");
+    }
     const qty = toNum(transfer.qty);
     if (qty <= 0) return setStatus("qty must be > 0");
 
@@ -390,12 +424,14 @@ export default function InventoryOpsPage() {
         item_id: transfer.item_id,
         from_warehouse_id: transfer.from_warehouse_id,
         to_warehouse_id: transfer.to_warehouse_id,
+        from_location_id: transfer.from_location_id || null,
+        to_location_id: transfer.to_location_id || null,
         qty,
         unit_cost_usd: toNum(transfer.unit_cost_usd),
         unit_cost_lbp: toNum(transfer.unit_cost_lbp),
         reason: transfer.reason || undefined
       });
-      setTransfer((prev) => ({ ...prev, qty: "1", unit_cost_usd: "0", unit_cost_lbp: "0", reason: "" }));
+      setTransfer((prev) => ({ ...prev, qty: "1", unit_cost_usd: "0", unit_cost_lbp: "0", reason: "", from_location_id: "", to_location_id: "" }));
       setTransferOpen(false);
       setStatus("");
     } catch (err) {
@@ -437,17 +473,7 @@ export default function InventoryOpsPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>API errors will show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="outline" onClick={load}>
@@ -547,16 +573,16 @@ export default function InventoryOpsPage() {
                         </div>
 
                         {openingErrors ? (
-                          <div className="rounded-md border border-rose-200 bg-rose-50 p-3">
-                            <p className="text-xs font-semibold text-rose-800">CSV errors</p>
-                            <pre className="mt-2 whitespace-pre-wrap text-xs text-rose-900">{openingErrors}</pre>
+                          <div className="rounded-md border border-danger/30 bg-danger/10 p-3">
+                            <p className="text-xs font-semibold text-danger">CSV errors</p>
+                            <pre className="mt-2 whitespace-pre-wrap text-xs text-danger">{openingErrors}</pre>
                           </div>
                         ) : null}
 
                         {openingResult ? (
-                          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
-                            <p className="text-xs font-semibold text-emerald-900">Import result</p>
-                            <div className="mt-2 space-y-1 text-xs text-emerald-900">
+                          <div className="rounded-md border border-success/30 bg-success/10 p-3">
+                            <p className="text-xs font-semibold text-success">Import result</p>
+                            <div className="mt-2 space-y-1 text-xs text-success">
                               <div>
                                 Import ID: <span className="font-mono">{openingResult.import_id}</span>
                               </div>
@@ -681,7 +707,7 @@ export default function InventoryOpsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Warehouse Transfer</CardTitle>
-              <CardDescription>Moves stock between warehouses (no GL impact).</CardDescription>
+              <CardDescription>Moves stock between warehouses or bins (no GL impact).</CardDescription>
             </CardHeader>
             <CardContent className="flex items-center justify-end">
               <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
@@ -727,6 +753,24 @@ export default function InventoryOpsPage() {
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-3">
+                      <label className="text-xs font-medium text-fg-muted">From Location (optional)</label>
+                      <select
+                        className="ui-select"
+                        value={transfer.from_location_id}
+                        onChange={(e) => setTransfer((p) => ({ ...p, from_location_id: e.target.value }))}
+                      >
+                        <option value="">No bin</option>
+                        {fromLocations
+                          .filter((l) => l.is_active)
+                          .map((l) => (
+                            <option key={l.id} value={l.id}>
+                              {l.code}
+                              {l.name ? ` - ${l.name}` : ""}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1 md:col-span-3">
                       <label className="text-xs font-medium text-fg-muted">To Warehouse</label>
                       <select
                         className="ui-select"
@@ -739,6 +783,24 @@ export default function InventoryOpsPage() {
                             {w.name}
                           </option>
                         ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1 md:col-span-3">
+                      <label className="text-xs font-medium text-fg-muted">To Location (optional)</label>
+                      <select
+                        className="ui-select"
+                        value={transfer.to_location_id}
+                        onChange={(e) => setTransfer((p) => ({ ...p, to_location_id: e.target.value }))}
+                      >
+                        <option value="">No bin</option>
+                        {toLocations
+                          .filter((l) => l.is_active)
+                          .map((l) => (
+                            <option key={l.id} value={l.id}>
+                              {l.code}
+                              {l.name ? ` - ${l.name}` : ""}
+                            </option>
+                          ))}
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-1">

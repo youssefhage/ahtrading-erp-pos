@@ -16,6 +16,8 @@ const FORBIDDEN = [
   /\bbg-slate-\d+\b/g,
   // Use `primary` design tokens instead of Tailwind palettes in TSX/TS.
   /\b(?:bg|text|border|from|to|ring|border-t)-sky-\d+\b/g,
+  // Use semantic status tokens (success/warning/danger/info) instead of Tailwind palettes in TSX/TS.
+  /\b(?:bg|text|border|from|to|ring|border-t)-(?:green|emerald|red|yellow|amber|orange|blue)-\d+\b/g,
 ];
 
 function walk(dir, out) {

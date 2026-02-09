@@ -38,6 +38,7 @@ import {
   ShoppingCart,
   Sparkles,
   Sun,
+  Star,
   Timer,
   TrendingUp,
   Truck,
@@ -53,6 +54,8 @@ import {
 } from "lucide-react";
 
 import { apiGet, apiPost, clearSession, getCompanyId, getCompanies } from "@/lib/api";
+import { addRecent, clearRecents, getFavorites, getRecents, toggleFavorite } from "@/lib/nav-memory";
+import { getDefaultBranchId, getDefaultWarehouseId, setDefaultBranchId, setDefaultWarehouseId } from "@/lib/op-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -65,6 +68,9 @@ type NavItem = {
 
 type NavSection = { label: string; items: NavItem[] };
 type FlatNavItem = NavItem & { section: string };
+
+type BranchRow = { id: string; name: string };
+type WarehouseRow = { id: string; name: string };
 
 function iconForHref(href: string) {
   const byHref: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -121,6 +127,7 @@ function iconForHref(href: string) {
 
     "/system/go-live": Rocket,
     "/system/config": Settings2,
+    "/system/dimensions": Settings2,
     "/system/branches": GitBranch,
     "/system/warehouses": Warehouse,
     "/system/warehouse-locations": Warehouse,
@@ -238,6 +245,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Go-Live", href: "/system/go-live" },
       { label: "Config", href: "/system/config" },
+      { label: "Dimensions", href: "/system/dimensions" },
       { label: "Branches", href: "/system/branches" },
       { label: "Warehouses", href: "/system/warehouses" },
       { label: "Warehouse Locations", href: "/system/warehouse-locations" },
@@ -279,6 +287,32 @@ const LITE_NAV_SECTIONS: NavSection[] = [
 
 type UiVariant = "full" | "lite";
 type ColorTheme = "light" | "dark";
+
+function shortId(id: string) {
+  const s = String(id || "");
+  if (!s) return "";
+  return s.length <= 10 ? s : `${s.slice(0, 8)}…`;
+}
+
+function labelForMemory(pathname: string, title: string) {
+  const path = String(pathname || "");
+  if (!path || path === "/") return "Dashboard";
+  const base = String(title || "Page");
+  if (path.endsWith("/list")) return `${base} · List`;
+  if (path.endsWith("/new")) return `${base} · New`;
+  if (path.endsWith("/edit")) {
+    const parts = path.split("/").filter(Boolean);
+    const id = parts[parts.length - 2] || "";
+    return `${base} · Edit ${shortId(id)}`;
+  }
+  const parts = path.split("/").filter(Boolean);
+  const last = parts[parts.length - 1] || "";
+  // Heuristic: document pages tend to have an ID segment.
+  if (last && last.length >= 8 && !["dashboard", "system", "sales", "purchasing", "inventory", "catalog", "partners", "accounting", "automation"].includes(last)) {
+    return `${base} · ${shortId(last)}`;
+  }
+  return base;
+}
 
 function NavItemComponent({
   item,
@@ -354,6 +388,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const [healthDetail, setHealthDetail] = useState("");
 
   const [companyId, setCompanyId] = useState(() => getCompanyId());
+  const [companyName, setCompanyName] = useState<string>("");
   const [authChecked, setAuthChecked] = useState(false);
   const [authOk, setAuthOk] = useState(false);
 
@@ -381,6 +416,14 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   }, [pathname, flatNav]);
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+
+  const [favorites, setFavorites] = useState<{ href: string; label: string; at: string }[]>([]);
+  const [recents, setRecents] = useState<{ href: string; label: string; at: string }[]>([]);
+
+  const [branches, setBranches] = useState<BranchRow[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
+  const [defaultBranchId, setDefaultBranchIdState] = useState("");
+  const [defaultWarehouseId, setDefaultWarehouseIdState] = useState("");
 
   useEffect(() => {
     // Persist module expansion per UI variant (full vs lite).
@@ -420,6 +463,74 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       return next;
     });
   }, [activeSectionLabel, uiVariant]);
+
+  useEffect(() => {
+    // Nav memory is client-only.
+    setFavorites(getFavorites());
+    setRecents(getRecents());
+  }, []);
+
+  useEffect(() => {
+    // Track recents for deep links as well (document-first UX).
+    const path = String(pathname || "").trim();
+    if (!path || path === "/") return;
+    if (path.startsWith("/login") || path.startsWith("/company/select")) return;
+    const entry = { href: path, label: labelForMemory(path, title) };
+    addRecent(entry);
+    setRecents(getRecents());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  useEffect(() => {
+    // Company context display should be human-friendly.
+    let cancelled = false;
+    (async () => {
+      const cid = String(companyId || "").trim();
+      if (!cid) {
+        setCompanyName("");
+        return;
+      }
+      try {
+        const res = await apiGet<{ company?: { name?: string; legal_name?: string } }>(`/companies/${encodeURIComponent(cid)}`);
+        if (cancelled) return;
+        const nm = String(res?.company?.name || res?.company?.legal_name || "").trim();
+        setCompanyName(nm);
+      } catch {
+        if (cancelled) return;
+        setCompanyName("");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
+
+  useEffect(() => {
+    // Pull branch/warehouse lists to make context explicit and allow per-company defaults.
+    let cancelled = false;
+    (async () => {
+      const cid = String(companyId || "").trim();
+      if (!cid) return;
+      setDefaultBranchIdState(getDefaultBranchId(cid));
+      setDefaultWarehouseIdState(getDefaultWarehouseId(cid));
+      try {
+        const [br, wh] = await Promise.all([
+          apiGet<{ branches: BranchRow[] }>("/branches").catch(() => ({ branches: [] })),
+          apiGet<{ warehouses: WarehouseRow[] }>("/warehouses").catch(() => ({ warehouses: [] }))
+        ]);
+        if (cancelled) return;
+        setBranches(br.branches || []);
+        setWarehouses(wh.warehouses || []);
+      } catch {
+        if (cancelled) return;
+        setBranches([]);
+        setWarehouses([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId]);
 
   function toggleSection(label: string) {
     setOpenSections((prev) => {
@@ -611,6 +722,10 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       }
   if (!authOk) return null;
 
+  const pageHrefForStar = String(pathname || activeInfo.href || "/dashboard");
+  const pageLabelForStar = labelForMemory(pageHrefForStar, title);
+  const isStarred = favorites.some((f) => f.href === pageHrefForStar);
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Sidebar */}
@@ -659,8 +774,126 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           </div>
         )}
 
+        {!collapsed ? (
+          <div className="border-b border-border-subtle px-3 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-subtle">Context</div>
+                <button
+                  type="button"
+                  className="mt-1 block w-full truncate text-left text-sm font-medium text-foreground hover:underline"
+                  onClick={() => router.push("/company/select")}
+                >
+                  {companyName || "Company"}
+                </button>
+                <div className="mt-0.5 font-mono text-[10px] text-fg-subtle">{companyId || "-"}</div>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => router.push("/company/select")}>
+                Switch
+              </Button>
+            </div>
+
+            {(branches.length || warehouses.length) ? (
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                {branches.length ? (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-subtle">Default Branch</label>
+                    <select
+                      className="ui-select h-9 text-xs"
+                      value={defaultBranchId}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setDefaultBranchIdState(next);
+                        setDefaultBranchId(companyId, next);
+                      }}
+                    >
+                      <option value="">None</option>
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+                {warehouses.length ? (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-subtle">Default Warehouse</label>
+                    <select
+                      className="ui-select h-9 text-xs"
+                      value={defaultWarehouseId}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setDefaultWarehouseIdState(next);
+                        setDefaultWarehouseId(companyId, next);
+                      }}
+                    >
+                      <option value="">None</option>
+                      {warehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-2">
+          {!collapsed && (favorites.length || recents.length) ? (
+            <div className="px-2 py-2">
+              {favorites.length ? (
+                <div className="mb-3">
+                  <div className="mb-1 flex items-center justify-between px-3 text-[10px] font-medium uppercase tracking-wider text-fg-subtle">
+                    <span>Favorites</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {favorites.slice(0, 8).map((f) => (
+                      <NavItemComponent
+                        key={`fav:${f.href}`}
+                        item={{ href: f.href, label: f.label }}
+                        isActive={pathname === f.href}
+                        collapsed={false}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {recents.length ? (
+                <div className="mb-1">
+                  <div className="mb-1 flex items-center justify-between px-3 text-[10px] font-medium uppercase tracking-wider text-fg-subtle">
+                    <span>Recent</span>
+                    <button
+                      type="button"
+                      className="text-[10px] text-fg-subtle hover:text-fg-muted"
+                      onClick={() => {
+                        clearRecents();
+                        setRecents([]);
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="space-y-0.5">
+                    {recents.slice(0, 6).map((r) => (
+                      <NavItemComponent
+                        key={`recent:${r.href}`}
+                        item={{ href: r.href, label: r.label }}
+                        isActive={pathname === r.href}
+                        collapsed={false}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {navSections.map((section) => (
             <div key={section.label} className="px-2 py-2">
               {!collapsed && (
@@ -771,7 +1004,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                 <>
                   <span className="text-xs">Company</span>
                   <code className="ml-auto rounded bg-bg-sunken px-1.5 py-0.5 text-[10px] text-fg-muted">
-                    {companyId || "-"}
+                    {companyName || companyId || "-"}
                   </code>
                 </>
               )}
@@ -779,7 +1012,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
             <Button
               variant="ghost"
               className={cn(
-                "h-8 text-fg-muted hover:text-red-500",
+                "h-8 text-fg-muted hover:text-danger",
                 collapsed ? "w-8 justify-center px-0" : "w-full justify-start gap-2"
               )}
               onClick={logout}
@@ -816,6 +1049,24 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Favorite */}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-8 w-8",
+                isStarred ? "text-primary hover:text-primary" : "text-fg-muted hover:text-foreground"
+              )}
+              title={isStarred ? "Remove from favorites" : "Add to favorites"}
+              onClick={() => {
+                toggleFavorite({ href: pageHrefForStar, label: pageLabelForStar });
+                setFavorites(getFavorites());
+              }}
+            >
+              <Star className={cn("h-4 w-4", isStarred && "fill-primary")} />
+            </Button>
+
             {/* Search trigger */}
             <Button
               variant="outline"
@@ -835,9 +1086,9 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
               className={cn(
                 "flex h-8 items-center gap-2 rounded-md border px-2.5 text-xs font-medium",
                 health === "online"
-                  ? "border-green-500/20 bg-green-500/10 text-green-400"
+                  ? "border-success/20 bg-success/10 text-success"
                   : health === "offline"
-                    ? "border-red-500/20 bg-red-500/10 text-red-400"
+                    ? "border-danger/20 bg-danger/10 text-danger"
                     : "border-border bg-bg-elevated text-fg-subtle"
               )}
               title={healthDetail || "System status"}
@@ -894,11 +1145,11 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           </DialogHeader>
 
           <div className="flex flex-col gap-1 p-2">
-            <div className="mb-2 flex items-center gap-2 px-3 py-2">
+          <div className="mb-2 flex items-center gap-2 px-3 py-2">
               <Building2 className="h-4 w-4 text-fg-subtle" />
               <span className="text-xs text-fg-muted">Company</span>
               <code className="ml-auto rounded bg-bg-sunken px-1.5 py-0.5 text-[10px] text-fg-muted">
-                {companyId || "-"}
+                {companyName || companyId || "-"}
               </code>
             </div>
 
@@ -924,7 +1175,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
             <div className="mt-auto border-t border-border-subtle pt-2">
               <Button
                 variant="ghost"
-                className="w-full justify-start gap-2 text-fg-muted hover:text-red-500"
+                className="w-full justify-start gap-2 text-fg-muted hover:text-danger"
                 onClick={() => {
                   setMobileOpen(false);
                   logout();

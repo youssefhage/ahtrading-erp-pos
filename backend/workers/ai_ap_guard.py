@@ -111,6 +111,10 @@ def run_ap_guard_agent(db_url: str, company_id: str, due_soon_days: int = 7, lim
                 "supplier_name": r.get("supplier_name"),
                 "hold_reason": r.get("hold_reason"),
                 "held_at": (r.get("held_at").isoformat() if r.get("held_at") else None),
+                "explain": {
+                    "why": "Supplier invoice is on hold and needs review/unhold before posting or paying.",
+                    "signals": ["is_on_hold"],
+                },
                 "timestamp": datetime.utcnow().isoformat(),
             }
             _insert(rec, rec["key"])
@@ -129,6 +133,10 @@ def run_ap_guard_agent(db_url: str, company_id: str, due_soon_days: int = 7, lim
                 "due_date": (r.get("due_date").isoformat() if r.get("due_date") else None),
                 "outstanding_usd": str(outstanding_usd),
                 "outstanding_lbp": str(outstanding_lbp),
+                "explain": {
+                    "why": "Invoice is due soon and still has an outstanding balance.",
+                    "signals": ["due_soon", "outstanding_balance"],
+                },
                 "timestamp": datetime.utcnow().isoformat(),
             }
             _insert(rec, rec["key"])
@@ -146,4 +154,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

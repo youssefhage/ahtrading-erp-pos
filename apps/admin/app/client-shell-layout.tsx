@@ -44,6 +44,7 @@ const TITLE_BY_PATH: Record<string, string> = {
   "/accounting/reports/inventory-valuation": "Inventory Valuation",
   "/accounting/reports/consolidated": "Consolidated Reports",
   "/system/config": "Config",
+  "/system/dimensions": "Dimensions",
   "/system/branches": "Branches",
   "/system/warehouses": "Warehouses",
   "/system/users": "Users",

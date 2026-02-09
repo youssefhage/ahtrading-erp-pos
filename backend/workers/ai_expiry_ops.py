@@ -66,6 +66,10 @@ def run_expiry_ops_agent(db_url: str, company_id: str, days: int = 30, limit: in
                 "batch_status": r.get("batch_status"),
                 "qty_on_hand": str(r.get("qty_on_hand") or 0),
                 "days_window": days,
+                "explain": {
+                    "why": "This batch is expiring soon and still has stock on hand.",
+                    "signals": ["expiry_within_window", "qty_on_hand"],
+                },
                 "timestamp": datetime.utcnow().isoformat(),
                 "suggestions": [
                     {"code": "review_promo", "message": "Consider discounting/promoting to sell before expiry."},
@@ -112,4 +116,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -133,8 +133,8 @@ export default function LoginPage() {
               <div
                 className={`rounded-md border px-3 py-2 text-xs ${
                   status === "Success"
-                    ? "border-green-500/30 bg-green-500/10 text-green-400"
-                    : "border-red-500/30 bg-red-500/10 text-red-400"
+                    ? "border-success/30 bg-success/10 text-success"
+                    : "border-danger/30 bg-danger/10 text-danger"
                 }`}
               >
                 {status}
@@ -162,6 +162,7 @@ export default function LoginPage() {
 
           <div className="text-center">
             <button
+              type="button"
               onClick={() => router.push("/")}
               className="text-xs text-fg-subtle hover:text-foreground transition-colors"
             >

@@ -388,6 +388,11 @@
   .focus-ring {
     @apply focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2 focus:ring-offset-background;
   }
+
+  /* Links that should look like "actions" in dense tables/forms */
+  .ui-link {
+    @apply text-primary underline-offset-4 hover:underline focus-ring;
+  }
 }
 
 @keyframes fadeIn {

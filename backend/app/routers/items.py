@@ -89,6 +89,126 @@ def list_items(company_id: str = Depends(get_company_id)):
             return {"items": cur.fetchall()}
 
 
+class ItemsLookupIn(BaseModel):
+    ids: List[str]
+
+
+@router.post("/lookup", dependencies=[Depends(require_permission("items:read"))])
+def lookup_items(data: ItemsLookupIn, company_id: str = Depends(get_company_id)):
+    ids = data.ids or []
+    if not ids:
+        return {"items": []}
+    if len(ids) > 1000:
+        raise HTTPException(status_code=400, detail="too many ids (max 1000)")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT i.id, i.sku, i.name, i.barcode, i.unit_of_measure, i.is_active,
+                       COALESCE(
+                         (
+                           SELECT json_agg(json_build_object('barcode', b.barcode) ORDER BY b.barcode)
+                           FROM item_barcodes b
+                           WHERE b.company_id = i.company_id AND b.item_id = i.id
+                         ),
+                         '[]'::json
+                       ) AS barcodes
+                FROM items i
+                WHERE i.company_id = %s
+                  AND i.id = ANY(%s)
+                ORDER BY i.sku
+                """,
+                (company_id, ids),
+            )
+            return {"items": cur.fetchall()}
+
+@router.get("/typeahead", dependencies=[Depends(require_permission("items:read"))])
+def typeahead_items(
+    q: str = "",
+    limit: int = 50,
+    include_inactive: bool = False,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Lightweight search endpoint for large catalogs (typeahead/combobox).
+
+    Returns minimal item fields plus barcodes for fast picking by SKU/name/barcode.
+    """
+    qq = (q or "").strip()
+    if limit <= 0 or limit > 200:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+    like = f"%{qq}%"
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT i.id, i.sku, i.name, i.barcode, i.unit_of_measure,
+                       COALESCE(
+                         (
+                           SELECT json_agg(json_build_object('barcode', b.barcode) ORDER BY b.barcode)
+                           FROM item_barcodes b
+                           WHERE b.company_id = i.company_id AND b.item_id = i.id
+                         ),
+                         '[]'::json
+                       ) AS barcodes
+                FROM items i
+                WHERE i.company_id = %s
+                  AND (%s = true OR i.is_active = true)
+                  AND (
+                    %s = ''
+                    OR i.sku ILIKE %s
+                    OR i.name ILIKE %s
+                    OR (i.barcode IS NOT NULL AND i.barcode ILIKE %s)
+                    OR EXISTS (
+                      SELECT 1
+                      FROM item_barcodes b
+                      WHERE b.company_id = i.company_id
+                        AND b.item_id = i.id
+                        AND b.barcode ILIKE %s
+                    )
+                  )
+                ORDER BY i.sku
+                LIMIT %s
+                """,
+                (company_id, include_inactive, qq, like, like, like, like, limit),
+            )
+            return {"items": cur.fetchall()}
+
+@router.get("/{item_id}", dependencies=[Depends(require_permission("items:read"))])
+def get_item(item_id: str, company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT i.id, i.sku, i.barcode, i.name, i.item_type, i.tags,
+                       i.unit_of_measure, i.tax_code_id, i.reorder_point, i.reorder_qty,
+                       i.is_active, i.category_id, i.brand, i.short_name, i.description,
+                       i.track_batches, i.track_expiry,
+                       i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
+                       i.allow_negative_stock,
+                       i.image_attachment_id, i.image_alt,
+                       COALESCE(
+                         (
+                           SELECT json_agg(json_build_object('barcode', b.barcode) ORDER BY b.barcode)
+                           FROM item_barcodes b
+                           WHERE b.company_id = i.company_id AND b.item_id = i.id
+                         ),
+                         '[]'::json
+                       ) AS barcodes
+                FROM items i
+                WHERE i.company_id = %s AND i.id = %s
+                """,
+                (company_id, item_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="item not found")
+            return {"item": row}
+
+
 @router.post("", dependencies=[Depends(require_permission("items:write"))])
 def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:

@@ -3,31 +3,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
+import { getDefaultWarehouseId } from "@/lib/op-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ItemPicker, type ItemPickerItem } from "@/components/item-picker";
+import { ErrorBanner } from "@/components/error-banner";
+import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
 
 type Customer = { id: string; name: string; payment_terms_days?: string | number };
-type CatalogItemBarcode = { id: string; barcode: string; qty_factor: string | number; label: string | null; is_primary: boolean };
-type Item = ItemPickerItem & {
-  barcode: string | null;
-  unit_of_measure: string;
-  is_active: boolean;
-  price_usd: string | number | null;
-  price_lbp: string | number | null;
-  barcodes: CatalogItemBarcode[];
-};
 type Warehouse = { id: string; name: string };
 
-type InvoiceLine = {
-  id?: string;
+type InvoiceLineDraft = {
   item_id: string;
-  qty: string | number;
-  unit_price_usd: string | number;
-  unit_price_lbp: string | number;
+  item_sku?: string | null;
+  item_name?: string | null;
+  unit_of_measure?: string | null;
+  qty: string;
+  unit_price_usd: string;
+  unit_price_lbp: string;
 };
 
 type InvoiceDetail = {
@@ -43,6 +38,9 @@ type InvoiceDetail = {
   };
   lines: Array<{
     item_id: string;
+    item_sku?: string | null;
+    item_name?: string | null;
+    unit_of_measure?: string | null;
     qty: string | number;
     unit_price_usd: string | number;
     unit_price_lbp: string | number;
@@ -73,7 +71,6 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [saving, setSaving] = useState(false);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
   const [customerId, setCustomerId] = useState("");
@@ -84,9 +81,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [reserveStock, setReserveStock] = useState(false);
   const [exchangeRate, setExchangeRate] = useState("0");
 
-  const [lines, setLines] = useState<Array<{ item_id: string; qty: string; unit_price_usd: string; unit_price_lbp: string }>>([]);
+  const [lines, setLines] = useState<InvoiceLineDraft[]>([]);
 
-  const [addItemId, setAddItemId] = useState("");
+  const [addItem, setAddItem] = useState<ItemTypeaheadItem | null>(null);
   const [addQty, setAddQty] = useState("1");
   const [addUsd, setAddUsd] = useState("");
   const [addLbp, setAddLbp] = useState("");
@@ -94,25 +91,25 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const addQtyRef = useRef<HTMLInputElement | null>(null);
 
   const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
-  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-  const pickItems = useMemo(() => items.filter((i) => i.is_active !== false), [items]);
-  const addItem = addItemId ? itemById.get(addItemId) : undefined;
 
   const load = useCallback(async () => {
     setLoading(true);
     setStatus("Loading...");
     try {
-      const [cust, it, wh] = await Promise.all([
+      const [cust, wh] = await Promise.all([
         apiGet<{ customers: Customer[] }>("/customers"),
-        apiGet<{ items: Item[] }>("/pricing/catalog"),
         apiGet<{ warehouses: Warehouse[] }>("/warehouses")
       ]);
       setCustomers(cust.customers || []);
-      setItems(it.items || []);
       setWarehouses(wh.warehouses || []);
 
       const firstWhId = (wh.warehouses || [])[0]?.id || "";
-      if (firstWhId) setWarehouseId((prev) => prev || firstWhId);
+      const preferredWhId = (() => {
+        const cid = getCompanyId();
+        const pref = getDefaultWarehouseId(cid);
+        return pref && (wh.warehouses || []).some((w) => w.id === pref) ? pref : "";
+      })();
+      if (firstWhId || preferredWhId) setWarehouseId((prev) => prev || preferredWhId || firstWhId);
 
       if (props.mode === "edit") {
         const id = props.invoiceId || "";
@@ -120,8 +117,16 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         const det = await apiGet<InvoiceDetail>(`/sales/invoices/${id}`);
         if (det.invoice.status !== "draft") throw new Error("Only draft invoices can be edited.");
 
+        const uniq = Array.from(new Set((det.lines || []).map((l) => l.item_id).filter(Boolean)));
+        const look = uniq.length
+          ? await apiPost<{ items: Array<{ id: string; sku: string; name: string; unit_of_measure: string }> }>("/items/lookup", {
+              ids: uniq
+            })
+          : { items: [] };
+        const byId = new Map((look.items || []).map((it) => [it.id, it]));
+
         setCustomerId(det.invoice.customer_id || "");
-        setWarehouseId(det.invoice.warehouse_id || firstWhId || "");
+        setWarehouseId(det.invoice.warehouse_id || preferredWhId || firstWhId || "");
         setInvoiceDate(String(det.invoice.invoice_date || todayIso()).slice(0, 10));
         setAutoDueDate(false);
         setDueDate(String(det.invoice.due_date || det.invoice.invoice_date || todayIso()).slice(0, 10));
@@ -130,6 +135,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         setLines(
           (det.lines || []).map((l) => ({
             item_id: l.item_id,
+            item_sku: (l as any).item_sku || byId.get(l.item_id)?.sku || null,
+            item_name: (l as any).item_name || byId.get(l.item_id)?.name || null,
+            unit_of_measure: (l as any).unit_of_measure || byId.get(l.item_id)?.unit_of_measure || null,
             qty: String(l.qty || 0),
             unit_price_usd: String(l.unit_price_usd || 0),
             unit_price_lbp: String(l.unit_price_lbp || 0)
@@ -167,12 +175,12 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoDueDate, customerId, invoiceDate, customers.length]);
 
-  function onPickItem(it: Item) {
-    setAddItemId(it.id);
+  function onPickItem(it: ItemTypeaheadItem) {
+    setAddItem(it);
     setAddQty("1");
 
-    const usd = toNum(String(it.price_usd ?? ""));
-    const lbp = toNum(String(it.price_lbp ?? ""));
+    const usd = toNum(String((it as any).price_usd ?? ""));
+    const lbp = toNum(String((it as any).price_lbp ?? ""));
     setAddUsd(usd > 0 ? String(usd) : "");
     setAddLbp(lbp > 0 ? String(lbp) : "");
 
@@ -182,7 +190,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 
   function addLine(e: React.FormEvent) {
     e.preventDefault();
-    if (!addItemId) return setStatus("Select an item.");
+    if (!addItem) return setStatus("Select an item.");
     const q = toNum(addQty);
     if (q <= 0) return setStatus("qty must be > 0");
     let unitUsd = toNum(addUsd);
@@ -195,9 +203,17 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     if (unitUsd === 0 && unitLbp === 0) return setStatus("Set USD or LL unit price.");
     setLines((prev) => [
       ...prev,
-      { item_id: addItemId, qty: String(q), unit_price_usd: String(unitUsd), unit_price_lbp: String(unitLbp) }
+      {
+        item_id: addItem.id,
+        item_sku: addItem.sku,
+        item_name: addItem.name,
+        unit_of_measure: addItem.unit_of_measure ?? null,
+        qty: String(q),
+        unit_price_usd: String(unitUsd),
+        unit_price_lbp: String(unitLbp)
+      }
     ]);
-    setAddItemId("");
+    setAddItem(null);
     setAddQty("1");
     setAddUsd("");
     setAddLbp("");
@@ -281,15 +297,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       </div>
 
       {status ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Status</CardTitle>
-            <CardDescription>Fix the issue and try again.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-          </CardContent>
-        </Card>
+        <ErrorBanner error={status} onRetry={load} />
       ) : null}
 
       <Card>
@@ -371,14 +379,19 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
               <CardContent className="space-y-3">
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
                   <div className="space-y-1 md:col-span-6">
-                    <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
-                    <ItemPicker items={pickItems} onSelect={(it) => onPickItem(it as Item)} disabled={loading} />
+                    <label className="text-xs font-medium text-fg-muted">Item (search by name or barcode)</label>
+                    <ItemTypeahead
+                      endpoint="/pricing/catalog/typeahead"
+                      onSelect={(it) => onPickItem(it)}
+                      disabled={loading}
+                      placeholder="Search item name / barcode..."
+                    />
                     {addItem ? (
                       <p className="text-[11px] text-fg-subtle">
                         Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}
                       </p>
                     ) : (
-                      <p className="text-[11px] text-fg-subtle">Tip: paste/scan a barcode then press Enter.</p>
+                      <p className="text-[11px] text-fg-subtle">Tip: scan a barcode or type a few letters of the name, then Enter.</p>
                     )}
                   </div>
                   <div className="space-y-1 md:col-span-2">
@@ -422,24 +435,20 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                     </thead>
                     <tbody>
                       {lines.map((l, idx) => {
-                        const it = itemById.get(l.item_id);
                         const qty = toNum(String(l.qty));
                         const unitUsd = toNum(String(l.unit_price_usd));
                         const unitLbp = toNum(String(l.unit_price_lbp));
                         return (
                           <tr key={`${l.item_id}-${idx}`} className="ui-tr-hover">
                             <td className="px-3 py-2">
-                              {it ? (
-                                <span>
-                                  <span className="font-mono text-xs">{it.sku}</span> · {it.name}
-                                </span>
-                              ) : (
-                                <span className="font-mono text-xs">{l.item_id}</span>
-                              )}
+                              <span>
+                                <span className="font-mono text-xs">{l.item_sku || l.item_id.slice(0, 8)}</span>
+                                {l.item_name ? <span> · {l.item_name}</span> : null}
+                              </span>
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
                               {qty.toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
-                              {it?.unit_of_measure ? <span className="text-[10px] text-fg-subtle">{it.unit_of_measure}</span> : null}
+                              {l.unit_of_measure ? <span className="text-[10px] text-fg-subtle">{l.unit_of_measure}</span> : null}
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
                               {unitUsd.toLocaleString("en-US", { maximumFractionDigits: 4 })}

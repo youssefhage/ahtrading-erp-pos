@@ -83,6 +83,10 @@ def run_data_hygiene_agent(db_url: str, company_id: str, limit: int = 300):
                 "sku": r.get("sku"),
                 "name": r.get("name"),
                 "issues": issues,
+                "explain": {
+                    "why": "This item is missing master-data that affects scanning, tax posting, expiry operations, or purchasing.",
+                    "signals": [i.get("code") for i in issues],
+                },
                 "timestamp": datetime.utcnow().isoformat(),
             }
 

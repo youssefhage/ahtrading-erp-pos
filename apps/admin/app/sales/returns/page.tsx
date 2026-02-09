@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,9 @@ type ReturnRow = {
   status: string;
   total_usd: string | number;
   total_lbp: string | number;
+  restocking_fee_usd?: string | number;
+  restocking_fee_lbp?: string | number;
+  restocking_fee_reason?: string | null;
   created_at: string;
 };
 
@@ -54,6 +58,15 @@ type ReturnDetail = {
   return: ReturnRow & { exchange_rate: string | number };
   lines: ReturnLine[];
   tax_lines: TaxLine[];
+  refunds: Array<{
+    id: string;
+    method: string;
+    amount_usd: string | number;
+    amount_lbp: string | number;
+    bank_account_id: string | null;
+    reference: string | null;
+    created_at: string;
+  }>;
 };
 
 export default function SalesReturnsPage() {
@@ -127,19 +140,18 @@ export default function SalesReturnsPage() {
     loadDetail(returnId);
   }, [returnId, loadDetail]);
 
+  const netRefund = useMemo(() => {
+    if (!detail) return { usd: 0, lbp: 0 };
+    const feeUsd = Number((detail.return as any).restocking_fee_usd || 0) || 0;
+    const feeLbp = Number((detail.return as any).restocking_fee_lbp || 0) || 0;
+    const totUsd = Number(detail.return.total_usd || 0) || 0;
+    const totLbp = Number(detail.return.total_lbp || 0) || 0;
+    return { usd: totUsd - feeUsd, lbp: totLbp - feeLbp };
+  }, [detail]);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>API errors will show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
         <Card>
           <CardHeader>
@@ -245,7 +257,40 @@ export default function SalesReturnsPage() {
                               {fmtUsd(detail.return.total_usd)} / {fmtLbp(detail.return.total_lbp)}
                             </span>
                           </div>
+                          {(Number((detail.return as any).restocking_fee_usd || 0) || Number((detail.return as any).restocking_fee_lbp || 0)) ? (
+                            <div>
+                              <span className="text-fg-subtle">Restocking fee:</span>{" "}
+                              <span className="data-mono">
+                                {fmtUsd((detail.return as any).restocking_fee_usd || 0)} / {fmtLbp((detail.return as any).restocking_fee_lbp || 0)}
+                              </span>
+                              {(detail.return as any).restocking_fee_reason ? (
+                                <span className="ml-2 text-xs text-fg-muted">({String((detail.return as any).restocking_fee_reason)})</span>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          <div>
+                            <span className="text-fg-subtle">Net refund:</span>{" "}
+                            <span className="data-mono">
+                              {fmtUsd(netRefund.usd)} / {fmtLbp(netRefund.lbp)}
+                            </span>
+                          </div>
                         </div>
+
+                        {(detail.refunds || []).length ? (
+                          <div className="rounded-md border border-border/60 bg-bg-sunken/30 p-3">
+                            <div className="text-xs font-medium text-fg-muted">Refund Transactions</div>
+                            <div className="mt-2 space-y-1 text-sm">
+                              {(detail.refunds || []).map((r) => (
+                                <div key={r.id} className="flex items-center justify-between gap-2">
+                                  <div className="font-mono text-xs text-fg-muted">{r.method}</div>
+                                  <div className="data-mono text-xs">
+                                    {fmtUsd(r.amount_usd)} / {fmtLbp(r.amount_lbp)}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
 
                         <div className="ui-table-wrap">
                           <table className="ui-table">

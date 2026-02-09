@@ -91,6 +91,8 @@ class JournalLineIn(BaseModel):
     amount_usd: Optional[Decimal] = None
     amount_lbp: Optional[Decimal] = None
     memo: Optional[str] = None
+    cost_center_id: Optional[str] = None
+    project_id: Optional[str] = None
 
 
 class ManualJournalIn(BaseModel):
@@ -243,9 +245,13 @@ def get_journal(journal_id: str, company_id: str = Depends(get_company_id)):
             cur.execute(
                 """
                 SELECT e.id, e.account_id, a.account_code, a.name_en,
-                       e.debit_usd, e.credit_usd, e.debit_lbp, e.credit_lbp, e.memo
+                       e.debit_usd, e.credit_usd, e.debit_lbp, e.credit_lbp, e.memo,
+                       e.cost_center_id, cc.code AS cost_center_code, cc.name AS cost_center_name,
+                       e.project_id, pr.code AS project_code, pr.name AS project_name
                 FROM gl_entries e
                 JOIN company_coa_accounts a ON a.id = e.account_id
+                LEFT JOIN cost_centers cc ON cc.id = e.cost_center_id
+                LEFT JOIN projects pr ON pr.id = e.project_id
                 WHERE e.journal_id = %s
                 ORDER BY a.account_code, e.id
                 """,
@@ -301,6 +307,24 @@ def create_manual_journal(
                     if not account_id:
                         raise HTTPException(status_code=400, detail=f"line {idx+1}: account_id or account_code is required")
 
+                    cost_center_id = (line.cost_center_id or "").strip() or None
+                    if cost_center_id:
+                        cur.execute(
+                            "SELECT 1 FROM cost_centers WHERE company_id=%s AND id=%s",
+                            (company_id, cost_center_id),
+                        )
+                        if not cur.fetchone():
+                            raise HTTPException(status_code=400, detail=f"line {idx+1}: cost_center_id not found")
+
+                    project_id = (line.project_id or "").strip() or None
+                    if project_id:
+                        cur.execute(
+                            "SELECT 1 FROM projects WHERE company_id=%s AND id=%s",
+                            (company_id, project_id),
+                        )
+                        if not cur.fetchone():
+                            raise HTTPException(status_code=400, detail=f"line {idx+1}: project_id not found")
+
                     amount_usd = Decimal(str(line.amount_usd or 0))
                     amount_lbp = Decimal(str(line.amount_lbp or 0))
                     if amount_usd == 0 and amount_lbp == 0:
@@ -339,6 +363,8 @@ def create_manual_journal(
                             "debit_lbp": debit_lbp,
                             "credit_lbp": credit_lbp,
                             "memo": (line.memo or "").strip() or None,
+                            "cost_center_id": cost_center_id,
+                            "project_id": project_id,
                         }
                     )
 
@@ -410,9 +436,9 @@ def create_manual_journal(
                     cur.execute(
                         """
                         INSERT INTO gl_entries
-                          (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                          (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, cost_center_id, project_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             journal_id,
@@ -422,6 +448,8 @@ def create_manual_journal(
                             l["debit_lbp"],
                             l["credit_lbp"],
                             l["memo"],
+                            l.get("cost_center_id"),
+                            l.get("project_id"),
                         ),
                     )
 

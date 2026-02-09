@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ErrorBanner } from "@/components/error-banner";
 
 type RoleRow = { id: string; name: string };
 type PermissionRow = { id: string; code: string; description: string };
@@ -120,17 +121,7 @@ export default function RolesPermissionsPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Status</CardTitle>
-              <CardDescription>API errors will show here.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="whitespace-pre-wrap text-xs text-fg-muted">{status}</pre>
-            </CardContent>
-          </Card>
-        ) : null}
+      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="outline" onClick={load}>
