@@ -44,9 +44,10 @@ Canonical execution documents:
 ## Next 2-4 Weeks (High-ROI, Low-Regret)
 
 1) Admin UI: complete the document-first experience
-- Convert Purchase Orders, Goods Receipts, Items, Customers into consistent list/new/[id]/edit routes.
-- Standardize “Attachments” and “Timeline/Audit” tabs across documents.
-- Centralize API error parsing and replace raw “Status” pre blocks with productized error/empty states.
+- Completed (2026-02-09): Purchase Orders, Goods Receipts, Suppliers now follow consistent list/new/[id]/edit routes.
+- Next: convert Items + Customers into the same route pattern (reduce dialog state, improve deep-linking and QA).
+- Standardize “Attachments” and “Timeline/Audit” tabs across documents (Sales, Purchasing, Inventory docs) so operators always know where to look.
+- Keep tightening error/empty states (use `ApiError.status` mapping + “Details” expander everywhere).
 
 2) Purchasing: make invoice ingestion feel flawless
 - Move invoice extraction to async background jobs:
@@ -65,6 +66,10 @@ Canonical execution documents:
 4) Audit coverage completion (business-grade)
 - Ensure all document lifecycle actions write `audit_logs`:
   - draft create/update, post/submit, cancel/void, hold/unhold, payment create/cancel, attachments uploaded.
+
+5) Go-live hardening (practical)
+- Preflight is now largely green; remaining common blocker is POS device setup.
+- Add a “Create first POS device” guided wizard (device + default warehouse/branch + token + test sale).
 
 ## Next 1-3 Months (Competitive Differentiators)
 
