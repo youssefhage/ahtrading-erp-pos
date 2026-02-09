@@ -55,6 +55,12 @@ export default function ConfigPage() {
   const [apTaxDiffLbpThreshold, setApTaxDiffLbpThreshold] = useState("500000");
   const [savingApPolicy, setSavingApPolicy] = useState(false);
 
+  // Pricing policy (company_settings.key='pricing_policy')
+  const [targetMarginPct, setTargetMarginPct] = useState("0.20");
+  const [usdRoundStep, setUsdRoundStep] = useState("0.25");
+  const [lbpRoundStep, setLbpRoundStep] = useState("5000");
+  const [savingPricingPolicy, setSavingPricingPolicy] = useState(false);
+
   // Tax code form
   const [taxName, setTaxName] = useState("");
   const [taxRate, setTaxRate] = useState("11");
@@ -142,6 +148,14 @@ export default function ConfigPage() {
     setApAbsLbpThreshold(String(v?.abs_lbp_threshold ?? "2500000"));
     setApTaxDiffPctThreshold(String(v?.tax_diff_pct_threshold ?? "0.02"));
     setApTaxDiffLbpThreshold(String(v?.tax_diff_lbp_threshold ?? "500000"));
+  }, [settings]);
+
+  useEffect(() => {
+    const pp = settings.find((s) => s.key === "pricing_policy");
+    const v = (pp?.value_json || {}) as any;
+    setTargetMarginPct(String(v?.target_margin_pct ?? "0.20"));
+    setUsdRoundStep(String(v?.usd_round_step ?? "0.25"));
+    setLbpRoundStep(String(v?.lbp_round_step ?? "5000"));
   }, [settings]);
 
   useEffect(() => {
@@ -255,6 +269,29 @@ export default function ConfigPage() {
       setStatus(message);
     } finally {
       setSavingMethod(false);
+    }
+  }
+
+  async function savePricingPolicy(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingPricingPolicy(true);
+    setStatus("Saving pricing policy...");
+    try {
+      await apiPost("/pricing/company-settings", {
+        key: "pricing_policy",
+        value_json: {
+          target_margin_pct: Number(targetMarginPct || 0),
+          usd_round_step: Number(usdRoundStep || 0),
+          lbp_round_step: Number(lbpRoundStep || 0),
+        },
+      });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSavingPricingPolicy(false);
     }
   }
 
@@ -425,6 +462,37 @@ export default function ConfigPage() {
               <div className="flex items-end justify-end md:col-span-6">
                 <Button type="submit" disabled={savingApPolicy}>
                   {savingApPolicy ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Pricing Policy</CardTitle>
+            <CardDescription>Controls suggested sell prices (target margin + rounding).</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <form onSubmit={savePricingPolicy} className="grid grid-cols-1 gap-3 md:grid-cols-6">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs font-medium text-fg-muted">Target Margin (pct)</label>
+                <Input value={targetMarginPct} onChange={(e) => setTargetMarginPct(e.target.value)} placeholder="0.20" />
+                <div className="text-[11px] text-fg-subtle">Example: 0.20 = 20% gross margin target</div>
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs font-medium text-fg-muted">USD Round Step</label>
+                <Input value={usdRoundStep} onChange={(e) => setUsdRoundStep(e.target.value)} placeholder="0.25" />
+                <div className="text-[11px] text-fg-subtle">Suggested USD prices round up to this step</div>
+              </div>
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs font-medium text-fg-muted">LBP Round Step</label>
+                <Input value={lbpRoundStep} onChange={(e) => setLbpRoundStep(e.target.value)} placeholder="5000" />
+                <div className="text-[11px] text-fg-subtle">Suggested LBP prices round up to this step</div>
+              </div>
+              <div className="flex items-end justify-end md:col-span-6">
+                <Button type="submit" disabled={savingPricingPolicy}>
+                  {savingPricingPolicy ? "Saving..." : "Save Pricing Policy"}
                 </Button>
               </div>
             </form>
