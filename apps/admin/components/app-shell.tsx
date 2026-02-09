@@ -441,6 +441,26 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [defaultBranchId, setDefaultBranchIdState] = useState("");
   const [defaultWarehouseId, setDefaultWarehouseIdState] = useState("");
+  const [contextMinimized, setContextMinimized] = useState<boolean>(() => {
+    try {
+      if (typeof window === "undefined") return false;
+      return window.localStorage.getItem("admin.ui.contextMinimized.v1") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  function toggleContextMinimized() {
+    setContextMinimized((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("admin.ui.contextMinimized.v1", next ? "1" : "0");
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     // Persist module expansion per UI variant (full vs lite).
@@ -876,7 +896,18 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           <div className="border-b border-border-subtle px-3 py-3">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-subtle">Context</div>
+                <div className="flex items-center gap-1.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fg-subtle">Context</div>
+                  <button
+                    type="button"
+                    className="rounded p-1 text-fg-subtle hover:text-foreground"
+                    onClick={toggleContextMinimized}
+                    aria-label={contextMinimized ? "Show context" : "Hide context"}
+                    title={contextMinimized ? "Show context" : "Hide context"}
+                  >
+                    <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !contextMinimized && "rotate-180")} />
+                  </button>
+                </div>
                 <button
                   type="button"
                   className="mt-1 block w-full truncate text-left text-sm font-medium text-foreground hover:underline"
@@ -884,14 +915,16 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                 >
                   {companyName || "Company"}
                 </button>
-                <div className="mt-0.5 font-mono text-[10px] text-fg-subtle">{companyId || "-"}</div>
+                {!contextMinimized ? (
+                  <div className="mt-0.5 font-mono text-[10px] text-fg-subtle">{companyId || "-"}</div>
+                ) : null}
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => router.push("/company/select")}>
                 Switch
               </Button>
             </div>
 
-            {(branches.length || warehouses.length) ? (
+            {!contextMinimized && (branches.length || warehouses.length) ? (
               <div className="mt-3 grid grid-cols-1 gap-2">
                 {branches.length ? (
                   <div className="space-y-1">
