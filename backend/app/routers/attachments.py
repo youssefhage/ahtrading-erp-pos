@@ -1,13 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from pydantic import BaseModel
 from typing import Optional
 import hashlib
 import json
 import os
+import uuid
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
+from ..storage.s3 import s3_enabled, put_bytes, presign_get
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
 
@@ -81,18 +83,55 @@ def upload_attachment(
     sha = hashlib.sha256(raw).hexdigest() if raw else None
     filename = (file.filename or "attachment").strip() or "attachment"
     content_type = (file.content_type or "application/octet-stream").strip() or "application/octet-stream"
+
+    # Default: store in Postgres (v1). If S3/MinIO is configured, store bytes there.
+    attachment_id = str(uuid.uuid4())
+    storage_backend = "db"
+    object_key = None
+    object_etag = None
+    object_bucket = None
+
+    if s3_enabled():
+        try:
+            storage_backend = "s3"
+            object_key = f"attachments/{company_id}/{attachment_id}"
+            object_etag = put_bytes(key=object_key, data=raw, content_type=content_type)
+        except Exception:
+            # If object storage is unavailable, fall back to DB storage.
+            storage_backend = "db"
+            object_key = None
+            object_etag = None
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
                 INSERT INTO document_attachments
-                  (id, company_id, entity_type, entity_id, filename, content_type, size_bytes, sha256, bytes, uploaded_by_user_id)
+                  (id, company_id, entity_type, entity_id, filename, content_type, size_bytes, sha256,
+                   storage_backend, object_bucket, object_key, object_etag,
+                   bytes, uploaded_by_user_id)
                 VALUES
-                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                  (%s::uuid, %s, %s, %s, %s, %s, %s, %s,
+                   %s, %s, %s, %s,
+                   %s, %s)
                 RETURNING id
                 """,
-                (company_id, entity_type, entity_id, filename, content_type, len(raw), sha, raw, user["user_id"]),
+                (
+                    attachment_id,
+                    company_id,
+                    entity_type,
+                    entity_id,
+                    filename,
+                    content_type,
+                    len(raw),
+                    sha,
+                    storage_backend,
+                    object_bucket,
+                    object_key,
+                    object_etag,
+                    None if storage_backend == "s3" else raw,
+                    user["user_id"],
+                ),
             )
             attachment_id = cur.fetchone()["id"]
             # Keep attachments discoverable in the same Timeline/Audit stream as the document itself.
@@ -109,7 +148,7 @@ def upload_attachment(
                     entity_id,
                     json.dumps(
                         {
-                            "attachment_id": attachment_id,
+                            "attachment_id": str(attachment_id),
                             "filename": filename,
                             "content_type": content_type,
                             "size_bytes": len(raw),
@@ -132,7 +171,8 @@ def download_attachment(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT entity_type, filename, content_type, bytes
+                SELECT entity_type, filename, content_type, bytes,
+                       storage_backend, object_key
                 FROM document_attachments
                 WHERE company_id = %s AND id = %s
                 """,
@@ -142,6 +182,14 @@ def download_attachment(
             if not row:
                 raise HTTPException(status_code=404, detail="attachment not found")
             require_permission(_permission_for_entity(row["entity_type"], write=False))(company_id=company_id, user=user)
+            if (row.get("storage_backend") or "db") == "s3" and row.get("object_key"):
+                url = presign_get(
+                    key=row["object_key"],
+                    filename=row["filename"],
+                    content_type=row["content_type"],
+                    disposition="attachment",
+                )
+                return RedirectResponse(url=url, status_code=302)
             data = row["bytes"] or b""
             headers = {"Content-Disposition": f'attachment; filename="{row["filename"]}"'}
             return Response(content=data, media_type=row["content_type"], headers=headers)
@@ -161,7 +209,8 @@ def view_attachment(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT entity_type, filename, content_type, bytes
+                SELECT entity_type, filename, content_type, bytes,
+                       storage_backend, object_key
                 FROM document_attachments
                 WHERE company_id = %s AND id = %s
                 """,
@@ -171,6 +220,14 @@ def view_attachment(
             if not row:
                 raise HTTPException(status_code=404, detail="attachment not found")
             require_permission(_permission_for_entity(row["entity_type"], write=False))(company_id=company_id, user=user)
+            if (row.get("storage_backend") or "db") == "s3" and row.get("object_key"):
+                url = presign_get(
+                    key=row["object_key"],
+                    filename=row["filename"],
+                    content_type=row["content_type"],
+                    disposition="inline",
+                )
+                return RedirectResponse(url=url, status_code=302)
             data = row["bytes"] or b""
             headers = {"Content-Disposition": f'inline; filename="{row["filename"]}"'}
             return Response(content=data, media_type=row["content_type"], headers=headers)

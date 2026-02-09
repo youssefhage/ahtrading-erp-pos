@@ -10,6 +10,42 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  # Object storage for attachments v2 (local dev).
+  # The API uses signed URLs (private bucket) when configured.
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint:
+      - sh
+      - -lc
+      - |
+        set -e
+        i=0
+        until mc alias set local "http://minio:9000" "${MINIO_ROOT_USER:-minioadmin}" "${MINIO_ROOT_PASSWORD:-minioadmin}"; do
+          i=$$((i+1))
+          if [ "$$i" -ge 30 ]; then
+            echo "minio not ready after $$i attempts" >&2
+            exit 1
+          fi
+          sleep 1
+        done
+        mc mb -p "local/${S3_BUCKET:-attachments}" || true
+        mc anonymous set none "local/${S3_BUCKET:-attachments}" || true
+        echo "minio bucket ready"
+
   api:
     build:
       context: .
@@ -28,8 +64,16 @@ services:
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@ahtrading.local}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       BOOTSTRAP_ADMIN_RESET_PASSWORD: ${BOOTSTRAP_ADMIN_RESET_PASSWORD:-0}
+      # Attachments storage v2 (MinIO/S3). If not set, falls back to Postgres bytea.
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minioadmin}}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
+      S3_BUCKET: ${S3_BUCKET:-attachments}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_USE_SSL: ${S3_USE_SSL:-0}
     depends_on:
       - db
+      - minio-init
     ports:
       - "${API_PORT:-8000}:8000"
     healthcheck:
@@ -63,6 +107,12 @@ services:
       APP_DB_USER: ${APP_DB_USER:-ahapp}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:-ahapp}
       APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:-ahapp}@db:5432/ahtrading
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minioadmin}}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minioadmin}}
+      S3_BUCKET: ${S3_BUCKET:-attachments}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_USE_SSL: ${S3_USE_SSL:-0}
     depends_on:
       db:
         condition: service_started
@@ -127,3 +177,4 @@ services:
 
 volumes:
   pgdata:
+  minio_data:

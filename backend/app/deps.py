@@ -43,7 +43,7 @@ def get_session(
                     SELECT s.id AS session_id, s.user_id, u.email, s.expires_at, s.is_active, s.active_company_id
                     FROM auth_sessions s
                     JOIN users u ON u.id = s.user_id
-                    WHERE s.token = %s AND s.token NOT LIKE 'sha256:%'
+                    WHERE s.token = %s AND s.token NOT LIKE 'sha256:%%'
                     """,
                     (token,),
                 )
