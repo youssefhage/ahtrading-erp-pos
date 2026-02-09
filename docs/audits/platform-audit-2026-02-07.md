@@ -102,6 +102,15 @@ Additional execution completed on 2026-02-09 (Admin UX + scalability):
 - Standardized “Attachments” + “Timeline” UI across document pages, with a permission-aware Timeline endpoint (`GET /audit/logs`) so timelines don’t require report permissions.
 - Converted Items + Customers to the same document-first route pattern (`/list|new|[id]|[id]/edit`) to reduce dialog state and improve deep-linking/back-button behavior.
 - Supplier invoice import now supports async background extraction (draft is created immediately with the original attachment; the worker fills lines later and updates `import_status`).
+- Supplier invoice import now supports a safe human-in-the-loop matching flow:
+  - worker prepares review lines (`pending_review`) with suggested matches
+  - Admin requires explicit item mapping/confirmation before creating invoice lines
+- Margin/pricing foundation added:
+  - cost change log table + trigger (`item_cost_change_log`)
+  - hourly `AI_PRICE_IMPACT` agent emits review tasks in AI Hub
+  - Admin page: `Inventory → Cost Changes`
+- WhatsApp ingestion receiver added (secret-gated, off-by-default) and wired into the same invoice import pipeline.
+- Landed cost allocation v1 added (API + Admin UI) to allocate freight/customs/handling to GRNs/batches and improve COGS.
 - POS device setup friction reduced: `System → POS Devices` now offers a Branch picker (no UUID copy/paste) and a copy-ready `pos-desktop/config.json` snippet after registration/token reset.
 
 ## P0 (Must Fix)
