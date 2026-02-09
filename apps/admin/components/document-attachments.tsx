@@ -6,6 +6,7 @@ import { apiGet, apiPostForm, apiUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorBanner } from "@/components/error-banner";
+import { FileInput } from "@/components/file-input";
 
 type AttachmentRow = {
   id: string;
@@ -35,6 +36,7 @@ export function DocumentAttachments(props: {
   const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
   const [err, setErr] = useState<unknown>(null);
   const [uploading, setUploading] = useState(false);
+  const [pickKey, setPickKey] = useState(0);
 
   const load = useCallback(async () => {
     setErr(null);
@@ -58,7 +60,7 @@ export function DocumentAttachments(props: {
     e.preventDefault();
     if (!props.allowUpload) return;
     const form = e.target as HTMLFormElement;
-    const input = form.querySelector<HTMLInputElement>("input[type='file']");
+    const input = form.querySelector<HTMLInputElement>("input[name='file']");
     const f = input?.files?.[0];
     if (!f) return;
     setUploading(true);
@@ -70,7 +72,7 @@ export function DocumentAttachments(props: {
       fd.set("file", f);
       await apiPostForm<{ id: string }>("/attachments", fd);
       await load();
-      if (input) input.value = "";
+      setPickKey((k) => k + 1);
     } catch (e2) {
       setErr(e2);
     } finally {
@@ -89,7 +91,7 @@ export function DocumentAttachments(props: {
         <form onSubmit={upload} className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
             <label className="text-xs font-medium text-fg-muted">Upload (max configured, 5MB default)</label>
-            <input type="file" className="block text-xs" disabled={uploading} />
+            <FileInput key={pickKey} name="file" disabled={uploading} buttonLabel="Pick file" />
           </div>
           <Button type="submit" disabled={uploading}>
             {uploading ? "Uploading..." : "Upload"}

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { FileInput } from "@/components/file-input";
 
 type Item = {
   id: string;
@@ -1163,15 +1164,14 @@ export default function ItemsPage() {
                       <div className="space-y-3">
                         <div className="space-y-1">
                           <label className="text-xs font-medium text-fg-muted">Upload (PNG/JPG, max configured, 5MB default)</label>
-                          <input
-                            type="file"
+                          <FileInput
                             accept="image/*"
                             disabled={imageUploading || !editItem}
-                            className="block w-full text-xs"
+                            buttonLabel="Choose image"
+                            wrapperClassName="w-full"
+                            clearAfterSelect
                             onChange={async (e) => {
-                              const f = e.target.files?.[0];
-                              // allow re-uploading the same file later
-                              e.currentTarget.value = "";
+                              const f = e.currentTarget.files?.[0];
                               if (!f) return;
                               await uploadItemImage(f);
                             }}

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
 import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
 import { ErrorBanner } from "@/components/error-banner";
+import { FileInput } from "@/components/file-input";
 type AttachmentRow = { id: string; filename: string; content_type: string; size_bytes: number; uploaded_at: string };
 type ImportLineRow = {
   id: string;
@@ -105,6 +106,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importPickKey, setImportPickKey] = useState(0);
   const [importAutoCreateSupplier, setImportAutoCreateSupplier] = useState(true);
   // Default off: require human mapping before creating new items.
   const [importAutoCreateItems, setImportAutoCreateItems] = useState(false);
@@ -112,6 +114,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [importMockExtract, setImportMockExtract] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const [attachmentPickKey, setAttachmentPickKey] = useState(0);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
 
   const [nameSuggestOpen, setNameSuggestOpen] = useState(false);
@@ -495,7 +498,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       setStatus(message);
     } finally {
       setImporting(false);
-      if (input) input.value = "";
+      setImportPickKey((k) => k + 1);
     }
   }
 
@@ -524,7 +527,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       setStatus(message);
     } finally {
       setAttachmentUploading(false);
-      if (input) input.value = "";
+      setAttachmentPickKey((k) => k + 1);
     }
   }
 
@@ -732,12 +735,13 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="md:col-span-2 space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Invoice Image/PDF (max configured, 5MB default)</label>
-                  <input
+                  <FileInput
+                    key={importPickKey}
                     name="import_file"
-                    type="file"
                     accept="image/*,application/pdf"
                     disabled={importing || loading}
-                    className="block w-full text-xs"
+                    buttonLabel="Choose invoice"
+                    wrapperClassName="w-full"
                   />
                 </div>
                 <div className="space-y-1">
@@ -782,7 +786,13 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             <form onSubmit={uploadAttachment} className="mb-4 flex flex-wrap items-end justify-between gap-2">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Add attachment (max configured, 5MB default)</label>
-                <input name="attachment_file" type="file" disabled={attachmentUploading || loading || saving} className="block w-full text-xs" />
+                <FileInput
+                  key={attachmentPickKey}
+                  name="attachment_file"
+                  disabled={attachmentUploading || loading || saving}
+                  buttonLabel="Choose file"
+                  wrapperClassName="w-full"
+                />
               </div>
               <Button type="submit" variant="outline" disabled={attachmentUploading || loading || saving}>
                 {attachmentUploading ? "Uploading..." : "Upload"}

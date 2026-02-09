@@ -13,6 +13,7 @@ import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { FileInput } from "@/components/file-input";
 
 type Item = {
   id: string;
@@ -731,18 +732,15 @@ export default function ItemEditPage() {
                 <Input value={editImageAlt} onChange={(e) => setEditImageAlt(e.target.value)} disabled={imageUploading || saving} />
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="file"
+                <FileInput
                   accept="image/*"
                   disabled={imageUploading || saving}
+                  buttonLabel="Choose image"
+                  clearAfterSelect
                   onChange={(e) => {
-                    const input = e.currentTarget;
-                    const f = input.files?.[0];
+                    const f = e.currentTarget.files?.[0];
                     if (f) uploadImage(f);
-                    // Allow selecting the same file again later (some browsers won't fire change otherwise).
-                    input.value = "";
                   }}
-                  className="block text-xs"
                 />
                 <Button type="button" variant="outline" disabled={imageUploading || saving || !editImageAttachmentId} onClick={removeImage}>
                   Remove
