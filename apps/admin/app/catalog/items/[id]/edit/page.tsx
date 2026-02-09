@@ -736,8 +736,11 @@ export default function ItemEditPage() {
                   accept="image/*"
                   disabled={imageUploading || saving}
                   onChange={(e) => {
-                    const f = e.target.files?.[0];
+                    const input = e.currentTarget;
+                    const f = input.files?.[0];
                     if (f) uploadImage(f);
+                    // Allow selecting the same file again later (some browsers won't fire change otherwise).
+                    input.value = "";
                   }}
                   className="block text-xs"
                 />
