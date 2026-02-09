@@ -92,12 +92,18 @@ Canonical execution documents:
   - Admin UI: `Inventory → Landed Costs` (list/new/view) with Timeline.
 
 3) 3-way match v2 (AP controls)
-- Expand variance checks: qty, price, tax; configurable thresholds; audit reasons.
-- Better visibility: ordered vs received vs invoiced by PO line and item.
+- Completed (2026-02-09, v2 foundation):
+  - Qty and unit-cost variance checks now auto-hold (409) with structured hold_details (reasons + thresholds).
+  - Thresholds are company-configurable via `company_settings.key='ap_3way_match'` (defaults remain conservative).
+  - Unhold endpoint now supports an optional reason (captured in audit logs).
+- Next: tax variance and richer “ordered vs received vs invoiced” visibility by PO line (UI + reports).
 
 4) Proactive ops dashboards
 - “What needs attention today” views:
   - expiring stock, negative stock risk, unposted drafts, held invoices, cash reconciliation anomalies.
+- Completed (2026-02-09, v1):
+  - API: `GET /reports/attention`
+  - Admin: `System → Needs Attention` (queue-first ops view)
 
 ## Longer Term (6-12 Months)
 

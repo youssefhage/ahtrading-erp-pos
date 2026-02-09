@@ -42,6 +42,217 @@ def _assert_reports_access(user_id: str, company_ids: list[str]):
     if missing:
         raise HTTPException(status_code=403, detail=f"missing reports:read for {len(missing)} companies")
 
+@router.get("/attention", dependencies=[Depends(require_permission("reports:read"))])
+def attention(company_id: str = Depends(get_company_id)):
+    """
+    Proactive ops dashboard (v1): "what needs attention today".
+    Returns a list of actionable counters with suggested links.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM supplier_invoices
+                WHERE company_id=%s AND status='draft' AND is_on_hold=true
+                """,
+                (company_id,),
+            )
+            invoices_on_hold = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM supplier_invoices
+                WHERE company_id=%s AND status='draft' AND import_status='pending_review'
+                """,
+                (company_id,),
+            )
+            invoices_pending_review = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM supplier_invoices
+                WHERE company_id=%s AND status='draft' AND import_status IN ('pending','processing')
+                """,
+                (company_id,),
+            )
+            invoices_import_inflight = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM purchase_orders
+                WHERE company_id=%s AND status='draft' AND created_at < now() - interval '14 days'
+                """,
+                (company_id,),
+            )
+            po_stale_drafts = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM goods_receipts
+                WHERE company_id=%s AND status='draft' AND created_at < now() - interval '7 days'
+                """,
+                (company_id,),
+            )
+            gr_stale_drafts = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM item_warehouse_costs
+                WHERE company_id=%s AND on_hand_qty < 0
+                """,
+                (company_id,),
+            )
+            negative_stock = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                WITH on_hand AS (
+                  SELECT batch_id, SUM(qty_in - qty_out) AS on_hand_qty
+                  FROM stock_moves
+                  WHERE company_id=%s AND batch_id IS NOT NULL
+                  GROUP BY batch_id
+                )
+                SELECT COUNT(*)::int AS c
+                FROM on_hand h
+                JOIN batches b ON b.company_id=%s AND b.id=h.batch_id
+                WHERE h.on_hand_qty > 0
+                  AND b.expiry_date IS NOT NULL
+                  AND b.expiry_date <= CURRENT_DATE + interval '30 days'
+                  AND b.status IN ('available','quarantine')
+                """,
+                (company_id, company_id),
+            )
+            expiring_batches = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM pos_events_outbox
+                WHERE status='failed'
+                """,
+            )
+            outbox_failed = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                SELECT job_code, COUNT(*)::int AS count
+                FROM background_job_runs
+                WHERE company_id=%s
+                  AND status='failed'
+                  AND started_at >= now() - interval '1 day'
+                GROUP BY job_code
+                ORDER BY count DESC, job_code
+                """,
+                (company_id,),
+            )
+            failed_jobs = cur.fetchall() or []
+
+            cur.execute(
+                """
+                SELECT EXTRACT(epoch FROM (now() - last_seen_at))::int AS age_seconds, details
+                FROM worker_heartbeats
+                WHERE company_id=%s AND worker_name='outbox-worker'
+                """,
+                (company_id,),
+            )
+            hb = cur.fetchone() or {}
+            worker_age_seconds = hb.get("age_seconds")
+
+    items = []
+    if invoices_on_hold:
+        items.append(
+            {
+                "key": "supplier_invoices_on_hold",
+                "severity": "critical",
+                "label": "Supplier invoices on hold",
+                "count": invoices_on_hold,
+                "href": "/purchasing/supplier-invoices",
+            }
+        )
+    if invoices_pending_review:
+        items.append(
+            {
+                "key": "supplier_invoices_pending_review",
+                "severity": "warning",
+                "label": "Supplier invoices awaiting import review",
+                "count": invoices_pending_review,
+                "href": "/purchasing/supplier-invoices",
+            }
+        )
+    if invoices_import_inflight:
+        items.append(
+            {
+                "key": "supplier_invoices_import_inflight",
+                "severity": "info",
+                "label": "Supplier invoice imports in progress",
+                "count": invoices_import_inflight,
+                "href": "/purchasing/supplier-invoices",
+            }
+        )
+    if po_stale_drafts:
+        items.append(
+            {
+                "key": "purchase_orders_stale_drafts",
+                "severity": "warning",
+                "label": "Purchase order drafts older than 14 days",
+                "count": po_stale_drafts,
+                "href": "/purchasing/purchase-orders",
+            }
+        )
+    if gr_stale_drafts:
+        items.append(
+            {
+                "key": "goods_receipts_stale_drafts",
+                "severity": "warning",
+                "label": "Goods receipt drafts older than 7 days",
+                "count": gr_stale_drafts,
+                "href": "/purchasing/goods-receipts",
+            }
+        )
+    if negative_stock:
+        items.append(
+            {
+                "key": "negative_stock",
+                "severity": "critical",
+                "label": "Negative stock positions",
+                "count": negative_stock,
+                "href": "/inventory/stock",
+            }
+        )
+    if expiring_batches:
+        items.append(
+            {
+                "key": "expiring_batches",
+                "severity": "warning",
+                "label": "Batches expiring in 30 days (with stock on hand)",
+                "count": expiring_batches,
+                "href": "/inventory/alerts",
+            }
+        )
+    if outbox_failed:
+        items.append(
+            {
+                "key": "pos_outbox_failed",
+                "severity": "critical",
+                "label": "POS outbox failed events",
+                "count": outbox_failed,
+                "href": "/system/outbox",
+            }
+        )
+
+    return {
+        "items": items,
+        "failed_jobs": failed_jobs,
+        "worker_age_seconds": worker_age_seconds,
+    }
+
 
 @router.get("/consolidated/trial-balance", dependencies=[Depends(require_permission("reports:read"))])
 def consolidated_trial_balance(

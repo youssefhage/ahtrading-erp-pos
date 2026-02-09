@@ -20,6 +20,47 @@ from ..importers.supplier_invoice_import import (
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
 
+def _get_company_setting_json(cur, company_id: str, key: str) -> dict:
+    cur.execute(
+        """
+        SELECT value_json
+        FROM company_settings
+        WHERE company_id=%s AND key=%s
+        """,
+        (company_id, key),
+    )
+    row = cur.fetchone()
+    val = row["value_json"] if row else None
+    if isinstance(val, dict):
+        return val
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _get_ap_3way_match_thresholds(cur, company_id: str) -> dict:
+    """
+    v2 3-way match thresholds (company-configurable).
+    Stored in `company_settings.key='ap_3way_match'`.
+    """
+    cfg = _get_company_setting_json(cur, company_id, "ap_3way_match")
+    # Conservative defaults to avoid noisy holds.
+    pct_threshold = Decimal(str(cfg.get("pct_threshold") or "0.15"))
+    abs_usd_threshold = Decimal(str(cfg.get("abs_usd_threshold") or "25"))
+    abs_lbp_threshold = Decimal(str(cfg.get("abs_lbp_threshold") or "2500000"))
+    # Keep a tiny numerical epsilon for qty comparisons.
+    qty_epsilon = Decimal(str(cfg.get("qty_epsilon") or "0.000001"))
+    return {
+        "pct_threshold": pct_threshold,
+        "abs_usd_threshold": abs_usd_threshold,
+        "abs_lbp_threshold": abs_lbp_threshold,
+        "qty_epsilon": qty_epsilon,
+    }
+
 def _norm_code(s: Optional[str]) -> Optional[str]:
     if not s:
         return None
@@ -3336,6 +3377,7 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
 
                 # If linked to a Goods Receipt, enforce basic 3-way matching constraints.
                 if inv.get("goods_receipt_id"):
+                    thr = _get_ap_3way_match_thresholds(cur, company_id)
                     cur.execute(
                         """
                         SELECT id, status, supplier_id
@@ -3395,13 +3437,20 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                         )
                         prev_by_id = {r["goods_receipt_line_id"]: Decimal(str(r["invoiced_qty"] or 0)) for r in cur.fetchall()}
 
+                        qty_flags = []
                         for gr_line_id, qty in qty_by_gr_line.items():
                             prev = prev_by_id.get(gr_line_id, Decimal("0"))
                             received_qty = Decimal(str(gr_by_id[gr_line_id]["qty"] or 0))
-                            if prev + qty > received_qty + Decimal("0.000001"):
-                                raise HTTPException(
-                                    status_code=400,
-                                    detail=f"invoiced qty exceeds received qty for receipt line {gr_line_id}",
+                            if prev + qty > received_qty + thr["qty_epsilon"]:
+                                qty_flags.append(
+                                    {
+                                        "kind": "qty_exceeds_received",
+                                        "goods_receipt_line_id": str(gr_line_id),
+                                        "received_qty": str(received_qty),
+                                        "previously_invoiced_qty": str(prev),
+                                        "this_invoice_qty": str(qty),
+                                        "total_after": str(prev + qty),
+                                    }
                                 )
 
                     # Price variance detection (v1) against PO/GR costs. If we detect suspicious variance,
@@ -3440,9 +3489,9 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                             qty_by_gr_line[gid] = qty_by_gr_line.get(gid, Decimal("0")) + Decimal(str(ln["qty"] or 0))
 
                         flagged = []
-                        # Thresholds: keep intentionally conservative to avoid noisy holds.
-                        pct_threshold = Decimal("0.15")  # 15%
-                        abs_usd_threshold = Decimal("25")  # $25 per unit difference
+                        pct_threshold = thr["pct_threshold"]
+                        abs_usd_threshold = thr["abs_usd_threshold"]
+                        abs_lbp_threshold = thr["abs_lbp_threshold"]
                         for ln in lines:
                             gid = ln.get("goods_receipt_line_id")
                             if not gid:
@@ -3474,9 +3523,9 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                             if exp_usd and pct_var is not None and pct_var >= pct_threshold and abs(usd_var) >= abs_usd_threshold:
                                 noisy = True
                             # Fallback: if only LBP is used, still flag large absolute differences.
-                            if not noisy and exp_usd == 0 and exp_lbp and abs(lbp_var) >= Decimal("2500000"):
+                            if not noisy and exp_usd == 0 and exp_lbp and abs(lbp_var) >= abs_lbp_threshold:
                                 noisy = True
-                            if qty_var > Decimal("0.000001"):
+                            if qty_var > thr["qty_epsilon"]:
                                 noisy = True
 
                             if noisy:
@@ -3498,12 +3547,31 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                                     }
                                 )
 
+                        all_flags = []
+                        if qty_flags:
+                            all_flags.extend(qty_flags[:50])
                         if flagged:
+                            all_flags.extend(
+                                [
+                                    {
+                                        "kind": "unit_cost_variance",
+                                        **f,
+                                    }
+                                    for f in flagged[:50]
+                                ]
+                            )
+
+                        if all_flags:
                             details = {
                                 "kind": "ap_variance",
-                                "count": len(flagged),
-                                "thresholds": {"pct": str(pct_threshold), "abs_usd": str(abs_usd_threshold)},
-                                "lines": flagged[:50],
+                                "count": len(all_flags),
+                                "thresholds": {
+                                    "pct": str(pct_threshold),
+                                    "abs_usd": str(abs_usd_threshold),
+                                    "abs_lbp": str(abs_lbp_threshold),
+                                    "qty_epsilon": str(thr["qty_epsilon"]),
+                                },
+                                "flags": all_flags[:100],
                             }
                             cur.execute(
                                 """
@@ -3855,8 +3923,13 @@ def hold_supplier_invoice(invoice_id: str, data: InvoiceHoldIn, company_id: str 
                 return {"ok": True}
 
 
+class UnholdIn(BaseModel):
+    reason: Optional[str] = None
+
+
 @router.post("/invoices/{invoice_id}/unhold", dependencies=[Depends(require_permission("purchases:write"))])
-def unhold_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+def unhold_supplier_invoice(invoice_id: str, data: UnholdIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    reason = (data.reason or "").strip() or None
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
@@ -3892,7 +3965,7 @@ def unhold_supplier_invoice(invoice_id: str, company_id: str = Depends(get_compa
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                     VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_unhold', 'supplier_invoice', %s, %s::jsonb)
                     """,
-                    (company_id, user["user_id"], invoice_id, json.dumps({})),
+                    (company_id, user["user_id"], invoice_id, json.dumps({"reason": reason} if reason else {})),
                 )
                 return {"ok": True}
 

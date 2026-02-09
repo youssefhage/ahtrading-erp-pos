@@ -11,6 +11,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { DocumentAttachments } from "@/components/document-attachments";
 import { DocumentTimeline } from "@/components/document-timeline";
 import { MoneyInput } from "@/components/money-input";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -403,11 +404,17 @@ function SalesInvoiceShowInner() {
                           <tr key={l.id} className="ui-tr-hover">
                             <td className="px-3 py-2">
                               {l.item_sku || l.item_name ? (
-                                <span>
+                                <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
                                   <span className="font-mono text-xs">{l.item_sku || "-"}</span> · {l.item_name || "-"}
-                                </span>
+                                </ShortcutLink>
                               ) : (
-                                <span className="font-mono text-xs">{l.item_id}</span>
+                                <ShortcutLink
+                                  href={`/catalog/items/${encodeURIComponent(l.item_id)}`}
+                                  title="Open item"
+                                  className="font-mono text-xs"
+                                >
+                                  {l.item_id}
+                                </ShortcutLink>
                               )}
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">

@@ -13,6 +13,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
 import { CustomerTypeahead, type CustomerTypeaheadCustomer } from "@/components/customer-typeahead";
 import { Page, PageHeader } from "@/components/page";
+import { ShortcutLink } from "@/components/shortcut-link";
 
 type Warehouse = { id: string; name: string };
 
@@ -457,10 +458,13 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                         return (
                           <tr key={`${l.item_id}-${idx}`} className="ui-tr-hover">
                             <td className="px-3 py-2">
-                              <span>
+                              <ShortcutLink
+                                href={`/catalog/items/${encodeURIComponent(l.item_id)}`}
+                                title="Open item"
+                              >
                                 <span className="font-mono text-xs">{l.item_sku || l.item_id.slice(0, 8)}</span>
                                 {l.item_name ? <span> · {l.item_name}</span> : null}
-                              </span>
+                              </ShortcutLink>
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
                               {qty.toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}

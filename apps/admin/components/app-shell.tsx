@@ -77,6 +77,7 @@ function iconForHref(href: string) {
     "/dashboard": LayoutDashboard,
 
     "/system/outbox": Inbox,
+    "/system/attention": BellRing,
     "/system/pos-devices": Monitor,
     "/system/pos-cashiers": UserRoundCog,
     "/system/pos-shifts": Timer,
@@ -169,6 +170,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     label: "Operations",
     items: [
       { label: "Outbox", href: "/system/outbox" },
+      { label: "Needs Attention", href: "/system/attention" },
       { label: "POS Shifts", href: "/system/pos-shifts" },
       { label: "POS Devices", href: "/system/pos-devices" },
       { label: "POS Cashiers", href: "/system/pos-cashiers" },
