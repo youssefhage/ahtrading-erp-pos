@@ -94,11 +94,31 @@ export function ItemTypeahead(props: {
   const [remoteItems, setRemoteItems] = useState<ItemTypeaheadItem[]>([]);
   const [recentItems, setRecentItems] = useState<ItemTypeaheadItem[]>([]);
 
+  const wrapRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setRecentItems(loadRecent());
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocPointerDown(e: PointerEvent) {
+      const el = wrapRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && el.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onDocKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onDocPointerDown);
+    document.addEventListener("keydown", onDocKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onDocPointerDown);
+      document.removeEventListener("keydown", onDocKeyDown);
+    };
   }, [open]);
 
   // Debounced remote search.
@@ -204,7 +224,7 @@ export function ItemTypeahead(props: {
   }
 
   return (
-    <div className={cn("relative", props.className)}>
+    <div ref={wrapRef} className={cn("relative", props.className)}>
       <Input
         ref={inputRef}
         value={q}
