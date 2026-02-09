@@ -13,6 +13,13 @@ from ..validation import RateType
 
 router = APIRouter(prefix="/purchases/credits", tags=["purchases"])
 
+def _clamp01(x: Decimal) -> Decimal:
+    if x <= 0:
+        return Decimal("0")
+    if x >= 1:
+        return Decimal("1")
+    return x
+
 
 def _next_doc_no(cur, company_id: str) -> str:
     cur.execute("SELECT next_document_no(%s, %s) AS doc_no", (company_id, "SC"))
@@ -467,13 +474,15 @@ def post_supplier_credit(credit_id: str, company_id: str = Depends(get_company_i
                 )
                 defaults = {r["role_code"]: str(r["account_id"]) for r in cur.fetchall()}
                 ap = defaults.get("AP")
-                grni = defaults.get("GRNI")
                 purchases_exp = defaults.get("PURCHASES_EXPENSE")
+                purchase_rebates = defaults.get("PURCHASE_REBATES")
+                inventory = defaults.get("INVENTORY")
+                cogs = defaults.get("COGS")
                 if not ap:
                     raise HTTPException(status_code=400, detail="Missing AP account default")
                 if doc.get("kind") == "receipt":
-                    if not grni:
-                        raise HTTPException(status_code=400, detail="Missing GRNI account default")
+                    if not (inventory and cogs):
+                        raise HTTPException(status_code=400, detail="Missing INVENTORY/COGS account defaults")
                 else:
                     if not purchases_exp:
                         raise HTTPException(status_code=400, detail="Missing PURCHASES_EXPENSE account default")
@@ -483,7 +492,7 @@ def post_supplier_credit(credit_id: str, company_id: str = Depends(get_company_i
                     if not gr_id:
                         raise HTTPException(status_code=400, detail="goods_receipt_id is required for receipt credits")
                     cur.execute(
-                        "SELECT id, status, supplier_id FROM goods_receipts WHERE company_id=%s AND id=%s",
+                        "SELECT id, status, supplier_id, warehouse_id FROM goods_receipts WHERE company_id=%s AND id=%s",
                         (company_id, gr_id),
                     )
                     gr = cur.fetchone()
@@ -511,35 +520,20 @@ def post_supplier_credit(credit_id: str, company_id: str = Depends(get_company_i
                 )
                 journal_id = cur.fetchone()["id"]
 
-                credit_account = grni if doc.get("kind") == "receipt" else purchases_exp
-
-                # Dr AP, Cr expense/GRNI
-                cur.execute(
-                    """
-                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                    VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, %s)
-                    """,
-                    (journal_id, ap, total_usd, total_lbp, "AP (credit note)"),
-                )
-                cur.execute(
-                    """
-                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                    VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, %s)
-                    """,
-                    (journal_id, credit_account, total_usd, total_lbp, "Rebate/Credit"),
-                )
-                try:
-                    auto_balance_journal(cur, company_id, journal_id, memo="Rounding (credit note auto-balance)")
-                except ValueError as exv:
-                    raise HTTPException(status_code=400, detail=str(exv))
-
                 # Optional allocation for receipt-linked rebates (per batch cost tracking).
                 warnings: list[str] = []
+                inv_credit_total_usd = Decimal("0")
+                inv_credit_total_lbp = Decimal("0")
+                inv_by_item: dict[str, tuple[Decimal, Decimal]] = {}
+
                 if doc.get("kind") == "receipt":
                     gr_id = str(doc.get("goods_receipt_id"))
+                    warehouse_id = str(gr.get("warehouse_id") or "")
+                    if not warehouse_id:
+                        raise HTTPException(status_code=400, detail="goods receipt missing warehouse_id")
                     cur.execute(
                         """
-                        SELECT id, qty, unit_cost_usd, unit_cost_lbp, batch_id
+                        SELECT id, item_id, qty, unit_cost_usd, unit_cost_lbp, batch_id
                         FROM goods_receipt_lines
                         WHERE company_id=%s AND goods_receipt_id=%s
                         ORDER BY id
@@ -550,6 +544,36 @@ def post_supplier_credit(credit_id: str, company_id: str = Depends(get_company_i
                     if not gr_lines:
                         warnings.append("goods receipt has no lines; allocation skipped")
                     else:
+                        # Prefetch batch on-hand per line for inventory/COGS split (best-effort).
+                        batch_ids = [l.get("batch_id") for l in gr_lines if l.get("batch_id")]
+                        batch_on_hand: dict[str, Decimal] = {}
+                        if batch_ids:
+                            cur.execute(
+                                """
+                                SELECT batch_id, GREATEST(COALESCE(SUM(qty_in) - SUM(qty_out), 0), 0) AS qty_on_hand
+                                FROM stock_moves
+                                WHERE company_id=%s AND warehouse_id=%s AND batch_id = ANY(%s)
+                                GROUP BY batch_id
+                                """,
+                                (company_id, warehouse_id, batch_ids),
+                            )
+                            for rr in cur.fetchall() or []:
+                                batch_on_hand[str(rr["batch_id"])] = Decimal(str(rr.get("qty_on_hand") or 0))
+
+                        item_ids = sorted({str(l.get("item_id")) for l in gr_lines if l.get("item_id")})
+                        item_on_hand: dict[str, Decimal] = {}
+                        if item_ids:
+                            cur.execute(
+                                """
+                                SELECT item_id, COALESCE(on_hand_qty, 0) AS on_hand_qty
+                                FROM item_warehouse_costs
+                                WHERE company_id=%s AND warehouse_id=%s AND item_id = ANY(%s)
+                                """,
+                                (company_id, warehouse_id, item_ids),
+                            )
+                            for rr in cur.fetchall() or []:
+                                item_on_hand[str(rr["item_id"])] = Decimal(str(rr.get("on_hand_qty") or 0))
+
                         base_usd = Decimal("0")
                         base_lbp = Decimal("0")
                         total_qty = Decimal("0")
@@ -576,6 +600,25 @@ def post_supplier_credit(credit_id: str, company_id: str = Depends(get_company_i
                             w_lbp = (qty * Decimal(str(l.get("unit_cost_lbp") or 0))) if base_lbp > 0 else qty
                             alloc_usd = q_usd(total_usd * (w_usd / denom_usd)) if total_usd != 0 else Decimal("0")
                             alloc_lbp = q_lbp(total_lbp * (w_lbp / denom_lbp)) if total_lbp != 0 else Decimal("0")
+
+                            # Split allocation between inventory (still on-hand) vs COGS (already sold/consumed).
+                            item_id = str(l.get("item_id") or "")
+                            b_id = l.get("batch_id")
+                            remaining_qty = Decimal("0")
+                            if b_id:
+                                remaining_qty = batch_on_hand.get(str(b_id), Decimal("0"))
+                            elif item_id:
+                                remaining_qty = item_on_hand.get(item_id, Decimal("0"))
+                                warnings.append(f"goods receipt line {l['id']} has no batch_id; inventory/COGS split uses item on_hand")
+
+                            ratio = _clamp01((remaining_qty / qty) if qty else Decimal("0"))
+                            inv_usd = q_usd(alloc_usd * ratio) if alloc_usd else Decimal("0")
+                            inv_lbp = q_lbp(alloc_lbp * ratio) if alloc_lbp else Decimal("0")
+                            inv_credit_total_usd += inv_usd
+                            inv_credit_total_lbp += inv_lbp
+                            if item_id:
+                                prev = inv_by_item.get(item_id) or (Decimal("0"), Decimal("0"))
+                                inv_by_item[item_id] = (prev[0] + inv_usd, prev[1] + inv_lbp)
 
                             cur.execute(
                                 """
@@ -614,6 +657,112 @@ def post_supplier_credit(credit_id: str, company_id: str = Depends(get_company_i
                                     warnings.append(f"missing batch_cost_layer for goods receipt line {l['id']}")
                             else:
                                 warnings.append(f"goods receipt line {l['id']} has no batch_id; cost-layer rebate update skipped")
+
+                # GL posting:
+                # - Expense credit: Dr AP, Cr PURCHASE_REBATES (if configured) else PURCHASES_EXPENSE
+                # - Receipt-linked credit: Dr AP, Cr INVENTORY (for on-hand portion), Cr COGS (for sold portion)
+                if doc.get("kind") == "receipt":
+                    # Any rounding leftovers are pushed into COGS so the journal stays coherent.
+                    inv_usd = q_usd(inv_credit_total_usd)
+                    inv_lbp = q_lbp(inv_credit_total_lbp)
+                    cogs_usd = q_usd(total_usd - inv_usd)
+                    cogs_lbp = q_lbp(total_lbp - inv_lbp)
+
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, %s)
+                        """,
+                        (journal_id, ap, total_usd, total_lbp, "AP (supplier credit note)"),
+                    )
+                    if inv_usd != 0 or inv_lbp != 0:
+                        cur.execute(
+                            """
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Inventory rebate', %s)
+                            """,
+                            (journal_id, inventory, inv_usd, inv_lbp, gr.get("warehouse_id")),
+                        )
+                    if cogs_usd != 0 or cogs_lbp != 0:
+                        cur.execute(
+                            """
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
+                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'COGS rebate (sold portion)', %s)
+                            """,
+                            (journal_id, cogs, cogs_usd, cogs_lbp, gr.get("warehouse_id")),
+                        )
+                else:
+                    credit_account = purchase_rebates or purchases_exp
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, %s)
+                        """,
+                        (journal_id, ap, total_usd, total_lbp, "AP (supplier credit note)"),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, %s)
+                        """,
+                        (journal_id, credit_account, total_usd, total_lbp, "Purchase rebate/credit"),
+                    )
+
+                try:
+                    auto_balance_journal(cur, company_id, journal_id, memo="Rounding (credit note auto-balance)")
+                except ValueError as exv:
+                    raise HTTPException(status_code=400, detail=str(exv))
+
+                # Best-effort reversible avg-cost adjustment for the inventory portion (receipt-linked credits only).
+                if doc.get("kind") == "receipt" and inv_by_item:
+                    # Ensure idempotency within the transaction.
+                    cur.execute(
+                        """
+                        DELETE FROM inventory_cost_adjustments
+                        WHERE company_id=%s AND source_type='supplier_credit_note' AND source_id=%s
+                        """,
+                        (company_id, credit_id),
+                    )
+                    warehouse_id = str(gr.get("warehouse_id"))
+                    for item_id, (inv_usd, inv_lbp) in inv_by_item.items():
+                        inv_usd = q_usd(inv_usd)
+                        inv_lbp = q_lbp(inv_lbp)
+                        if inv_usd == 0 and inv_lbp == 0:
+                            continue
+                        cur.execute(
+                            """
+                            SELECT on_hand_qty
+                            FROM item_warehouse_costs
+                            WHERE company_id=%s AND item_id=%s AND warehouse_id=%s
+                            """,
+                            (company_id, item_id, warehouse_id),
+                        )
+                        c = cur.fetchone() or {}
+                        on_hand = Decimal(str(c.get("on_hand_qty") or 0))
+                        if on_hand <= 0:
+                            warnings.append(f"avg cost not adjusted for item {item_id} (on_hand {on_hand})")
+                            continue
+                        delta_usd = (inv_usd / on_hand).quantize(Decimal("0.000001"))
+                        delta_lbp = (inv_lbp / on_hand).quantize(Decimal("0.000001"))
+                        cur.execute(
+                            """
+                            UPDATE item_warehouse_costs
+                            SET avg_cost_usd = GREATEST(avg_cost_usd - %s, 0),
+                                avg_cost_lbp = GREATEST(avg_cost_lbp - %s, 0),
+                                updated_at = now()
+                            WHERE company_id=%s AND item_id=%s AND warehouse_id=%s
+                            """,
+                            (delta_usd, delta_lbp, company_id, item_id, warehouse_id),
+                        )
+                        cur.execute(
+                            """
+                            INSERT INTO inventory_cost_adjustments
+                              (id, company_id, source_type, source_id, item_id, warehouse_id, delta_avg_cost_usd, delta_avg_cost_lbp)
+                            VALUES
+                              (gen_random_uuid(), %s, 'supplier_credit_note', %s, %s, %s, %s, %s)
+                            """,
+                            (company_id, credit_id, item_id, warehouse_id, delta_usd, delta_lbp),
+                        )
 
                 cur.execute(
                     """
@@ -773,6 +922,40 @@ def cancel_supplier_credit(credit_id: str, data: CancelIn, company_id: str = Dep
                     cancel_date,
                     user["user_id"],
                     memo,
+                )
+
+                # Reverse avg-cost adjustments (best-effort, exact delta reversal).
+                cur.execute(
+                    """
+                    SELECT item_id, warehouse_id, delta_avg_cost_usd, delta_avg_cost_lbp
+                    FROM inventory_cost_adjustments
+                    WHERE company_id=%s AND source_type='supplier_credit_note' AND source_id=%s
+                    """,
+                    (company_id, credit_id),
+                )
+                for adj in cur.fetchall() or []:
+                    cur.execute(
+                        """
+                        UPDATE item_warehouse_costs
+                        SET avg_cost_usd = avg_cost_usd + %s,
+                            avg_cost_lbp = avg_cost_lbp + %s,
+                            updated_at = now()
+                        WHERE company_id=%s AND item_id=%s AND warehouse_id=%s
+                        """,
+                        (
+                            Decimal(str(adj.get("delta_avg_cost_usd") or 0)),
+                            Decimal(str(adj.get("delta_avg_cost_lbp") or 0)),
+                            company_id,
+                            adj["item_id"],
+                            adj["warehouse_id"],
+                        ),
+                    )
+                cur.execute(
+                    """
+                    DELETE FROM inventory_cost_adjustments
+                    WHERE company_id=%s AND source_type='supplier_credit_note' AND source_id=%s
+                    """,
+                    (company_id, credit_id),
                 )
 
                 # Reverse rebate allocations, if any.

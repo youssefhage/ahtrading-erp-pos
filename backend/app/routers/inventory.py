@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from datetime import date, timedelta
 from decimal import Decimal
@@ -12,6 +12,77 @@ from backend.workers import pos_processor
 from ..journal_utils import auto_balance_journal
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
+
+def _upsert_ai_item_sales_daily(cur, company_id: str, start_date: date, end_date: date) -> None:
+    """
+    Keep `ai_item_sales_daily` fresh for deterministic forecasting endpoints.
+    Mirrors the worker job SQL (sales invoices + returns).
+    """
+    cur.execute(
+        """
+        WITH sold AS (
+          SELECT si.company_id, l.item_id, si.invoice_date AS d,
+                 SUM(l.qty) AS sold_qty,
+                 SUM(l.line_total_usd) AS sold_usd,
+                 SUM(l.line_total_lbp) AS sold_lbp
+          FROM sales_invoices si
+          JOIN sales_invoice_lines l ON l.invoice_id = si.id
+          WHERE si.company_id = %s
+            AND si.status = 'posted'
+            AND si.invoice_date BETWEEN %s AND %s
+          GROUP BY si.company_id, l.item_id, si.invoice_date
+        ),
+        ret AS (
+          SELECT r.company_id, l.item_id, r.created_at::date AS d,
+                 SUM(l.qty) AS returned_qty,
+                 SUM(l.line_total_usd) AS returned_usd,
+                 SUM(l.line_total_lbp) AS returned_lbp
+          FROM sales_returns r
+          JOIN sales_return_lines l ON l.sales_return_id = r.id
+          WHERE r.company_id = %s
+            AND r.status = 'posted'
+            AND r.created_at::date BETWEEN %s AND %s
+          GROUP BY r.company_id, l.item_id, r.created_at::date
+        ),
+        merged AS (
+          SELECT s.company_id, s.item_id, s.d AS sale_date,
+                 s.sold_qty, s.sold_usd, s.sold_lbp,
+                 COALESCE(rt.returned_qty, 0) AS returned_qty,
+                 COALESCE(rt.returned_usd, 0) AS returned_usd,
+                 COALESCE(rt.returned_lbp, 0) AS returned_lbp
+          FROM sold s
+          LEFT JOIN ret rt
+            ON rt.company_id = s.company_id AND rt.item_id = s.item_id AND rt.d = s.d
+          UNION ALL
+          SELECT rt.company_id, rt.item_id, rt.d AS sale_date,
+                 0, 0, 0,
+                 rt.returned_qty, rt.returned_usd, rt.returned_lbp
+          FROM ret rt
+          LEFT JOIN sold s
+            ON s.company_id = rt.company_id AND s.item_id = rt.item_id AND s.d = rt.d
+          WHERE s.company_id IS NULL
+        )
+        INSERT INTO ai_item_sales_daily
+          (company_id, item_id, sale_date,
+           sold_qty, sold_revenue_usd, sold_revenue_lbp,
+           returned_qty, returned_revenue_usd, returned_revenue_lbp,
+           updated_at)
+        SELECT company_id, item_id, sale_date,
+               sold_qty, sold_usd, sold_lbp,
+               returned_qty, returned_usd, returned_lbp,
+               now()
+        FROM merged
+        ON CONFLICT (company_id, item_id, sale_date) DO UPDATE
+        SET sold_qty = EXCLUDED.sold_qty,
+            sold_revenue_usd = EXCLUDED.sold_revenue_usd,
+            sold_revenue_lbp = EXCLUDED.sold_revenue_lbp,
+            returned_qty = EXCLUDED.returned_qty,
+            returned_revenue_usd = EXCLUDED.returned_revenue_usd,
+            returned_revenue_lbp = EXCLUDED.returned_revenue_lbp,
+            updated_at = now()
+        """,
+        (company_id, start_date, end_date, company_id, start_date, end_date),
+    )
 
 
 @router.get("/warehouses/{warehouse_id}/locations", dependencies=[Depends(require_permission("inventory:read"))])
@@ -1489,3 +1560,157 @@ def reorder_alerts(warehouse_id: Optional[str] = None, company_id: str = Depends
                 params,
             )
             return {"rows": cur.fetchall()}
+
+@router.get("/reorder-suggestions", dependencies=[Depends(require_permission("inventory:read"))])
+def reorder_suggestions(
+    warehouse_id: str = Query("", description="Warehouse id (recommended)"),
+    window_days: int = Query(28, ge=7, le=365),
+    review_days: int = Query(7, ge=1, le=90),
+    safety_days: int = Query(3, ge=0, le=90),
+    refresh: bool = Query(False, description="Refresh feature-store rows for the requested window"),
+    include_zero_demand: bool = Query(False, description="Include items with no sales in window"),
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Forecast-driven reorder suggestions (deterministic; no AI model dependency).
+
+    Uses `ai_item_sales_daily` (sales - returns) to compute avg daily demand over `window_days`,
+    then suggests reorder qty based on (lead_time + review_days) horizon + safety_days.
+
+    Notes:
+    - Demand is company-level (v1). Stock/incoming/reserved are warehouse-scoped when warehouse_id is provided.
+    - Suggestions are intended for creating draft POs for review, not auto-posting.
+    """
+    wh = (warehouse_id or "").strip() or None
+    if not wh:
+        raise HTTPException(status_code=400, detail="warehouse_id is required")
+    end = date.today()
+    start = end - timedelta(days=int(window_days) - 1)
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                if refresh:
+                    _upsert_ai_item_sales_daily(cur, company_id, start, end)
+
+        with conn.cursor() as cur:
+            # Reserved draft sales (when reserve_stock = true).
+            # Incoming = posted POs minus posted GRNs received qty.
+            params: list = [company_id, start, end, company_id, company_id, company_id, wh, wh, wh, wh, company_id]
+            cur.execute(
+                f"""
+                WITH demand AS (
+                  SELECT item_id,
+                         COALESCE(SUM(sold_qty - returned_qty), 0) AS net_qty
+                  FROM ai_item_sales_daily
+                  WHERE company_id = %s AND sale_date BETWEEN %s AND %s
+                  GROUP BY item_id
+                ),
+                reserved AS (
+                  SELECT l.item_id, i.warehouse_id,
+                         COALESCE(SUM(l.qty), 0) AS reserved_qty
+                  FROM sales_invoice_lines l
+                  JOIN sales_invoices i ON i.id = l.invoice_id
+                  WHERE i.company_id = %s
+                    AND i.status = 'draft'
+                    AND COALESCE(i.reserve_stock, false) = true
+                  GROUP BY l.item_id, i.warehouse_id
+                ),
+                incoming AS (
+                  SELECT pol.item_id, po.warehouse_id,
+                         GREATEST(
+                           COALESCE(SUM(pol.qty), 0) -
+                           COALESCE(SUM(CASE WHEN gr.status = 'posted' THEN grl.qty ELSE 0 END), 0),
+                           0
+                         ) AS incoming_qty
+                  FROM purchase_order_lines pol
+                  JOIN purchase_orders po
+                    ON po.company_id = pol.company_id AND po.id = pol.purchase_order_id
+                  LEFT JOIN goods_receipt_lines grl
+                    ON grl.company_id = pol.company_id AND grl.purchase_order_line_id = pol.id
+                  LEFT JOIN goods_receipts gr
+                    ON gr.company_id = grl.company_id AND gr.id = grl.goods_receipt_id
+                  WHERE po.company_id = %s
+                    AND po.status = 'posted'
+                  GROUP BY pol.item_id, po.warehouse_id
+                ),
+                costs AS (
+                  SELECT item_id, on_hand_qty
+                  FROM item_warehouse_costs
+                  WHERE company_id=%s AND warehouse_id=%s
+                )
+                SELECT
+                  i.id AS item_id, i.sku, i.name,
+                  COALESCE(i.reorder_qty, 0) AS item_reorder_qty,
+                  s.supplier_id, sup.name AS supplier_name,
+                  COALESCE(s.lead_time_days, 0) AS lead_time_days,
+                  COALESCE(s.min_order_qty, 0) AS min_order_qty,
+                  COALESCE(s.last_cost_usd, 0) AS last_cost_usd,
+                  %s AS warehouse_id,
+                  COALESCE(c.on_hand_qty, 0) AS on_hand_qty,
+                  COALESCE(r.reserved_qty, 0) AS reserved_qty,
+                  (COALESCE(c.on_hand_qty, 0) - COALESCE(r.reserved_qty, 0)) AS available_qty,
+                  COALESCE(inc.incoming_qty, 0) AS incoming_qty,
+                  COALESCE(d.net_qty, 0) AS net_qty
+                FROM items i
+                JOIN item_suppliers s
+                  ON s.company_id = i.company_id AND s.item_id = i.id AND s.is_primary = true
+                JOIN suppliers sup
+                  ON sup.company_id = s.company_id AND sup.id = s.supplier_id
+                LEFT JOIN costs c
+                  ON c.item_id = i.id
+                LEFT JOIN reserved r
+                  ON r.item_id = i.id AND r.warehouse_id = %s
+                LEFT JOIN incoming inc
+                  ON inc.item_id = i.id AND inc.warehouse_id = %s
+                LEFT JOIN demand d
+                  ON d.item_id = i.id
+                WHERE i.company_id = %s
+                ORDER BY i.sku ASC
+                """,
+                params,
+            )
+            rows = cur.fetchall() or []
+
+            out = []
+            w_days = Decimal(str(window_days))
+            for r in rows:
+                net_qty = Decimal(str(r.get("net_qty") or 0))
+                if net_qty <= 0 and not include_zero_demand:
+                    continue
+
+                avg_daily = (net_qty / w_days) if w_days > 0 else Decimal("0")
+                lead = int(r.get("lead_time_days") or 0)
+                horizon = max(1, lead + int(review_days))
+                safety_qty = avg_daily * Decimal(str(safety_days))
+                forecast_qty = avg_daily * Decimal(str(horizon))
+
+                available = Decimal(str(r.get("available_qty") or 0))
+                incoming_qty = Decimal(str(r.get("incoming_qty") or 0))
+                needed = (forecast_qty + safety_qty) - (available + incoming_qty)
+                if needed <= 0:
+                    continue
+
+                min_order = Decimal(str(r.get("min_order_qty") or 0))
+                item_rq = Decimal(str(r.get("item_reorder_qty") or 0))
+                reorder_qty = needed
+                floor_qty = max(min_order, item_rq)
+                if floor_qty and reorder_qty < floor_qty:
+                    reorder_qty = floor_qty
+
+                last_cost = Decimal(str(r.get("last_cost_usd") or 0))
+                est_amount_usd = (reorder_qty * last_cost) if last_cost else Decimal("0")
+
+                r["window_start"] = start.isoformat()
+                r["window_end"] = end.isoformat()
+                r["avg_daily_qty"] = avg_daily.quantize(Decimal("0.000001"))
+                r["horizon_days"] = horizon
+                r["forecast_qty"] = forecast_qty.quantize(Decimal("0.000001"))
+                r["safety_qty"] = safety_qty.quantize(Decimal("0.000001"))
+                r["needed_qty"] = needed.quantize(Decimal("0.000001"))
+                r["reorder_qty"] = reorder_qty.quantize(Decimal("0.000001"))
+                r["est_amount_usd"] = est_amount_usd.quantize(Decimal("0.0001"))
+                out.append(r)
+
+            return {"rows": out, "window_start": start.isoformat(), "window_end": end.isoformat()}

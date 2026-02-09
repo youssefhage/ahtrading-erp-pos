@@ -109,6 +109,7 @@ function iconForHref(href: string) {
     "/inventory/movements": ArrowLeftRight,
     "/inventory/transfers": ArrowLeftRight,
     "/inventory/alerts": BellRing,
+    "/inventory/reorder-suggestions": ClipboardList,
     "/inventory/batches": Boxes,
     "/inventory/landed-costs": Truck,
     "/inventory/cost-changes": TrendingUp,
@@ -231,6 +232,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Cycle Counts", href: "/inventory/cycle-counts" },
       { label: "Batches", href: "/inventory/batches" },
       { label: "Alerts", href: "/inventory/alerts" },
+      { label: "Reorder Suggestions", href: "/inventory/reorder-suggestions" },
       { label: "Landed Costs", href: "/inventory/landed-costs" },
       { label: "Cost Changes", href: "/inventory/cost-changes" },
       { label: "Price Changes", href: "/inventory/price-changes" }
