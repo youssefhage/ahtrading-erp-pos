@@ -478,8 +478,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     const entry = { href: path, label: labelForMemory(path, title) };
     addRecent(entry);
     setRecents(getRecents());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
+  }, [pathname, title]);
 
   useEffect(() => {
     // Company context display should be human-friendly.
@@ -855,7 +854,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                     {favorites.slice(0, 8).map((f) => (
                       <NavItemComponent
                         key={`fav:${f.href}`}
-                        item={{ href: f.href, label: f.label }}
+                        item={{ href: f.href, label: f.label, icon: iconForHref(f.href) }}
                         isActive={pathname === f.href}
                         collapsed={false}
                       />
@@ -883,7 +882,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                     {recents.slice(0, 6).map((r) => (
                       <NavItemComponent
                         key={`recent:${r.href}`}
-                        item={{ href: r.href, label: r.label }}
+                        item={{ href: r.href, label: r.label, icon: iconForHref(r.href) }}
                         isActive={pathname === r.href}
                         collapsed={false}
                       />
