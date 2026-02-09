@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 
 import { apiGet } from "@/lib/api";
 import { ShortcutLink } from "@/components/shortcut-link";
@@ -54,7 +55,7 @@ export default function JournalTemplatesListPage() {
             Refresh
           </Button>
           <Button asChild>
-            <a href="/accounting/journal-templates/new">New Template</a>
+            <Link href="/accounting/journal-templates/new">New Template</Link>
           </Button>
         </CardContent>
       </Card>
@@ -106,4 +107,3 @@ export default function JournalTemplatesListPage() {
     </div>
   );
 }
-

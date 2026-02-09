@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
@@ -156,7 +157,7 @@ export default function SupplierCreditsListPage() {
               </DialogContent>
             </Dialog>
             <Button asChild>
-              <a href="/purchasing/supplier-credits/new">New Credit</a>
+              <Link href="/purchasing/supplier-credits/new">New Credit</Link>
             </Button>
           </div>
         </CardContent>
@@ -235,4 +236,3 @@ export default function SupplierCreditsListPage() {
     </div>
   );
 }
-

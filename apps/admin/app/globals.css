@@ -227,8 +227,29 @@
     @apply py-3 px-4 text-foreground;
   }
 
+  /* Subtle data tinting for faster scanning (tables only) */
+  .ui-table td.data-mono,
+  .ui-table td .data-mono {
+    color: rgb(var(--primary-dim));
+  }
+
   .ui-table tbody tr:last-child {
     @apply border-b-0;
+  }
+
+  /* Date inputs: make calendar pickers feel consistent and readable */
+  input[type="date"] {
+    @apply data-mono;
+  }
+
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0.55;
+    cursor: pointer;
+  }
+
+  input[type="date"]:hover::-webkit-calendar-picker-indicator,
+  input[type="date"]:focus-visible::-webkit-calendar-picker-indicator {
+    opacity: 0.85;
   }
 
   /* Keyboard shortcuts */
