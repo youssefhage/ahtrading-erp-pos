@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
@@ -11,8 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
+import { CustomerTypeahead, type CustomerTypeaheadCustomer } from "@/components/customer-typeahead";
 
-type Customer = { id: string; name: string; payment_terms_days?: string | number };
 type Warehouse = { id: string; name: string };
 
 type InvoiceLineDraft = {
@@ -70,10 +70,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
   const [customerId, setCustomerId] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerTypeaheadCustomer | null>(null);
   const [warehouseId, setWarehouseId] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(() => todayIso());
   const [autoDueDate, setAutoDueDate] = useState(true);
@@ -90,17 +90,11 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 
   const addQtyRef = useRef<HTMLInputElement | null>(null);
 
-  const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
-
   const load = useCallback(async () => {
     setLoading(true);
     setStatus("Loading...");
     try {
-      const [cust, wh] = await Promise.all([
-        apiGet<{ customers: Customer[] }>("/customers"),
-        apiGet<{ warehouses: Warehouse[] }>("/warehouses")
-      ]);
-      setCustomers(cust.customers || []);
+      const [wh] = await Promise.all([apiGet<{ warehouses: Warehouse[] }>("/warehouses")]);
       setWarehouses(wh.warehouses || []);
 
       const firstWhId = (wh.warehouses || [])[0]?.id || "";
@@ -126,6 +120,18 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         const byId = new Map((look.items || []).map((it) => [it.id, it]));
 
         setCustomerId(det.invoice.customer_id || "");
+        if (det.invoice.customer_id) {
+          try {
+            const c = await apiGet<{ customer: CustomerTypeaheadCustomer }>(
+              `/customers/${encodeURIComponent(det.invoice.customer_id)}`
+            );
+            setSelectedCustomer(c.customer || null);
+          } catch {
+            setSelectedCustomer(null);
+          }
+        } else {
+          setSelectedCustomer(null);
+        }
         setWarehouseId(det.invoice.warehouse_id || preferredWhId || firstWhId || "");
         setInvoiceDate(String(det.invoice.invoice_date || todayIso()).slice(0, 10));
         setAutoDueDate(false);
@@ -145,6 +151,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         );
       } else {
         setCustomerId("");
+        setSelectedCustomer(null);
         setInvoiceDate(todayIso());
         setAutoDueDate(true);
         setDueDate(todayIso());
@@ -169,11 +176,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   useEffect(() => {
     if (!autoDueDate) return;
     const invDate = invoiceDate || todayIso();
-    const terms = Number(customerById.get(customerId)?.payment_terms_days || 0);
+    const terms = Number(selectedCustomer?.payment_terms_days || 0);
     const next = addDays(invDate, Number.isFinite(terms) ? terms : 0);
     setDueDate(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoDueDate, customerId, invoiceDate, customers.length]);
+  }, [autoDueDate, customerId, invoiceDate, selectedCustomer?.payment_terms_days]);
 
   function onPickItem(it: ItemTypeaheadItem) {
     setAddItem(it);
@@ -310,14 +316,25 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Customer (optional)</label>
-                <select className="ui-select" value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={loading}>
-                  <option value="">Walk-in</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                <CustomerTypeahead
+                  disabled={loading}
+                  onSelect={(c) => {
+                    setSelectedCustomer(c);
+                    setCustomerId(c.id);
+                  }}
+                  onClear={() => {
+                    setSelectedCustomer(null);
+                    setCustomerId("");
+                  }}
+                  placeholder="Walk-in or search customer..."
+                />
+                {selectedCustomer ? (
+                  <div className="text-[11px] text-fg-subtle">
+                    Selected: <span className="font-medium text-foreground">{selectedCustomer.name}</span>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-fg-subtle">Walk-in customer</div>
+                )}
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Warehouse</label>

@@ -79,10 +79,12 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
   - Default behavior: show recent items, then search.
 - Executed (v1):
   - Sales Invoice Draft and Supplier Invoice Draft now use a keyboard-friendly searchable Item Picker (SKU/name/barcode), show UOM by default, and auto-fill unit price/cost.
+  - Sales Invoice Draft customer picking now uses a searchable Customer typeahead (no longer downloads the full customer list just to select one).
   - Added `GET /pricing/catalog` so Admin can fetch “effective prices” (default price list fallback) without needing POS device auth.
   - Added scalable typeahead endpoints + pickers:
     - `GET /items/typeahead`, `POST /items/lookup`
     - `GET /suppliers/typeahead`
+    - `GET /customers/typeahead` (scalable customer picking)
     - `GET /pricing/catalog/typeahead` (pricing-aware picking for Sales Invoices)
 
 4) Automation / AI features still read like internal tooling
@@ -118,6 +120,7 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
 - Executed (v1):
   - Removed remaining `<tr onClick>` patterns and switched to explicit buttons/links.
   - Audited common inline buttons to ensure non-submit actions use `type="button"` inside forms (where applicable).
+  - Confirmed `apps/admin/app/accounting/banking/reconciliation/page.tsx` journal-pick buttons specify `type="button"` (no accidental form submits).
 
 ## Less Critical Improvements
 

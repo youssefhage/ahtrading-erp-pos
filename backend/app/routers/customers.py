@@ -56,6 +56,85 @@ def list_customers(company_id: str = Depends(get_company_id)):
             return {"customers": cur.fetchall()}
 
 
+@router.get("/typeahead", dependencies=[Depends(require_permission("customers:read"))])
+def customers_typeahead(
+    q: str = "",
+    limit: int = 50,
+    include_inactive: bool = False,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Scalable customer picker endpoint for Admin UI.
+    Searches name/code/phone/email/membership_no. Defaults to active-only.
+    """
+    q = (q or "").strip()
+    limit = int(limit or 0)
+    if limit <= 0:
+        limit = 50
+    limit = min(limit, 200)
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            like = f"%{q}%"
+            cur.execute(
+                """
+                SELECT id, code, name, phone, email, membership_no, payment_terms_days, price_list_id, is_active, updated_at
+                FROM customers
+                WHERE company_id=%s
+                  AND (%s OR is_active=true)
+                  AND (
+                    %s = ''
+                    OR name ILIKE %s
+                    OR code ILIKE %s
+                    OR phone ILIKE %s
+                    OR email ILIKE %s
+                    OR membership_no ILIKE %s
+                  )
+                ORDER BY is_active DESC, name ASC
+                LIMIT %s
+                """,
+                (
+                    company_id,
+                    bool(include_inactive),
+                    q,
+                    like,
+                    like,
+                    like,
+                    like,
+                    like,
+                    limit,
+                ),
+            )
+            return {"customers": cur.fetchall()}
+
+
+@router.get("/{customer_id}", dependencies=[Depends(require_permission("customers:read"))])
+def get_customer(customer_id: str, company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
+                       membership_no, is_member, membership_expires_at,
+                       payment_terms_days,
+                       credit_limit_usd, credit_limit_lbp,
+                       credit_balance_usd, credit_balance_lbp,
+                       loyalty_points,
+                       price_list_id,
+                       is_active,
+                       updated_at
+                FROM customers
+                WHERE company_id=%s AND id=%s
+                """,
+                (company_id, customer_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Customer not found")
+            return {"customer": row}
+
+
 @router.post("", dependencies=[Depends(require_permission("customers:write"))])
 def create_customer(data: CustomerIn, company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
