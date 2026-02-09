@@ -86,9 +86,16 @@ def telegram_webhook(
     if (x_telegram_bot_api_secret_token or "").strip() != expected_secret:
         raise HTTPException(status_code=401, detail="invalid telegram secret token")
 
+    try:
+        max_mb = int(os.environ.get("ATTACHMENT_MAX_MB", "5"))
+    except Exception:
+        max_mb = 5
+    max_mb = max(1, min(max_mb, 100))
+    max_bytes = max_mb * 1024 * 1024
+
     file_id, filename, content_type, size_guess = _extract_file_info(update)
-    if size_guess and size_guess > 5 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="file too large (max 5MB in v1)")
+    if size_guess and size_guess > max_bytes:
+        raise HTTPException(status_code=413, detail=f"file too large (max {max_mb}MB)")
 
     # Store the raw update for traceability.
     try:
@@ -115,8 +122,8 @@ def telegram_webhook(
         raise HTTPException(status_code=400, detail="telegram getFile did not return file_path")
 
     raw = _http_get_bytes(f"https://api.telegram.org/file/bot{bot_token}/{file_path}")
-    if len(raw) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="file too large (max 5MB in v1)")
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"file too large (max {max_mb}MB)")
 
     # Reuse the same import logic as the Admin file upload.
     user = {"user_id": system_user_id, "email": "telegram@integration"}
@@ -137,4 +144,3 @@ def telegram_webhook(
         user=user,
     )
     return {"ok": True, "supplier_invoice": res}
-

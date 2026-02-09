@@ -101,7 +101,7 @@ export function DocumentAttachments(props: {
         {props.allowUpload ? (
           <form onSubmit={upload} className="flex flex-wrap items-end gap-2">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">Upload (max 10MB default)</label>
+              <label className="text-xs font-medium text-fg-muted">Upload (max configured, 5MB default)</label>
               <input type="file" className="block text-xs" disabled={uploading} />
             </div>
             <Button type="submit" disabled={uploading}>

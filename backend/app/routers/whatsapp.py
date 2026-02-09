@@ -41,9 +41,16 @@ def whatsapp_webhook(
     if (x_whatsapp_webhook_secret or "").strip() != expected_secret:
         raise HTTPException(status_code=401, detail="invalid whatsapp secret")
 
+    try:
+        max_mb = int(os.environ.get("ATTACHMENT_MAX_MB", "5"))
+    except Exception:
+        max_mb = 5
+    max_mb = max(1, min(max_mb, 100))
+    max_bytes = max_mb * 1024 * 1024
+
     raw = file.file.read() or b""
-    if len(raw) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="file too large (max 5MB in v1)")
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"file too large (max {max_mb}MB)")
 
     filename = (file.filename or "whatsapp-upload").strip() or "whatsapp-upload"
     content_type = (file.content_type or "application/octet-stream").strip() or "application/octet-stream"
@@ -84,4 +91,3 @@ def whatsapp_webhook(
         user=user,
     )
     return {"ok": True, "supplier_invoice": res}
-

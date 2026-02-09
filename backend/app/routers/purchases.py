@@ -10,6 +10,7 @@ from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
 import json
+import os
 from ..journal_utils import auto_balance_journal
 from ..validation import DocStatus, PaymentMethod, CurrencyCode
 from ..importers.supplier_invoice_import import (
@@ -647,8 +648,14 @@ def import_supplier_invoice_draft_from_file(
     Optional (mock_extract=true): dev-only stub extraction to test the review/apply UX without OPENAI.
     """
     raw = file.file.read() or b""
-    if len(raw) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="attachment too large (max 5MB in v1)")
+    try:
+        max_mb = int(os.environ.get("ATTACHMENT_MAX_MB", "5"))
+    except Exception:
+        max_mb = 5
+    max_mb = max(1, min(max_mb, 100))
+    max_bytes = max_mb * 1024 * 1024
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"attachment too large (max {max_mb}MB)")
 
     filename = (file.filename or "purchase-invoice").strip() or "purchase-invoice"
     content_type = (file.content_type or "application/octet-stream").strip() or "application/octet-stream"
