@@ -98,11 +98,11 @@ function Inner() {
           amount_usd: toNum(ln.amount_usd || "0"),
           amount_lbp: toNum(ln.amount_lbp || "0")
         }))
-        .filter((ln) => (ln.amount_usd || 0) > 0 || (ln.amount_lbp || 0) > 0)
+        .filter((ln) => (ln.amount_usd || 0) !== 0 || (ln.amount_lbp || 0) !== 0)
     };
 
     if (!payload.lines.length) {
-      setErr(new Error("Add at least one landed cost line with a non-zero amount."));
+      setErr(new Error("Add at least one landed cost line with a non-zero amount (negative allowed for rebates/credits)."));
       return;
     }
 
@@ -122,7 +122,7 @@ function Inner() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">New Landed Cost Draft</h1>
-          <p className="text-sm text-fg-muted">Allocate freight/customs/handling to a posted goods receipt.</p>
+          <p className="text-sm text-fg-muted">Allocate freight/customs/handling to a posted goods receipt (use negative amounts for rebates/credits).</p>
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" onClick={() => router.push("/inventory/landed-costs/list")}>
@@ -242,4 +242,3 @@ export default function LandedCostNewPage() {
     </Suspense>
   );
 }
-

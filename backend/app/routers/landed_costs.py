@@ -211,8 +211,9 @@ def post_landed_cost(landed_cost_id: str, company_id: str = Depends(get_company_
                 total_usd = Decimal(str(doc.get("total_usd") or 0))
                 total_lbp = Decimal(str(doc.get("total_lbp") or 0))
 
-                if total_usd <= 0 and total_lbp <= 0:
-                    raise HTTPException(status_code=400, detail="landed cost total must be > 0")
+                # Allow negative totals for vendor rebates/credits (reduces batch cost).
+                if total_usd == 0 and total_lbp == 0:
+                    raise HTTPException(status_code=400, detail="landed cost total must be non-zero")
 
                 # Allocate and apply.
                 for l in gr_lines:
@@ -224,8 +225,8 @@ def post_landed_cost(landed_cost_id: str, company_id: str = Depends(get_company_
                     denom_usd = base_usd if base_usd > 0 else Decimal(str(sum(Decimal(str(x.get("qty") or 0)) for x in gr_lines) or 0) or 1)
                     denom_lbp = base_lbp if base_lbp > 0 else Decimal(str(sum(Decimal(str(x.get("qty") or 0)) for x in gr_lines) or 0) or 1)
 
-                    alloc_usd = (total_usd * (w_usd / denom_usd)) if total_usd > 0 else Decimal("0")
-                    alloc_lbp = (total_lbp * (w_lbp / denom_lbp)) if total_lbp > 0 else Decimal("0")
+                    alloc_usd = (total_usd * (w_usd / denom_usd)) if total_usd != 0 else Decimal("0")
+                    alloc_lbp = (total_lbp * (w_lbp / denom_lbp)) if total_lbp != 0 else Decimal("0")
 
                     # Keep GRN lines in sync for UI/reporting (v1).
                     cur.execute(

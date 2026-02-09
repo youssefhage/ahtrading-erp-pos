@@ -92,6 +92,7 @@ Canonical execution documents:
   - API: `POST /inventory/landed-costs/drafts`, `POST /inventory/landed-costs/{id}/post`
   - Allocation updates GRN line landed-cost totals + batch cost layers; best-effort avg-cost bump when stock is still on-hand.
   - Admin UI: `Inventory → Landed Costs` (list/new/view) with Timeline.
+  - Supports vendor rebates/credits via negative landed cost totals (reduces batch cost for margin reporting).
 
 3) 3-way match v2 (AP controls)
 - Completed (2026-02-09, v2 foundation):

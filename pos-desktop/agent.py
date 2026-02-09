@@ -44,6 +44,12 @@ DEFAULT_CONFIG = {
     'require_admin_pin': False,
     # Session duration for admin unlock when required.
     'admin_session_hours': 12,
+
+    # Company-level inventory policy (pulled from backend) used for POS lot prompting UX.
+    # Shallow-merged; agent sync overwrites this object.
+    'inventory_policy': {
+        'require_manual_lot_selection': False,
+    },
 }
 
 
@@ -1396,6 +1402,35 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == '/api/items':
             json_response(self, {'items': get_items()})
             return
+        if parsed.path.startswith("/api/items/") and parsed.path.endswith("/batches"):
+            # Proxy eligible batches from backend (best-effort; online-only).
+            # Used by the POS UI to provide a pick/confirm flow for batch/expiry items.
+            parts = parsed.path.strip("/").split("/")
+            # ["api", "items", "{item_id}", "batches"]
+            if len(parts) != 4:
+                json_response(self, {"error": "not found"}, status=404)
+                return
+            item_id = parts[2]
+            qs = parse_qs(parsed.query)
+            warehouse_id = (qs.get("warehouse_id") or [""])[0].strip() or (cfg.get("warehouse_id") or "").strip()
+            if not warehouse_id:
+                json_response(self, {"error": "warehouse_id is required"}, status=400)
+                return
+            base = (cfg.get("api_base_url") or "").strip()
+            if not base:
+                json_response(self, {"error": "missing api_base_url"}, status=400)
+                return
+            if not cfg.get("device_id") or not cfg.get("device_token"):
+                json_response(self, {"error": "missing device_id or device_token"}, status=400)
+                return
+            try:
+                headers = device_headers(cfg)
+                url = f"{base}/pos/items/{quote(str(item_id))}/batches?warehouse_id={quote(str(warehouse_id))}"
+                data = fetch_json(url, headers=headers)
+                json_response(self, data)
+            except URLError as ex:
+                json_response(self, {"error": "offline", "detail": str(ex)}, status=502)
+            return
         if parsed.path == '/api/barcodes':
             json_response(self, {'barcodes': get_barcodes()})
             return
@@ -1725,6 +1760,8 @@ class Handler(BaseHTTPRequestHandler):
                 pos_cfg = fetch_json(f"{base}/pos/config", headers=headers)
                 if pos_cfg.get('default_warehouse_id'):
                     cfg['warehouse_id'] = pos_cfg['default_warehouse_id']
+                if isinstance(pos_cfg.get("inventory_policy"), dict):
+                    cfg["inventory_policy"] = pos_cfg.get("inventory_policy") or {}
                 vat = pos_cfg.get('vat') or {}
                 if vat.get('id'):
                     cfg['tax_code_id'] = vat['id']
@@ -1733,7 +1770,8 @@ class Handler(BaseHTTPRequestHandler):
                 rate = fetch_json(f"{base}/pos/exchange-rate", headers=headers)
                 if rate.get('rate'):
                     cfg['exchange_rate'] = rate['rate']['usd_to_lbp']
-                    save_config(cfg)
+                # Persist config updates even if exchange rate fetch fails.
+                save_config(cfg)
 
                 # Apply inbox events (server -> device), then ACK.
                 inbox = fetch_json(f"{base}/pos/inbox/pull?limit=200", headers=headers)

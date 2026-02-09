@@ -104,6 +104,10 @@ function Inner({ id }: { id: string }) {
   const [reversing, setReversing] = useState(false);
   const [reverseReason, setReverseReason] = useState("");
 
+  const [editPickMode, setEditPickMode] = useState(false);
+  const [allocEdits, setAllocEdits] = useState<Record<string, string>>({});
+  const [savingPick, setSavingPick] = useState(false);
+
   const tr = detail?.transfer;
   const lines = detail?.lines || [];
   const alloc = detail?.allocations_by_line || {};
@@ -343,6 +347,42 @@ function Inner({ id }: { id: string }) {
   const canPost = tr?.status === "picked";
   const canCancel = tr?.status === "draft" || tr?.status === "picked";
   const canReverse = tr?.status === "posted";
+  const canEditPick = tr?.status === "picked";
+
+  function startEditPick() {
+    const map: Record<string, string> = {};
+    Object.values(alloc || {}).forEach((rows) => {
+      (rows || []).forEach((a) => {
+        map[String(a.id)] = String(a.qty ?? "");
+      });
+    });
+    setAllocEdits(map);
+    setEditPickMode(true);
+  }
+
+  async function savePickEdits() {
+    if (!tr) return;
+    setSavingPick(true);
+    setErr(null);
+    try {
+      const updates: Array<{ id: string; qty: number }> = [];
+      Object.values(alloc || {}).forEach((rows) => {
+        (rows || []).forEach((a) => {
+          const raw = allocEdits[String(a.id)] ?? String(a.qty ?? "0");
+          const qty = toNum(raw || "0");
+          if (qty < 0) throw new Error("Allocation qty must be >= 0.");
+          updates.push({ id: String(a.id), qty });
+        });
+      });
+      await apiPatch(`/inventory/transfers/${encodeURIComponent(tr.id)}/allocations`, { allocations: updates });
+      setEditPickMode(false);
+      await load();
+    } catch (e2) {
+      setErr(e2);
+    } finally {
+      setSavingPick(false);
+    }
+  }
 
   if (!loading && !detail && !err) {
     return (
@@ -381,12 +421,22 @@ function Inner({ id }: { id: string }) {
             </Button>
           ) : null}
           {canPick ? (
-            <Button type="button" variant="outline" onClick={() => setPickOpen(true)} disabled={editMode}>
+            <Button type="button" variant="outline" onClick={() => setPickOpen(true)} disabled={editMode || editPickMode}>
               Pick
             </Button>
           ) : null}
+          {canEditPick ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => (editPickMode ? setEditPickMode(false) : startEditPick())}
+              disabled={editMode}
+            >
+              {editPickMode ? "Close Pick Edit" : "Edit Pick"}
+            </Button>
+          ) : null}
           {canPost ? (
-            <Button type="button" onClick={() => setPostOpen(true)} disabled={editMode}>
+            <Button type="button" onClick={() => setPostOpen(true)} disabled={editMode || editPickMode}>
               Post
             </Button>
           ) : null}
@@ -630,7 +680,20 @@ function Inner({ id }: { id: string }) {
                               <div className="space-y-1 text-xs">
                                 {allocRows.slice(0, 12).map((a) => (
                                   <div key={a.id} className="flex flex-wrap items-center gap-2">
-                                    <span className="data-mono font-medium">{String(a.qty)}</span>
+                                    {editPickMode ? (
+                                      <Input
+                                        className="h-8 w-24 text-right data-mono"
+                                        value={allocEdits[String(a.id)] ?? String(a.qty)}
+                                        onChange={(e) =>
+                                          setAllocEdits((prev) => ({
+                                            ...prev,
+                                            [String(a.id)]: e.target.value
+                                          }))
+                                        }
+                                      />
+                                    ) : (
+                                      <span className="data-mono font-medium">{String(a.qty)}</span>
+                                    )}
                                     <span className="text-fg-subtle">from</span>
                                     <span className="data-mono">{a.batch_no || (a.batch_id ? String(a.batch_id).slice(0, 8) : "unbatched")}</span>
                                     {a.expiry_date ? <span className="text-fg-subtle">exp {String(a.expiry_date).slice(0, 10)}</span> : null}
@@ -654,6 +717,17 @@ function Inner({ id }: { id: string }) {
                   </tbody>
                 </table>
               </div>
+
+              {editPickMode ? (
+                <div className="flex items-center justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setEditPickMode(false)} disabled={savingPick}>
+                    Close
+                  </Button>
+                  <Button type="button" onClick={savePickEdits} disabled={savingPick}>
+                    {savingPick ? "Saving..." : "Save Pick"}
+                  </Button>
+                </div>
+              ) : null}
 
               {tr.status === "posted" ? (
                 <div className="text-xs text-fg-subtle">

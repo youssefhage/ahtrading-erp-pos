@@ -394,6 +394,8 @@ def allocate_fefo_batches(
     min_expiry_date: Optional[date] = None,
     allow_unbatched_remainder: bool = True,
     allow_negative_stock: bool = True,
+    location_id: Optional[str] = None,
+    strict_location: bool = False,
 ):
     """
     Allocates outbound quantity across batches in FEFO order (earliest expiry first).
@@ -402,9 +404,15 @@ def allocate_fefo_batches(
     if qty_out <= 0:
         return []
 
+    loc_filter = ""
+    params: list = [company_id, item_id, warehouse_id]
+    if strict_location and location_id:
+        loc_filter = " AND sm.location_id = %s"
+        params.append(location_id)
+
     if min_expiry_date:
         cur.execute(
-            """
+            f"""
             SELECT sm.batch_id,
                    b.expiry_date,
                    (SUM(sm.qty_in) - SUM(sm.qty_out)) AS on_hand
@@ -413,17 +421,18 @@ def allocate_fefo_batches(
             WHERE sm.company_id = %s
               AND sm.item_id = %s
               AND sm.warehouse_id = %s
+              {loc_filter}
               AND (sm.batch_id IS NULL OR b.status = 'available')
               AND (b.expiry_date IS NULL OR b.expiry_date >= %s)
             GROUP BY sm.batch_id, b.expiry_date
             HAVING (SUM(sm.qty_in) - SUM(sm.qty_out)) > 0
             ORDER BY b.expiry_date NULLS LAST, sm.batch_id
             """,
-            (company_id, item_id, warehouse_id, min_expiry_date),
+            tuple(params + [min_expiry_date]),
         )
     else:
         cur.execute(
-            """
+            f"""
             SELECT sm.batch_id,
                    b.expiry_date,
                    (SUM(sm.qty_in) - SUM(sm.qty_out)) AS on_hand
@@ -432,12 +441,13 @@ def allocate_fefo_batches(
             WHERE sm.company_id = %s
               AND sm.item_id = %s
               AND sm.warehouse_id = %s
+              {loc_filter}
               AND (sm.batch_id IS NULL OR b.status = 'available')
             GROUP BY sm.batch_id, b.expiry_date
             HAVING (SUM(sm.qty_in) - SUM(sm.qty_out)) > 0
             ORDER BY b.expiry_date NULLS LAST, sm.batch_id
             """,
-            (company_id, item_id, warehouse_id),
+            tuple(params),
         )
     rows = cur.fetchall()
 

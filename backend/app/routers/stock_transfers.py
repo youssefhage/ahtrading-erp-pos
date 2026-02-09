@@ -379,16 +379,22 @@ def pick_transfer(transfer_id: str, company_id: str = Depends(get_company_id), u
                     if bool(pol.get("track_expiry")) and not min_exp:
                         min_exp = transfer_date
 
-                    allocations = pos_processor.allocate_fefo_batches(
-                        cur,
-                        company_id,
-                        item_id,
-                        doc["from_warehouse_id"],
-                        qty,
-                        min_expiry_date=min_exp,
-                        allow_unbatched_remainder=not tracked,
-                        allow_negative_stock=allow_negative_stock,
-                    )
+                    try:
+                        allocations = pos_processor.allocate_fefo_batches(
+                            cur,
+                            company_id,
+                            item_id,
+                            doc["from_warehouse_id"],
+                            qty,
+                            min_expiry_date=min_exp,
+                            allow_unbatched_remainder=not tracked,
+                            allow_negative_stock=allow_negative_stock,
+                            location_id=doc.get("from_location_id"),
+                            strict_location=bool(doc.get("from_location_id")),
+                        )
+                    except ValueError as ex:
+                        # Most common case: not enough stock in the selected bin when negative stock is disabled.
+                        raise HTTPException(status_code=409, detail=str(ex))
                     picked_qty = Decimal("0")
                     for batch_id, q in allocations:
                         picked_qty += Decimal(str(q or 0))
@@ -431,6 +437,139 @@ def pick_transfer(transfer_id: str, company_id: str = Depends(get_company_id), u
                     (company_id, user["user_id"], transfer_id, json.dumps({"warnings": warnings[:50]})),
                 )
                 return {"ok": True, "warnings": warnings}
+
+
+class AllocationQtyUpdateIn(BaseModel):
+    id: str
+    qty: Decimal
+
+
+class AllocationUpdateIn(BaseModel):
+    allocations: List[AllocationQtyUpdateIn]
+
+
+@router.patch("/{transfer_id}/allocations", dependencies=[Depends(require_permission("inventory:write"))])
+def update_transfer_allocations(
+    transfer_id: str,
+    data: AllocationUpdateIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    """
+    Edit picked allocations (pick/confirm v1): allows adjusting qty on existing allocations.
+    Only allowed while transfer is `picked`.
+    """
+    updates = data.allocations or []
+    if not updates:
+        return {"ok": True}
+
+    # Validate payload upfront.
+    for u in updates:
+        if Decimal(str(u.qty or 0)) < 0:
+            raise HTTPException(status_code=400, detail="allocation qty must be >= 0")
+
+    alloc_ids = [str(u.id) for u in updates]
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, status
+                    FROM stock_transfers
+                    WHERE company_id=%s AND id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, transfer_id),
+                )
+                tr = cur.fetchone()
+                if not tr:
+                    raise HTTPException(status_code=404, detail="transfer not found")
+                if tr["status"] != "picked":
+                    raise HTTPException(status_code=400, detail="allocations can only be edited while status=picked")
+
+                cur.execute(
+                    """
+                    SELECT id
+                    FROM stock_transfer_lines
+                    WHERE company_id=%s AND stock_transfer_id=%s
+                    """,
+                    (company_id, transfer_id),
+                )
+                line_ids = {str(r["id"]) for r in (cur.fetchall() or [])}
+                if not line_ids:
+                    raise HTTPException(status_code=400, detail="transfer has no lines")
+
+                cur.execute(
+                    """
+                    SELECT id, stock_transfer_line_id
+                    FROM stock_transfer_line_allocations
+                    WHERE company_id=%s AND id = ANY(%s::uuid[])
+                    """,
+                    (company_id, alloc_ids),
+                )
+                found = cur.fetchall() or []
+                found_map = {str(r["id"]): str(r["stock_transfer_line_id"]) for r in found}
+
+                missing = [aid for aid in alloc_ids if aid not in found_map]
+                if missing:
+                    raise HTTPException(status_code=404, detail="allocation not found")
+
+                # Ensure allocations belong to this transfer.
+                bad = [aid for aid, lid in found_map.items() if lid not in line_ids]
+                if bad:
+                    raise HTTPException(status_code=400, detail="allocation does not belong to this transfer")
+
+                touched_lines: set[str] = set()
+                for u in updates:
+                    q = Decimal(str(u.qty or 0))
+                    lid = found_map[str(u.id)]
+                    touched_lines.add(lid)
+                    if q == 0:
+                        cur.execute(
+                            "DELETE FROM stock_transfer_line_allocations WHERE company_id=%s AND id=%s",
+                            (company_id, u.id),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            UPDATE stock_transfer_line_allocations
+                            SET qty=%s
+                            WHERE company_id=%s AND id=%s
+                            """,
+                            (q, company_id, u.id),
+                        )
+
+                # Recompute picked_qty per touched line.
+                cur.execute(
+                    """
+                    SELECT stock_transfer_line_id, COALESCE(SUM(qty),0) AS picked_qty
+                    FROM stock_transfer_line_allocations
+                    WHERE company_id=%s AND stock_transfer_line_id = ANY(%s::uuid[])
+                    GROUP BY stock_transfer_line_id
+                    """,
+                    (company_id, list(touched_lines)),
+                )
+                sums = {str(r["stock_transfer_line_id"]): Decimal(str(r["picked_qty"] or 0)) for r in (cur.fetchall() or [])}
+                for lid in touched_lines:
+                    cur.execute(
+                        """
+                        UPDATE stock_transfer_lines
+                        SET picked_qty=%s
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (sums.get(lid, Decimal("0")), company_id, lid),
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'stock_transfer_allocations_updated', 'stock_transfer', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], transfer_id, json.dumps({"allocations": len(updates)})),
+                )
+                return {"ok": True}
 
 
 @router.post("/{transfer_id}/post", dependencies=[Depends(require_permission("inventory:write"))])

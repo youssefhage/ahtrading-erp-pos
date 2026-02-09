@@ -74,7 +74,9 @@ const state = {
   scanBuffer: "",
   lastScanTime: 0,
   modalOpen: null,
-  customerPickerTarget: null
+  customerPickerTarget: null,
+  lotContext: null,
+  lotBatches: []
 };
 
 const el = (id) => document.getElementById(id);
@@ -129,6 +131,28 @@ function getCurrency() {
 
 function getDefaultCustomerId() {
   return (state.config?.default_customer_id || "").trim();
+}
+
+function requireManualLotSelection() {
+  try {
+    return !!state.config?.inventory_policy?.require_manual_lot_selection;
+  } catch {
+    return false;
+  }
+}
+
+function isTrackedForLot(item) {
+  if (!item) return false;
+  if (item.track_batches) return true;
+  if (item.track_expiry) return true;
+  const minDays = Number(item.min_shelf_life_days_for_sale || 0);
+  return Number.isFinite(minDays) && minDays > 0;
+}
+
+function cartKey(itemId, batchNo, expiryDate) {
+  const bn = (batchNo || "").trim();
+  const ex = (expiryDate || "").trim();
+  return `${String(itemId || "")}|${bn}|${ex}`;
 }
 
 function escapeHtml(s) {
@@ -440,32 +464,139 @@ function updateTotals() {
 }
 
 function addToCart(item, qty) {
-  const existing = state.cart.find((i) => i.id === item.id);
   const inc = Number.isFinite(qty) && qty > 0 ? qty : 1;
+  const needsLot = isTrackedForLot(item) && (item.track_batches || item.track_expiry || requireManualLotSelection());
+  if (needsLot) {
+    openLotModal(item, inc);
+    return;
+  }
+  addCartLine(item, inc, null, null);
+  repriceCart();
+  renderCart();
+  updateTotals();
+}
+
+function addCartLine(item, inc, batchNo, expiryDate) {
+  const key = cartKey(item.id, batchNo, expiryDate);
+  const existing = state.cart.find((i) => cartKey(i.id, i.batch_no, i.expiry_date) === key);
   if (existing) {
     existing.qty += inc;
-  } else {
-    let batch_no = "";
-    let expiry_date = "";
-    if (item.track_batches) {
-      batch_no = window.prompt("Batch number required for this item:", "") || "";
-      if (!batch_no.trim()) return;
-    }
-    if (item.track_expiry) {
-      expiry_date = window.prompt("Expiry date required (YYYY-MM-DD):", "") || "";
-      if (!expiry_date.trim()) return;
-    }
-    state.cart.push({
-      ...item,
-      qty: inc,
-      base_price_usd: toNum(item.price_usd || 0),
-      base_price_lbp: toNum(item.price_lbp || 0),
-      promo_code: "",
-      promo_name: "",
-      batch_no: batch_no.trim() || null,
-      expiry_date: expiry_date.trim() || null
-    });
+    return;
   }
+  state.cart.push({
+    ...item,
+    qty: inc,
+    base_price_usd: toNum(item.price_usd || 0),
+    base_price_lbp: toNum(item.price_lbp || 0),
+    promo_code: "",
+    promo_name: "",
+    batch_no: (batchNo || "").trim() || null,
+    expiry_date: (expiryDate || "").trim() || null
+  });
+}
+
+function validateIsoDate(s) {
+  const v = (s || "").trim();
+  if (!v) return true;
+  // Basic YYYY-MM-DD check; input[type=date] already normalizes.
+  return /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+
+function openLotModal(item, qty) {
+  state.lotContext = { item, qty };
+  state.lotBatches = [];
+  setText("lotSubtitle", `${item.name} · Qty ${qty}`);
+  el("lotBatchNo").value = "";
+  el("lotExpiryDate").value = "";
+  el("lotBatches").innerHTML = "";
+  setText("lotStatus", "");
+  showModal("lotModal");
+  // Best-effort: load on-hand batches when online (otherwise manual entry works).
+  loadLotBatches();
+}
+
+function renderLotBatches() {
+  const container = el("lotBatches");
+  container.innerHTML = "";
+  const rows = state.lotBatches || [];
+  rows.slice(0, 60).forEach((b) => {
+    const batchNo = (b.batch_no || "").trim() || "unbatched";
+    const exp = b.expiry_date ? String(b.expiry_date).slice(0, 10) : "";
+    const onHand = Number(b.on_hand || 0);
+    const card = document.createElement("div");
+    card.className = "item";
+    const metaBits = [];
+    metaBits.push(escapeHtml(batchNo));
+    if (exp) metaBits.push(`exp ${escapeHtml(exp)}`);
+    card.innerHTML = `
+      <div>
+        <div class="meta">${metaBits.join(" · ")}</div>
+        <div class="meta">On hand: ${Number.isFinite(onHand) ? onHand : 0}</div>
+      </div>
+    `;
+    card.addEventListener("click", () => {
+      el("lotBatchNo").value = b.batch_no || "";
+      if (exp) el("lotExpiryDate").value = exp;
+    });
+    container.appendChild(card);
+  });
+}
+
+async function loadLotBatches() {
+  if (!state.lotContext?.item?.id) return;
+  const itemId = state.lotContext.item.id;
+  const wh = (state.config?.warehouse_id || "").trim();
+  if (!wh) {
+    setText("lotStatus", "No warehouse configured for this POS device.");
+    state.lotBatches = [];
+    renderLotBatches();
+    return;
+  }
+  setText("lotStatus", "Loading...");
+  try {
+    const res = await api.get(`/items/${encodeURIComponent(itemId)}/batches?warehouse_id=${encodeURIComponent(wh)}&limit=60`);
+    const rows = res.batches || [];
+    state.lotBatches = rows;
+    renderLotBatches();
+    setText("lotStatus", rows.length ? `${rows.length} on-hand batches` : "No on-hand batches found (enter manually).");
+  } catch (e) {
+    state.lotBatches = [];
+    renderLotBatches();
+    setText("lotStatus", "Offline or unavailable (enter manually).");
+  }
+}
+
+function confirmLotAdd() {
+  const ctx = state.lotContext;
+  if (!ctx?.item) return;
+  const item = ctx.item;
+  const qty = Number(ctx.qty || 1) || 1;
+
+  const batchNo = (el("lotBatchNo").value || "").trim();
+  const expiryDate = (el("lotExpiryDate").value || "").trim();
+
+  const policy = requireManualLotSelection();
+  const tracked = isTrackedForLot(item);
+  const requireBatch = !!item.track_batches;
+  // If policy requires manual selection and the item is tracked-but-not-batched, require expiry entry.
+  const requireExpiry = !!item.track_expiry || (policy && tracked && !item.track_batches);
+
+  if (requireBatch && !batchNo) {
+    setText("lotStatus", "Batch number is required for this item.");
+    return;
+  }
+  if (requireExpiry && !expiryDate) {
+    setText("lotStatus", "Expiry date is required for this item.");
+    return;
+  }
+  if (!validateIsoDate(expiryDate)) {
+    setText("lotStatus", "Expiry date must be YYYY-MM-DD.");
+    return;
+  }
+
+  hideModal("lotModal");
+  state.lotContext = null;
+  addCartLine(item, qty, batchNo || null, expiryDate || null);
   repriceCart();
   renderCart();
   updateTotals();
@@ -905,6 +1036,36 @@ function bind() {
   el("settingsClearCustomer").addEventListener("click", async () => {
     el("customerId").value = "";
     await hydrateCustomerLabels();
+  });
+
+  // Lot modal (batch/expiry pick-confirm).
+  el("lotLoad").addEventListener("click", loadLotBatches);
+  el("lotCancel").addEventListener("click", () => {
+    state.lotContext = null;
+    hideModal("lotModal");
+  });
+  el("lotConfirm").addEventListener("click", confirmLotAdd);
+  el("lotBatchNo").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      confirmLotAdd();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      state.lotContext = null;
+      hideModal("lotModal");
+    }
+  });
+  el("lotExpiryDate").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      confirmLotAdd();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      state.lotContext = null;
+      hideModal("lotModal");
+    }
   });
 
   // Pay modal

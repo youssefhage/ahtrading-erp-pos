@@ -675,6 +675,7 @@ def pos_config(device=Depends(require_device)):
     """
     Device-scoped configuration for POS bootstrapping.
     """
+    inventory_policy = {"require_manual_lot_selection": False}
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
@@ -744,6 +745,23 @@ def pos_config(device=Depends(require_device)):
             srow = cur.fetchone()
             default_pl_id = srow["id"] if srow else None
 
+            # Inventory policy used by POS UI for batch/expiry prompting behavior.
+            cur.execute(
+                """
+                SELECT value_json
+                FROM company_settings
+                WHERE company_id = %s AND key = 'inventory'
+                """,
+                (device["company_id"],),
+            )
+            prow = cur.fetchone()
+            if prow and prow.get("value_json"):
+                try:
+                    inv = prow["value_json"] or {}
+                    inventory_policy["require_manual_lot_selection"] = bool(inv.get("require_manual_lot_selection"))
+                except Exception:
+                    inventory_policy = {"require_manual_lot_selection": False}
+
     return {
         "company_id": device["company_id"],
         "device": dev,
@@ -752,6 +770,7 @@ def pos_config(device=Depends(require_device)):
         "vat": vat,
         "payment_methods": pay_methods,
         "default_price_list_id": default_pl_id,
+        "inventory_policy": inventory_policy,
     }
 
 @router.post("/heartbeat")

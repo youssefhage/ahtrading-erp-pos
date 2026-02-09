@@ -208,6 +208,34 @@
       </div>
     </div>
 
+    <div id="lotModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="lotTitle">
+      <div class="modal-header">
+        <h3 id="lotTitle">Pick Batch / Expiry</h3>
+        <p id="lotSubtitle">Select from on-hand batches when online, or enter manually.</p>
+      </div>
+      <div class="modal-body">
+        <div class="grid-2">
+          <label class="field">
+            <span>Batch No</span>
+            <input id="lotBatchNo" placeholder="Scan/type batch no" />
+          </label>
+          <label class="field">
+            <span>Expiry Date</span>
+            <input id="lotExpiryDate" type="date" />
+          </label>
+        </div>
+        <div class="row">
+          <button id="lotLoad" type="button" class="ghost">Load Available</button>
+          <div id="lotStatus" class="hint"></div>
+        </div>
+        <div id="lotBatches" class="list"></div>
+      </div>
+      <div class="modal-actions">
+        <button id="lotCancel" class="ghost">Cancel</button>
+        <button id="lotConfirm" class="primary">Add</button>
+      </div>
+    </div>
+
     <div id="payModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="payTitle">
       <div class="modal-header">
         <h3 id="payTitle">Payment</h3>
