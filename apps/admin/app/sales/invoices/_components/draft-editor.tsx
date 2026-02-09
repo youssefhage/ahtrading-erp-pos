@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
 import { CustomerTypeahead, type CustomerTypeaheadCustomer } from "@/components/customer-typeahead";
+import { Page, PageHeader } from "@/components/page";
 
 type Warehouse = { id: string; name: string };
 
@@ -289,18 +290,16 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const headerDesc = "Draft first, then Post when ready (stock + GL).";
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">{headerTitle}</h1>
-          <p className="text-sm text-fg-muted">{headerDesc}</p>
-        </div>
-        <div className="flex items-center gap-2">
+    <Page width="lg">
+      <PageHeader
+        title={headerTitle}
+        description={headerDesc}
+        actions={
           <Button variant="outline" onClick={() => router.push("/sales/invoices")}>
             Back
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {status ? (
         <ErrorBanner error={status} onRetry={load} />
@@ -515,6 +514,6 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
           </div>
         </CardContent>
       </Card>
-    </div>
+    </Page>
   );
 }

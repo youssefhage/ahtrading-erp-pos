@@ -129,6 +129,8 @@ This audit is intentionally pragmatic: it prioritizes changes that reduce confus
 - Introduce:
   - `Page`, `PageHeader`, `Toolbar`, `Section`, `EmptyState`.
 - Benefit: consistency, faster feature development, fewer regressions.
+- Executed (v1):
+  - Added reusable primitives in `apps/admin/components/page.tsx` and `apps/admin/components/empty-state.tsx` and began adoption in the document-first pages and AI/Ops pages.
 
 2) Expand and enforce color rules for status semantics
 - The design-token lint bans slate/white (good), but status colors still use raw Tailwind greens/reds in some places (dashboard, login).
