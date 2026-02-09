@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
@@ -35,15 +36,11 @@ function Inner() {
   const [statusFilter, setStatusFilter] = useState("");
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return (rows || []).filter((r) => {
+    const base = (rows || []).filter((r) => {
       if (statusFilter && r.status !== statusFilter) return false;
-      if (!needle) return true;
-      const no = (r.landed_cost_no || "").toLowerCase();
-      const gr = (r.goods_receipt_no || "").toLowerCase();
-      const memo = (r.memo || "").toLowerCase();
-      return no.includes(needle) || gr.includes(needle) || memo.includes(needle) || r.id.toLowerCase().includes(needle);
+      return true;
     });
+    return filterAndRankByFuzzy(base, q, (r) => `${r.landed_cost_no || ""} ${r.goods_receipt_no || ""} ${r.memo || ""} ${r.id}`);
   }, [rows, q, statusFilter]);
 
   const load = useCallback(async () => {
@@ -162,4 +159,3 @@ export default function LandedCostsListPage() {
     </Suspense>
   );
 }
-

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Settings2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { scoreFuzzyQuery } from "@/lib/fuzzy";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -172,28 +173,46 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
   const filteredRows = useMemo(() => {
     if (!enableGlobalFilter) return rows;
-    const needle = globalFilter.trim().toLowerCase();
+    const needle = globalFilter.trim();
     if (!needle) return rows;
 
     const searchCols = columns.filter((c) => c.globalSearch !== false);
-    return rows.filter((r) => {
-      for (const c of searchCols) {
-        const v = getCellValue(r, c);
-        if (toSearchText(v).toLowerCase().includes(needle)) return true;
-      }
-      return false;
-    });
+    const out: T[] = [];
+    for (const r of rows) {
+      const hay = searchCols.map((c) => toSearchText(getCellValue(r, c))).join(" ");
+      if (scoreFuzzyQuery(needle, hay) != null) out.push(r);
+    }
+    return out;
   }, [rows, columns, globalFilter, enableGlobalFilter]);
 
   const sortedRows = useMemo(() => {
-    if (!sort) return filteredRows;
-    const col = columns.find((c) => c.id === sort.columnId);
-    if (!col) return filteredRows;
-    const dir = sort.dir === "asc" ? 1 : -1;
-    const copy = [...filteredRows];
-    copy.sort((ra, rb) => dir * compareUnknown(getCellValue(ra, col), getCellValue(rb, col)));
-    return copy;
-  }, [filteredRows, sort, columns]);
+    const needle = enableGlobalFilter ? globalFilter.trim() : "";
+    const searchCols = columns.filter((c) => c.globalSearch !== false);
+
+    const col = sort ? columns.find((c) => c.id === sort.columnId) : null;
+    const dir = sort?.dir === "asc" ? 1 : -1;
+
+    const scored = filteredRows.map((row, idx) => {
+      if (!needle) return { row, idx, score: 0 };
+      const hay = searchCols.map((c) => toSearchText(getCellValue(row, c))).join(" ");
+      return { row, idx, score: scoreFuzzyQuery(needle, hay) ?? 0 };
+    });
+
+    scored.sort((a, b) => {
+      // While searching, show the closest suggestions first.
+      if (needle) {
+        const ds = b.score - a.score;
+        if (ds) return ds;
+      }
+      if (col) {
+        const dv = dir * compareUnknown(getCellValue(a.row, col), getCellValue(b.row, col));
+        if (dv) return dv;
+      }
+      return a.idx - b.idx;
+    });
+
+    return scored.map((x) => x.row);
+  }, [filteredRows, sort, columns, enableGlobalFilter, globalFilter]);
 
   const sortIcon = (columnId: string) => {
     if (!sort || sort.columnId !== columnId) return <ArrowUpDown className="h-3.5 w-3.5 opacity-60" />;

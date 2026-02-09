@@ -9,6 +9,8 @@ import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentAttachments } from "@/components/document-attachments";
 import { DocumentTimeline } from "@/components/document-timeline";
+import { ComboboxInput } from "@/components/combobox-input";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -82,6 +84,8 @@ function parseTags(input: string): string[] | null {
   const uniq = Array.from(new Set(parts));
   return uniq.length ? uniq : null;
 }
+
+const DEFAULT_UOMS = ["EA", "PCS", "KG", "G", "L", "ML", "BOX", "PACK", "DOZ", "SET", "M", "CM"];
 
 export default function ItemEditPage() {
   const router = useRouter();
@@ -471,7 +475,14 @@ export default function ItemEditPage() {
                 </div>
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">UOM</label>
-                  <Input value={editUom} onChange={(e) => setEditUom(e.target.value)} disabled={saving} />
+                  <ComboboxInput
+                    value={editUom}
+                    onChange={setEditUom}
+                    disabled={saving}
+                    endpoint="/items/uoms"
+                    responseKey="uoms"
+                    fallbackSuggestions={DEFAULT_UOMS}
+                  />
                 </div>
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">Tags</label>
@@ -480,25 +491,29 @@ export default function ItemEditPage() {
 
                 <div className="space-y-1 md:col-span-3">
                   <label className="text-xs font-medium text-fg-muted">Tax Code</label>
-                  <select className="ui-select" value={editTaxCodeId} onChange={(e) => setEditTaxCodeId(e.target.value)} disabled={saving}>
-                    <option value="">(none)</option>
-                    {taxCodes.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    value={editTaxCodeId}
+                    onChange={setEditTaxCodeId}
+                    disabled={saving}
+                    searchPlaceholder="Search tax codes..."
+                    options={[
+                      { value: "", label: "(none)" },
+                      ...taxCodes.map((t) => ({ value: t.id, label: t.name, keywords: String(t.rate ?? "") })),
+                    ]}
+                  />
                 </div>
                 <div className="space-y-1 md:col-span-3">
                   <label className="text-xs font-medium text-fg-muted">Category</label>
-                  <select className="ui-select" value={editCategoryId} onChange={(e) => setEditCategoryId(e.target.value)} disabled={saving}>
-                    <option value="">(none)</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    value={editCategoryId}
+                    onChange={setEditCategoryId}
+                    disabled={saving}
+                    searchPlaceholder="Search categories..."
+                    options={[
+                      { value: "", label: "(none)" },
+                      ...categories.map((c) => ({ value: c.id, label: c.name })),
+                    ]}
+                  />
                 </div>
 
                 <div className="space-y-1 md:col-span-3">
@@ -689,21 +704,26 @@ export default function ItemEditPage() {
               <CardTitle>Suppliers</CardTitle>
               <CardDescription>Link suppliers to this item (primary supplier + last cost).</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <form onSubmit={addSupplierLink} className="grid grid-cols-1 gap-2 md:grid-cols-12">
-                <div className="md:col-span-4">
-                  <select className="ui-select" value={addSupplierId} onChange={(e) => setAddSupplierId(e.target.value)}>
-                    <option value="">Select supplier...</option>
-                    {suppliers.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="md:col-span-2">
-                  <Input value={addLeadTimeDays} onChange={(e) => setAddLeadTimeDays(e.target.value)} placeholder="lead days" inputMode="numeric" />
-                </div>
+          <CardContent className="space-y-3">
+            <form onSubmit={addSupplierLink} className="grid grid-cols-1 gap-2 md:grid-cols-12">
+              <div className="md:col-span-4">
+                <SearchableSelect
+                  value={addSupplierId}
+                  onChange={setAddSupplierId}
+                  searchPlaceholder="Search suppliers..."
+                  options={[
+                    { value: "", label: "Select supplier..." },
+                    ...suppliers.map((s) => ({
+                      value: s.id,
+                      label: s.name,
+                      keywords: `${s.phone || ""} ${s.email || ""}`.trim(),
+                    })),
+                  ]}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <Input value={addLeadTimeDays} onChange={(e) => setAddLeadTimeDays(e.target.value)} placeholder="lead days" inputMode="numeric" />
+              </div>
                 <div className="md:col-span-2">
                   <Input value={addMinOrderQty} onChange={(e) => setAddMinOrderQty(e.target.value)} placeholder="min qty" inputMode="decimal" />
                 </div>
@@ -779,4 +799,3 @@ export default function ItemEditPage() {
     </div>
   );
 }
-

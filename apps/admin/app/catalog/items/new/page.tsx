@@ -5,12 +5,16 @@ import { useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { ComboboxInput } from "@/components/combobox-input";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 type TaxCode = { id: string; name: string; rate: string | number };
 type Category = { id: string; name: string; parent_id: string | null; is_active: boolean };
+
+const DEFAULT_UOMS = ["EA", "PCS", "KG", "G", "L", "ML", "BOX", "PACK", "DOZ", "SET", "M", "CM"];
 
 export default function NewItemPage() {
   const router = useRouter();
@@ -111,7 +115,15 @@ export default function NewItemPage() {
             </div>
             <div className="space-y-1 md:col-span-2">
               <label className="text-xs font-medium text-fg-muted">UOM</label>
-              <Input value={uom} onChange={(e) => setUom(e.target.value)} placeholder="EA" disabled={creating || loading} />
+              <ComboboxInput
+                value={uom}
+                onChange={setUom}
+                placeholder="EA"
+                disabled={creating || loading}
+                endpoint="/items/uoms"
+                responseKey="uoms"
+                fallbackSuggestions={DEFAULT_UOMS}
+              />
             </div>
             <div className="space-y-1 md:col-span-4">
               <label className="text-xs font-medium text-fg-muted">Primary Barcode (optional)</label>
@@ -119,25 +131,29 @@ export default function NewItemPage() {
             </div>
             <div className="space-y-1 md:col-span-3">
               <label className="text-xs font-medium text-fg-muted">Tax Code</label>
-              <select className="ui-select" value={taxCodeId} onChange={(e) => setTaxCodeId(e.target.value)} disabled={creating || loading}>
-                <option value="">(none)</option>
-                {taxCodes.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={taxCodeId}
+                onChange={setTaxCodeId}
+                disabled={creating || loading}
+                searchPlaceholder="Search tax codes..."
+                options={[
+                  { value: "", label: "(none)" },
+                  ...taxCodes.map((t) => ({ value: t.id, label: t.name, keywords: String(t.rate ?? "") })),
+                ]}
+              />
             </div>
             <div className="space-y-1 md:col-span-3">
               <label className="text-xs font-medium text-fg-muted">Category</label>
-              <select className="ui-select" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} disabled={creating || loading}>
-                <option value="">(none)</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={categoryId}
+                onChange={setCategoryId}
+                disabled={creating || loading}
+                searchPlaceholder="Search categories..."
+                options={[
+                  { value: "", label: "(none)" },
+                  ...categories.map((c) => ({ value: c.id, label: c.name })),
+                ]}
+              />
             </div>
             <label className="md:col-span-6 flex items-center gap-2 text-xs text-fg-muted">
               <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} disabled={creating || loading} /> Active
@@ -156,4 +172,3 @@ export default function NewItemPage() {
     </div>
   );
 }
-

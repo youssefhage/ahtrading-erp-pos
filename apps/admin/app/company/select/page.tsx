@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPost, getCompanies } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,10 +40,8 @@ export default function CompanySelectPage() {
   }
 
   const shown = (() => {
-    const needle = q.trim().toLowerCase();
     const base = companies.length ? companies.map((c) => c) : companyIds.map((id) => ({ id, name: id, legal_name: null }));
-    if (!needle) return base;
-    return base.filter((c) => `${c.name} ${c.legal_name || ""} ${c.id}`.toLowerCase().includes(needle));
+    return filterAndRankByFuzzy(base, q, (c) => `${c.name} ${c.legal_name || ""} ${c.id}`);
   })();
 
   return (

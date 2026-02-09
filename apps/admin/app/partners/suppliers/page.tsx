@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { ErrorBanner } from "@/components/error-banner";
 import { ViewRaw } from "@/components/view-raw";
 import { Button } from "@/components/ui/button";
@@ -103,18 +104,19 @@ export default function SuppliersListPage() {
   const [importing, setImporting] = useState(false);
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return suppliers;
-    return (suppliers || []).filter((s) => {
-      return (
-        s.name.toLowerCase().includes(needle) ||
-        (s.code || "").toLowerCase().includes(needle) ||
-        (s.legal_name || "").toLowerCase().includes(needle) ||
-        (s.phone || "").toLowerCase().includes(needle) ||
-        (s.email || "").toLowerCase().includes(needle) ||
-        (s.vat_no || "").toLowerCase().includes(needle) ||
-        (s.tax_id || "").toLowerCase().includes(needle)
-      );
+    return filterAndRankByFuzzy(suppliers || [], q, (s) => {
+      return [
+        s.name,
+        s.code || "",
+        s.legal_name || "",
+        s.phone || "",
+        s.email || "",
+        s.vat_no || "",
+        s.tax_id || "",
+        s.id,
+      ]
+        .filter(Boolean)
+        .join(" ");
     });
   }, [suppliers, q]);
 

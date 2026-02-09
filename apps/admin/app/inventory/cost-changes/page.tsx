@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
@@ -44,9 +45,7 @@ function Inner() {
   const [q, setQ] = useState("");
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return rows;
-    return (rows || []).filter((r) => (r.sku || "").toLowerCase().includes(needle) || (r.name || "").toLowerCase().includes(needle));
+    return filterAndRankByFuzzy(rows || [], q, (r) => `${r.sku || ""} ${r.name || ""}`);
   }, [rows, q]);
 
   const load = useCallback(async () => {

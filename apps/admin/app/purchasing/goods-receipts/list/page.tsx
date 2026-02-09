@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
@@ -46,23 +47,14 @@ function Inner() {
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return (receipts || []).filter((r) => {
+    const base = (receipts || []).filter((r) => {
       if (statusFilter && r.status !== statusFilter) return false;
-      if (!needle) return true;
-      const no = (r.receipt_no || "").toLowerCase();
-      const supRef = ((r.supplier_ref as string) || "").toLowerCase();
-      const sup = r.supplier_id ? (supplierById.get(r.supplier_id)?.name || "").toLowerCase() : "";
-      const wh = r.warehouse_id ? (whById.get(r.warehouse_id)?.name || "").toLowerCase() : "";
-      const po = (r.purchase_order_no || "").toLowerCase();
-      return (
-        no.includes(needle) ||
-        supRef.includes(needle) ||
-        sup.includes(needle) ||
-        wh.includes(needle) ||
-        po.includes(needle) ||
-        r.id.toLowerCase().includes(needle)
-      );
+      return true;
+    });
+    return filterAndRankByFuzzy(base, q, (r) => {
+      const sup = r.supplier_id ? (supplierById.get(r.supplier_id)?.name || "") : "";
+      const wh = r.warehouse_id ? (whById.get(r.warehouse_id)?.name || "") : "";
+      return `${r.receipt_no || ""} ${r.supplier_ref || ""} ${sup} ${wh} ${r.purchase_order_no || ""} ${r.id}`;
     });
   }, [receipts, q, statusFilter, supplierById, whById]);
 

@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { ErrorBanner } from "@/components/error-banner";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -38,9 +40,7 @@ export default function ItemCategoriesPage() {
   const parentNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return categories;
-    return categories.filter((c) => c.name.toLowerCase().includes(needle) || c.id.toLowerCase().includes(needle));
+    return filterAndRankByFuzzy(categories || [], q, (c) => `${c.name} ${c.id}`);
   }, [categories, q]);
 
   async function load() {
@@ -157,14 +157,15 @@ export default function ItemCategoriesPage() {
                     </div>
                     <div className="space-y-1 md:col-span-2">
                       <label className="text-xs font-medium text-fg-muted">Parent (optional)</label>
-                      <select className="ui-select" value={parentId} onChange={(e) => setParentId(e.target.value)}>
-                        <option value="">None</option>
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
+                      <SearchableSelect
+                        value={parentId}
+                        onChange={setParentId}
+                        searchPlaceholder="Search categories..."
+                        options={[
+                          { value: "", label: "None" },
+                          ...categories.map((c) => ({ value: c.id, label: c.name })),
+                        ]}
+                      />
                     </div>
                     <div className="space-y-1 md:col-span-2">
                       <label className="text-xs font-medium text-fg-muted">Active?</label>
@@ -243,16 +244,17 @@ export default function ItemCategoriesPage() {
                 </div>
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">Parent (optional)</label>
-                  <select className="ui-select" value={editParentId} onChange={(e) => setEditParentId(e.target.value)}>
-                    <option value="">None</option>
-                    {categories
-                      .filter((c) => c.id !== editCat?.id)
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                  </select>
+                  <SearchableSelect
+                    value={editParentId}
+                    onChange={setEditParentId}
+                    searchPlaceholder="Search categories..."
+                    options={[
+                      { value: "", label: "None" },
+                      ...categories
+                        .filter((c) => c.id !== editCat?.id)
+                        .map((c) => ({ value: c.id, label: c.name })),
+                    ]}
+                  />
                 </div>
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">Active?</label>

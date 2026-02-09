@@ -54,6 +54,7 @@ import {
 } from "lucide-react";
 
 import { apiGet, apiPost, clearSession, getCompanyId, getCompanies } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { addRecent, clearRecents, getFavorites, getRecents, toggleFavorite } from "@/lib/nav-memory";
 import { getDefaultBranchId, getDefaultWarehouseId, setDefaultBranchId, setDefaultWarehouseId } from "@/lib/op-context";
 import { cn } from "@/lib/utils";
@@ -104,6 +105,7 @@ function iconForHref(href: string) {
 
     "/inventory/stock": Boxes,
     "/inventory/movements": ArrowLeftRight,
+    "/inventory/transfers": ArrowLeftRight,
     "/inventory/alerts": BellRing,
     "/inventory/batches": Boxes,
     "/inventory/landed-costs": Truck,
@@ -210,6 +212,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Stock", href: "/inventory/stock" },
       { label: "Movements", href: "/inventory/movements" },
+      { label: "Transfers", href: "/inventory/transfers" },
       { label: "Batches", href: "/inventory/batches" },
       { label: "Alerts", href: "/inventory/alerts" },
       { label: "Landed Costs", href: "/inventory/landed-costs" },
@@ -391,6 +394,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQ, setCommandQ] = useState("");
   const commandInputRef = useRef<HTMLInputElement | null>(null);
+  const [commandDataLoading, setCommandDataLoading] = useState(false);
+  const [commandData, setCommandData] = useState<FlatNavItem[]>([]);
 
   const [health, setHealth] = useState<"checking" | "online" | "offline">("checking");
   const [healthDetail, setHealthDetail] = useState("");
@@ -551,13 +556,95 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     });
   }
 
-  const commandResults = useMemo(() => {
-    const needle = commandQ.trim().toLowerCase();
-    const items = needle
-      ? flatNav.filter((i) => i.label.toLowerCase().includes(needle) || i.href.toLowerCase().includes(needle))
-      : flatNav;
-    return items.slice(0, 10);
+  const pageResults = useMemo(() => {
+    const items = filterAndRankByFuzzy(flatNav, commandQ, (i) => `${i.label} ${i.section} ${i.href}`);
+    return items.slice(0, commandQ.trim() ? 8 : 10);
   }, [commandQ, flatNav]);
+
+  const commandResults = useMemo(() => {
+    const q = commandQ.trim();
+    if (!q) return pageResults;
+    // Prefer data matches (actual documents/master data), then pages/actions.
+    return [...(commandData || []), ...pageResults].slice(0, 12);
+  }, [commandQ, commandData, pageResults]);
+
+  useEffect(() => {
+    if (!commandOpen) {
+      setCommandData([]);
+      setCommandDataLoading(false);
+      return;
+    }
+    const qq = commandQ.trim();
+    if (!qq) {
+      setCommandData([]);
+      setCommandDataLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const t = window.setTimeout(async () => {
+      setCommandDataLoading(true);
+      try {
+        const enc = encodeURIComponent(qq);
+        const [itemsRes, customersRes, suppliersRes, invoicesRes] = await Promise.all([
+          apiGet<{ items: Array<{ id: string; sku: string; name: string }> }>(`/items/typeahead?q=${enc}&limit=6`).catch(() => ({ items: [] })),
+          apiGet<{ customers: Array<{ id: string; code?: string | null; name: string }> }>(`/customers/typeahead?q=${enc}&limit=6`).catch(() => ({ customers: [] })),
+          apiGet<{ suppliers: Array<{ id: string; code?: string | null; name: string }> }>(`/suppliers/typeahead?q=${enc}&limit=6`).catch(() => ({ suppliers: [] })),
+          apiGet<{ invoices: Array<{ id: string; invoice_no: string | null; customer_name?: string | null }> }>(
+            `/sales/invoices?limit=6&offset=0&q=${enc}`
+          ).catch(() => ({ invoices: [] })),
+        ]);
+        if (cancelled) return;
+
+        const next: FlatNavItem[] = [];
+
+        for (const it of itemsRes.items || []) {
+          next.push({
+            section: "Items",
+            label: `${it.sku} · ${it.name}`,
+            href: `/catalog/items/${encodeURIComponent(it.id)}`,
+            icon: Package,
+          });
+        }
+        for (const c of customersRes.customers || []) {
+          const code = c.code ? `${c.code} · ` : "";
+          next.push({
+            section: "Customers",
+            label: `${code}${c.name}`,
+            href: `/partners/customers/${encodeURIComponent(c.id)}`,
+            icon: UsersRound,
+          });
+        }
+        for (const s of suppliersRes.suppliers || []) {
+          const code = s.code ? `${s.code} · ` : "";
+          next.push({
+            section: "Suppliers",
+            label: `${code}${s.name}`,
+            href: `/partners/suppliers/${encodeURIComponent(s.id)}`,
+            icon: Users,
+          });
+        }
+        for (const inv of invoicesRes.invoices || []) {
+          const no = inv.invoice_no || "(draft)";
+          const tail = inv.customer_name ? ` · ${inv.customer_name}` : "";
+          next.push({
+            section: "Sales Invoices",
+            label: `${no}${tail}`,
+            href: `/sales/invoices/${encodeURIComponent(inv.id)}`,
+            icon: ReceiptText,
+          });
+        }
+
+        setCommandData(filterAndRankByFuzzy(next, qq, (x) => `${x.section} ${x.label} ${x.href}`).slice(0, 12));
+      } finally {
+        if (cancelled) return;
+        setCommandDataLoading(false);
+      }
+    }, 160);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [commandOpen, commandQ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1214,8 +1301,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           <div className="max-h-[60vh] overflow-y-auto py-2">
             {commandResults.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-fg-subtle">
-                <p>No results found</p>
-                <p className="mt-1 text-xs">Try a different search term</p>
+                <p>{commandDataLoading ? "Searching..." : "No results found"}</p>
+                <p className="mt-1 text-xs">{commandDataLoading ? "Checking items, customers, suppliers, and invoices..." : "Try a different search term"}</p>
               </div>
             ) : (
               <div className="space-y-0.5 px-2">

@@ -176,6 +176,55 @@ def typeahead_items(
             )
             return {"items": cur.fetchall()}
 
+
+@router.get("/uoms", dependencies=[Depends(require_permission("items:read"))])
+def list_item_uoms(
+    q: str = "",
+    limit: int = 50,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Suggest unit_of_measure values (combobox helper).
+
+    Returns distinct UOMs, ordered by usage frequency (and then alphabetically).
+    """
+    qq = (q or "").strip()
+    if limit <= 0 or limit > 200:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            if qq:
+                like = f"%{qq}%"
+                cur.execute(
+                    """
+                    SELECT i.unit_of_measure AS uom, COUNT(*)::int AS n
+                    FROM items i
+                    WHERE i.company_id = %s
+                      AND COALESCE(i.unit_of_measure, '') <> ''
+                      AND i.unit_of_measure ILIKE %s
+                    GROUP BY i.unit_of_measure
+                    ORDER BY n DESC, i.unit_of_measure ASC
+                    LIMIT %s
+                    """,
+                    (company_id, like, limit),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT i.unit_of_measure AS uom, COUNT(*)::int AS n
+                    FROM items i
+                    WHERE i.company_id = %s
+                      AND COALESCE(i.unit_of_measure, '') <> ''
+                    GROUP BY i.unit_of_measure
+                    ORDER BY n DESC, i.unit_of_measure ASC
+                    LIMIT %s
+                    """,
+                    (company_id, limit),
+                )
+            rows = cur.fetchall()
+            return {"uoms": [r["uom"] for r in rows]}
+
 @router.get("/{item_id}", dependencies=[Depends(require_permission("items:read"))])
 def get_item(item_id: str, company_id: str = Depends(get_company_id)):
     with get_conn() as conn:

@@ -4,8 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { ErrorBanner } from "@/components/error-banner";
 import { ViewRaw } from "@/components/view-raw";
+import { ComboboxInput } from "@/components/combobox-input";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -39,6 +42,8 @@ type Item = {
 
 type TaxCode = { id: string; name: string; rate: string | number };
 type Category = { id: string; name: string; parent_id: string | null; is_active: boolean };
+
+const DEFAULT_UOMS = ["EA", "PCS", "KG", "G", "L", "ML", "BOX", "PACK", "DOZ", "SET", "M", "CM"];
 
 type BulkItemIn = {
   sku: string;
@@ -167,15 +172,7 @@ export default function ItemsPage() {
   const [aiHygiene, setAiHygiene] = useState<AiRecRow[]>([]);
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return items;
-    return items.filter((i) => {
-      return (
-        i.sku.toLowerCase().includes(needle) ||
-        i.name.toLowerCase().includes(needle) ||
-        (i.barcode || "").toLowerCase().includes(needle)
-      );
-    });
+    return filterAndRankByFuzzy(items || [], q, (i) => `${i.sku} ${i.name} ${i.barcode || ""} ${i.id}`);
   }, [items, q]);
 
   const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
@@ -844,7 +841,14 @@ export default function ItemsPage() {
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1">
                           <label className="text-xs font-medium text-fg-muted">UOM</label>
-                          <Input value={uom} onChange={(e) => setUom(e.target.value)} placeholder="EA" />
+                          <ComboboxInput
+                            value={uom}
+                            onChange={setUom}
+                            placeholder="EA"
+                            endpoint="/items/uoms"
+                            responseKey="uoms"
+                            fallbackSuggestions={DEFAULT_UOMS}
+                          />
                         </div>
                         <div className="space-y-1">
                           <label className="text-xs font-medium text-fg-muted">Barcode (optional)</label>
@@ -854,14 +858,15 @@ export default function ItemsPage() {
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1">
                           <label className="text-xs font-medium text-fg-muted">Category (optional)</label>
-                          <select className="ui-select" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-                            <option value="">(none)</option>
-                            {categories.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                              </option>
-                            ))}
-                          </select>
+                          <SearchableSelect
+                            value={categoryId}
+                            onChange={setCategoryId}
+                            searchPlaceholder="Search categories..."
+                            options={[
+                              { value: "", label: "(none)" },
+                              ...categories.map((c) => ({ value: c.id, label: c.name })),
+                            ]}
+                          />
                         </div>
                         <div className="space-y-1">
                           <label className="text-xs font-medium text-fg-muted">Active?</label>
@@ -1067,7 +1072,14 @@ export default function ItemsPage() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-fg-muted">UOM</label>
-                      <Input value={editUom} onChange={(e) => setEditUom(e.target.value)} placeholder="EA" />
+                      <ComboboxInput
+                        value={editUom}
+                        onChange={setEditUom}
+                        placeholder="EA"
+                        endpoint="/items/uoms"
+                        responseKey="uoms"
+                        fallbackSuggestions={DEFAULT_UOMS}
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1077,14 +1089,19 @@ export default function ItemsPage() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-fg-muted">Tax Code (optional)</label>
-                      <select className="ui-select" value={editTaxCodeId} onChange={(e) => setEditTaxCodeId(e.target.value)}>
-                        <option value="">(none)</option>
-                        {taxCodes.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name} ({(Number(t.rate || 0) * 100).toFixed(2)}%)
-                          </option>
-                        ))}
-                      </select>
+                      <SearchableSelect
+                        value={editTaxCodeId}
+                        onChange={setEditTaxCodeId}
+                        searchPlaceholder="Search tax codes..."
+                        options={[
+                          { value: "", label: "(none)" },
+                          ...taxCodes.map((t) => ({
+                            value: t.id,
+                            label: `${t.name} (${(Number(t.rate || 0) * 100).toFixed(2)}%)`,
+                            keywords: String(t.rate ?? ""),
+                          })),
+                        ]}
+                      />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1155,14 +1172,15 @@ export default function ItemsPage() {
                     <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-fg-muted">Category</label>
-                        <select className="ui-select" value={editCategoryId} onChange={(e) => setEditCategoryId(e.target.value)}>
-                          <option value="">(none)</option>
-                          {categories.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </select>
+                        <SearchableSelect
+                          value={editCategoryId}
+                          onChange={setEditCategoryId}
+                          searchPlaceholder="Search categories..."
+                          options={[
+                            { value: "", label: "(none)" },
+                            ...categories.map((c) => ({ value: c.id, label: c.name })),
+                          ]}
+                        />
                       </div>
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-fg-muted">Active?</label>

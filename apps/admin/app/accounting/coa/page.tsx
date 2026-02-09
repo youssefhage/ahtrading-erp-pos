@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,16 +49,7 @@ export default function CoaPage() {
   }, [accounts]);
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return accounts;
-    return accounts.filter((a) => {
-      return (
-        a.account_code.toLowerCase().includes(needle) ||
-        (a.name_en || "").toLowerCase().includes(needle) ||
-        (a.name_fr || "").toLowerCase().includes(needle) ||
-        (a.name_ar || "").toLowerCase().includes(needle)
-      );
-    });
+    return filterAndRankByFuzzy(accounts || [], q, (a) => `${a.account_code} ${a.name_en || ""} ${a.name_fr || ""} ${a.name_ar || ""} ${a.id}`);
   }, [accounts, q]);
 
   async function load() {

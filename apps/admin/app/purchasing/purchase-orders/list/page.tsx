@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
@@ -39,11 +40,12 @@ export default function PurchaseOrdersListPage() {
   const [statusFilter, setStatusFilter] = useState("");
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return (orders || []).filter((o) => {
+    const base = (orders || []).filter((o) => {
       if (statusFilter && o.status !== statusFilter) return false;
-      if (!needle) return true;
-      const parts = [
+      return true;
+    });
+    return filterAndRankByFuzzy(base, q, (o) => {
+      return [
         o.order_no || "",
         o.supplier_ref || "",
         o.supplier_name || "",
@@ -51,9 +53,7 @@ export default function PurchaseOrdersListPage() {
         o.id,
       ]
         .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return parts.includes(needle);
+        .join(" ");
     });
   }, [orders, q, statusFilter]);
 

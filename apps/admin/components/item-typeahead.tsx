@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { rankByFuzzy } from "@/lib/fuzzy";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -154,7 +155,8 @@ export function ItemTypeahead(props: {
   }, [q, indexedRecent, recentItems]);
 
   const showRecent = open && !q.trim();
-  const results = q.trim() ? remoteItems : localResults;
+  const rankedRemote = useMemo(() => rankByFuzzy(remoteItems || [], q, buildHaystack), [remoteItems, q]);
+  const results = q.trim() ? rankedRemote : localResults;
 
   useEffect(() => setActive(0), [q]);
 

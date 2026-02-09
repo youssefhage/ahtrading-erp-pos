@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
@@ -86,13 +87,10 @@ export default function SalesReturnsPage() {
   const [detail, setDetail] = useState<ReturnDetail | null>(null);
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return returns;
-    return returns.filter((r) => {
-      const rn = (r.return_no || "").toLowerCase();
-      const inv = r.invoice_id ? (invoiceById.get(r.invoice_id)?.invoice_no || "").toLowerCase() : "";
-      const wh = r.warehouse_id ? (whById.get(r.warehouse_id)?.name || "").toLowerCase() : "";
-      return rn.includes(needle) || inv.includes(needle) || wh.includes(needle) || r.id.toLowerCase().includes(needle);
+    return filterAndRankByFuzzy(returns || [], q, (r) => {
+      const inv = r.invoice_id ? (invoiceById.get(r.invoice_id)?.invoice_no || "") : "";
+      const wh = r.warehouse_id ? (whById.get(r.warehouse_id)?.name || "") : "";
+      return `${r.return_no || ""} ${inv} ${wh} ${r.id}`;
     });
   }, [returns, q, invoiceById, whById]);
 
