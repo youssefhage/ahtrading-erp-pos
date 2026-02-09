@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, apiPostForm, apiUrl } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -480,9 +480,10 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       fd.set("auto_create_items", importAutoCreateItems ? "true" : "false");
       if (importMockExtract) fd.set("mock_extract", "true");
 
-      const raw = await fetch("/api/purchases/invoices/drafts/import-file", { method: "POST", body: fd, credentials: "include" });
-      if (!raw.ok) throw new Error(await raw.text());
-      const res = (await raw.json()) as { id: string; invoice_no: string; queued?: boolean; ai_extracted?: boolean; warnings?: string[] };
+      const res = await apiPostForm<{ id: string; invoice_no: string; queued?: boolean; ai_extracted?: boolean; warnings?: string[] }>(
+        "/purchases/invoices/drafts/import-file",
+        fd
+      );
       if (Array.isArray(res.warnings) && res.warnings.length) {
         setStatus(`Imported with warnings:\n${res.warnings.slice(0, 10).join("\n")}`);
       } else {
@@ -515,8 +516,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       fd.set("entity_id", id);
       fd.set("file", f);
 
-      const raw = await fetch("/api/attachments", { method: "POST", body: fd, credentials: "include" });
-      if (!raw.ok) throw new Error(await raw.text());
+      await apiPostForm<{ id: string }>("/attachments", fd);
       await reloadAttachments(id);
       setStatus("");
     } catch (err) {
@@ -810,12 +810,12 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                         <td className="px-3 py-2 text-right">
                           <div className="flex justify-end gap-2">
                             <Button asChild variant="outline" size="sm">
-                              <a href={`/api/attachments/${a.id}/view`} target="_blank" rel="noreferrer">
+                              <a href={apiUrl(`/attachments/${a.id}/view`)} target="_blank" rel="noreferrer">
                                 View
                               </a>
                             </Button>
                             <Button asChild variant="outline" size="sm">
-                              <a href={`/api/attachments/${a.id}/download`} target="_blank" rel="noreferrer">
+                              <a href={apiUrl(`/attachments/${a.id}/download`)} target="_blank" rel="noreferrer">
                                 Download
                               </a>
                             </Button>

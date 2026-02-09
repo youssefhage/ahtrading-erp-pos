@@ -92,6 +92,7 @@ function iconForHref(href: string) {
     "/purchasing/goods-receipts": PackageCheck,
     "/purchasing/supplier-invoices": FileText,
     "/purchasing/payments": BadgeDollarSign,
+    "/purchasing/3-way-match": ClipboardList,
 
     "/partners/customers": UsersRound,
     "/partners/customers/list": UsersRound,
@@ -110,6 +111,7 @@ function iconForHref(href: string) {
     "/inventory/batches": Boxes,
     "/inventory/landed-costs": Truck,
     "/inventory/cost-changes": TrendingUp,
+    "/inventory/price-changes": TrendingUp,
     "/inventory/ops": Workflow,
 
     "/accounting/journals": BookOpen,
@@ -193,6 +195,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Purchase Orders", href: "/purchasing/purchase-orders" },
       { label: "Goods Receipts", href: "/purchasing/goods-receipts" },
       { label: "Supplier Invoices", href: "/purchasing/supplier-invoices" },
+      { label: "3-Way Match", href: "/purchasing/3-way-match" },
       { label: "Supplier Payments", href: "/purchasing/payments" }
     ]
   },
@@ -216,7 +219,8 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Batches", href: "/inventory/batches" },
       { label: "Alerts", href: "/inventory/alerts" },
       { label: "Landed Costs", href: "/inventory/landed-costs" },
-      { label: "Cost Changes", href: "/inventory/cost-changes" }
+      { label: "Cost Changes", href: "/inventory/cost-changes" },
+      { label: "Price Changes", href: "/inventory/price-changes" }
     ]
   },
   {

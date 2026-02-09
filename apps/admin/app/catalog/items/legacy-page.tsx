@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, apiPostForm, apiUrl } from "@/lib/api";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { ErrorBanner } from "@/components/error-banner";
 import { ViewRaw } from "@/components/view-raw";
@@ -488,13 +488,7 @@ export default function ItemsPage() {
       fd.set("entity_type", "item_image");
       fd.set("entity_id", editItem.id);
       fd.set("file", file);
-      const raw = await fetch(`/api/attachments`, {
-        method: "POST",
-        body: fd,
-        credentials: "include"
-      });
-      if (!raw.ok) throw new Error(await raw.text());
-      const res = (await raw.json()) as { id: string };
+      const res = await apiPostForm<{ id: string }>("/attachments", fd);
 
       // Persist immediately so a user doesn't lose the upload if they close the dialog.
       await apiPatch(`/items/${editItem.id}`, { image_attachment_id: res.id });
@@ -984,10 +978,11 @@ export default function ItemsPage() {
                         {i.image_attachment_id ? (
                           // Uses backend inline endpoint for thumbnails
                           <Image
-                            src={`/api/attachments/${i.image_attachment_id}/view`}
+                            src={apiUrl(`/attachments/${i.image_attachment_id}/view`)}
                             alt={i.image_alt || i.name}
                             width={32}
                             height={32}
+                            // Attachments are permissioned (cookie/session). Avoid Next.js optimization fetching without auth.
                             unoptimized
                             className="h-8 w-8 rounded-md border border-border-subtle object-cover"
                           />
@@ -1153,10 +1148,11 @@ export default function ItemsPage() {
                       <div className="flex items-start">
                         {editImageAttachmentId ? (
                           <Image
-                            src={`/api/attachments/${editImageAttachmentId}/view`}
+                            src={apiUrl(`/attachments/${editImageAttachmentId}/view`)}
                             alt={editImageAlt || editName || "Item image"}
                             width={96}
                             height={96}
+                            // Attachments are permissioned (cookie/session). Avoid Next.js optimization fetching without auth.
                             unoptimized
                             className="h-24 w-24 rounded-md border border-border object-cover"
                           />

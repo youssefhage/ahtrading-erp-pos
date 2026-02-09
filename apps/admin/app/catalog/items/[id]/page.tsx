@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Check, Copy } from "lucide-react";
 
-import { apiGet } from "@/lib/api";
+import { apiGet, apiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
@@ -291,11 +291,13 @@ export default function ItemViewPage() {
                 <div className="flex flex-wrap items-start gap-4">
                   <div className="rounded-md border border-border-subtle bg-bg-sunken/30 p-2">
                     <Image
-                      src={`/api/attachments/${encodeURIComponent(item.image_attachment_id)}/view`}
+                      src={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)}
                       alt={item.image_alt || item.name}
                       width={220}
                       height={220}
                       className="h-[220px] w-[220px] object-contain"
+                      // Attachments are permissioned (cookie/session). Avoid Next.js optimization fetching without auth.
+                      unoptimized
                     />
                   </div>
                   <div className="space-y-2 text-sm">
@@ -304,12 +306,12 @@ export default function ItemViewPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Button asChild size="sm" variant="outline">
-                        <a href={`/api/attachments/${encodeURIComponent(item.image_attachment_id)}/view`} target="_blank" rel="noreferrer">
+                        <a href={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)} target="_blank" rel="noreferrer">
                           View
                         </a>
                       </Button>
                       <Button asChild size="sm" variant="outline">
-                        <a href={`/api/attachments/${encodeURIComponent(item.image_attachment_id)}/download`} target="_blank" rel="noreferrer">
+                        <a href={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/download`)} target="_blank" rel="noreferrer">
                           Download
                         </a>
                       </Button>

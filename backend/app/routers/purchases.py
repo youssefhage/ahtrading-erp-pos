@@ -1299,6 +1299,150 @@ def list_supplier_invoices(
             cur.execute(select_sql + " LIMIT %s OFFSET %s", params + [limit, offset])
             return {"invoices": cur.fetchall(), "total": total, "limit": limit, "offset": offset}
 
+
+@router.get("/invoices/exceptions", dependencies=[Depends(require_permission("purchases:read"))])
+def list_supplier_invoice_exceptions(
+    company_id: str = Depends(get_company_id),
+    q: str = Query("", description="Search invoice no / supplier / supplier ref / receipt"),
+    limit: int = Query(200, ge=1, le=1000),
+):
+    """
+    3-way match exceptions queue (v1):
+    - Draft supplier invoices that are on hold due to AP variance detection.
+    - Returns a summary of variance flags (unit cost / qty / tax).
+    """
+    qq = (q or "").strip()
+    like = f"%{qq}%"
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            sql = """
+                SELECT i.id, i.invoice_no, i.supplier_ref, i.supplier_id, s.name AS supplier_name,
+                       i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
+                       i.hold_reason, i.hold_details, i.held_at,
+                       i.total_usd, i.total_lbp, i.invoice_date, i.due_date
+                FROM supplier_invoices i
+                LEFT JOIN goods_receipts gr
+                  ON gr.company_id = i.company_id AND gr.id = i.goods_receipt_id
+                LEFT JOIN suppliers s
+                  ON s.company_id = i.company_id AND s.id = i.supplier_id
+                WHERE i.company_id=%s
+                  AND i.status='draft'
+                  AND i.is_on_hold=true
+                  AND COALESCE(i.hold_details->>'kind','')='ap_variance'
+            """
+            params: list = [company_id]
+            if qq:
+                sql += """
+                  AND (
+                    COALESCE(i.invoice_no,'') ILIKE %s
+                    OR COALESCE(i.supplier_ref,'') ILIKE %s
+                    OR COALESCE(s.name,'') ILIKE %s
+                    OR COALESCE(gr.receipt_no,'') ILIKE %s
+                    OR i.id::text ILIKE %s
+                  )
+                """
+                params.extend([like, like, like, like, like])
+            sql += " ORDER BY i.held_at DESC NULLS LAST, i.created_at DESC LIMIT %s"
+            params.append(limit)
+            cur.execute(sql, params)
+            rows = cur.fetchall() or []
+
+            out = []
+            for r in rows:
+                details = r.get("hold_details") if isinstance(r.get("hold_details"), dict) else {}
+                flags = details.get("flags") if isinstance(details.get("flags"), list) else []
+                total_flags = len(flags)
+                unit_cost_flags = len([f for f in flags if isinstance(f, dict) and f.get("kind") == "unit_cost_variance"])
+                qty_flags = len([f for f in flags if isinstance(f, dict) and f.get("kind") == "qty_exceeds_received"])
+                tax_flags = len([f for f in flags if isinstance(f, dict) and f.get("kind") == "tax_variance"])
+                out.append(
+                    {
+                        **r,
+                        "summary": {
+                            "flags_total": total_flags,
+                            "unit_cost_flags": unit_cost_flags,
+                            "qty_flags": qty_flags,
+                            "tax_flags": tax_flags,
+                        },
+                    }
+                )
+
+            return {"exceptions": out}
+
+
+@router.get("/invoices/exceptions", dependencies=[Depends(require_permission("purchases:read"))])
+def list_supplier_invoice_exceptions(
+    company_id: str = Depends(get_company_id),
+    q: str = "",
+    limit: int = 200,
+):
+    """
+    3-way match exceptions queue (v1).
+    Returns supplier invoices that are on hold due to AP variance (hold_details.kind='ap_variance').
+    """
+    qq = (q or "").strip()
+    if limit <= 0 or limit > 1000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            sql = """
+                SELECT i.id, i.invoice_no, i.supplier_ref, i.supplier_id, s.name AS supplier_name,
+                       i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
+                       i.hold_reason, i.hold_details, i.held_at,
+                       i.invoice_date, i.due_date,
+                       i.total_usd, i.total_lbp,
+                       i.created_at
+                FROM supplier_invoices i
+                LEFT JOIN goods_receipts gr
+                  ON gr.company_id = i.company_id AND gr.id = i.goods_receipt_id
+                LEFT JOIN suppliers s
+                  ON s.company_id = i.company_id AND s.id = i.supplier_id
+                WHERE i.company_id=%s
+                  AND i.status='draft'
+                  AND i.is_on_hold=true
+                  AND (i.hold_details->>'kind') = 'ap_variance'
+            """
+            params: list = [company_id]
+            if qq:
+                like = f"%{qq}%"
+                sql += """
+                  AND (
+                    COALESCE(i.invoice_no,'') ILIKE %s
+                    OR COALESCE(i.supplier_ref,'') ILIKE %s
+                    OR COALESCE(s.name,'') ILIKE %s
+                    OR COALESCE(gr.receipt_no,'') ILIKE %s
+                    OR i.id::text ILIKE %s
+                  )
+                """
+                params.extend([like, like, like, like, like])
+
+            sql += " ORDER BY i.held_at DESC NULLS LAST, i.created_at DESC LIMIT %s"
+            params.append(limit)
+            cur.execute(sql, params)
+            rows = cur.fetchall() or []
+
+            out = []
+            for r in rows:
+                hd = r.get("hold_details") or {}
+                flags = []
+                if isinstance(hd, dict):
+                    raw_flags = hd.get("flags")
+                    if isinstance(raw_flags, list):
+                        flags = raw_flags
+                counts = {"total": len(flags), "unit_cost_variance": 0, "qty_exceeds_received": 0, "tax_variance": 0}
+                for f in flags:
+                    if not isinstance(f, dict):
+                        continue
+                    k = f.get("kind")
+                    if k in counts:
+                        counts[k] += 1
+                out.append({**r, "exception_summary": counts})
+            return {"exceptions": out}
+
 @router.get("/invoices/{invoice_id}", dependencies=[Depends(require_permission("purchases:read"))])
 def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
