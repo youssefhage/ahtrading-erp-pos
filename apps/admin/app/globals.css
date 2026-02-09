@@ -402,12 +402,12 @@
 
   /* Links that should look like "actions" in dense tables/forms */
   .ui-link {
-    @apply relative inline-flex items-center gap-1 pr-4 text-primary underline-offset-4 hover:underline focus-ring;
+    @apply relative inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline focus-ring;
   }
 
   /* "Shortcut" links: look like normal text until hover/focus, then show link styling + arrow. */
   .ui-shortcut {
-    @apply relative inline-flex items-center gap-1 rounded-sm px-1 -mx-1 pr-4 text-foreground underline-offset-4 hover:text-primary hover:underline focus-ring;
+    @apply relative inline-flex items-center gap-1 rounded-sm px-1 -mx-1 text-foreground underline-offset-4 hover:text-primary hover:underline focus-ring;
   }
 
   /* Hover affordance: arrow appears only on hover/focus (keep the UI calm by default). */
@@ -415,14 +415,16 @@
   .ui-shortcut::after {
     content: "\\2192";
     display: inline-block;
-    position: absolute;
-    right: 0.15rem;
-    top: 50%;
+    /* Reserve space to avoid layout shift on hover, but keep it in-flow so it can't overlap text. */
+    width: 1.1em;
+    margin-left: 0.25rem;
+    text-align: center;
     opacity: 0;
-    transform: translateY(-50%) translateX(-2px);
+    transform: translateX(-2px);
     transition:
       opacity 150ms ease,
       transform 150ms ease;
+    pointer-events: none;
   }
 
   .ui-link:hover::after,
@@ -430,7 +432,7 @@
   .ui-shortcut:hover::after,
   .ui-shortcut:focus-visible::after {
     opacity: 1;
-    transform: translateY(-50%) translateX(0);
+    transform: translateX(0);
   }
 }
 
