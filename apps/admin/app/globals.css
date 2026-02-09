@@ -227,10 +227,28 @@
     @apply py-3 px-4 text-foreground;
   }
 
-  /* Subtle data tinting for faster scanning (tables only) */
+  /* Subtle data tinting for faster scanning (tables only).
+     We keep it neutral so feature-specific accents (USD/LBP/status) can override cleanly. */
   .ui-table td.data-mono,
   .ui-table td .data-mono {
-    color: rgb(var(--primary-dim));
+    color: rgb(var(--fg-muted));
+  }
+
+  /* Optional semantic accents (keep subtle; used intentionally in tables). */
+  .ui-tone-usd {
+    color: rgb(var(--info));
+  }
+
+  .ui-tone-lbp {
+    color: rgb(var(--warning));
+  }
+
+  .ui-tone-qty {
+    color: rgb(var(--success));
+  }
+
+  .ui-tone-negative {
+    color: rgb(var(--danger));
   }
 
   .ui-table tbody tr:last-child {
@@ -242,16 +260,44 @@
     @apply data-mono;
     /* Keep text clear of the native calendar icon (esp. WebKit). */
     padding-right: 2.5rem;
+    /* Use our own calendar glyph so date inputs look consistent across pages/browsers. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='rgb(161,161,170)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2v4'/%3E%3Cpath d='M16 2v4'/%3E%3Crect width='18' height='18' x='3' y='4' rx='2'/%3E%3Cpath d='M3 10h18'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: calc(100% - 0.75rem) center;
+  }
+
+  /* WebKit: normalize date field text color/spacing across pages */
+  input[type="date"]::-webkit-datetime-edit {
+    color: rgb(var(--fg));
+  }
+
+  input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+    padding: 0;
+  }
+
+  input[type="date"]::-webkit-inner-spin-button,
+  input[type="date"]::-webkit-clear-button {
+    display: none;
   }
 
   input[type="date"]::-webkit-calendar-picker-indicator {
-    opacity: 0.55;
+    /* Keep the click target, but hide the inconsistent native icon (we render our own). */
+    opacity: 0;
     cursor: pointer;
   }
 
   input[type="date"]:hover::-webkit-calendar-picker-indicator,
   input[type="date"]:focus-visible::-webkit-calendar-picker-indicator {
-    opacity: 0.85;
+    opacity: 0;
+  }
+
+  /* When we render a custom calendar icon button, hide the native indicator (to avoid double icons). */
+  input[type="date"].ui-date::-webkit-calendar-picker-indicator {
+    opacity: 0;
+  }
+
+  input[type="date"].ui-date {
+    background-image: none;
   }
 
   /* Keyboard shortcuts */

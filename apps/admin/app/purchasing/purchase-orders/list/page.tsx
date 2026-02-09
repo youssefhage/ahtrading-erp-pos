@@ -174,8 +174,8 @@ export default function PurchaseOrdersListPage() {
                         <td className="px-3 py-2">
                           <StatusChip value={o.status} />
                         </td>
-                        <td className="px-3 py-2 text-right data-mono">{fmtUsd(o.total_usd)}</td>
-                        <td className="px-3 py-2 text-right data-mono">{fmtLbp(o.total_lbp)}</td>
+                        <td className="px-3 py-2 text-right data-mono ui-tone-usd">{fmtUsd(o.total_usd)}</td>
+                        <td className="px-3 py-2 text-right data-mono ui-tone-lbp">{fmtLbp(o.total_lbp)}</td>
                       </tr>
                     ))}
                   </tbody>

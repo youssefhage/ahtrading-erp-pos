@@ -215,8 +215,8 @@ export default function SalesReturnsPage() {
                             <td className="px-3 py-2">
                               <StatusChip value={r.status} />
                             </td>
-                            <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.total_usd)}</td>
-                            <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.total_lbp)}</td>
+                            <td className="px-3 py-2 text-right data-mono text-xs ui-tone-usd">{fmtUsd(r.total_usd)}</td>
+                            <td className="px-3 py-2 text-right data-mono text-xs ui-tone-lbp">{fmtLbp(r.total_lbp)}</td>
                           </tr>
                         );
                       })}

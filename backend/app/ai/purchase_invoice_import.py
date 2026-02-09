@@ -62,7 +62,15 @@ def openai_extract_purchase_invoice_from_image(
     Use an OpenAI vision-capable model to extract a purchase invoice into structured JSON.
     Returns a dict with keys: supplier, invoice, lines, totals (best-effort).
     """
-    use_model = (model or os.environ.get("OPENAI_INVOICE_VISION_MODEL") or "gpt-4o-mini").strip()
+    use_model = (
+        model
+        or os.environ.get("AI_INVOICE_VISION_MODEL")
+        or os.environ.get("OPENAI_INVOICE_VISION_MODEL")
+        or os.environ.get("AI_DEFAULT_MODEL")
+        or ""
+    ).strip()
+    if not use_model:
+        raise RuntimeError("AI model is not configured (set company AI settings or AI_DEFAULT_MODEL)")
     img_url = _b64_data_url(content_type, raw)
 
     schema: dict[str, Any] = {
@@ -173,7 +181,15 @@ def openai_extract_purchase_invoice_from_text(
     """
     Extract invoice info from already-extracted text (e.g., pdftotext output).
     """
-    use_model = (model or os.environ.get("OPENAI_INVOICE_TEXT_MODEL") or "gpt-4o-mini").strip()
+    use_model = (
+        model
+        or os.environ.get("AI_INVOICE_TEXT_MODEL")
+        or os.environ.get("OPENAI_INVOICE_TEXT_MODEL")
+        or os.environ.get("AI_DEFAULT_MODEL")
+        or ""
+    ).strip()
+    if not use_model:
+        raise RuntimeError("AI model is not configured (set company AI settings or AI_DEFAULT_MODEL)")
 
     schema: dict[str, Any] = {
         "type": "object",

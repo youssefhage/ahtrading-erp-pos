@@ -466,8 +466,8 @@ export default function SupplierCreditDetailPage() {
                   <tr key={l.id} className="ui-tr-hover">
                     <td className="px-3 py-2 font-mono text-xs">{l.line_no}</td>
                     <td className="px-3 py-2 text-xs">{l.description || "-"}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs ui-tone-usd">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs ui-tone-lbp">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</td>
                   </tr>
                 ))}
                 {(data?.lines || []).length === 0 ? (
@@ -505,8 +505,8 @@ export default function SupplierCreditDetailPage() {
                     <tr key={a.id} className="ui-tr-hover">
                       <td className="px-3 py-2 font-mono text-xs">{a.goods_receipt_line_id}</td>
                       <td className="px-3 py-2 font-mono text-xs text-fg-muted">{a.batch_id || "-"}</td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(a.amount_usd, { maximumFractionDigits: 4 })}</td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(a.amount_lbp, { maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-right data-mono text-xs ui-tone-usd">{fmtUsd(a.amount_usd, { maximumFractionDigits: 4 })}</td>
+                      <td className="px-3 py-2 text-right data-mono text-xs ui-tone-lbp">{fmtLbp(a.amount_lbp, { maximumFractionDigits: 2 })}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -518,4 +518,3 @@ export default function SupplierCreditDetailPage() {
     </div>
   );
 }
-

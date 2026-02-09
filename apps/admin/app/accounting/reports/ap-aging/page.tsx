@@ -182,8 +182,8 @@ export default function ApAgingPage() {
                           ({Number(r.days_past_due || 0)}d)
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.balance_usd)}</td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.balance_lbp)}</td>
+                      <td className="px-3 py-2 text-right data-mono text-xs ui-tone-usd">{fmtUsd(r.balance_usd)}</td>
+                      <td className="px-3 py-2 text-right data-mono text-xs ui-tone-lbp">{fmtLbp(r.balance_lbp)}</td>
                     </tr>
                   ))}
                   {(data?.rows || []).length === 0 ? (

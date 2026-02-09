@@ -76,7 +76,15 @@ def openai_item_name_suggestions(
     base_url: str | None = None,
     api_key: str | None = None,
 ) -> list[dict[str, str]]:
-    use_model = (model or os.environ.get("OPENAI_ITEM_NAMING_MODEL") or "gpt-4o-mini").strip()
+    use_model = (
+        model
+        or os.environ.get("AI_ITEM_NAMING_MODEL")
+        or os.environ.get("OPENAI_ITEM_NAMING_MODEL")
+        or os.environ.get("AI_DEFAULT_MODEL")
+        or ""
+    ).strip()
+    if not use_model:
+        raise RuntimeError("AI model is not configured (set company AI settings or AI_DEFAULT_MODEL)")
     n = max(1, min(int(count or 3), 6))
 
     schema: dict[str, Any] = {

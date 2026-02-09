@@ -20,9 +20,28 @@ def get_ai_provider_config(cur, company_id: str) -> dict:
     provider = (os.environ.get("AI_PROVIDER") or "openai").strip().lower()
     base_url = (os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com").strip().rstrip("/")
     api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
-    item_model = (os.environ.get("OPENAI_ITEM_NAMING_MODEL") or "gpt-4o-mini").strip()
-    vision_model = (os.environ.get("OPENAI_INVOICE_VISION_MODEL") or "gpt-4o-mini").strip()
-    text_model = (os.environ.get("OPENAI_INVOICE_TEXT_MODEL") or "gpt-4o-mini").strip()
+
+    # Prefer explicit feature models, otherwise fall back to a single default configured via env.
+    # (We avoid hardcoding a model name in code so it can be changed from Settings/.env.)
+    default_model = (os.environ.get("AI_DEFAULT_MODEL") or "").strip()
+    item_model = (
+        os.environ.get("AI_ITEM_NAMING_MODEL")
+        or os.environ.get("OPENAI_ITEM_NAMING_MODEL")
+        or default_model
+    )
+    vision_model = (
+        os.environ.get("AI_INVOICE_VISION_MODEL")
+        or os.environ.get("OPENAI_INVOICE_VISION_MODEL")
+        or default_model
+    )
+    text_model = (
+        os.environ.get("AI_INVOICE_TEXT_MODEL")
+        or os.environ.get("OPENAI_INVOICE_TEXT_MODEL")
+        or default_model
+    )
+    item_model = (item_model or "").strip()
+    vision_model = (vision_model or "").strip()
+    text_model = (text_model or "").strip()
 
     try:
         cur.execute(

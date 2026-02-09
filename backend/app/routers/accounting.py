@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -135,6 +135,20 @@ class CreateFromTemplateIn(BaseModel):
     rate_type: Optional[RateType] = None
     exchange_rate: Optional[Decimal] = None
     memo: Optional[str] = None
+
+
+class RecurringJournalRuleIn(BaseModel):
+    journal_template_id: str
+    cadence: Literal["daily", "weekly", "monthly"]
+    day_of_week: Optional[int] = None  # ISO: 1=Mon..7=Sun (weekly only)
+    day_of_month: Optional[int] = None  # 1..31 (monthly only)
+    next_run_date: date
+    is_active: bool = True
+
+
+class RecurringJournalRuleUpdateIn(BaseModel):
+    next_run_date: Optional[date] = None
+    is_active: Optional[bool] = None
 
 
 def _month_range(as_of: date) -> tuple[date, date]:
@@ -962,6 +976,159 @@ def create_journal_from_template(
                     (company_id, user["user_id"], journal_id, json.dumps({"journal_no": journal_no, "template_id": str(template_id), "template_name": tpl.get("name")})),
                 )
                 return {"id": journal_id, "journal_no": journal_no}
+
+
+@router.get("/recurring-journals", dependencies=[Depends(require_permission("accounting:read"))])
+def list_recurring_journal_rules(
+    limit: int = Query(200, ge=1, le=1000),
+    company_id: str = Depends(get_company_id),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT r.id, r.journal_template_id, t.name AS template_name, t.is_active AS template_active,
+                       r.cadence, r.day_of_week, r.day_of_month,
+                       r.next_run_date, r.is_active, r.last_run_at,
+                       r.created_at, r.updated_at
+                FROM recurring_journal_rules r
+                JOIN journal_templates t ON t.id = r.journal_template_id
+                WHERE r.company_id=%s
+                ORDER BY r.is_active DESC, r.next_run_date ASC, r.updated_at DESC
+                LIMIT %s
+                """,
+                (company_id, limit),
+            )
+            return {"rules": cur.fetchall()}
+
+
+@router.post("/recurring-journals", dependencies=[Depends(require_permission("accounting:write"))])
+def create_recurring_journal_rule(
+    data: RecurringJournalRuleIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    cadence = (data.cadence or "").strip()
+    if cadence not in {"daily", "weekly", "monthly"}:
+        raise HTTPException(status_code=400, detail="invalid cadence")
+    dow = int(data.day_of_week) if data.day_of_week is not None else None
+    dom = int(data.day_of_month) if data.day_of_month is not None else None
+    if cadence == "weekly":
+        if dow is None or dow < 1 or dow > 7:
+            raise HTTPException(status_code=400, detail="day_of_week is required for weekly cadence (1..7)")
+        dom = None
+    elif cadence == "monthly":
+        if dom is None or dom < 1 or dom > 31:
+            raise HTTPException(status_code=400, detail="day_of_month is required for monthly cadence (1..31)")
+        dow = None
+    else:
+        dow = None
+        dom = None
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, is_active FROM journal_templates WHERE company_id=%s AND id=%s",
+                    (company_id, data.journal_template_id),
+                )
+                tpl = cur.fetchone()
+                if not tpl:
+                    raise HTTPException(status_code=404, detail="template not found")
+
+                cur.execute(
+                    """
+                    INSERT INTO recurring_journal_rules
+                      (id, company_id, journal_template_id, cadence, day_of_week, day_of_month, next_run_date, is_active)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (company_id, journal_template_id, cadence, COALESCE(day_of_week, 0), COALESCE(day_of_month, 0))
+                    DO UPDATE SET next_run_date = EXCLUDED.next_run_date,
+                                  is_active = EXCLUDED.is_active,
+                                  updated_at = now()
+                    RETURNING id
+                    """,
+                    (
+                        company_id,
+                        data.journal_template_id,
+                        cadence,
+                        dow,
+                        dom,
+                        data.next_run_date,
+                        bool(data.is_active),
+                    ),
+                )
+                rid = cur.fetchone()["id"]
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'accounting.recurring_journal_rule.upsert', 'recurring_journal_rule', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        rid,
+                        json.dumps(
+                            {
+                                "journal_template_id": str(data.journal_template_id),
+                                "cadence": cadence,
+                                "day_of_week": dow,
+                                "day_of_month": dom,
+                                "next_run_date": str(data.next_run_date),
+                                "is_active": bool(data.is_active),
+                            }
+                        ),
+                    ),
+                )
+                return {"id": rid}
+
+
+@router.patch("/recurring-journals/{rule_id}", dependencies=[Depends(require_permission("accounting:write"))])
+def update_recurring_journal_rule(
+    rule_id: str,
+    data: RecurringJournalRuleUpdateIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    patch = data.model_dump(exclude_none=True)
+    if not patch:
+        return {"ok": True}
+    sets = []
+    params = []
+    if "next_run_date" in patch:
+        sets.append("next_run_date=%s")
+        params.append(patch["next_run_date"])
+    if "is_active" in patch:
+        sets.append("is_active=%s")
+        params.append(bool(patch["is_active"]))
+    params.extend([company_id, rule_id])
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    UPDATE recurring_journal_rules
+                    SET {', '.join(sets)}, updated_at=now()
+                    WHERE company_id=%s AND id=%s
+                    RETURNING id
+                    """,
+                    params,
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="rule not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'accounting.recurring_journal_rule.update', 'recurring_journal_rule', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], rule_id, json.dumps({"updated": sorted(patch.keys())})),
+                )
+                return {"ok": True}
 
 
 @router.get("/close-checklist", dependencies=[Depends(require_permission("accounting:read"))])

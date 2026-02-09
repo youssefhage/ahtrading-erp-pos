@@ -117,6 +117,7 @@ function iconForHref(href: string) {
 
     "/accounting/journals": BookOpen,
     "/accounting/journal-templates": ClipboardList,
+    "/accounting/recurring-journals": Timer,
     "/accounting/close-checklist": ClipboardList,
     "/accounting/coa": BookOpen,
     "/accounting/intercompany": Workflow,
@@ -226,6 +227,8 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Stock", href: "/inventory/stock" },
       { label: "Movements", href: "/inventory/movements" },
       { label: "Transfers", href: "/inventory/transfers" },
+      { label: "Replenishment", href: "/inventory/replenishment" },
+      { label: "Cycle Counts", href: "/inventory/cycle-counts" },
       { label: "Batches", href: "/inventory/batches" },
       { label: "Alerts", href: "/inventory/alerts" },
       { label: "Landed Costs", href: "/inventory/landed-costs" },
@@ -238,6 +241,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Journals", href: "/accounting/journals" },
       { label: "Journal Templates", href: "/accounting/journal-templates" },
+      { label: "Recurring Journals", href: "/accounting/recurring-journals" },
       { label: "Close Checklist", href: "/accounting/close-checklist" },
       { label: "Chart of Accounts", href: "/accounting/coa" },
       { label: "Intercompany", href: "/accounting/intercompany" },

@@ -280,8 +280,8 @@ function SupplierInvoicesListInner() {
                         Due: <span className="data-mono">{fmtIso(inv.due_date)}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(inv.total_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(inv.total_lbp)}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs ui-tone-usd">{fmtUsd(inv.total_usd)}</td>
+                    <td className="px-3 py-2 text-right data-mono text-xs ui-tone-lbp">{fmtLbp(inv.total_lbp)}</td>
                   </tr>
                 ))}
                 {invoices.length === 0 ? (
