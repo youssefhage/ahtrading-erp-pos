@@ -12,6 +12,52 @@ from ..validation import CurrencyCode
 
 router = APIRouter(prefix="/pricing", tags=["pricing"])
 
+@router.get("/cost-changes", dependencies=[Depends(require_permission("items:read"))])
+def list_cost_changes(
+    q: str = Query("", description="Search SKU/name"),
+    item_id: Optional[str] = Query(None),
+    warehouse_id: Optional[str] = Query(None),
+    limit: int = Query(200, ge=1, le=1000),
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Operational "cost change log" (v1): emits recent average-cost changes per item/warehouse.
+    Populated by triggers on `item_warehouse_costs`.
+    """
+    qq = (q or "").strip()
+    like = f"%{qq}%"
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            sql = """
+                SELECT c.id, c.changed_at, c.item_id, i.sku, i.name,
+                       c.warehouse_id, w.name AS warehouse_name,
+                       c.on_hand_qty,
+                       c.old_avg_cost_usd, c.new_avg_cost_usd, c.pct_change_usd,
+                       c.old_avg_cost_lbp, c.new_avg_cost_lbp, c.pct_change_lbp,
+                       c.source
+                FROM item_cost_change_log c
+                JOIN items i ON i.company_id = c.company_id AND i.id = c.item_id
+                JOIN warehouses w ON w.company_id = c.company_id AND w.id = c.warehouse_id
+                WHERE c.company_id = %s
+            """
+            params: list = [company_id]
+            if item_id:
+                sql += " AND c.item_id = %s"
+                params.append(item_id)
+            if warehouse_id:
+                sql += " AND c.warehouse_id = %s"
+                params.append(warehouse_id)
+            if qq:
+                sql += " AND (i.sku ILIKE %s OR i.name ILIKE %s)"
+                params.extend([like, like])
+            sql += " ORDER BY c.changed_at DESC LIMIT %s"
+            params.append(limit)
+
+            cur.execute(sql, params)
+            return {"changes": cur.fetchall()}
+
 @router.get("/catalog", dependencies=[Depends(require_permission("items:read"))])
 def catalog(company_id: str = Depends(get_company_id)):
     """

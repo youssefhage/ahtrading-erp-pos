@@ -33,6 +33,8 @@ from .routers.banking import router as banking_router
 from .routers.pricing import router as pricing_router
 from .routers.promotions import router as promotions_router
 from .routers.telegram import router as telegram_router
+from .routers.whatsapp import router as whatsapp_router
+from .routers.landed_costs import router as landed_costs_router
 from .routers.devtools import router as devtools_router
 from .routers.auth import router as auth_router
 from .config import settings
@@ -158,6 +160,8 @@ app.include_router(banking_router, dependencies=[Depends(require_company_access)
 app.include_router(pricing_router, dependencies=[Depends(require_company_access)])
 app.include_router(promotions_router, dependencies=[Depends(require_company_access)])
 app.include_router(telegram_router)
+app.include_router(whatsapp_router)
+app.include_router(landed_costs_router, dependencies=[Depends(require_company_access)])
 # Dev-only helpers (route handlers self-disable outside local/dev).
 app.include_router(devtools_router, dependencies=[Depends(require_company_access)])
 

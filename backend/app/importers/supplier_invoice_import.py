@@ -84,11 +84,36 @@ def extract_purchase_invoice_best_effort(
     company_id: str,
     cur,
     warnings: list[str],
+    force_mock: bool = False,
 ) -> dict[str, Any] | None:
     """
     Best-effort invoice extraction.
     Returns extracted dict or None if extraction was not possible.
     """
+    if force_mock:
+        # Safe-by-default: only used when explicitly requested by the caller (local/dev testing).
+        warnings.append("Mock extraction enabled: configure AI for real invoice parsing.")
+        return {
+            "supplier": {"name": "Mock Supplier"},
+            "invoice": {
+                "invoice_no": None,
+                "invoice_date": date.today().isoformat(),
+                "due_date": date.today().isoformat(),
+                "currency": "USD",
+            },
+            "totals": {"currency": "USD"},
+            "lines": [
+                {
+                    "qty": 1,
+                    "unit_price": 1,
+                    "currency": "USD",
+                    "supplier_item_code": "MOCK-001",
+                    "supplier_item_name": _clean_item_name(f"Imported ({filename})"),
+                    "description": f"Mock import line from {filename}",
+                }
+            ],
+        }
+
     external_ai_allowed = is_external_ai_allowed(cur, company_id)
     if not external_ai_allowed:
         warnings.append("External AI processing is disabled for this company; created draft + attached file only.")
@@ -547,6 +572,254 @@ def apply_extracted_purchase_invoice_to_draft(
     }
 
 
+def apply_extracted_purchase_invoice_header_to_draft(
+    *,
+    company_id: str,
+    invoice_id: str,
+    extracted: dict[str, Any],
+    exchange_rate_hint: Optional[Decimal],
+    tax_code_id_hint: Optional[str],
+    auto_create_supplier: bool,
+    cur,
+    warnings: list[str],
+    user_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Apply only supplier + header fields from extraction to an existing draft supplier invoice.
+    Used by the async import pipeline when we require human review before creating invoice lines.
+    """
+    inv = (extracted.get("invoice") or {}) if isinstance(extracted, dict) else {}
+    ex = Decimal(str(exchange_rate_hint or 0)) if exchange_rate_hint is not None else Decimal("0")
+    if ex <= 0:
+        ex = _default_exchange_rate(cur, company_id)
+    try:
+        ex_ai = Decimal(str(inv.get("exchange_rate") or 0))
+        if ex_ai and ex_ai > 0:
+            ex = ex_ai
+    except Exception:
+        pass
+
+    tax_code_id = (tax_code_id_hint or "").strip() or None
+
+    supplier_id = None
+    supplier_created = False
+
+    sup = (extracted.get("supplier") or {}) if isinstance(extracted, dict) else {}
+    supplier_name = (sup.get("name") or "").strip() or None
+    supplier_vat = (sup.get("vat_no") or "").strip() or None
+
+    # Try to match existing supplier by VAT number, then by name.
+    if supplier_vat:
+        cur.execute(
+            "SELECT id FROM suppliers WHERE company_id=%s AND vat_no=%s ORDER BY created_at ASC LIMIT 1",
+            (company_id, supplier_vat),
+        )
+        r = cur.fetchone()
+        supplier_id = r["id"] if r else None
+    if not supplier_id and supplier_name:
+        cur.execute(
+            "SELECT id FROM suppliers WHERE company_id=%s AND lower(name)=lower(%s) ORDER BY created_at ASC LIMIT 1",
+            (company_id, supplier_name),
+        )
+        r = cur.fetchone()
+        supplier_id = r["id"] if r else None
+
+    if not supplier_id and auto_create_supplier and supplier_name:
+        cur.execute(
+            """
+            INSERT INTO suppliers (id, company_id, name, vat_no, is_active, payment_terms_days)
+            VALUES (gen_random_uuid(), %s, %s, %s, true, 0)
+            RETURNING id
+            """,
+            (company_id, supplier_name, supplier_vat),
+        )
+        supplier_id = cur.fetchone()["id"]
+        supplier_created = True
+        cur.execute(
+            """
+            INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+            VALUES (gen_random_uuid(), %s, %s, 'supplier_create_ai', 'supplier', %s, %s::jsonb)
+            """,
+            (company_id, user_id, supplier_id, json.dumps({"name": supplier_name, "vat_no": supplier_vat, "source": "purchase_invoice_import"})),
+        )
+
+    supplier_ref = (inv.get("supplier_ref") or inv.get("invoice_no") or "").strip() or None
+    if supplier_id and supplier_ref:
+        cur.execute(
+            """
+            SELECT 1
+            FROM supplier_invoices
+            WHERE company_id=%s AND supplier_id=%s
+              AND supplier_ref=%s
+              AND status <> 'canceled'
+              AND id <> %s
+            LIMIT 1
+            """,
+            (company_id, supplier_id, supplier_ref, invoice_id),
+        )
+        if cur.fetchone():
+            warnings.append("supplier_ref already exists for this supplier; left blank to avoid conflicts.")
+            supplier_ref = None
+
+    inv_date = inv.get("invoice_date") or inv.get("date") or None
+    due_date = inv.get("due_date") or inv.get("due") or None
+    try:
+        inv_date = date.fromisoformat(str(inv_date)) if inv_date else date.today()
+    except Exception:
+        inv_date = date.today()
+    try:
+        due_date = date.fromisoformat(str(due_date)) if due_date else inv_date
+    except Exception:
+        due_date = inv_date
+
+    cur.execute(
+        """
+        UPDATE supplier_invoices
+        SET supplier_id = %s,
+            supplier_ref = %s,
+            exchange_rate = %s,
+            invoice_date = %s,
+            due_date = %s,
+            tax_code_id = COALESCE(%s, tax_code_id)
+        WHERE company_id = %s AND id = %s
+        """,
+        (supplier_id, supplier_ref, ex, inv_date, due_date, tax_code_id, company_id, invoice_id),
+    )
+
+    if supplier_created:
+        warnings.append("Supplier was auto-created by import (review before posting).")
+
+    return {"ok": True, "supplier_id": supplier_id, "supplier_created": supplier_created, "supplier_ref": supplier_ref, "exchange_rate": ex}
+
+
+def build_supplier_invoice_import_review_lines(
+    *,
+    company_id: str,
+    supplier_id: Optional[str],
+    extracted: dict[str, Any],
+    exchange_rate_hint: Optional[Decimal],
+    cur,
+    warnings: list[str],
+) -> list[dict[str, Any]]:
+    """
+    Convert extraction output into "review lines" (without creating invoice lines).
+    Each review line includes computed dual-currency costs and an optional suggested item match.
+    """
+    inv = (extracted.get("invoice") or {}) if isinstance(extracted, dict) else {}
+    ex = Decimal(str(exchange_rate_hint or 0)) if exchange_rate_hint is not None else Decimal("0")
+    if ex <= 0:
+        ex = _default_exchange_rate(cur, company_id)
+    try:
+        ex_ai = Decimal(str(inv.get("exchange_rate") or 0))
+        if ex_ai and ex_ai > 0:
+            ex = ex_ai
+    except Exception:
+        pass
+
+    out: list[dict[str, Any]] = []
+    for idx, ln in enumerate(extracted.get("lines") or []):
+        try:
+            qty = Decimal(str(ln.get("qty") or 0))
+            unit_price = Decimal(str(ln.get("unit_price") or 0))
+        except Exception:
+            warnings.append(f"line {idx+1}: invalid qty/unit_price")
+            continue
+        if qty <= 0 or unit_price <= 0:
+            continue
+
+        line_currency = (ln.get("currency") or inv.get("currency") or (extracted.get("totals", {}) or {}).get("currency") or "").strip().upper()
+        if line_currency not in {"USD", "LBP"}:
+            line_currency = "USD"
+
+        unit_usd = unit_price if line_currency == "USD" else (unit_price / ex if ex else Decimal("0"))
+        unit_lbp = unit_price if line_currency == "LBP" else (unit_price * ex)
+        unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
+
+        supplier_item_code = (ln.get("supplier_item_code") or "").strip() or None
+        supplier_item_name = (ln.get("supplier_item_name") or "").strip() or None
+        desc = (ln.get("description") or "").strip() or None
+        ncode = _norm_code(supplier_item_code)
+        nname = _norm_name(supplier_item_name)
+
+        suggested_item_id = None
+        confidence = Decimal("0")
+
+        if supplier_id and ncode:
+            cur.execute(
+                """
+                SELECT item_id
+                FROM supplier_item_aliases
+                WHERE company_id=%s AND supplier_id=%s AND normalized_code=%s
+                ORDER BY last_seen_at DESC
+                LIMIT 1
+                """,
+                (company_id, supplier_id, ncode),
+            )
+            r = cur.fetchone()
+            if r:
+                suggested_item_id = r["item_id"]
+                confidence = Decimal("0.98")
+
+        if not suggested_item_id and supplier_id and nname:
+            cur.execute(
+                """
+                SELECT item_id
+                FROM supplier_item_aliases
+                WHERE company_id=%s AND supplier_id=%s AND normalized_name=%s
+                ORDER BY last_seen_at DESC
+                LIMIT 1
+                """,
+                (company_id, supplier_id, nname),
+            )
+            r = cur.fetchone()
+            if r:
+                suggested_item_id = r["item_id"]
+                confidence = Decimal("0.92")
+
+        if not suggested_item_id and ncode:
+            cur.execute("SELECT id FROM items WHERE company_id=%s AND upper(sku)=upper(%s) LIMIT 1", (company_id, ncode))
+            r = cur.fetchone()
+            if r:
+                suggested_item_id = r["id"]
+                confidence = Decimal("0.90")
+            else:
+                cur.execute(
+                    "SELECT item_id FROM item_barcodes WHERE company_id=%s AND barcode=%s ORDER BY is_primary DESC LIMIT 1",
+                    (company_id, ncode),
+                )
+                r = cur.fetchone()
+                if r:
+                    suggested_item_id = r["item_id"]
+                    confidence = Decimal("0.88")
+
+        if not suggested_item_id and nname:
+            cur.execute(
+                "SELECT id FROM items WHERE company_id=%s AND lower(name) LIKE %s ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+                (company_id, f"%{nname}%"),
+            )
+            r = cur.fetchone()
+            if r:
+                suggested_item_id = r["id"]
+                confidence = Decimal("0.65")
+
+        out.append(
+            {
+                "line_no": idx + 1,
+                "qty": qty,
+                "unit_cost_usd": unit_usd,
+                "unit_cost_lbp": unit_lbp,
+                "supplier_item_code": supplier_item_code,
+                "supplier_item_name": supplier_item_name,
+                "description": desc,
+                "suggested_item_id": suggested_item_id,
+                "suggested_confidence": confidence,
+                "raw_json": ln,
+            }
+        )
+
+    return out
+
+
 def store_attachment_for_invoice(
     *,
     cur,
@@ -569,4 +842,3 @@ def store_attachment_for_invoice(
         (company_id, invoice_id, filename, content_type, len(raw), sha, raw, user_id),
     )
     return cur.fetchone()["id"]
-

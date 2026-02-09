@@ -105,6 +105,8 @@ function iconForHref(href: string) {
     "/inventory/movements": ArrowLeftRight,
     "/inventory/alerts": BellRing,
     "/inventory/batches": Boxes,
+    "/inventory/landed-costs": Truck,
+    "/inventory/cost-changes": TrendingUp,
     "/inventory/ops": Workflow,
 
     "/accounting/journals": BookOpen,
@@ -207,7 +209,9 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Stock", href: "/inventory/stock" },
       { label: "Movements", href: "/inventory/movements" },
       { label: "Batches", href: "/inventory/batches" },
-      { label: "Alerts", href: "/inventory/alerts" }
+      { label: "Alerts", href: "/inventory/alerts" },
+      { label: "Landed Costs", href: "/inventory/landed-costs" },
+      { label: "Cost Changes", href: "/inventory/cost-changes" }
     ]
   },
   {

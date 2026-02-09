@@ -13,6 +13,24 @@ import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahe
 import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
 import { ErrorBanner } from "@/components/error-banner";
 type AttachmentRow = { id: string; filename: string; content_type: string; size_bytes: number; uploaded_at: string };
+type ImportLineRow = {
+  id: string;
+  line_no: number;
+  qty: string | number;
+  unit_cost_usd: string | number;
+  unit_cost_lbp: string | number;
+  supplier_item_code: string | null;
+  supplier_item_name: string | null;
+  description: string | null;
+  suggested_item_id: string | null;
+  suggested_sku: string | null;
+  suggested_name: string | null;
+  suggested_confidence: string | number;
+  resolved_item_id: string | null;
+  resolved_sku: string | null;
+  resolved_name: string | null;
+  status: string;
+};
 
 type TaxCode = {
   id: string;
@@ -88,7 +106,10 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importAutoCreateSupplier, setImportAutoCreateSupplier] = useState(true);
-  const [importAutoCreateItems, setImportAutoCreateItems] = useState(true);
+  // Default off: require human mapping before creating new items.
+  const [importAutoCreateItems, setImportAutoCreateItems] = useState(false);
+  // Dev helper to test the end-to-end review/apply flow without OPENAI.
+  const [importMockExtract, setImportMockExtract] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
@@ -112,6 +133,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [lines, setLines] = useState<InvoiceLineDraft[]>([]);
   const [importStatus, setImportStatus] = useState("");
   const [importError, setImportError] = useState("");
+  const [importLines, setImportLines] = useState<ImportLineRow[]>([]);
+  const [importLinesLoading, setImportLinesLoading] = useState(false);
+  const [importApplying, setImportApplying] = useState(false);
 
   const [addItem, setAddItem] = useState<ItemTypeaheadItem | null>(null);
   const [addQty, setAddQty] = useState("1");
@@ -166,6 +190,22 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
         // Attachments are optional; don't block editing if the user lacks access.
         await reloadAttachments(id);
+
+        const st = String((det.invoice as any).import_status || "").toLowerCase();
+        if (st === "pending_review") {
+          setImportLinesLoading(true);
+          try {
+            const il = await apiGet<{ import_lines: ImportLineRow[] }>(`/purchases/invoices/${id}/import-lines`);
+            setImportLines(il.import_lines || []);
+          } catch {
+            setImportLines([]);
+          } finally {
+            setImportLinesLoading(false);
+          }
+        } else {
+          setImportLines([]);
+          setImportLinesLoading(false);
+        }
       } else {
         setSupplierId("");
         setSupplierLabel("");
@@ -180,6 +220,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setAttachments([]);
         setImportStatus("");
         setImportError("");
+        setImportLines([]);
+        setImportLinesLoading(false);
       }
 
       setStatus("");
@@ -205,6 +247,56 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     }, 2000);
     return () => window.clearTimeout(t);
   }, [props.mode, importStatus, load]);
+
+  async function setImportLineResolvedId(lineId: string, resolvedItemId: string | null) {
+    const invId = props.invoiceId || "";
+    if (!invId) return;
+    setStatus("Saving import mapping...");
+    try {
+      await apiPatch(`/purchases/invoices/${encodeURIComponent(invId)}/import-lines/${encodeURIComponent(lineId)}`, {
+        resolved_item_id: resolvedItemId,
+      });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }
+
+  async function setImportLineSkipped(lineId: string, skipped: boolean) {
+    const invId = props.invoiceId || "";
+    if (!invId) return;
+    setStatus("Saving import mapping...");
+    try {
+      await apiPatch(`/purchases/invoices/${encodeURIComponent(invId)}/import-lines/${encodeURIComponent(lineId)}`, {
+        status: skipped ? "skipped" : "pending",
+        resolved_item_id: null,
+      });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }
+
+  async function applyImportLines() {
+    const invId = props.invoiceId || "";
+    if (!invId) return;
+    setImportApplying(true);
+    setStatus("Applying import lines...");
+    try {
+      await apiPost(`/purchases/invoices/${encodeURIComponent(invId)}/import-lines/apply`, {});
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setImportApplying(false);
+    }
+  }
 
   async function fetchSupplierLastCost(itemId: string): Promise<{ usd: number; lbp: number } | null> {
     const sup = (supplierId || "").trim();
@@ -386,6 +478,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       if (taxCodeId) fd.set("tax_code_id", taxCodeId);
       fd.set("auto_create_supplier", importAutoCreateSupplier ? "true" : "false");
       fd.set("auto_create_items", importAutoCreateItems ? "true" : "false");
+      if (importMockExtract) fd.set("mock_extract", "true");
 
       const raw = await fetch("/api/purchases/invoices/drafts/import-file", { method: "POST", body: fd, credentials: "include" });
       if (!raw.ok) throw new Error(await raw.text());
@@ -501,6 +594,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             <CardDescription>
               {String(importStatus).toLowerCase() === "pending" || String(importStatus).toLowerCase() === "processing"
                 ? "Import is in progress. This page will refresh automatically."
+                : String(importStatus).toLowerCase() === "pending_review"
+                ? "Import is ready for review. Map each line to an item, then apply."
                 : "Import has finished."}
             </CardDescription>
           </CardHeader>
@@ -516,6 +611,110 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="outline" onClick={load} disabled={loading}>
                 Refresh
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {props.mode === "edit" && String(importStatus).toLowerCase() === "pending_review" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Imported Lines (Review)</CardTitle>
+            <CardDescription>Confirm item matches before we create invoice lines.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {importLinesLoading ? <div className="text-sm text-fg-muted">Loading import lines...</div> : null}
+            {!importLinesLoading && importLines.length === 0 ? (
+              <div className="text-sm text-fg-muted">No import lines found.</div>
+            ) : null}
+
+            {importLines.length ? (
+              <div className="ui-table-wrap">
+                <table className="ui-table">
+                  <thead className="ui-thead">
+                    <tr>
+                      <th className="px-3 py-2">Line</th>
+                      <th className="px-3 py-2">Supplier Item</th>
+                      <th className="px-3 py-2 text-right">Qty</th>
+                      <th className="px-3 py-2 text-right">Unit USD</th>
+                      <th className="px-3 py-2 text-right">Unit LL</th>
+                      <th className="px-3 py-2">Suggested</th>
+                      <th className="px-3 py-2">Resolved Item</th>
+                      <th className="px-3 py-2 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importLines.map((l) => {
+                      const st = String(l.status || "").toLowerCase();
+                      const skipped = st === "skipped";
+                      const resolved = st === "resolved" && !!l.resolved_item_id;
+                      const suggestedLabel = l.suggested_sku ? `${l.suggested_sku} — ${l.suggested_name || ""}` : l.suggested_name || "-";
+                      const resolvedLabel = l.resolved_sku ? `${l.resolved_sku} — ${l.resolved_name || ""}` : l.resolved_name || "-";
+                      return (
+                        <tr key={l.id} className="border-t border-border-subtle">
+                          <td className="px-3 py-2 font-mono text-xs">{l.line_no}</td>
+                          <td className="px-3 py-2 text-xs">
+                            <div className="font-mono text-[11px] text-fg-muted">{l.supplier_item_code || "-"}</div>
+                            <div className="font-medium">{l.supplier_item_name || l.description || "-"}</div>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
+                          <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.unit_cost_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
+                          <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.unit_cost_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}</td>
+                          <td className="px-3 py-2 text-xs">
+                            <div className="text-fg-muted">{suggestedLabel}</div>
+                            {Number(l.suggested_confidence || 0) ? (
+                              <div className="font-mono text-[10px] text-fg-subtle">conf {Number(l.suggested_confidence || 0).toFixed(2)}</div>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 text-xs">
+                            <div className="mb-1 text-fg-muted">{resolved ? resolvedLabel : skipped ? "(skipped)" : "-"}</div>
+                            {!skipped ? (
+                              <ItemTypeahead
+                                disabled={loading || saving || importApplying}
+                                onSelect={(it) => void setImportLineResolvedId(l.id, it.id)}
+                                onClear={() => void setImportLineResolvedId(l.id, null)}
+                              />
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs">
+                            <div className="flex justify-end gap-2">
+                              {l.suggested_item_id && !l.resolved_item_id && !skipped ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={loading || saving || importApplying}
+                                  onClick={() => void setImportLineResolvedId(l.id, String(l.suggested_item_id))}
+                                >
+                                  Use Suggestion
+                                </Button>
+                              ) : null}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={loading || saving || importApplying}
+                                onClick={() => setImportLineSkipped(l.id, !skipped)}
+                              >
+                                {skipped ? "Unskip" : "Skip"}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-end gap-2">
+              <Button type="button" variant="outline" onClick={load} disabled={loading || importApplying}>
+                Refresh
+              </Button>
+              <Button type="button" onClick={applyImportLines} disabled={loading || importApplying || importLinesLoading}>
+                {importApplying ? "Applying..." : "Apply Lines"}
               </Button>
             </div>
           </CardContent>
@@ -553,7 +752,11 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 </label>
                 <label className="flex items-center gap-2 text-xs text-fg-muted">
                   <input type="checkbox" checked={importAutoCreateItems} onChange={(e) => setImportAutoCreateItems(e.target.checked)} />
-                  Auto-create items if missing
+                  Auto-create items if missing (not recommended)
+                </label>
+                <label className="flex items-center gap-2 text-xs text-fg-muted">
+                  <input type="checkbox" checked={importMockExtract} onChange={(e) => setImportMockExtract(e.target.checked)} />
+                  Mock extraction (dev)
                 </label>
                 <div className="flex items-center gap-2">
                   <Button type="submit" disabled={importing || loading}>
@@ -562,7 +765,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 </div>
               </div>
               <p className="text-[11px] text-fg-subtle">
-                The uploaded file is always attached to the draft invoice so you can audit it later.
+                The uploaded file is always attached to the draft invoice so you can audit it later. By default, imports require a human review step before creating invoice lines.
               </p>
             </form>
           </CardContent>

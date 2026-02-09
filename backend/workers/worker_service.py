@@ -27,6 +27,7 @@ try:
     from .ai_purchase import run_purchase_agent
     from .ai_crm import run_crm_agent
     from .ai_pricing import run_pricing_agent
+    from .ai_price_impact import run_price_impact_agent
     from .ai_shrinkage import run_shrinkage_agent
     from .ai_demand import run_demand_agent
     from .ai_anomaly import run_anomaly_agent
@@ -42,6 +43,7 @@ except ImportError:  # pragma: no cover
     from ai_purchase import run_purchase_agent
     from ai_crm import run_crm_agent
     from ai_pricing import run_pricing_agent
+    from ai_price_impact import run_price_impact_agent
     from ai_shrinkage import run_shrinkage_agent
     from ai_demand import run_demand_agent
     from ai_anomaly import run_anomaly_agent
@@ -64,6 +66,7 @@ DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
         "interval_seconds": 86400,
         "options_json": {"min_margin_pct": 0.05, "target_margin_pct": 0.15},
     },
+    "AI_PRICE_IMPACT": {"interval_seconds": 3600, "options_json": {"lookback_days": 30, "min_pct_increase": 0.05, "target_margin_pct": 0.15, "limit": 200}},
     "AI_SHRINKAGE": {"interval_seconds": 3600, "options_json": {}},
     "AI_ANOMALY": {"interval_seconds": 3600, "options_json": {"lookback_days": 7, "return_rate": 0.20, "min_return_qty": 2, "adjustment_usd": 250}},
     "AI_EXECUTOR": {"interval_seconds": 60, "options_json": {"limit": 20}},
@@ -212,6 +215,20 @@ def execute_job(db_url: str, company_id: str, job_code: str, options: dict):
         min_margin_pct = Decimal(str(options.get("min_margin_pct") or "0.05"))
         target_margin_pct = Decimal(str(options.get("target_margin_pct") or "0.15"))
         run_pricing_agent(db_url, company_id, min_margin_pct=min_margin_pct, target_margin_pct=target_margin_pct)
+        return
+    if job_code == "AI_PRICE_IMPACT":
+        lookback_days = int(options.get("lookback_days") or 30)
+        min_pct_increase = Decimal(str(options.get("min_pct_increase") or "0.05"))
+        target_margin_pct = Decimal(str(options.get("target_margin_pct") or "0.15"))
+        limit = int(options.get("limit") or 200)
+        run_price_impact_agent(
+            db_url,
+            company_id,
+            lookback_days=lookback_days,
+            min_pct_increase=min_pct_increase,
+            target_margin_pct=target_margin_pct,
+            limit=limit,
+        )
         return
     if job_code == "AI_SHRINKAGE":
         run_shrinkage_agent(db_url, company_id)

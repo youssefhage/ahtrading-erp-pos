@@ -15,7 +15,9 @@ except ImportError:  # pragma: no cover
     from pos_processor import set_company_context
 
 from backend.app.importers.supplier_invoice_import import (
+    apply_extracted_purchase_invoice_header_to_draft,
     apply_extracted_purchase_invoice_to_draft,
+    build_supplier_invoice_import_review_lines,
     extract_purchase_invoice_best_effort,
 )
 
@@ -98,6 +100,8 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
                     options = {}
             auto_create_supplier = bool(options.get("auto_create_supplier", True))
             auto_create_items = bool(options.get("auto_create_items", True))
+            auto_apply = bool(options.get("auto_apply", False))
+            mock_extract = bool(options.get("mock_extract", False))
 
             warnings: list[str] = []
             try:
@@ -125,11 +129,12 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
                         company_id=company_id,
                         cur=cur,
                         warnings=warnings,
+                        force_mock=mock_extract,
                     )
 
                 with conn.transaction():
                     with conn.cursor() as cur2:
-                        set_company_context(cur2, company_id)
+                        _set_company_context_session(cur2, company_id)
                         if not extracted:
                             cur2.execute(
                                 """
@@ -149,25 +154,105 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
                             skipped += 1
                             continue
 
-                        apply_extracted_purchase_invoice_to_draft(
+                        # Default behavior: prepare review lines and require a human to map/confirm items.
+                        # Optionally, callers can request `auto_apply=true` to preserve the legacy behavior.
+                        if auto_apply:
+                            apply_extracted_purchase_invoice_to_draft(
+                                company_id=company_id,
+                                invoice_id=invoice_id,
+                                extracted=extracted,
+                                exchange_rate_hint=Decimal(str(invoice_row.get("exchange_rate") or 0)),
+                                tax_code_id_hint=invoice_row.get("tax_code_id"),
+                                auto_create_supplier=auto_create_supplier,
+                                auto_create_items=auto_create_items,
+                                cur=cur2,
+                                warnings=warnings,
+                                user_id=None,
+                            )
+                            cur2.execute(
+                                """
+                                UPDATE supplier_invoices
+                                SET import_status='filled', import_finished_at=now(), import_error=NULL
+                                WHERE company_id=%s AND id=%s
+                                """,
+                                (company_id, invoice_id),
+                            )
+                            filled += 1
+                            continue
+
+                        # Header + review lines.
+                        hdr = apply_extracted_purchase_invoice_header_to_draft(
                             company_id=company_id,
                             invoice_id=invoice_id,
                             extracted=extracted,
                             exchange_rate_hint=Decimal(str(invoice_row.get("exchange_rate") or 0)),
                             tax_code_id_hint=invoice_row.get("tax_code_id"),
                             auto_create_supplier=auto_create_supplier,
-                            auto_create_items=auto_create_items,
                             cur=cur2,
                             warnings=warnings,
                             user_id=None,
                         )
+                        supplier_id = hdr.get("supplier_id")
+                        review_lines = build_supplier_invoice_import_review_lines(
+                            company_id=company_id,
+                            supplier_id=str(supplier_id) if supplier_id else None,
+                            extracted=extracted,
+                            exchange_rate_hint=Decimal(str(invoice_row.get("exchange_rate") or 0)),
+                            cur=cur2,
+                            warnings=warnings,
+                        )
+
+                        # Replace any prior import review lines.
+                        cur2.execute(
+                            "DELETE FROM supplier_invoice_import_lines WHERE company_id=%s AND supplier_invoice_id=%s",
+                            (company_id, invoice_id),
+                        )
+                        for ln in review_lines:
+                            cur2.execute(
+                                """
+                                INSERT INTO supplier_invoice_import_lines
+                                  (company_id, supplier_invoice_id, line_no, qty, unit_cost_usd, unit_cost_lbp,
+                                   supplier_item_code, supplier_item_name, description,
+                                   suggested_item_id, suggested_confidence, resolved_item_id, status, raw_json)
+                                VALUES
+                                  (%s, %s, %s, %s, %s, %s,
+                                   %s, %s, %s,
+                                   %s, %s, %s, %s, %s::jsonb)
+                                """,
+                                (
+                                    company_id,
+                                    invoice_id,
+                                    int(ln["line_no"]),
+                                    ln["qty"],
+                                    ln["unit_cost_usd"],
+                                    ln["unit_cost_lbp"],
+                                    ln.get("supplier_item_code"),
+                                    ln.get("supplier_item_name"),
+                                    ln.get("description"),
+                                    ln.get("suggested_item_id"),
+                                    ln.get("suggested_confidence") or 0,
+                                    None,
+                                    "pending",
+                                    json.dumps(ln.get("raw_json") or {}),
+                                ),
+                            )
+
                         cur2.execute(
                             """
                             UPDATE supplier_invoices
-                            SET import_status='filled', import_finished_at=now(), import_error=NULL
+                            SET import_status='pending_review',
+                                import_finished_at=now(),
+                                import_error=%s
                             WHERE company_id=%s AND id=%s
                             """,
-                            (company_id, invoice_id),
+                            ("\n".join(warnings[:10]) if warnings else None, company_id, invoice_id),
+                        )
+                        cur2.execute(
+                            """
+                            INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                            VALUES (gen_random_uuid(), %s, NULL, 'supplier_invoice_import_ready_for_review', 'supplier_invoice', %s, %s::jsonb)
+                            """,
+                            (company_id, invoice_id, json.dumps({"lines": len(review_lines), "warnings": warnings[:50]})),
                         )
                         filled += 1
             except Exception as ex:

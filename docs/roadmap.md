@@ -53,15 +53,20 @@ Canonical execution documents:
 - Completed (2026-02-09): invoice extraction moved to async background jobs:
   - Upload returns immediately (draft + attachment, queued).
   - Worker fills lines later (import status is visible on the draft).
-- Matching UX (human-in-the-loop):
-  - Show top candidate matches per line and require user confirmation before creating new items.
-  - Improve alias learning reliability (code/name normalization, recency weighting).
+- Completed (2026-02-09, v1): Matching UX (human-in-the-loop):
+  - Worker prepares `pending_review` import lines (`supplier_invoice_import_lines`) with suggested matches per line.
+  - Admin draft editor renders “Imported Lines (Review)” with:
+    - suggested match + confidence
+    - item typeahead override per line
+    - skip/unskip + “Apply Lines” (creates real invoice lines + learns aliases/costs).
+  - Dev-only helper: `mock_extract=true` on upload to test the full review/apply loop without `OPENAI_API_KEY`.
 
 3) Margin + price intelligence (wholesale-grade)
-- Auto-generate “price impact” tasks when costs change:
-  - Suggest updated sell prices based on target margin rules (configurable by category/brand/customer segment).
-  - Flag client-facing risk (price protection, contract pricing, key accounts).
-- Add a small “Price change log” and “Last cost vs current cost” visibility per item and supplier.
+- Completed (2026-02-09, v1 foundation): Auto-generate “price impact” tasks when costs change:
+  - DB trigger logs meaningful avg-cost changes into `item_cost_change_log`.
+  - New worker agent `AI_PRICE_IMPACT` runs hourly and creates actionable review tasks (AI Hub queue).
+  - Admin page: `Inventory → Cost Changes` (backed by `GET /pricing/cost-changes`).
+- Next: surface recommended price updates directly in the item editor and add “sell price change log” views.
 
 4) Audit coverage completion (business-grade)
 - Ensure all document lifecycle actions write `audit_logs`:
@@ -76,10 +81,15 @@ Canonical execution documents:
 1) WhatsApp ingestion (mirror Telegram pattern)
 - Keep off-by-default and secret-gated.
 - Reuse the same invoice import pipeline and attachment storage.
+- Completed (2026-02-09, v1): `POST /integrations/whatsapp/webhook` (secret-gated file upload → creates draft supplier invoice via async + review pipeline).
 
 2) Landed cost allocation (real COGS)
 - Capture freight/customs/handling per shipment and allocate to items/batches.
 - Drive more accurate margin reporting and pricing decisions.
+- Completed (2026-02-09, v1): Landed Cost docs + allocation:
+  - API: `POST /inventory/landed-costs/drafts`, `POST /inventory/landed-costs/{id}/post`
+  - Allocation updates GRN line landed-cost totals + batch cost layers; best-effort avg-cost bump when stock is still on-hand.
+  - Admin UI: `Inventory → Landed Costs` (list/new/view) with Timeline.
 
 3) 3-way match v2 (AP controls)
 - Expand variance checks: qty, price, tax; configurable thresholds; audit reasons.
