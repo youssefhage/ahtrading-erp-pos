@@ -96,7 +96,12 @@ Canonical execution documents:
   - Qty and unit-cost variance checks now auto-hold (409) with structured hold_details (reasons + thresholds).
   - Thresholds are company-configurable via `company_settings.key='ap_3way_match'` (defaults remain conservative).
   - Unhold endpoint now supports an optional reason (captured in audit logs).
-- Next: tax variance and richer “ordered vs received vs invoiced” visibility by PO line (UI + reports).
+- Completed (2026-02-09, v2):
+  - Tax variance detection (invoice tax vs item-level expected tax) can auto-hold with explicit `tax_diff_*` thresholds.
+  - Purchase Order view now includes richer 3-way match visibility per line:
+    - received/invoiced totals (USD/LBP)
+    - received/invoiced average unit costs (USD/LBP)
+    - open-to-invoice qty
 
 4) Proactive ops dashboards
 - “What needs attention today” views:
@@ -104,6 +109,13 @@ Canonical execution documents:
 - Completed (2026-02-09, v1):
   - API: `GET /reports/attention`
   - Admin: `System → Needs Attention` (queue-first ops view)
+
+5) Warehouse ops: transfers + pick/pack + barcode-driven workflows
+- Completed (2026-02-09, v1):
+  - Document-first Stock Transfers:
+    - Draft → Pick (FEFO allocations) → Post (stock moves out/in)
+    - Cancel for draft/picked (posted cancel blocked in v1)
+  - Admin UI: `Inventory → Transfers` (list/new/view), allocations visible per line.
 
 ## Longer Term (6-12 Months)
 

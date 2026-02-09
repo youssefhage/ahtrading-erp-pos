@@ -52,12 +52,16 @@ def _get_ap_3way_match_thresholds(cur, company_id: str) -> dict:
     pct_threshold = Decimal(str(cfg.get("pct_threshold") or "0.15"))
     abs_usd_threshold = Decimal(str(cfg.get("abs_usd_threshold") or "25"))
     abs_lbp_threshold = Decimal(str(cfg.get("abs_lbp_threshold") or "2500000"))
+    tax_diff_pct_threshold = Decimal(str(cfg.get("tax_diff_pct_threshold") or "0.02"))
+    tax_diff_lbp_threshold = Decimal(str(cfg.get("tax_diff_lbp_threshold") or "500000"))
     # Keep a tiny numerical epsilon for qty comparisons.
     qty_epsilon = Decimal(str(cfg.get("qty_epsilon") or "0.000001"))
     return {
         "pct_threshold": pct_threshold,
         "abs_usd_threshold": abs_usd_threshold,
         "abs_lbp_threshold": abs_lbp_threshold,
+        "tax_diff_pct_threshold": tax_diff_pct_threshold,
+        "tax_diff_lbp_threshold": tax_diff_lbp_threshold,
         "qty_epsilon": qty_epsilon,
     }
 
@@ -1420,7 +1424,10 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
             # 3-way match starter: ordered vs received vs invoiced (qty only, v1).
             cur.execute(
                 """
-                SELECT l.purchase_order_line_id, COALESCE(SUM(l.qty), 0) AS received_qty
+                SELECT l.purchase_order_line_id,
+                       COALESCE(SUM(l.qty), 0) AS received_qty,
+                       COALESCE(SUM(l.line_total_usd), 0) AS received_total_usd,
+                       COALESCE(SUM(l.line_total_lbp), 0) AS received_total_lbp
                 FROM goods_receipt_lines l
                 JOIN goods_receipts r
                   ON r.company_id = l.company_id AND r.id = l.goods_receipt_id
@@ -1432,11 +1439,14 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
                 """,
                 (company_id, order_id),
             )
-            received_by_line = {str(r["purchase_order_line_id"]): Decimal(str(r["received_qty"] or 0)) for r in cur.fetchall()}
+            received_by_line = {str(r["purchase_order_line_id"]): r for r in (cur.fetchall() or [])}
 
             cur.execute(
                 """
-                SELECT grl.purchase_order_line_id, COALESCE(SUM(sil.qty), 0) AS invoiced_qty
+                SELECT grl.purchase_order_line_id,
+                       COALESCE(SUM(sil.qty), 0) AS invoiced_qty,
+                       COALESCE(SUM(sil.line_total_usd), 0) AS invoiced_total_usd,
+                       COALESCE(SUM(sil.line_total_lbp), 0) AS invoiced_total_lbp
                 FROM supplier_invoice_lines sil
                 JOIN supplier_invoices si
                   ON si.company_id = sil.company_id AND si.id = sil.supplier_invoice_id
@@ -1452,16 +1462,27 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
                 """,
                 (company_id, order_id),
             )
-            invoiced_by_line = {str(r["purchase_order_line_id"]): Decimal(str(r["invoiced_qty"] or 0)) for r in cur.fetchall()}
+            invoiced_by_line = {str(r["purchase_order_line_id"]): r for r in (cur.fetchall() or [])}
 
             for ln in lines:
                 ordered = Decimal(str(ln.get("qty") or 0))
-                received = received_by_line.get(str(ln["id"]), Decimal("0"))
-                invoiced = invoiced_by_line.get(str(ln["id"]), Decimal("0"))
+                rrow = received_by_line.get(str(ln["id"])) or {}
+                irow = invoiced_by_line.get(str(ln["id"])) or {}
+
+                received = Decimal(str(rrow.get("received_qty") or 0))
+                invoiced = Decimal(str(irow.get("invoiced_qty") or 0))
                 ln["received_qty"] = received
                 ln["invoiced_qty"] = invoiced
                 ln["open_to_receive_qty"] = max(Decimal("0"), ordered - received)
                 ln["open_to_invoice_qty"] = max(Decimal("0"), received - invoiced)
+                ln["received_total_usd"] = Decimal(str(rrow.get("received_total_usd") or 0))
+                ln["received_total_lbp"] = Decimal(str(rrow.get("received_total_lbp") or 0))
+                ln["invoiced_total_usd"] = Decimal(str(irow.get("invoiced_total_usd") or 0))
+                ln["invoiced_total_lbp"] = Decimal(str(irow.get("invoiced_total_lbp") or 0))
+                ln["received_unit_cost_usd"] = (ln["received_total_usd"] / received) if received else Decimal("0")
+                ln["received_unit_cost_lbp"] = (ln["received_total_lbp"] / received) if received else Decimal("0")
+                ln["invoiced_unit_cost_usd"] = (ln["invoiced_total_usd"] / invoiced) if invoiced else Decimal("0")
+                ln["invoiced_unit_cost_lbp"] = (ln["invoiced_total_lbp"] / invoiced) if invoiced else Decimal("0")
 
             return {"order": po, "lines": lines}
 
@@ -3456,7 +3477,9 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                     # Price variance detection (v1) against PO/GR costs. If we detect suspicious variance,
                     # we put the invoice on hold and return 409 so a human can review + unhold.
                     # We only run this when we have receipt-linked lines (goods_receipt_line_id).
-                    gr_line_ids = sorted({ln.get("goods_receipt_line_id") for ln in lines if ln.get("goods_receipt_line_id")})
+                    gr_line_ids = sorted(
+                        {ln.get("goods_receipt_line_id") for ln in lines if ln.get("goods_receipt_line_id")}
+                    )
                     if gr_line_ids:
                         cur.execute(
                             """
@@ -3467,6 +3490,7 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                                    grl.purchase_order_line_id,
                                    pol.unit_cost_usd AS po_unit_cost_usd,
                                    pol.unit_cost_lbp AS po_unit_cost_lbp,
+                                   pol.qty AS ordered_qty,
                                    it.sku AS item_sku,
                                    it.name AS item_name
                             FROM goods_receipt_lines grl
@@ -3479,19 +3503,22 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                             """,
                             (company_id, gr_line_ids),
                         )
-                        grmeta = {str(r["goods_receipt_line_id"]): r for r in cur.fetchall()}
+                        grmeta = {str(r["goods_receipt_line_id"]): r for r in (cur.fetchall() or [])}
 
-                        qty_by_gr_line: dict[str, Decimal] = {}
+                        qty_by_gr_line_2: dict[str, Decimal] = {}
                         for ln in lines:
                             if not ln.get("goods_receipt_line_id"):
                                 continue
                             gid = str(ln["goods_receipt_line_id"])
-                            qty_by_gr_line[gid] = qty_by_gr_line.get(gid, Decimal("0")) + Decimal(str(ln["qty"] or 0))
+                            qty_by_gr_line_2[gid] = qty_by_gr_line_2.get(gid, Decimal("0")) + Decimal(
+                                str(ln["qty"] or 0)
+                            )
 
                         flagged = []
                         pct_threshold = thr["pct_threshold"]
                         abs_usd_threshold = thr["abs_usd_threshold"]
                         abs_lbp_threshold = thr["abs_lbp_threshold"]
+                        tax_flags = []
                         for ln in lines:
                             gid = ln.get("goods_receipt_line_id")
                             if not gid:
@@ -3506,7 +3533,7 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
 
                             # Qty variance: invoices should not exceed the received qty for that receipt line
                             # (already enforced above), but we still capture it for hold details.
-                            qty_inv = qty_by_gr_line.get(str(gid), Decimal("0"))
+                            qty_inv = qty_by_gr_line_2.get(str(gid), Decimal("0"))
                             qty_recv = Decimal(str(meta.get("received_qty") or 0))
                             qty_var = qty_inv - qty_recv
 
@@ -3542,10 +3569,72 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                                         "unit_variance_usd": str(usd_var),
                                         "unit_variance_lbp": str(lbp_var),
                                         "pct_variance_usd": (str(pct_var) if pct_var is not None else None),
+                                        "ordered_qty": (str(meta.get("ordered_qty")) if meta.get("ordered_qty") is not None else None),
                                         "received_qty": str(qty_recv),
                                         "invoiced_qty": str(qty_inv),
                                     }
                                 )
+
+                        # Tax variance v2: compare invoice tax (global tax_code_id) vs an item-level expected tax
+                        # derived from each item's tax_code_id (when configured).
+                        inv_tax_code_id = inv.get("tax_code_id")
+                        if inv_tax_code_id:
+                            cur.execute("SELECT rate FROM tax_codes WHERE company_id=%s AND id=%s", (company_id, inv_tax_code_id))
+                            trow = cur.fetchone() or {}
+                            inv_rate = Decimal(str(trow.get("rate") or 0))
+                            base_lbp = sum([Decimal(str(l.get("line_total_lbp") or 0)) for l in lines])
+                            inv_tax_lbp = base_lbp * inv_rate
+                            item_ids = sorted({str(l.get("item_id")) for l in lines if l.get("item_id")})
+                            if item_ids and base_lbp > 0:
+                                cur.execute(
+                                    """
+                                    SELECT i.id AS item_id, i.tax_code_id, COALESCE(tc.rate, 0) AS rate
+                                    FROM items i
+                                    LEFT JOIN tax_codes tc
+                                      ON tc.company_id = i.company_id AND tc.id = i.tax_code_id
+                                    WHERE i.company_id=%s AND i.id = ANY(%s::uuid[])
+                                    """,
+                                    (company_id, item_ids),
+                                )
+                                by_item = {str(r["item_id"]): r for r in (cur.fetchall() or [])}
+                                expected_tax_lbp = Decimal("0")
+                                mismatch_examples = []
+                                mismatch_count = 0
+                                for l in lines:
+                                    iid = str(l.get("item_id"))
+                                    row = by_item.get(iid) or {}
+                                    item_tax_code_id = row.get("tax_code_id")
+                                    item_rate = Decimal(str(row.get("rate") or 0))
+                                    # Only treat as "mismatch" when the item explicitly has a different tax code.
+                                    if item_tax_code_id and str(item_tax_code_id) != str(inv_tax_code_id):
+                                        mismatch_count += 1
+                                        if len(mismatch_examples) < 10:
+                                            mismatch_examples.append(
+                                                {
+                                                    "item_id": iid,
+                                                    "item_tax_code_id": str(item_tax_code_id),
+                                                    "invoice_tax_code_id": str(inv_tax_code_id),
+                                                }
+                                            )
+                                    # If item doesn't have an explicit tax code, assume invoice rate (avoids false positives).
+                                    eff_rate = item_rate if item_tax_code_id else inv_rate
+                                    expected_tax_lbp += Decimal(str(l.get("line_total_lbp") or 0)) * eff_rate
+
+                                diff = abs(expected_tax_lbp - inv_tax_lbp)
+                                pct = (diff / base_lbp) if base_lbp else Decimal("0")
+                                if mismatch_count > 0 and diff >= thr["tax_diff_lbp_threshold"] and pct >= thr["tax_diff_pct_threshold"]:
+                                    tax_flags.append(
+                                        {
+                                            "kind": "tax_variance",
+                                            "invoice_tax_code_id": str(inv_tax_code_id),
+                                            "invoice_tax_lbp": str(inv_tax_lbp),
+                                            "expected_tax_lbp": str(expected_tax_lbp),
+                                            "diff_lbp": str(diff),
+                                            "diff_pct_of_base": str(pct),
+                                            "mismatch_count": mismatch_count,
+                                            "examples": mismatch_examples,
+                                        }
+                                    )
 
                         all_flags = []
                         if qty_flags:
@@ -3560,6 +3649,8 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                                     for f in flagged[:50]
                                 ]
                             )
+                        if tax_flags:
+                            all_flags.extend(tax_flags[:10])
 
                         if all_flags:
                             details = {
@@ -3569,6 +3660,8 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                                     "pct": str(pct_threshold),
                                     "abs_usd": str(abs_usd_threshold),
                                     "abs_lbp": str(abs_lbp_threshold),
+                                    "tax_diff_pct": str(thr["tax_diff_pct_threshold"]),
+                                    "tax_diff_lbp": str(thr["tax_diff_lbp_threshold"]),
                                     "qty_epsilon": str(thr["qty_epsilon"]),
                                 },
                                 "flags": all_flags[:100],

@@ -44,6 +44,10 @@ type PurchaseOrderLine = {
   invoiced_qty?: string | number;
   open_to_receive_qty?: string | number;
   open_to_invoice_qty?: string | number;
+  received_unit_cost_usd?: string | number;
+  received_unit_cost_lbp?: string | number;
+  invoiced_unit_cost_usd?: string | number;
+  invoiced_unit_cost_lbp?: string | number;
   unit_cost_usd: string | number;
   unit_cost_lbp: string | number;
   line_total_usd: string | number;
@@ -314,8 +318,10 @@ export default function PurchaseOrderViewPage({ params }: { params: { id: string
                   <th className="px-3 py-2 text-right">Received</th>
                   <th className="px-3 py-2 text-right">Invoiced</th>
                   <th className="px-3 py-2 text-right">To Receive</th>
+                  <th className="px-3 py-2 text-right">To Invoice</th>
                   <th className="px-3 py-2 text-right">Unit USD</th>
-                  <th className="px-3 py-2 text-right">Unit LL</th>
+                  <th className="px-3 py-2 text-right">Recv USD</th>
+                  <th className="px-3 py-2 text-right">Inv USD</th>
                 </tr>
               </thead>
               <tbody className={loading ? "opacity-70" : ""}>
@@ -343,14 +349,16 @@ export default function PurchaseOrderViewPage({ params }: { params: { id: string
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.received_qty || 0).toFixed(2)}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.invoiced_qty || 0).toFixed(2)}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.open_to_receive_qty || 0).toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.open_to_invoice_qty || 0).toFixed(2)}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.unit_cost_usd || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.unit_cost_lbp || 0).toFixed(0)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.received_unit_cost_usd || 0).toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.invoiced_unit_cost_usd || 0).toFixed(2)}</td>
                     </tr>
                   );
                 })}
                 {!loading && lines.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-3 py-6 text-center text-fg-subtle">
+                    <td colSpan={9} className="px-3 py-6 text-center text-fg-subtle">
                       No lines.
                     </td>
                   </tr>

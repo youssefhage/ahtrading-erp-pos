@@ -265,7 +265,10 @@ function SupplierInvoiceShowInner() {
     setHoldBusy(true);
     setStatus("Unholding...");
     try {
-      await apiPost(`/purchases/invoices/${detail.invoice.id}/unhold`, {});
+      const hd: any = detail.invoice.hold_details || {};
+      const needsReason = String(detail.invoice.hold_reason || "").toLowerCase().includes("variance") || String(hd?.kind || "").includes("variance");
+      const reason = needsReason ? (window.prompt("Why are you unholding this invoice? (optional but recommended)") || "").trim() : "";
+      await apiPost(`/purchases/invoices/${detail.invoice.id}/unhold`, { reason: reason || undefined });
       await load();
       setStatus("");
     } catch (err) {
@@ -555,9 +558,104 @@ function SupplierInvoiceShowInner() {
                     <div className="text-xs text-fg-muted">
                       Reason: <span className="font-mono">{detail.invoice.hold_reason || "-"}</span>
                     </div>
-                    <pre className="max-h-64 overflow-auto rounded-md border border-border-subtle bg-bg-sunken/40 p-3 text-[11px] text-fg-muted">
-{JSON.stringify(detail.invoice.hold_details ?? {}, null, 2)}
-                    </pre>
+                    {(() => {
+                      const hd: any = detail.invoice.hold_details || {};
+                      const flags: any[] = Array.isArray(hd?.flags) ? hd.flags : [];
+                      if (!flags.length) {
+                        return (
+                          <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3 text-xs text-fg-muted">
+                            No structured hold details available.
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="ui-table-wrap">
+                          <table className="ui-table">
+                            <thead className="ui-thead">
+                              <tr>
+                                <th className="px-3 py-2">Kind</th>
+                                <th className="px-3 py-2">Details</th>
+                                <th className="px-3 py-2 text-right">Variance</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {flags.slice(0, 20).map((f, idx) => {
+                                const kind = String(f?.kind || "unknown");
+                                if (kind === "unit_cost_variance") {
+                                  return (
+                                    <tr key={idx} className="ui-tr-hover align-top">
+                                      <td className="px-3 py-2 text-xs font-mono text-fg-muted">unit_cost</td>
+                                      <td className="px-3 py-2 text-xs">
+                                        <div className="font-medium text-foreground">
+                                          {f.item_id ? (
+                                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(String(f.item_id))}`} title="Open item">
+                                              <span className="font-mono">{f.item_sku || String(f.item_id).slice(0, 8)}</span>
+                                              {f.item_name ? <span> · {f.item_name}</span> : null}
+                                            </ShortcutLink>
+                                          ) : (
+                                            "-"
+                                          )}
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-fg-muted">
+                                          Expected: <span className="font-mono">{String(f.expected_unit_cost_usd || "0")}</span> USD
+                                          {" · "}Actual: <span className="font-mono">{String(f.actual_unit_cost_usd || "0")}</span> USD
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-xs font-mono text-fg-muted">
+                                        {f.pct_variance_usd ? `${(Number(f.pct_variance_usd) * 100).toFixed(1)}%` : "-"}
+                                      </td>
+                                    </tr>
+                                  );
+                                }
+                                if (kind === "qty_exceeds_received") {
+                                  return (
+                                    <tr key={idx} className="ui-tr-hover align-top">
+                                      <td className="px-3 py-2 text-xs font-mono text-fg-muted">qty</td>
+                                      <td className="px-3 py-2 text-xs">
+                                        <div className="text-foreground">Invoiced qty exceeds received qty.</div>
+                                        <div className="mt-1 text-[11px] text-fg-muted font-mono">
+                                          line {String(f.goods_receipt_line_id || "").slice(0, 8)} · received {String(f.received_qty || "0")} · prev {String(f.previously_invoiced_qty || "0")} · this {String(f.this_invoice_qty || "0")}
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-xs font-mono text-fg-muted">
+                                        +{String(f.total_after || "")}
+                                      </td>
+                                    </tr>
+                                  );
+                                }
+                                if (kind === "tax_variance") {
+                                  return (
+                                    <tr key={idx} className="ui-tr-hover align-top">
+                                      <td className="px-3 py-2 text-xs font-mono text-fg-muted">tax</td>
+                                      <td className="px-3 py-2 text-xs">
+                                        <div className="text-foreground">Invoice tax does not match item-level expected tax.</div>
+                                        <div className="mt-1 text-[11px] text-fg-muted font-mono">
+                                          invoice_tax {String(f.invoice_tax_lbp || "0")} · expected {String(f.expected_tax_lbp || "0")} · diff {String(f.diff_lbp || "0")} · items {String(f.mismatch_count || 0)}
+                                        </div>
+                                      </td>
+                                      <td className="px-3 py-2 text-right text-xs font-mono text-fg-muted">
+                                        {f.diff_pct_of_base ? `${(Number(f.diff_pct_of_base) * 100).toFixed(2)}%` : "-"}
+                                      </td>
+                                    </tr>
+                                  );
+                                }
+                                return (
+                                  <tr key={idx} className="ui-tr-hover align-top">
+                                    <td className="px-3 py-2 text-xs font-mono text-fg-muted">{kind}</td>
+                                    <td className="px-3 py-2 text-xs text-fg-muted">
+                                      <pre className="max-h-24 overflow-auto rounded-md border border-border-subtle bg-bg-sunken/40 p-2 text-[11px]">
+{JSON.stringify(f, null, 2)}
+                                      </pre>
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-xs text-fg-muted">-</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
               ) : null}

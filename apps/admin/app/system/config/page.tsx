@@ -51,6 +51,8 @@ export default function ConfigPage() {
   const [apPctThreshold, setApPctThreshold] = useState("0.15");
   const [apAbsUsdThreshold, setApAbsUsdThreshold] = useState("25");
   const [apAbsLbpThreshold, setApAbsLbpThreshold] = useState("2500000");
+  const [apTaxDiffPctThreshold, setApTaxDiffPctThreshold] = useState("0.02");
+  const [apTaxDiffLbpThreshold, setApTaxDiffLbpThreshold] = useState("500000");
   const [savingApPolicy, setSavingApPolicy] = useState(false);
 
   // Tax code form
@@ -138,6 +140,8 @@ export default function ConfigPage() {
     setApPctThreshold(String(v?.pct_threshold ?? "0.15"));
     setApAbsUsdThreshold(String(v?.abs_usd_threshold ?? "25"));
     setApAbsLbpThreshold(String(v?.abs_lbp_threshold ?? "2500000"));
+    setApTaxDiffPctThreshold(String(v?.tax_diff_pct_threshold ?? "0.02"));
+    setApTaxDiffLbpThreshold(String(v?.tax_diff_lbp_threshold ?? "500000"));
   }, [settings]);
 
   useEffect(() => {
@@ -331,7 +335,9 @@ export default function ConfigPage() {
         value_json: {
           pct_threshold: Number(apPctThreshold || 0),
           abs_usd_threshold: Number(apAbsUsdThreshold || 0),
-          abs_lbp_threshold: Number(apAbsLbpThreshold || 0)
+          abs_lbp_threshold: Number(apAbsLbpThreshold || 0),
+          tax_diff_pct_threshold: Number(apTaxDiffPctThreshold || 0),
+          tax_diff_lbp_threshold: Number(apTaxDiffLbpThreshold || 0)
         }
       });
       await load();
@@ -390,7 +396,7 @@ export default function ConfigPage() {
             <CardDescription>Variance thresholds that auto-hold supplier invoices linked to goods receipts.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <form onSubmit={saveApPolicy} className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <form onSubmit={saveApPolicy} className="grid grid-cols-1 gap-3 md:grid-cols-6">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Pct Threshold</label>
                 <Input value={apPctThreshold} onChange={(e) => setApPctThreshold(e.target.value)} placeholder="0.15" />
@@ -406,7 +412,17 @@ export default function ConfigPage() {
                 <Input value={apAbsLbpThreshold} onChange={(e) => setApAbsLbpThreshold(e.target.value)} placeholder="2500000" />
                 <div className="text-[11px] text-fg-subtle">Fallback when only LBP is present</div>
               </div>
-              <div className="flex items-end justify-end">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Tax Diff Pct</label>
+                <Input value={apTaxDiffPctThreshold} onChange={(e) => setApTaxDiffPctThreshold(e.target.value)} placeholder="0.02" />
+                <div className="text-[11px] text-fg-subtle">Tax mismatch threshold (% of base)</div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Tax Diff LBP</label>
+                <Input value={apTaxDiffLbpThreshold} onChange={(e) => setApTaxDiffLbpThreshold(e.target.value)} placeholder="500000" />
+                <div className="text-[11px] text-fg-subtle">Minimum absolute tax mismatch (LBP)</div>
+              </div>
+              <div className="flex items-end justify-end md:col-span-6">
                 <Button type="submit" disabled={savingApPolicy}>
                   {savingApPolicy ? "Saving..." : "Save"}
                 </Button>
