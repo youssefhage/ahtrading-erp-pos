@@ -2,6 +2,10 @@
 
 Repo: `/Users/Youssef/oDocuments/Business/Codex POS`
 
+Note (2026-02-09):
+- This deep dive is kept for historical context and longer-form reasoning.
+- For the current “where we stand” execution status, use `docs/audits/platform-audit-2026-02-07.md` and `docs/roadmap.md`.
+
 This document is a deeper, repo-wide audit that complements:
 - `docs/audits/platform-audit-2026-02-07.md` (core platform audit)
 - `docs/admin-ui-ux-audit.md` (admin UX audit + phased plan)
