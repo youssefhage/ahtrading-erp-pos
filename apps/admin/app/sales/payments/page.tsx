@@ -8,6 +8,7 @@ import { fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
+import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -45,6 +46,7 @@ function toNum(v: string) {
 }
 
 function SalesPaymentsPageInner() {
+  const toast = useToast();
   const searchParams = useSearchParams();
   const qsInvoiceId = searchParams.get("invoice_id") || "";
   const qsCustomerId = searchParams.get("customer_id") || "";
@@ -166,6 +168,7 @@ function SalesPaymentsPageInner() {
         payment_date: paymentDate || undefined,
         bank_account_id: bankAccountId || undefined
       });
+      toast.success("Payment recorded", "Customer payment posted successfully.");
       setCreateOpen(false);
       setPayInvoiceId("");
       setMethod("cash");

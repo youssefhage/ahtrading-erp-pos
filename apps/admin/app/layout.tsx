@@ -3,6 +3,7 @@ import { IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { ClientShellLayout } from "./client-shell-layout";
+import { ToastProvider } from "@/components/toast-provider";
 
 const schibsted = Schibsted_Grotesk({
   subsets: ["latin"],
@@ -32,7 +33,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >{`(function(){try{var t=localStorage.getItem('admin.colorTheme');if(!t){t='light';}var d=document.documentElement;if(t==='dark'){d.classList.add('dark');}else{d.classList.remove('dark');}}catch(e){}})();`}</Script>
       </head>
       <body className="font-sans antialiased">
-        <ClientShellLayout>{children}</ClientShellLayout>
+        <ToastProvider>
+          <ClientShellLayout>{children}</ClientShellLayout>
+        </ToastProvider>
       </body>
     </html>
   );

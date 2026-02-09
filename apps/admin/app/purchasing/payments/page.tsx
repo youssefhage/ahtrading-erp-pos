@@ -7,6 +7,7 @@ import { fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
+import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -44,6 +45,7 @@ function toNum(v: string) {
 }
 
 export default function SupplierPaymentsPage() {
+  const toast = useToast();
   const [status, setStatus] = useState("");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
@@ -150,6 +152,7 @@ export default function SupplierPaymentsPage() {
         payment_date: paymentDate || undefined,
         bank_account_id: bankAccountId || undefined
       });
+      toast.success("Payment recorded", "Supplier payment posted successfully.");
       setCreateOpen(false);
       setPayInvoiceId("");
       setMethod("bank");

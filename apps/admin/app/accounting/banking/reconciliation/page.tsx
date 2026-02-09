@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
+import { useToast } from "@/components/toast-provider";
 
 type BankAccountRow = {
   id: string;
@@ -56,6 +57,7 @@ function fmt(n: string | number, frac = 2) {
 }
 
 export default function BankingReconciliationPage() {
+  const toast = useToast();
   const [status, setStatus] = useState("");
   const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([]);
   const [coaAccounts, setCoaAccounts] = useState<CoaAccount[]>([]);
@@ -158,6 +160,7 @@ export default function BankingReconciliationPage() {
         reference: reference.trim() || null,
         counterparty: counterparty.trim() || null
       });
+      toast.success("Transaction added", "Statement line recorded successfully.");
       setCreateOpen(false);
       setTxnBankAccountId("");
       setTxnDate(todayIso());
