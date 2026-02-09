@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
@@ -27,9 +27,11 @@ type Supplier = {
   is_active?: boolean;
 };
 
-export default function SupplierViewPage({ params }: { params: { id: string } }) {
+export default function SupplierViewPage() {
   const router = useRouter();
-  const id = params.id;
+  const paramsObj = useParams();
+  const idParam = (paramsObj as Record<string, string | string[] | undefined>)?.id;
+  const id = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? (idParam[0] || "") : "";
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<unknown>(null);
@@ -51,8 +53,12 @@ export default function SupplierViewPage({ params }: { params: { id: string } })
   }, [id]);
 
   useEffect(() => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
     load();
-  }, [load]);
+  }, [load, id]);
 
   if (err) {
     return (

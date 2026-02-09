@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
@@ -58,9 +58,11 @@ function toNum(v: string) {
   return r.ok ? r.value : 0;
 }
 
-export default function GoodsReceiptViewPage({ params }: { params: { id: string } }) {
+export default function GoodsReceiptViewPage() {
   const router = useRouter();
-  const id = params.id;
+  const params = useParams();
+  const idParam = (params as Record<string, string | string[] | undefined>)?.id;
+  const id = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? (idParam[0] || "") : "";
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<unknown>(null);
@@ -120,8 +122,14 @@ export default function GoodsReceiptViewPage({ params }: { params: { id: string 
   }, [id]);
 
   useEffect(() => {
+    // In Next.js App Router, client pages should read dynamic params via useParams().
+    // Only attempt loading once the param is available.
+    if (!id) {
+      setLoading(false);
+      return;
+    }
     load();
-  }, [load]);
+  }, [load, id]);
 
   function openPost() {
     if (!detail) return;

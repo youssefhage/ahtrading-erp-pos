@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
@@ -25,9 +25,11 @@ type Supplier = {
   is_active?: boolean;
 };
 
-export default function SupplierEditPage({ params }: { params: { id: string } }) {
+export default function SupplierEditPage() {
   const router = useRouter();
-  const id = params.id;
+  const paramsObj = useParams();
+  const idParam = (paramsObj as Record<string, string | string[] | undefined>)?.id;
+  const id = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? (idParam[0] || "") : "";
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -74,8 +76,12 @@ export default function SupplierEditPage({ params }: { params: { id: string } })
   }, [id]);
 
   useEffect(() => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
     load();
-  }, [load]);
+  }, [load, id]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -211,4 +217,3 @@ export default function SupplierEditPage({ params }: { params: { id: string } })
     </div>
   );
 }
-

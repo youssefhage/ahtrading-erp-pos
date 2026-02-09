@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
@@ -312,11 +312,13 @@ function Inner({ id }: { id: string }) {
   );
 }
 
-export default function LandedCostViewPage({ params }: { params: { id: string } }) {
+export default function LandedCostViewPage() {
+  const paramsObj = useParams();
+  const idParam = (paramsObj as Record<string, string | string[] | undefined>)?.id;
+  const id = typeof idParam === "string" ? idParam : Array.isArray(idParam) ? (idParam[0] || "") : "";
   return (
     <Suspense fallback={<div className="min-h-screen px-6 py-10 text-sm text-fg-muted">Loading...</div>}>
-      <Inner id={params.id} />
+      <Inner id={id} />
     </Suspense>
   );
 }
-
