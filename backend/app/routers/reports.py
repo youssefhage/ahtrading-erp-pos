@@ -140,6 +140,33 @@ def attention(company_id: str = Depends(get_company_id)):
             )
             outbox_failed = int(cur.fetchone()["c"])
 
+            # POS shift variance signals (last 7 days).
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM pos_shifts
+                WHERE company_id=%s
+                  AND status='closed'
+                  AND closed_at >= now() - interval '7 days'
+                  AND (
+                    abs(COALESCE(variance_usd, 0)) >= 20
+                    OR abs(COALESCE(variance_lbp, 0)) >= 2000000
+                  )
+                """,
+                (company_id,),
+            )
+            shift_variances = int(cur.fetchone()["c"])
+
+            cur.execute(
+                """
+                SELECT COUNT(*)::int AS c
+                FROM pos_shifts
+                WHERE company_id=%s AND status='open'
+                """,
+                (company_id,),
+            )
+            open_shifts = int(cur.fetchone()["c"])
+
             # Only surface jobs whose *latest* run (within 24h) is failing, to avoid
             # "sticky red" after a transient failure.
             cur.execute(
@@ -259,6 +286,27 @@ def attention(company_id: str = Depends(get_company_id)):
                 "label": "POS outbox failed events",
                 "count": outbox_failed,
                 "href": "/system/outbox",
+            }
+        )
+
+    if shift_variances:
+        items.append(
+            {
+                "key": "pos_shift_variances",
+                "severity": "warning",
+                "label": "POS shifts with high cash variance (7 days)",
+                "count": shift_variances,
+                "href": "/system/pos-shifts",
+            }
+        )
+    if open_shifts:
+        items.append(
+            {
+                "key": "pos_open_shifts",
+                "severity": "info",
+                "label": "Open POS shifts",
+                "count": open_shifts,
+                "href": "/system/pos-shifts",
             }
         )
 

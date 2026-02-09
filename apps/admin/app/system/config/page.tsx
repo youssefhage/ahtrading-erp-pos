@@ -47,6 +47,12 @@ export default function ConfigPage() {
   const [requireManualLotSelection, setRequireManualLotSelection] = useState(false);
   const [savingInventoryPolicy, setSavingInventoryPolicy] = useState(false);
 
+  // AP 3-way match policy (company_settings.key='ap_3way_match')
+  const [apPctThreshold, setApPctThreshold] = useState("0.15");
+  const [apAbsUsdThreshold, setApAbsUsdThreshold] = useState("25");
+  const [apAbsLbpThreshold, setApAbsLbpThreshold] = useState("2500000");
+  const [savingApPolicy, setSavingApPolicy] = useState(false);
+
   // Tax code form
   const [taxName, setTaxName] = useState("");
   const [taxRate, setTaxRate] = useState("11");
@@ -124,6 +130,14 @@ export default function ConfigPage() {
     const inv = settings.find((s) => s.key === "inventory");
     const v = (inv?.value_json || {}) as any;
     setRequireManualLotSelection(Boolean(v?.require_manual_lot_selection ?? false));
+  }, [settings]);
+
+  useEffect(() => {
+    const ap = settings.find((s) => s.key === "ap_3way_match");
+    const v = (ap?.value_json || {}) as any;
+    setApPctThreshold(String(v?.pct_threshold ?? "0.15"));
+    setApAbsUsdThreshold(String(v?.abs_usd_threshold ?? "25"));
+    setApAbsLbpThreshold(String(v?.abs_lbp_threshold ?? "2500000"));
   }, [settings]);
 
   useEffect(() => {
@@ -307,6 +321,29 @@ export default function ConfigPage() {
     }
   }
 
+  async function saveApPolicy(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingApPolicy(true);
+    setStatus("Saving AP 3-way match policy...");
+    try {
+      await apiPost("/pricing/company-settings", {
+        key: "ap_3way_match",
+        value_json: {
+          pct_threshold: Number(apPctThreshold || 0),
+          abs_usd_threshold: Number(apAbsUsdThreshold || 0),
+          abs_lbp_threshold: Number(apAbsLbpThreshold || 0)
+        }
+      });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSavingApPolicy(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
@@ -341,6 +378,37 @@ export default function ConfigPage() {
               <div className="md:col-span-1 flex items-end justify-end">
                 <Button type="submit" disabled={savingInventoryPolicy}>
                   {savingInventoryPolicy ? "..." : "Save Inventory Policy"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>AP 3-Way Match Policy</CardTitle>
+            <CardDescription>Variance thresholds that auto-hold supplier invoices linked to goods receipts.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <form onSubmit={saveApPolicy} className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Pct Threshold</label>
+                <Input value={apPctThreshold} onChange={(e) => setApPctThreshold(e.target.value)} placeholder="0.15" />
+                <div className="text-[11px] text-fg-subtle">Example: 0.15 = 15%</div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Abs USD Threshold</label>
+                <Input value={apAbsUsdThreshold} onChange={(e) => setApAbsUsdThreshold(e.target.value)} placeholder="25" />
+                <div className="text-[11px] text-fg-subtle">Per-unit difference (USD)</div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Abs LBP Threshold</label>
+                <Input value={apAbsLbpThreshold} onChange={(e) => setApAbsLbpThreshold(e.target.value)} placeholder="2500000" />
+                <div className="text-[11px] text-fg-subtle">Fallback when only LBP is present</div>
+              </div>
+              <div className="flex items-end justify-end">
+                <Button type="submit" disabled={savingApPolicy}>
+                  {savingApPolicy ? "Saving..." : "Save"}
                 </Button>
               </div>
             </form>
