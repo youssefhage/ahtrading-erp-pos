@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 
 type Warehouse = { id: string; name: string };
+type WarehouseLocation = { id: string; warehouse_id: string; code: string; name: string | null; is_active: boolean };
 
 type ReceiptRow = {
   id: string;
@@ -32,6 +33,9 @@ type ReceiptLine = {
   qty: string | number;
   unit_cost_usd: string | number;
   unit_cost_lbp: string | number;
+  location_id?: string | null;
+  landed_cost_total_usd?: string | number | null;
+  landed_cost_total_lbp?: string | number | null;
   batch_no: string | null;
   expiry_date: string | null;
 };
@@ -45,6 +49,9 @@ type LineDraft = {
   qty: string;
   unit_cost_usd: string;
   unit_cost_lbp: string;
+  location_id: string;
+  landed_cost_total_usd: string;
+  landed_cost_total_lbp: string;
   batch_no: string;
   expiry_date: string;
 };
@@ -63,6 +70,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
   const [err, setErr] = useState<unknown>(null);
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [locations, setLocations] = useState<WarehouseLocation[]>([]);
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierTypeaheadSupplier | null>(null);
 
   const [warehouseId, setWarehouseId] = useState("");
@@ -120,6 +128,9 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
           qty: String(l.qty || 0),
           unit_cost_usd: String((l as any).unit_cost_usd || 0),
           unit_cost_lbp: String((l as any).unit_cost_lbp || 0),
+          location_id: String((l as any).location_id || ""),
+          landed_cost_total_usd: String((l as any).landed_cost_total_usd || 0),
+          landed_cost_total_lbp: String((l as any).landed_cost_total_lbp || 0),
           batch_no: String((l as any).batch_no || ""),
           expiry_date: String((l as any).expiry_date || ""),
         }));
@@ -159,10 +170,43 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
     load();
   }, [load]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!warehouseId) {
+        setLocations([]);
+        return;
+      }
+      try {
+        const res = await apiGet<{ locations: WarehouseLocation[] }>(`/warehouses/${encodeURIComponent(warehouseId)}/locations`);
+        if (!cancelled) setLocations((res.locations || []).filter((x) => x.is_active));
+      } catch {
+        // Purchasing users may not have config:read; keep location optional.
+        if (!cancelled) setLocations([]);
+      }
+    }
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouseId]);
+
   function addLine() {
     setLines((prev) => [
       ...prev,
-      { purchase_order_line_id: null, item_id: "", item: null, qty: "1", unit_cost_usd: "0", unit_cost_lbp: "0", batch_no: "", expiry_date: "" },
+      {
+        purchase_order_line_id: null,
+        item_id: "",
+        item: null,
+        qty: "1",
+        unit_cost_usd: "0",
+        unit_cost_lbp: "0",
+        location_id: "",
+        landed_cost_total_usd: "0",
+        landed_cost_total_lbp: "0",
+        batch_no: "",
+        expiry_date: "",
+      },
     ]);
   }
 
@@ -206,6 +250,9 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
           qty: toNum(l.qty),
           unit_cost_usd: toNum(l.unit_cost_usd),
           unit_cost_lbp: toNum(l.unit_cost_lbp),
+          location_id: l.location_id.trim() || undefined,
+          landed_cost_total_usd: toNum(l.landed_cost_total_usd),
+          landed_cost_total_lbp: toNum(l.landed_cost_total_lbp),
           batch_no: l.batch_no.trim() || undefined,
           expiry_date: l.expiry_date.trim() || undefined,
         })),
@@ -298,15 +345,18 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
             <div className="ui-table-wrap">
               <table className="ui-table">
                 <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Item</th>
-                    <th className="px-3 py-2 text-right">Qty</th>
-                    <th className="px-3 py-2 text-right">Unit USD</th>
-                    <th className="px-3 py-2 text-right">Unit LL</th>
-                    <th className="px-3 py-2">Batch</th>
-                    <th className="px-3 py-2">Expiry</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
+	                  <tr>
+	                    <th className="px-3 py-2">Item</th>
+	                    <th className="px-3 py-2 text-right">Qty</th>
+	                    <th className="px-3 py-2 text-right">Unit USD</th>
+	                    <th className="px-3 py-2 text-right">Unit LL</th>
+	                    <th className="px-3 py-2">Location</th>
+	                    <th className="px-3 py-2 text-right">Landed USD</th>
+	                    <th className="px-3 py-2 text-right">Landed LL</th>
+	                    <th className="px-3 py-2">Batch</th>
+	                    <th className="px-3 py-2">Expiry</th>
+	                    <th className="px-3 py-2 text-right">Actions</th>
+	                  </tr>
                 </thead>
                 <tbody>
                   {lines.map((l, idx) => (
@@ -334,12 +384,44 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
                       <td className="px-3 py-2 text-right">
                         <Input value={l.unit_cost_usd} onChange={(e) => updateLine(idx, { unit_cost_usd: e.target.value })} disabled={saving || loading} inputMode="decimal" />
                       </td>
-                      <td className="px-3 py-2 text-right">
-                        <Input value={l.unit_cost_lbp} onChange={(e) => updateLine(idx, { unit_cost_lbp: e.target.value })} disabled={saving || loading} inputMode="decimal" />
-                      </td>
-                      <td className="px-3 py-2">
-                        <Input value={l.batch_no} onChange={(e) => updateLine(idx, { batch_no: e.target.value })} disabled={saving || loading} placeholder="(optional)" />
-                      </td>
+	                      <td className="px-3 py-2 text-right">
+	                        <Input value={l.unit_cost_lbp} onChange={(e) => updateLine(idx, { unit_cost_lbp: e.target.value })} disabled={saving || loading} inputMode="decimal" />
+	                      </td>
+	                      <td className="px-3 py-2">
+	                        <select
+	                          className="ui-select"
+	                          value={l.location_id}
+	                          onChange={(e) => updateLine(idx, { location_id: e.target.value })}
+	                          disabled={saving || loading || !warehouseId || locations.length === 0}
+	                        >
+	                          <option value="">{locations.length ? "(no bin)" : "(no bins)"}</option>
+	                          {locations.map((loc) => (
+	                            <option key={loc.id} value={loc.id}>
+	                              {loc.code}
+	                              {loc.name ? ` · ${loc.name}` : ""}
+	                            </option>
+	                          ))}
+	                        </select>
+	                      </td>
+	                      <td className="px-3 py-2 text-right">
+	                        <Input
+	                          value={l.landed_cost_total_usd}
+	                          onChange={(e) => updateLine(idx, { landed_cost_total_usd: e.target.value })}
+	                          disabled={saving || loading}
+	                          inputMode="decimal"
+	                        />
+	                      </td>
+	                      <td className="px-3 py-2 text-right">
+	                        <Input
+	                          value={l.landed_cost_total_lbp}
+	                          onChange={(e) => updateLine(idx, { landed_cost_total_lbp: e.target.value })}
+	                          disabled={saving || loading}
+	                          inputMode="decimal"
+	                        />
+	                      </td>
+	                      <td className="px-3 py-2">
+	                        <Input value={l.batch_no} onChange={(e) => updateLine(idx, { batch_no: e.target.value })} disabled={saving || loading} placeholder="(optional)" />
+	                      </td>
                       <td className="px-3 py-2">
                         <Input type="date" value={l.expiry_date || ""} onChange={(e) => updateLine(idx, { expiry_date: e.target.value })} disabled={saving || loading} />
                       </td>
@@ -350,13 +432,13 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
                       </td>
                     </tr>
                   ))}
-                  {!lines.length ? (
-                    <tr>
-                      <td className="px-3 py-3 text-sm text-fg-muted" colSpan={7}>
-                        No lines yet.
-                      </td>
-                    </tr>
-                  ) : null}
+	                  {!lines.length ? (
+	                    <tr>
+	                      <td className="px-3 py-3 text-sm text-fg-muted" colSpan={10}>
+	                        No lines yet.
+	                      </td>
+	                    </tr>
+	                  ) : null}
                 </tbody>
               </table>
             </div>

@@ -5,12 +5,15 @@ import path from "node:path";
 // We only scan TS/TSX source (not CSS), because globals.css intentionally contains a compatibility shim.
 
 const ROOT = path.resolve(process.cwd());
-const SCAN_DIRS = [path.join(ROOT, "app"), path.join(ROOT, "components")];
+const SCAN_DIRS = [path.join(ROOT, "app"), path.join(ROOT, "components"), path.join(ROOT, "lib")];
 const EXT_OK = new Set([".ts", ".tsx"]);
 
 const FORBIDDEN = [
   /\bbg-white\b(?!\/)/g,
   /\bbg-white\/\d+\b/g,
+  /\btext-white\b/g,
+  /\bborder-white\b/g,
+  /\bring-white\b/g,
   /\btext-slate-\d+\b/g,
   /\bborder-slate-\d+\b/g,
   /\bbg-slate-\d+\b/g,

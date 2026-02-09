@@ -970,8 +970,10 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         (journal_id, sales, base_usd, base_lbp, warehouse_id),
     )
 
-    # Credit VAT payable if present
-    if tax and vat_payable:
+    # Credit VAT payable when tax is present (otherwise the journal would be imbalanced).
+    if tax:
+        if not vat_payable:
+            raise ValueError("Missing account default VAT_PAYABLE for tax posting")
         cur.execute(
             """
             INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
@@ -1444,8 +1446,10 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             (journal_id, restock_income, restock_fee_usd, restock_fee_lbp),
         )
 
-    # VAT payable reduction (debit VAT payable)
-    if tax and vat_payable:
+    # VAT payable reduction (debit VAT payable). Required when tax is present (otherwise the journal would be imbalanced).
+    if tax:
+        if not vat_payable:
+            raise ValueError("Missing account default VAT_PAYABLE for tax posting")
         cur.execute(
             """
             INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)

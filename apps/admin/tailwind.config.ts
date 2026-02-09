@@ -3,7 +3,7 @@ import defaultTheme from "tailwindcss/defaultTheme";
 
 const config: Config = {
   darkMode: "class",
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
       fontFamily: {
@@ -48,9 +48,10 @@ const config: Config = {
         }
       },
       boxShadow: {
-        "glow-amber": "0 0 20px rgba(245, 158, 11, 0.15)",
-        "glow-green": "0 0 20px rgba(34, 197, 94, 0.15)",
-        "glow-red": "0 0 20px rgba(239, 68, 68, 0.15)"
+        // Tie glows to theme tokens (and avoid amber/orange hardcoding).
+        "glow-amber": "0 0 20px rgb(var(--warning) / 0.15)",
+        "glow-green": "0 0 20px rgb(var(--success) / 0.15)",
+        "glow-red": "0 0 20px rgb(var(--danger) / 0.15)"
       },
       animation: {
         "fade-in": "fadeIn 0.2s ease-out",

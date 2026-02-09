@@ -32,6 +32,8 @@ def _get_or_create_batch(cur, company_id: str, item_id: str, batch_no: Optional[
     batch_no = (batch_no or "").strip() or None
     if isinstance(expiry_date, str):
         expiry_date = date.fromisoformat(expiry_date[:10])
+    if not batch_no and not expiry_date:
+        return None
     cur.execute(
         """
         SELECT id
@@ -212,19 +214,38 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                 # Enforce batch capture for tracked items.
                 cur.execute(
                     """
-                    SELECT track_batches, track_expiry
+                    SELECT track_batches, track_expiry, default_shelf_life_days
                     FROM items
                     WHERE company_id=%s AND id=%s
                     """,
                     (company_id, data.item_id),
                 )
                 it = cur.fetchone() or {}
-                tracked = bool(it.get("track_batches")) or bool(it.get("track_expiry"))
+                track_batches = bool(it.get("track_batches"))
+                track_expiry = bool(it.get("track_expiry"))
+                shelf = it.get("default_shelf_life_days")
+                tracked = track_batches or track_expiry
                 batch_id = data.batch_id
                 if tracked:
                     # Resolve/create batch using provided batch_id or (batch_no, expiry_date).
+                    bno = (data.batch_no or "").strip() or None
+                    exp = data.expiry_date
+                    if isinstance(exp, str):
+                        exp = date.fromisoformat(exp[:10])
+
+                    if track_batches and not batch_id and not bno:
+                        raise HTTPException(status_code=400, detail="batch_no is required for this item")
+                    if track_expiry and not batch_id and not exp:
+                        if shelf is not None:
+                            try:
+                                exp = date.today() + timedelta(days=int(shelf))
+                            except Exception:
+                                exp = None
+                        if not exp:
+                            raise HTTPException(status_code=400, detail="expiry_date is required for this item")
+
                     if not batch_id:
-                        batch_id = _get_or_create_batch(cur, company_id, data.item_id, data.batch_no, data.expiry_date)
+                        batch_id = _get_or_create_batch(cur, company_id, data.item_id, bno, exp)
                     if not batch_id:
                         raise HTTPException(status_code=400, detail="batch_id (or batch_no/expiry_date) is required for tracked items")
                 else:
@@ -978,8 +999,29 @@ def transfer_stock(data: StockTransferIn, company_id: str = Depends(get_company_
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                def _validate_location(loc_id: Optional[str], expected_wh_id: str, label: str):
+                    if not loc_id:
+                        return
+                    cur.execute(
+                        """
+                        SELECT warehouse_id, is_active
+                        FROM warehouse_locations
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (company_id, loc_id),
+                    )
+                    r = cur.fetchone()
+                    if not r:
+                        raise HTTPException(status_code=400, detail=f"{label} not found")
+                    if str(r["warehouse_id"]) != str(expected_wh_id):
+                        raise HTTPException(status_code=400, detail=f"{label} does not belong to the specified warehouse")
+                    if r.get("is_active") is False:
+                        raise HTTPException(status_code=400, detail=f"{label} is inactive")
+
                 # Keep inventory movements aligned with accounting period locks (even though we don't post GL here).
                 assert_period_open(cur, company_id, date.today())
+                _validate_location(data.from_location_id, data.from_warehouse_id, "from_location_id")
+                _validate_location(data.to_location_id, data.to_warehouse_id, "to_location_id")
                 # If cost not provided, use current moving-average cost from source warehouse.
                 unit_cost_usd = data.unit_cost_usd
                 unit_cost_lbp = data.unit_cost_lbp

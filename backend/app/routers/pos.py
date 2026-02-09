@@ -620,6 +620,7 @@ def list_item_batches(
             min_days = max(int(it.get("item_min_days") or 0), int(wrow.get("wh_min_days") or 0))
             today = date.today()
             min_expiry_date = (today + timedelta(days=min_days)) if min_days > 0 else None
+            require_expiry = bool(it.get("track_expiry")) or min_days > 0
 
             cur.execute(
                 """
@@ -635,7 +636,8 @@ def list_item_batches(
                   AND sm.batch_id IS NOT NULL
                   AND (b.status = 'available')
                   AND (b.expiry_date IS NULL OR b.expiry_date >= %s)
-                  AND (%s::date IS NULL OR b.expiry_date IS NULL OR b.expiry_date >= %s)
+                  AND (%s = false OR b.expiry_date IS NOT NULL)
+                  AND (%s::date IS NULL OR b.expiry_date >= %s)
                 GROUP BY sm.batch_id, b.batch_no, b.expiry_date, b.status
                 HAVING COALESCE(SUM(sm.qty_in - sm.qty_out), 0) > 0
                 ORDER BY b.expiry_date NULLS LAST, sm.batch_id
@@ -646,6 +648,7 @@ def list_item_batches(
                     item_id,
                     str(warehouse_id),
                     today,
+                    require_expiry,
                     min_expiry_date,
                     min_expiry_date,
                     limit,

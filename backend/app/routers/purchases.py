@@ -45,18 +45,18 @@ def _norm_name(s: Optional[str]) -> Optional[str]:
 def _default_exchange_rate(cur, company_id: str) -> Decimal:
     cur.execute(
         """
-        SELECT rate
+        SELECT usd_to_lbp
         FROM exchange_rates
         WHERE company_id = %s
-        ORDER BY rate_date DESC
+        ORDER BY rate_date DESC, created_at DESC
         LIMIT 1
         """,
         (company_id,),
     )
     r = cur.fetchone()
-    if r and r.get("rate") is not None:
+    if r and r.get("usd_to_lbp") is not None:
         try:
-            ex = Decimal(str(r["rate"] or 0))
+            ex = Decimal(str(r["usd_to_lbp"] or 0))
             if ex > 0:
                 return ex
         except Exception:
@@ -3123,7 +3123,7 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                       (id, company_id, invoice_no, supplier_ref, supplier_id, goods_receipt_id, status, total_usd, total_lbp, exchange_rate, source_event_id,
                        invoice_date, due_date, tax_code_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (

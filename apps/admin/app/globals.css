@@ -29,7 +29,8 @@
     /* Status colors: functional but muted */
     --success: 34 197 94;  /* green-500 */
     --success-fg: 0 0 0;
-    --warning: 234 179 8;  /* yellow-500 */
+    /* Warning should stand out but we avoid yellow/orange per preference; use cyan. */
+    --warning: 34 211 238; /* cyan-400 */
     --warning-fg: 0 0 0;
     --danger: 239 68 68;   /* red-500 */
     --danger-fg: 255 255 255;
@@ -38,7 +39,7 @@
 
     /* Terminal-specific */
     --terminal-green: 74 222 128; /* green-400: data accents */
-    --terminal-amber: 251 191 36; /* warning accent (legacy name) */
+    --terminal-amber: 34 211 238; /* legacy name; maps to warning (cyan) */
     --terminal-cyan: 34 211 238;  /* cyan-400: info */
 
     /* Ring focus */
@@ -109,6 +110,14 @@
 
   code {
     @apply font-mono;
+  }
+
+  /*
+    Readability: avoid dotted/slashed zeros anywhere we use mono (tables, IDs, codes).
+    This addresses the “0 with a dot inside” complaint.
+  */
+  .font-mono {
+    font-feature-settings: "zero" 0;
   }
 }
 
@@ -184,6 +193,7 @@
   .ui-table {
     @apply w-full text-left text-sm;
     font-variant-numeric: tabular-nums;
+    font-feature-settings: "zero" 0;
   }
 
   /* Enhanced table readability (applies to all ui-table inside ui-table-wrap) */
@@ -242,15 +252,15 @@
   }
 
   .ui-chip-success {
-    @apply bg-green-500/10 text-green-400 border border-green-500/20;
+    @apply bg-success/10 text-success border border-success/20;
   }
 
   .ui-chip-warning {
-    @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/20;
+    @apply bg-warning/10 text-warning border border-warning/20;
   }
 
   .ui-chip-danger {
-    @apply bg-red-500/10 text-red-400 border border-red-500/20;
+    @apply bg-danger/10 text-danger border border-danger/20;
   }
 
   /* Status indicators */
@@ -259,15 +269,16 @@
   }
 
   .status-online {
-    @apply bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)];
+    @apply bg-success;
+    box-shadow: 0 0 8px rgb(var(--success) / 0.45);
   }
 
   .status-offline {
-    @apply bg-red-500;
+    @apply bg-danger;
   }
 
   .status-warning {
-    @apply bg-yellow-500;
+    @apply bg-warning;
   }
 
   /* Section dividers */
@@ -286,11 +297,11 @@
   }
 
   .data-cell-positive {
-    @apply text-green-400;
+    @apply text-success;
   }
 
   .data-cell-negative {
-    @apply text-red-400;
+    @apply text-danger;
   }
 
   .data-cell-highlight {
