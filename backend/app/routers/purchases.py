@@ -265,6 +265,28 @@ def _get_or_create_batch(cur, company_id: str, item_id: str, batch_no: Optional[
     return cur.fetchone()["id"]
 
 
+def _validate_location_for_warehouse(cur, company_id: str, warehouse_id: str, location_id: Optional[str], label: str) -> Optional[str]:
+    """
+    Ensure a provided location_id exists, is active, and belongs to the specified warehouse.
+    Returns a normalized location_id (or None).
+    """
+    lid = (location_id or "").strip() or None
+    if not lid:
+        return None
+    cur.execute(
+        """
+        SELECT 1
+        FROM warehouse_locations
+        WHERE company_id=%s AND id=%s AND warehouse_id=%s AND is_active=true
+        LIMIT 1
+        """,
+        (company_id, lid, warehouse_id),
+    )
+    if not cur.fetchone():
+        raise HTTPException(status_code=400, detail=f"{label}: invalid location_id (must belong to warehouse and be active)")
+    return lid
+
+
 def _touch_batch_received_metadata(
     cur,
     company_id: str,
@@ -2152,6 +2174,11 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                     batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, exp)
                     _touch_batch_received_metadata(cur, company_id, batch_id, "goods_receipt", str(receipt_id), str(data.supplier_id))
                     line_id = str(uuid.uuid4())
+                    if l.landed_cost_total_usd < 0:
+                        raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_usd must be >= 0")
+                    if l.landed_cost_total_lbp < 0:
+                        raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_lbp must be >= 0")
+                    loc_id = _validate_location_for_warehouse(cur, company_id, data.warehouse_id, l.location_id, f"line {idx+1}")
                     cur.execute(
                         """
                         INSERT INTO goods_receipt_lines
@@ -2172,7 +2199,7 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                             l.unit_cost_lbp,
                             l.line_total_usd,
                             l.line_total_lbp,
-                            l.location_id,
+                            loc_id,
                             l.landed_cost_total_usd,
                             l.landed_cost_total_lbp,
                         ),
@@ -2191,7 +2218,7 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                             company_id,
                             l.item_id,
                             data.warehouse_id,
-                            l.location_id,
+                            loc_id,
                             batch_id,
                             l.qty,
                             l.unit_cost_usd,
@@ -2222,7 +2249,7 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                                 company_id,
                                 batch_id,
                                 data.warehouse_id,
-                                l.location_id,
+                                loc_id,
                                 receipt_id,
                                 line_id,
                                 l.qty,
@@ -2320,17 +2347,22 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                 receipt_id = cur.fetchone()["id"]
 
                 for idx, ln in enumerate(normalized or []):
+                    if Decimal(str(ln.get("landed_cost_total_usd") or 0)) < 0:
+                        raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_usd must be >= 0")
+                    if Decimal(str(ln.get("landed_cost_total_lbp") or 0)) < 0:
+                        raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_lbp must be >= 0")
+                    loc_id = _validate_location_for_warehouse(cur, company_id, data.warehouse_id, ln.get("location_id"), f"line {idx+1}")
                     exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
                     cur.execute(
                         """
-                        INSERT INTO goods_receipt_lines
-                          (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
-                           location_id, landed_cost_total_usd, landed_cost_total_lbp)
-                        VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
+	                        INSERT INTO goods_receipt_lines
+	                          (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
+	                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+	                           location_id, landed_cost_total_usd, landed_cost_total_lbp)
+	                        VALUES
+	                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+	                        """,
                         (
                             company_id,
                             receipt_id,
@@ -2342,7 +2374,7 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                             ln["unit_cost_lbp"],
                             ln["line_total_usd"],
                             ln["line_total_lbp"],
-                            ln.get("location_id"),
+                            loc_id,
                             ln.get("landed_cost_total_usd") or 0,
                             ln.get("landed_cost_total_lbp") or 0,
                         ),
@@ -2399,6 +2431,11 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                         (company_id, receipt_id),
                     )
                     for idx, ln in enumerate(normalized):
+                        if Decimal(str(ln.get("landed_cost_total_usd") or 0)) < 0:
+                            raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_usd must be >= 0")
+                        if Decimal(str(ln.get("landed_cost_total_lbp") or 0)) < 0:
+                            raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_lbp must be >= 0")
+                        loc_id = _validate_location_for_warehouse(cur, company_id, warehouse_id, ln.get("location_id"), f"line {idx+1}")
                         exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
                         batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
                         cur.execute(
@@ -2421,7 +2458,7 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                                 ln["unit_cost_lbp"],
                                 ln["line_total_usd"],
                                 ln["line_total_lbp"],
-                                ln.get("location_id"),
+                                loc_id,
                                 ln.get("landed_cost_total_usd") or 0,
                                 ln.get("landed_cost_total_lbp") or 0,
                             ),
@@ -2556,6 +2593,11 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                 total_lbp = sum([Decimal(str(l["line_total_lbp"])) for l in lines])
 
                 for l in lines:
+                    if Decimal(str(l.get("landed_cost_total_usd") or 0)) < 0:
+                        raise HTTPException(status_code=400, detail="landed_cost_total_usd must be >= 0")
+                    if Decimal(str(l.get("landed_cost_total_lbp") or 0)) < 0:
+                        raise HTTPException(status_code=400, detail="landed_cost_total_lbp must be >= 0")
+                    loc_id = _validate_location_for_warehouse(cur, company_id, rec["warehouse_id"], l.get("location_id"), "goods_receipt_line")
                     _touch_batch_received_metadata(cur, company_id, l.get("batch_id"), "goods_receipt", str(receipt_id), str(rec.get("supplier_id") or "") or None)
                     cur.execute(
                         """
@@ -2571,7 +2613,7 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                             company_id,
                             l["item_id"],
                             rec["warehouse_id"],
-                            l.get("location_id"),
+                            loc_id,
                             l["batch_id"],
                             l["qty"],
                             l["unit_cost_usd"],
@@ -2603,7 +2645,7 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                                 company_id,
                                 l["batch_id"],
                                 rec["warehouse_id"],
-                                l.get("location_id"),
+                                loc_id,
                                 receipt_id,
                                 l["id"],
                                 l["qty"],
