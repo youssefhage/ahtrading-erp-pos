@@ -731,7 +731,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             <form onSubmit={importFromFile} className="space-y-3">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div className="md:col-span-2 space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Invoice Image/PDF (max 5MB)</label>
+                  <label className="text-xs font-medium text-fg-muted">Invoice Image/PDF (max 5MB default)</label>
                   <input
                     name="import_file"
                     type="file"
@@ -781,7 +781,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
           <CardContent>
             <form onSubmit={uploadAttachment} className="mb-4 flex flex-wrap items-end justify-between gap-2">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Add attachment (max 5MB)</label>
+                <label className="text-xs font-medium text-fg-muted">Add attachment (max 5MB default)</label>
                 <input name="attachment_file" type="file" disabled={attachmentUploading || loading || saving} className="block w-full text-xs" />
               </div>
               <Button type="submit" variant="outline" disabled={attachmentUploading || loading || saving}>

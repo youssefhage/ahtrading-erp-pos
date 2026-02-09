@@ -1162,7 +1162,7 @@ export default function ItemsPage() {
                       </div>
                       <div className="space-y-3">
                         <div className="space-y-1">
-                          <label className="text-xs font-medium text-fg-muted">Upload (PNG/JPG, max 5MB)</label>
+                          <label className="text-xs font-medium text-fg-muted">Upload (PNG/JPG, max 5MB default)</label>
                           <input
                             type="file"
                             accept="image/*"
