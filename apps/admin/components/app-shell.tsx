@@ -427,6 +427,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQ, setCommandQ] = useState("");
   const commandInputRef = useRef<HTMLInputElement | null>(null);
+  const commandItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [commandActiveIndex, setCommandActiveIndex] = useState(0);
   const [commandDataLoading, setCommandDataLoading] = useState(false);
   const [commandData, setCommandData] = useState<FlatNavItem[]>([]);
 
@@ -621,6 +623,15 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     return [...(commandData || []), ...pageResults].slice(0, 12);
   }, [commandQ, commandData, pageResults]);
 
+  // Keep the active selection in-bounds when results change.
+  useEffect(() => {
+    setCommandActiveIndex((idx) => {
+      const n = commandResults.length;
+      if (n <= 0) return 0;
+      return Math.min(Math.max(0, idx), n - 1);
+    });
+  }, [commandResults.length]);
+
   useEffect(() => {
     if (!commandOpen) {
       setCommandData([]);
@@ -784,9 +795,21 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   useEffect(() => {
     if (!commandOpen) return;
     setCommandQ("");
+    setCommandActiveIndex(0);
     const t = window.setTimeout(() => commandInputRef.current?.focus(), 50);
     return () => window.clearTimeout(t);
   }, [commandOpen]);
+
+  // Scroll the active option into view for long result lists.
+  useEffect(() => {
+    if (!commandOpen) return;
+    const el = commandItemRefs.current[commandActiveIndex];
+    try {
+      el?.scrollIntoView({ block: "nearest" });
+    } catch {
+      // ignore
+    }
+  }, [commandOpen, commandActiveIndex]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1354,13 +1377,34 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
         <DialogContent className="max-w-xl border-border-subtle bg-bg-elevated p-0 shadow-2xl">
           <div className="flex items-center gap-3 border-b border-border-subtle px-4 py-3">
             <Search className="h-5 w-5 text-fg-subtle" />
-            <input
-              ref={commandInputRef}
-              value={commandQ}
-              onChange={(e) => setCommandQ(e.target.value)}
-              placeholder="Search pages, actions, or data..."
-              className="flex-1 bg-transparent text-sm text-foreground placeholder:text-fg-subtle focus:outline-none"
-            />
+              <input
+                ref={commandInputRef}
+                value={commandQ}
+                onChange={(e) => setCommandQ(e.target.value)}
+                onKeyDown={(e) => {
+                  const n = commandResults.length;
+                  if (!n) return;
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setCommandActiveIndex((idx) => (idx + 1) % n);
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setCommandActiveIndex((idx) => (idx - 1 + n) % n);
+                    return;
+                  }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const pick = commandResults[Math.min(Math.max(0, commandActiveIndex), n - 1)];
+                    if (!pick) return;
+                    setCommandOpen(false);
+                    router.push(pick.href);
+                  }
+                }}
+                placeholder="Search pages, actions, or data..."
+                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-fg-subtle focus:outline-none"
+              />
             <kbd className="ui-kbd">ESC</kbd>
           </div>
 
@@ -1372,13 +1416,21 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
               </div>
             ) : (
               <div className="space-y-0.5 px-2">
-                {commandResults.map((item) => {
+                {commandResults.map((item, idx) => {
                   const Icon = item.icon ?? Cpu;
+                  const active = idx === commandActiveIndex;
                   return (
                     <button
                       key={item.href}
                       type="button"
-                      className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-bg-sunken"
+                      ref={(el) => {
+                        commandItemRefs.current[idx] = el;
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors",
+                        active ? "bg-bg-sunken" : "hover:bg-bg-sunken"
+                      )}
+                      onMouseEnter={() => setCommandActiveIndex(idx)}
                       onClick={() => {
                         setCommandOpen(false);
                         router.push(item.href);
