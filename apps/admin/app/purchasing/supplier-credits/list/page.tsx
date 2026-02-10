@@ -7,6 +7,7 @@ import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -54,6 +55,56 @@ export default function SupplierCreditsListPage() {
     }
     return { remainingUsd, remainingLbp };
   }, [data]);
+
+  const columns = useMemo(() => {
+    const cols: Array<DataTableColumn<CreditRow>> = [
+      {
+        id: "credit",
+        header: "Credit",
+        sortable: true,
+        mono: true,
+        accessor: (c) => c.credit_no,
+        cell: (c) => (
+          <ShortcutLink href={`/purchasing/supplier-credits/${encodeURIComponent(c.id)}`} title="Open credit">
+            {c.credit_no}
+          </ShortcutLink>
+        ),
+      },
+      { id: "supplier", header: "Supplier", sortable: true, accessor: (c) => c.supplier_name || c.supplier_id, cell: (c) => <span className="text-xs">{c.supplier_name || c.supplier_id}</span> },
+      { id: "status", header: "Status", sortable: true, accessor: (c) => c.status, cell: (c) => <span className="text-xs">{c.status}</span> },
+      { id: "kind", header: "Kind", sortable: true, accessor: (c) => c.kind, cell: (c) => <span className="text-xs">{c.kind}</span> },
+      {
+        id: "total",
+        header: "Total",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (c) => Number(c.total_usd || 0),
+        cell: (c) => (
+          <div className="text-right data-mono text-xs">
+            {fmtUsd(c.total_usd)}
+            <div className="text-[11px] text-fg-muted">{fmtLbp(c.total_lbp)}</div>
+          </div>
+        ),
+      },
+      {
+        id: "remaining",
+        header: "Remaining",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (c) => Number(c.remaining_usd || 0),
+        cell: (c) => (
+          <div className="text-right data-mono text-xs">
+            {fmtUsd(c.remaining_usd)}
+            <div className="text-[11px] text-fg-muted">{fmtLbp(c.remaining_lbp)}</div>
+          </div>
+        ),
+      },
+      { id: "date", header: "Date", sortable: true, mono: true, accessor: (c) => c.credit_date, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.credit_date}</span> },
+    ];
+    return cols;
+  }, []);
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -186,51 +237,20 @@ export default function SupplierCreditsListPage() {
           <CardDescription>{data?.credits?.length || 0} credits</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Credit</th>
-                  <th className="px-3 py-2">Supplier</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Kind</th>
-                  <th className="px-3 py-2 text-right">Total</th>
-                  <th className="px-3 py-2 text-right">Remaining</th>
-                  <th className="px-3 py-2">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.credits || []).map((c) => (
-                  <tr key={c.id} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">
-                      <ShortcutLink href={`/purchasing/supplier-credits/${encodeURIComponent(c.id)}`} title="Open credit">
-                        {c.credit_no}
-                      </ShortcutLink>
-                    </td>
-                    <td className="px-3 py-2 text-xs">{c.supplier_name || c.supplier_id}</td>
-                    <td className="px-3 py-2 text-xs">{c.status}</td>
-                    <td className="px-3 py-2 text-xs">{c.kind}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">
-                      {fmtUsd(c.total_usd)}
-                      <div className="text-[11px] text-fg-muted">{fmtLbp(c.total_lbp)}</div>
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">
-                      {fmtUsd(c.remaining_usd)}
-                      <div className="text-[11px] text-fg-muted">{fmtLbp(c.remaining_lbp)}</div>
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs text-fg-muted">{c.credit_date}</td>
-                  </tr>
-                ))}
-                {(data?.credits || []).length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
-                      No credits found.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<CreditRow>
+            tableId="purchasing.supplier_credits.list"
+            rows={data?.credits || []}
+            columns={columns}
+            getRowId={(r) => r.id}
+            initialSort={{ columnId: "date", dir: "desc" }}
+            globalFilterPlaceholder="Search credit no / supplier / memo"
+            enableGlobalFilter={true}
+            toolbarLeft={
+              <div className="text-xs text-fg-muted">
+                Tip: use <span className="data-mono">Filters</span> for precise search.
+              </div>
+            }
+          />
         </CardContent>
       </Card>
     </div>

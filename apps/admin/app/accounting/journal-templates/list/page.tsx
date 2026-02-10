@@ -5,6 +5,7 @@ import Link from "next/link";
 
 import { apiGet } from "@/lib/api";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorBanner } from "@/components/error-banner";
@@ -24,6 +25,33 @@ type TemplateRow = {
 export default function JournalTemplatesListPage() {
   const [status, setStatus] = useState("");
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
+
+  const columns: Array<DataTableColumn<TemplateRow>> = [
+    {
+      id: "name",
+      header: "Name",
+      sortable: true,
+      accessor: (t) => t.name,
+      cell: (t) => (
+        <div className="flex flex-col">
+          <ShortcutLink href={`/accounting/journal-templates/${encodeURIComponent(t.id)}`} title="Open template">
+            {t.name}
+          </ShortcutLink>
+          {t.memo ? <div className="mt-1 text-[11px] text-fg-muted">{t.memo}</div> : null}
+        </div>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      sortable: true,
+      accessor: (t) => (t.is_active ? "Active" : "Inactive"),
+      cell: (t) => <span className="text-xs">{t.is_active ? "Active" : "Inactive"}</span>,
+    },
+    { id: "rate_type", header: "Rate Type", sortable: true, mono: true, accessor: (t) => t.default_rate_type, cell: (t) => <span className="font-mono text-xs">{t.default_rate_type}</span> },
+    { id: "lines", header: "Lines", sortable: true, align: "right", mono: true, accessor: (t) => Number(t.line_count || 0), cell: (t) => String(Number(t.line_count || 0)) },
+    { id: "updated", header: "Updated", sortable: true, mono: true, accessor: (t) => (t.updated_at || "").slice(0, 10), cell: (t) => <span className="font-mono text-xs text-fg-muted">{(t.updated_at || "").slice(0, 10)}</span> },
+  ];
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -66,42 +94,14 @@ export default function JournalTemplatesListPage() {
           <CardDescription>{templates.length} templates</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Name</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Rate Type</th>
-                  <th className="px-3 py-2 text-right">Lines</th>
-                  <th className="px-3 py-2">Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {templates.map((t) => (
-                  <tr key={t.id} className="ui-tr-hover">
-                    <td className="px-3 py-2 text-xs">
-                      <ShortcutLink href={`/accounting/journal-templates/${encodeURIComponent(t.id)}`} title="Open template">
-                        {t.name}
-                      </ShortcutLink>
-                      {t.memo ? <div className="mt-1 text-[11px] text-fg-muted">{t.memo}</div> : null}
-                    </td>
-                    <td className="px-3 py-2 text-xs">{t.is_active ? "Active" : "Inactive"}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{t.default_rate_type}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{Number(t.line_count || 0)}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-fg-muted">{(t.updated_at || "").slice(0, 10)}</td>
-                  </tr>
-                ))}
-                {templates.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                      No templates yet.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<TemplateRow>
+            tableId="accounting.journal_templates.list"
+            rows={templates}
+            columns={columns}
+            getRowId={(r) => r.id}
+            initialSort={{ columnId: "name", dir: "asc" }}
+            globalFilterPlaceholder="Search name / memo / rate type"
+          />
         </CardContent>
       </Card>
     </div>

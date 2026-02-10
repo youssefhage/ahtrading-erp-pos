@@ -5,13 +5,12 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
-import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { StatusChip } from "@/components/ui/status-chip";
 
 type Supplier = { id: string; name: string };
@@ -40,23 +39,17 @@ function Inner() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
-  const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
   const supplierById = useMemo(() => new Map(suppliers.map((s) => [s.id, s])), [suppliers]);
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
 
   const filtered = useMemo(() => {
-    const base = (receipts || []).filter((r) => {
+    return (receipts || []).filter((r) => {
       if (statusFilter && r.status !== statusFilter) return false;
       return true;
     });
-    return filterAndRankByFuzzy(base, q, (r) => {
-      const sup = r.supplier_id ? (supplierById.get(r.supplier_id)?.name || "") : "";
-      const wh = r.warehouse_id ? (whById.get(r.warehouse_id)?.name || "") : "";
-      return `${r.receipt_no || ""} ${r.supplier_ref || ""} ${sup} ${wh} ${r.purchase_order_no || ""} ${r.id}`;
-    });
-  }, [receipts, q, statusFilter, supplierById, whById]);
+  }, [receipts, statusFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,6 +73,58 @@ function Inner() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const columns = useMemo(() => {
+    const cols: Array<DataTableColumn<ReceiptRow>> = [
+      {
+        id: "receipt",
+        header: "Receipt",
+        sortable: true,
+        accessor: (r) => r.receipt_no || "",
+        cell: (r) => (
+          <Link className="ui-link inline-flex flex-col items-start" href={`/purchasing/goods-receipts/${encodeURIComponent(r.id)}`}>
+            <div className="flex flex-col gap-0.5">
+              <div className="font-medium text-foreground">{r.receipt_no || "(draft)"}</div>
+              {r.supplier_ref ? <div className="font-mono text-[11px] text-fg-muted">Ref: {r.supplier_ref}</div> : null}
+              {r.received_at ? <div className="font-mono text-[11px] text-fg-muted">Received: {r.received_at}</div> : null}
+            </div>
+          </Link>
+        ),
+      },
+      {
+        id: "supplier",
+        header: "Supplier",
+        sortable: true,
+        accessor: (r) => (r.supplier_id ? supplierById.get(r.supplier_id)?.name || "" : ""),
+        cell: (r) =>
+          r.supplier_id ? (
+            <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(r.supplier_id)}`} title="Open supplier">
+              {supplierById.get(r.supplier_id)?.name || r.supplier_id}
+            </ShortcutLink>
+          ) : (
+            "-"
+          ),
+      },
+      {
+        id: "warehouse",
+        header: "Warehouse",
+        sortable: true,
+        accessor: (r) => (r.warehouse_id ? whById.get(r.warehouse_id)?.name || "" : ""),
+        cell: (r) => whById.get(r.warehouse_id || "")?.name || "-",
+      },
+      { id: "status", header: "Status", sortable: true, accessor: (r) => r.status, cell: (r) => <StatusChip value={r.status} /> },
+      {
+        id: "total_usd",
+        header: "Total USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.total_usd || 0),
+        cell: (r) => <span className="ui-tone-usd">{fmtUsd(r.total_usd)}</span>,
+      },
+    ];
+    return cols;
+  }, [supplierById, whById]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -106,72 +151,22 @@ function Inner() {
           <CardDescription>Open a receipt to view or post.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="w-full md:w-96">
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search receipt / supplier / ref / warehouse / PO..." />
-            </div>
-            <div className="flex items-center gap-2">
-              <select className="ui-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <DataTable<ReceiptRow>
+            tableId="purchasing.goods_receipts.list"
+            rows={filtered}
+            columns={columns}
+            getRowId={(r) => r.id}
+            initialSort={{ columnId: "receipt", dir: "desc" }}
+            globalFilterPlaceholder="Search receipt / supplier / ref / warehouse / PO"
+            toolbarLeft={
+              <select className="ui-select h-9 text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                 <option value="">All statuses</option>
                 <option value="draft">Draft</option>
                 <option value="posted">Posted</option>
                 <option value="canceled">Canceled</option>
               </select>
-            </div>
-          </div>
-
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Receipt</th>
-                  <th className="px-3 py-2">Supplier</th>
-                  <th className="px-3 py-2">Warehouse</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2 text-right">Total USD</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => (
-                  <tr key={r.id} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-medium">
-                      <Link
-                        className="ui-link inline-flex flex-col items-start"
-                        href={`/purchasing/goods-receipts/${encodeURIComponent(r.id)}`}
-                      >
-                        <div className="flex flex-col gap-0.5">
-                          <div>{r.receipt_no || "(draft)"}</div>
-                          {r.supplier_ref ? <div className="font-mono text-[11px] text-fg-muted">Ref: {r.supplier_ref}</div> : null}
-                          {r.received_at ? <div className="font-mono text-[11px] text-fg-muted">Received: {r.received_at}</div> : null}
-                        </div>
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2">
-                      {r.supplier_id ? (
-                        <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(r.supplier_id)}`} title="Open supplier">
-                          {supplierById.get(r.supplier_id)?.name || r.supplier_id}
-                        </ShortcutLink>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td className="px-3 py-2">{whById.get(r.warehouse_id || "")?.name || "-"}</td>
-                    <td className="px-3 py-2">
-                      <StatusChip value={r.status} />
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono">{fmtUsd(r.total_usd)}</td>
-                  </tr>
-                ))}
-                {!loading && filtered.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                      No receipts.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+            }
+          />
         </CardContent>
       </Card>
     </div>
