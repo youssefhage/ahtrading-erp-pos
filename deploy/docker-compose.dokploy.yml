@@ -46,6 +46,9 @@ services:
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       BOOTSTRAP_ADMIN_RESET_PASSWORD: ${BOOTSTRAP_ADMIN_RESET_PASSWORD:-0}
+      # CI publishing of Tauri update artifacts (written into the shared downloads volume).
+      UPDATES_DIR: /updates
+      UPDATES_PUBLISH_KEY: ${UPDATES_PUBLISH_KEY:-}
     depends_on:
       db_ahtrading_pos:
         condition: service_healthy
@@ -74,6 +77,8 @@ services:
           sleep 2
         done
         exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - downloads_updates:/updates
     # Intentionally do not set networks here. Dokploy rewrites routed services
     # (like `api` / `admin`) to its own routing network. In practice we've seen
     # cases where the rewrite results in the API not being able to reach Postgres
