@@ -55,6 +55,14 @@ def _to_bool01(v: Any) -> bool:
     s = _norm(v).lower()
     return s in {"1", "true", "yes", "y"}
 
+def _strip_wrapped_quotes(v: Any) -> str:
+    s = _norm(v)
+    # Some exports include literal quotes inside the field, e.g. `"ALBUZ-001"`.
+    # Strip repeated leading/trailing quotes only when they wrap the full value.
+    while len(s) >= 2 and s.startswith('"') and s.endswith('"'):
+        s = s[1:-1].strip()
+    return s
+
 
 def _header_index(header: list[str]) -> dict[str, int]:
     # ERPNext export sometimes contains duplicate column names. We only record the
@@ -245,7 +253,7 @@ def main() -> int:
             if k not in idx:
                 _die(f"missing column '{k}' in {p.customers_csv}")
         for row in r:
-            code = _norm(row[idx["ID"]])
+            code = _strip_wrapped_quotes(row[idx["ID"]])
             name = _norm(row[idx["Customer Name"]])
             if not name:
                 continue
@@ -281,7 +289,7 @@ def main() -> int:
                 if k not in idx:
                     _die(f"missing column '{k}' in {p.suppliers_csv}")
             for row in r:
-                code = _norm(row[idx["ID"]])
+                code = _strip_wrapped_quotes(row[idx["ID"]])
                 name = _norm(row[idx["Supplier Name"]])
                 if not name:
                     continue
@@ -323,12 +331,12 @@ def main() -> int:
         c_val = idx.get("Valuation Rate")
 
         for row in r:
-            sku = _norm(row[idx["ID"]])
+            sku = _strip_wrapped_quotes(row[idx["ID"]])
             name = _norm(row[idx["Item Name"]])
             if not sku or not name:
                 continue
 
-            row_company = _norm(row[c_company]) if c_company is not None else ""
+            row_company = _strip_wrapped_quotes(row[c_company]) if c_company is not None else ""
             target_company = alias.get(row_company, official_id)
 
             uom = _norm(row[c_uom]) if c_uom is not None else "EA"
