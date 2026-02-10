@@ -12,7 +12,13 @@ from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 router = APIRouter(prefix="/updates", tags=["updates"])
 
 
-_SAFE_PATH_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._\\-/]*$")
+# Only allow POSIX-style relative paths (CI uploads), e.g.:
+#   pos/0.0.1/MelqardPOS_0.0.1_x64_en-US.msi
+#   pos/latest.json
+#
+# We deliberately do NOT allow backslashes (Windows path separators) to avoid
+# ambiguity and path traversal surprises.
+_SAFE_PATH_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._/-]*$")
 
 
 def _updates_dir() -> Path:
@@ -90,4 +96,3 @@ async def upload_update_file(
             pass
 
     return {"ok": True, "path": str(target.relative_to(base))}
-
