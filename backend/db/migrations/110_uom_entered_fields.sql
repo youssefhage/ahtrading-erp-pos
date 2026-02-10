@@ -14,10 +14,10 @@ ALTER TABLE sales_invoice_lines
   ADD COLUMN IF NOT EXISTS unit_price_entered_lbp numeric(18,2);
 
 UPDATE sales_invoice_lines l
-SET uom = COALESCE(l.uom, i.unit_of_measure)
-FROM sales_invoices si
-JOIN items i ON i.id = l.item_id
+SET uom = COALESCE(NULLIF(l.uom, ''), i.unit_of_measure)
+FROM sales_invoices si, items i
 WHERE si.id = l.invoice_id
+  AND i.id = l.item_id
   AND si.company_id = i.company_id
   AND (l.uom IS NULL OR l.uom = '');
 
@@ -49,10 +49,10 @@ ALTER TABLE sales_return_lines
   ADD COLUMN IF NOT EXISTS unit_cost_entered_lbp numeric(18,2);
 
 UPDATE sales_return_lines l
-SET uom = COALESCE(l.uom, i.unit_of_measure)
-FROM sales_returns r
-JOIN items i ON i.id = l.item_id
+SET uom = COALESCE(NULLIF(l.uom, ''), i.unit_of_measure)
+FROM sales_returns r, items i
 WHERE r.id = l.sales_return_id
+  AND i.id = l.item_id
   AND r.company_id = i.company_id
   AND (l.uom IS NULL OR l.uom = '');
 
@@ -89,10 +89,10 @@ ALTER TABLE purchase_order_lines
   ADD COLUMN IF NOT EXISTS unit_cost_entered_lbp numeric(18,2);
 
 UPDATE purchase_order_lines l
-SET uom = COALESCE(l.uom, i.unit_of_measure)
-FROM purchase_orders po
-JOIN items i ON i.id = l.item_id
+SET uom = COALESCE(NULLIF(l.uom, ''), i.unit_of_measure)
+FROM purchase_orders po, items i
 WHERE po.id = l.purchase_order_id
+  AND i.id = l.item_id
   AND po.company_id = i.company_id
   AND (l.uom IS NULL OR l.uom = '');
 
@@ -122,10 +122,10 @@ ALTER TABLE goods_receipt_lines
   ADD COLUMN IF NOT EXISTS unit_cost_entered_lbp numeric(18,2);
 
 UPDATE goods_receipt_lines l
-SET uom = COALESCE(l.uom, i.unit_of_measure)
-FROM goods_receipts gr
-JOIN items i ON i.id = l.item_id
+SET uom = COALESCE(NULLIF(l.uom, ''), i.unit_of_measure)
+FROM goods_receipts gr, items i
 WHERE gr.id = l.goods_receipt_id
+  AND i.id = l.item_id
   AND gr.company_id = i.company_id
   AND (l.uom IS NULL OR l.uom = '');
 
@@ -155,10 +155,10 @@ ALTER TABLE supplier_invoice_lines
   ADD COLUMN IF NOT EXISTS unit_cost_entered_lbp numeric(18,2);
 
 UPDATE supplier_invoice_lines l
-SET uom = COALESCE(l.uom, i.unit_of_measure)
-FROM supplier_invoices inv
-JOIN items i ON i.id = l.item_id
+SET uom = COALESCE(NULLIF(l.uom, ''), i.unit_of_measure)
+FROM supplier_invoices inv, items i
 WHERE inv.id = l.supplier_invoice_id
+  AND i.id = l.item_id
   AND inv.company_id = i.company_id
   AND (l.uom IS NULL OR l.uom = '');
 
@@ -186,10 +186,10 @@ ALTER TABLE stock_transfer_lines
   ADD COLUMN IF NOT EXISTS qty_entered numeric(18,6);
 
 UPDATE stock_transfer_lines l
-SET uom = COALESCE(l.uom, i.unit_of_measure)
-FROM stock_transfers st
-JOIN items i ON i.id = l.item_id
+SET uom = COALESCE(NULLIF(l.uom, ''), i.unit_of_measure)
+FROM stock_transfers st, items i
 WHERE st.id = l.stock_transfer_id
+  AND i.id = l.item_id
   AND st.company_id = i.company_id
   AND (l.uom IS NULL OR l.uom = '');
 
