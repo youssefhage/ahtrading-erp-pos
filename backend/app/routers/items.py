@@ -239,6 +239,8 @@ def lookup_items(data: ItemsLookupIn, company_id: str = Depends(get_company_id))
             cur.execute(
                 """
                 SELECT i.id, i.sku, i.name, i.barcode, i.unit_of_measure, i.is_active,
+                       i.tax_code_id,
+                       i.standard_cost_usd, i.standard_cost_lbp,
                        COALESCE(
                          (
                            SELECT json_agg(json_build_object('barcode', b.barcode) ORDER BY b.barcode)

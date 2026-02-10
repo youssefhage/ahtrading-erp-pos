@@ -51,6 +51,14 @@ type BulkItemIn = {
   tax_code_name?: string | null;
   reorder_point?: number;
   reorder_qty?: number;
+  standard_cost_usd?: number | null;
+  standard_cost_lbp?: number | null;
+};
+
+type BulkItemPriceLineIn = {
+  sku: string;
+  price_usd: number;
+  price_lbp: number;
 };
 
 type ItemBarcode = {
@@ -135,6 +143,7 @@ export default function ItemsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importPreview, setImportPreview] = useState<BulkItemIn[]>([]);
+  const [importPricePreview, setImportPricePreview] = useState<BulkItemPriceLineIn[]>([]);
   const [importErrors, setImportErrors] = useState<string>("");
   const [importing, setImporting] = useState(false);
 
@@ -295,6 +304,7 @@ export default function ItemsPage() {
     const trimmed = (text || "").trim();
     if (!trimmed) {
       setImportPreview([]);
+      setImportPricePreview([]);
       setImportErrors("");
       return;
     }
@@ -302,6 +312,7 @@ export default function ItemsPage() {
       const rows = parseCsv(trimmed);
       if (rows.length < 2) {
         setImportPreview([]);
+        setImportPricePreview([]);
         setImportErrors("CSV must have a header row + at least 1 data row.");
         return;
       }
@@ -320,13 +331,19 @@ export default function ItemsPage() {
       const taxIdx = idx(["tax_code_name", "tax_code", "tax"]);
       const rpIdx = idx(["reorder_point", "rop"]);
       const rqIdx = idx(["reorder_qty", "roq", "reorder_quantity"]);
+      const costUsdIdx = idx(["standard_cost_usd", "cost_usd"]);
+      const costLbpIdx = idx(["standard_cost_lbp", "cost_lbp"]);
+      const priceUsdIdx = idx(["price_usd", "sales_price_usd", "sales_price"]);
+      const priceLbpIdx = idx(["price_lbp", "sales_price_lbp"]);
       if (skuIdx < 0 || nameIdx < 0) {
         setImportPreview([]);
+        setImportPricePreview([]);
         setImportErrors("Missing required headers: sku, name");
         return;
       }
 
       const preview: BulkItemIn[] = [];
+      const pricePreview: BulkItemPriceLineIn[] = [];
       const errs: string[] = [];
       for (let r = 1; r < rows.length; r++) {
         const row = rows[r];
@@ -343,6 +360,40 @@ export default function ItemsPage() {
         const reorder_qty = rqIdx >= 0 ? Number((row[rqIdx] || "").trim() || 0) : 0;
         if (!Number.isFinite(reorder_point) || reorder_point < 0) errs.push(`Row ${r + 1}: reorder_point must be >= 0`);
         if (!Number.isFinite(reorder_qty) || reorder_qty < 0) errs.push(`Row ${r + 1}: reorder_qty must be >= 0`);
+
+        let standard_cost_usd: number | null = null;
+        let standard_cost_lbp: number | null = null;
+        if (costUsdIdx >= 0) {
+          const raw = (row[costUsdIdx] || "").trim();
+          if (raw !== "") {
+            const v = Number(raw);
+            if (!Number.isFinite(v) || v < 0) errs.push(`Row ${r + 1}: standard_cost_usd must be >= 0`);
+            else standard_cost_usd = v;
+          }
+        }
+        if (costLbpIdx >= 0) {
+          const raw = (row[costLbpIdx] || "").trim();
+          if (raw !== "") {
+            const v = Number(raw);
+            if (!Number.isFinite(v) || v < 0) errs.push(`Row ${r + 1}: standard_cost_lbp must be >= 0`);
+            else standard_cost_lbp = v;
+          }
+        }
+
+        // Optional price line import (effective today). We only emit a line if at least one of
+        // the price fields is present in the row (even if it's 0).
+        const rawPriceUsd = priceUsdIdx >= 0 ? (row[priceUsdIdx] || "").trim() : "";
+        const rawPriceLbp = priceLbpIdx >= 0 ? (row[priceLbpIdx] || "").trim() : "";
+        if (rawPriceUsd !== "" || rawPriceLbp !== "") {
+          const pUsd = rawPriceUsd === "" ? 0 : Number(rawPriceUsd);
+          const pLbp = rawPriceLbp === "" ? 0 : Number(rawPriceLbp);
+          if (!Number.isFinite(pUsd) || pUsd < 0) errs.push(`Row ${r + 1}: price_usd must be >= 0`);
+          if (!Number.isFinite(pLbp) || pLbp < 0) errs.push(`Row ${r + 1}: price_lbp must be >= 0`);
+          if (Number.isFinite(pUsd) && pUsd >= 0 && Number.isFinite(pLbp) && pLbp >= 0) {
+            pricePreview.push({ sku, price_usd: pUsd, price_lbp: pLbp });
+          }
+        }
+
         preview.push({
           sku,
           name,
@@ -350,14 +401,18 @@ export default function ItemsPage() {
           barcode: barcode || null,
           tax_code_name: tax || null,
           reorder_point: Number.isFinite(reorder_point) ? reorder_point : 0,
-          reorder_qty: Number.isFinite(reorder_qty) ? reorder_qty : 0
+          reorder_qty: Number.isFinite(reorder_qty) ? reorder_qty : 0,
+          standard_cost_usd,
+          standard_cost_lbp
         });
       }
 
       setImportPreview(preview);
+      setImportPricePreview(pricePreview);
       setImportErrors(errs.slice(0, 30).join("\n"));
     } catch (e) {
       setImportPreview([]);
+      setImportPricePreview([]);
       setImportErrors(e instanceof Error ? e.message : String(e));
     }
   }
@@ -372,9 +427,14 @@ export default function ItemsPage() {
     setStatus("Importing...");
     try {
       await apiPost("/items/bulk", { items: importPreview });
+      if (importPricePreview.length) {
+        const today = new Date().toISOString().slice(0, 10);
+        await apiPost("/items/prices/bulk", { effective_from: today, lines: importPricePreview });
+      }
       setImportOpen(false);
       setImportText("");
       setImportPreview([]);
+      setImportPricePreview([]);
       setImportErrors("");
       await load();
       setStatus("");
@@ -889,6 +949,7 @@ export default function ItemsPage() {
                     if (!o) {
                       setImportText("");
                       setImportPreview([]);
+                      setImportPricePreview([]);
                       setImportErrors("");
                     }
                   }}
@@ -900,8 +961,9 @@ export default function ItemsPage() {
                     <DialogHeader>
                       <DialogTitle>Import Items (CSV)</DialogTitle>
                       <DialogDescription>
-                        Header required. Columns: <span className="font-mono text-xs">sku,name,unit_of_measure,barcode,tax_code,reorder_point,reorder_qty</span>.
-                        Tax code matches by name.
+                        Header required. Columns:{" "}
+                        <span className="font-mono text-xs">sku,name,unit_of_measure,barcode,tax_code,reorder_point,reorder_qty</span>. Optional:{" "}
+                        <span className="font-mono text-xs">standard_cost_usd,standard_cost_lbp,price_usd,price_lbp</span>. Tax code matches by name.
                       </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={submitImport} className="space-y-3">
@@ -913,7 +975,9 @@ export default function ItemsPage() {
                           setImportText(v);
                           recomputeImport(v);
                         }}
-                        placeholder={'sku,name,unit_of_measure,barcode,tax_code,reorder_point,reorder_qty\nSKU-001,Milk 1L,EA,629...,VAT 11%,10,50'}
+                        placeholder={
+                          "sku,name,unit_of_measure,barcode,tax_code,reorder_point,reorder_qty,standard_cost_usd,price_usd\nSKU-001,Milk 1L,EA,629...,VAT 11%,10,50,0.72,1.15"
+                        }
                       />
                       {importErrors ? (
                         <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken p-3 text-xs text-fg-muted">
@@ -922,6 +986,12 @@ export default function ItemsPage() {
                       ) : null}
                       <div className="rounded-md border border-border bg-bg-elevated p-3 text-xs text-fg-muted">
                         Parsed rows: <span className="font-mono">{importPreview.length}</span>
+                        {importPricePreview.length ? (
+                          <>
+                            {" "}
+                            | Price lines: <span className="font-mono">{importPricePreview.length}</span>
+                          </>
+                        ) : null}
                       </div>
                       <div className="flex justify-end">
                         <Button type="submit" disabled={importing}>

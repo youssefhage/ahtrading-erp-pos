@@ -504,6 +504,19 @@ def import_items(
 
             barcode = _norm(row[c_barcode]) if c_barcode is not None else None
 
+            # Best-effort standard cost import for admin visibility.
+            # Prefer valuation rate, fall back to last purchase rate if valuation is missing/zero.
+            standard_cost_usd = None
+            if c_val_rate is not None:
+                v = _to_decimal(row[c_val_rate])
+                if v > 0:
+                    standard_cost_usd = v
+            if standard_cost_usd is None and c_last_purchase_rate is not None:
+                v = _to_decimal(row[c_last_purchase_rate])
+                if v > 0:
+                    standard_cost_usd = v
+            standard_cost_lbp = None
+
             tax_code_id = None
             if c_tax_tpl is not None:
                 tax_name = _norm(row[c_tax_tpl]) or ""
@@ -515,11 +528,12 @@ def import_items(
                 INSERT INTO items
                   (id, company_id, sku, barcode, name, unit_of_measure,
                    tax_code_id, is_active, category_id, brand, description,
-                   track_batches, track_expiry, default_shelf_life_days, allow_negative_stock)
+                   track_batches, track_expiry, default_shelf_life_days, allow_negative_stock,
+                   standard_cost_usd, standard_cost_lbp)
                 VALUES
                   (%s::uuid, %s::uuid, %s, %s, %s, %s,
                    %s::uuid, %s, %s::uuid, %s, %s,
-                   %s, %s, %s, %s)
+                   %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (company_id, sku) DO UPDATE SET
                   barcode = EXCLUDED.barcode,
                   name = EXCLUDED.name,
@@ -532,7 +546,9 @@ def import_items(
                   track_batches = EXCLUDED.track_batches,
                   track_expiry = EXCLUDED.track_expiry,
                   default_shelf_life_days = EXCLUDED.default_shelf_life_days,
-                  allow_negative_stock = EXCLUDED.allow_negative_stock
+                  allow_negative_stock = EXCLUDED.allow_negative_stock,
+                  standard_cost_usd = COALESCE(EXCLUDED.standard_cost_usd, items.standard_cost_usd),
+                  standard_cost_lbp = COALESCE(EXCLUDED.standard_cost_lbp, items.standard_cost_lbp)
                 RETURNING id
                 """,
                 (
@@ -551,6 +567,8 @@ def import_items(
                     track_expiry,
                     shelf_life_days,
                     allow_negative_stock,
+                    standard_cost_usd,
+                    standard_cost_lbp,
                 ),
             )
             item_id = str(cur.fetchone()["id"])

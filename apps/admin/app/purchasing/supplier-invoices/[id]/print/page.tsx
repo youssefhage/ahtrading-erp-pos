@@ -207,7 +207,6 @@ export default function SupplierInvoicePrintPage() {
                       <th className="px-4 py-2 text-left">Item</th>
                       <th className="px-3 py-2 text-left">Supplier</th>
                       <th className="px-3 py-2 text-right">Qty</th>
-                      <th className="px-3 py-2 text-left">UOM</th>
                       <th className="px-3 py-2 text-right">Unit USD</th>
                       <th className="px-3 py-2 text-right">Unit LL</th>
                       <th className="px-3 py-2 text-right">Total USD</th>
@@ -232,9 +231,12 @@ export default function SupplierInvoicePrintPage() {
                           <div className="text-sm">{l.supplier_item_name || "-"}</div>
                         </td>
                         <td className="px-3 py-2 text-right font-mono text-[11px]">
-                          {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+                          {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
+                          <span className="text-black/60">{String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}</span>
+                          {Number(l.qty_factor || 1) !== 1 ? (
+                            <div className="mt-0.5 text-[10px] text-black/60">base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}</div>
+                          ) : null}
                         </td>
-                        <td className="px-3 py-2 font-mono text-[11px]">{String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}</td>
                         <td className="px-3 py-2 text-right font-mono text-[11px]">{fmtUsd(l.unit_cost_usd)}</td>
                         <td className="px-3 py-2 text-right font-mono text-[11px]">{fmtLbp(l.unit_cost_lbp)}</td>
                         <td className="px-3 py-2 text-right font-mono text-[11px]">{fmtUsd(l.line_total_usd)}</td>
@@ -243,7 +245,7 @@ export default function SupplierInvoicePrintPage() {
                     ))}
                     {(detail.lines || []).length === 0 ? (
                       <tr>
-                        <td className="px-4 py-8 text-center text-black/60" colSpan={8}>
+                        <td className="px-4 py-8 text-center text-black/60" colSpan={7}>
                           No lines.
                         </td>
                       </tr>

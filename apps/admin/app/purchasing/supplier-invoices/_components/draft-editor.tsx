@@ -148,6 +148,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [addBatchNo, setAddBatchNo] = useState("");
   const [addExpiry, setAddExpiry] = useState("");
   const addQtyRef = useRef<HTMLInputElement | null>(null);
+  const saveHotkeyRef = useRef<() => void>(() => {});
   const supplierCostCache = useRef(new Map<string, { usd: number; lbp: number } | null>());
 
   const load = useCallback(async () => {
@@ -245,6 +246,37 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    function isTypingTarget(t: EventTarget | null) {
+      if (!(t instanceof HTMLElement)) return false;
+      const tag = (t.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if ((t as any).isContentEditable) return true;
+      return false;
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (loading) return;
+      if (isTypingTarget(e.target)) return;
+      const mod = e.metaKey || e.ctrlKey;
+      const key = (e.key || "").toLowerCase();
+      if (!mod) return;
+
+      if (key === "s") {
+        e.preventDefault();
+        saveHotkeyRef.current?.();
+        return;
+      }
+      if (key === "enter") {
+        e.preventDefault();
+        saveHotkeyRef.current?.();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [loading]);
 
   // If this draft was created via async import, poll until the worker fills it.
   useEffect(() => {
@@ -459,6 +491,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       setSaving(false);
     }
   }
+
+  // Avoid hotkey effect re-attaching every render: keep latest save() in a ref.
+  saveHotkeyRef.current = () => void save();
 
   const title = props.mode === "edit" ? "Edit Draft Supplier Invoice" : "Create Draft Supplier Invoice";
 
@@ -750,10 +785,10 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     wrapperClassName="w-full"
                   />
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
-                  <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={importing || loading} />
-                </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
+                <Input inputMode="decimal" value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={importing || loading} />
+              </div>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <label className="flex items-center gap-2 text-xs text-fg-muted">
@@ -894,7 +929,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
-                <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={loading} />
+                <Input inputMode="decimal" value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={loading} />
               </div>
             </div>
 
@@ -937,7 +972,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Qty</label>
                     <div className="relative">
-                      <Input ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} className="pr-14" />
+                      <Input inputMode="decimal" ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} className="pr-14" />
                       {(addItem as any)?.unit_of_measure ? (
                         <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[11px] text-fg-subtle">
                           {String((addItem as any).unit_of_measure)}
@@ -947,11 +982,11 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Unit USD</label>
-                    <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" />
+                    <Input inputMode="decimal" value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" />
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Unit LL</label>
-                    <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
+                    <Input inputMode="decimal" value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
                   </div>
                   <div className="space-y-1 md:col-span-6">
                     <label className="text-xs font-medium text-fg-muted">Batch No (optional)</label>
@@ -986,6 +1021,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                         const qty = toNum(String(l.qty));
                         const unitUsd = toNum(String(l.unit_cost_usd));
                         const unitLbp = toNum(String(l.unit_cost_lbp));
+                        const costMissing = unitUsd === 0 && unitLbp === 0;
                         return (
                           <tr key={`${l.item_id}-${idx}`} className="ui-tr-hover">
                             <td className="px-3 py-2">
@@ -994,6 +1030,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                                   <span className="font-mono text-xs">{l.item_sku || l.item_id}</span>
                                   {l.item_name ? <span> · {l.item_name}</span> : null}
                                 </div>
+                                {costMissing ? (
+                                  <div className="mt-1 text-[10px] text-danger">Missing unit cost</div>
+                                ) : null}
                                 {l.supplier_item_code || l.supplier_item_name ? (
                                   <div className="mt-1 text-[10px] text-fg-subtle">
                                     Supplier: <span className="font-mono">{l.supplier_item_code || "-"}</span>

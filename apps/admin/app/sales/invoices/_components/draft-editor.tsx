@@ -25,6 +25,9 @@ type InvoiceLineDraft = {
   item_sku?: string | null;
   item_name?: string | null;
   unit_of_measure?: string | null;
+  tax_code_id?: string | null;
+  standard_cost_usd?: string | number | null;
+  standard_cost_lbp?: string | number | null;
   // Entered UOM context (persisted on document lines).
   uom?: string | null;
   qty_factor?: string | null; // entered -> base multiplier
@@ -154,6 +157,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [addDiscPct, setAddDiscPct] = useState("0");
 
   const addQtyRef = useRef<HTMLInputElement | null>(null);
+  const saveHotkeyRef = useRef<() => void>(() => {});
 
   const ensureUomConversions = useCallback(async (itemIds: string[]) => {
     const ids = Array.from(new Set((itemIds || []).map((x) => String(x || "").trim()).filter(Boolean)));
@@ -221,14 +225,24 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         const det = await apiGet<InvoiceDetail>(`/sales/invoices/${id}`);
         if (det.invoice.status !== "draft") throw new Error("Only draft invoices can be edited.");
 
-        const uniq = Array.from(new Set((det.lines || []).map((l) => l.item_id).filter(Boolean)));
-        const look = uniq.length
-          ? await apiPost<{ items: Array<{ id: string; sku: string; name: string; unit_of_measure: string }> }>("/items/lookup", {
+      const uniq = Array.from(new Set((det.lines || []).map((l) => l.item_id).filter(Boolean)));
+      const look = uniq.length
+          ? await apiPost<{
+              items: Array<{
+                id: string;
+                sku: string;
+                name: string;
+                unit_of_measure: string;
+                tax_code_id?: string | null;
+                standard_cost_usd?: string | number | null;
+                standard_cost_lbp?: string | number | null;
+              }>;
+            }>("/items/lookup", {
               ids: uniq
             })
           : { items: [] };
-        const byId = new Map((look.items || []).map((it) => [it.id, it]));
-        await ensureUomConversions(uniq);
+      const byId = new Map((look.items || []).map((it) => [it.id, it]));
+      await ensureUomConversions(uniq);
 
         setCustomerId(det.invoice.customer_id || "");
         if (det.invoice.customer_id) {
@@ -271,6 +285,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
             item_sku: (l as any).item_sku || byId.get(l.item_id)?.sku || null,
             item_name: (l as any).item_name || byId.get(l.item_id)?.name || null,
             unit_of_measure: (l as any).unit_of_measure || byId.get(l.item_id)?.unit_of_measure || null,
+            tax_code_id: (byId.get(l.item_id) as any)?.tax_code_id ?? null,
+            standard_cost_usd: (byId.get(l.item_id) as any)?.standard_cost_usd ?? null,
+            standard_cost_lbp: (byId.get(l.item_id) as any)?.standard_cost_lbp ?? null,
             uom,
             qty_factor: String(qtyFactor),
             qty: String(qtyEntered || 0),
@@ -307,6 +324,60 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    function isTypingTarget(t: EventTarget | null) {
+      if (!(t instanceof HTMLElement)) return false;
+      const tag = (t.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if ((t as any).isContentEditable) return true;
+      return false;
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (loading) return;
+      if (isTypingTarget(e.target)) return;
+      const mod = e.metaKey || e.ctrlKey;
+      const key = (e.key || "").toLowerCase();
+      if (!mod) return;
+
+      // Cmd/Ctrl+S: Save draft quickly.
+      if (key === "s") {
+        e.preventDefault();
+        saveHotkeyRef.current?.();
+        return;
+      }
+
+      // Cmd/Ctrl+Enter: Save draft quickly.
+      if (key === "enter") {
+        e.preventDefault();
+        saveHotkeyRef.current?.();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [loading]);
+
+  function focusLineInput(nextIdx: number, field: string) {
+    const sel = `[data-line-idx="${nextIdx}"][data-line-field="${field}"]`;
+    const el = document.querySelector<HTMLInputElement>(sel);
+    el?.focus();
+    el?.select?.();
+  }
+
+  function onLineKeyDown(e: React.KeyboardEvent<HTMLInputElement>, idx: number, field: string) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      focusLineInput(Math.min(lines.length - 1, idx + 1), field);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      focusLineInput(Math.max(0, idx - 1), field);
+      return;
+    }
+  }
 
   useEffect(() => {
     if (!autoDueDate) return;
@@ -352,6 +423,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         item_sku: addItem.sku,
         item_name: addItem.name,
         unit_of_measure: addItem.unit_of_measure ?? null,
+        tax_code_id: (addItem as any).tax_code_id ?? null,
+        standard_cost_usd: (addItem as any).standard_cost_usd ?? null,
+        standard_cost_lbp: (addItem as any).standard_cost_lbp ?? null,
         uom: addItem.unit_of_measure ?? null,
         qty_factor: "1",
         qty: String(q),
@@ -426,6 +500,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       if (qtyEntered <= 0) return setStatus(`Qty must be > 0 (line ${i + 1}).`);
 
       const uom = String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || null;
+      if (!uom) return setStatus(`Missing UOM (line ${i + 1}).`);
       const qtyFactor = toNum(String(l.qty_factor || "1")) || 1;
       if (qtyFactor <= 0) return setStatus(`qty_factor must be > 0 (line ${i + 1}).`);
       const qtyBase = qtyEntered * qtyFactor;
@@ -493,8 +568,37 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     }
   }
 
+  // Avoid hotkey effect re-attaching every render: keep latest save() in a ref.
+  saveHotkeyRef.current = () => void save();
+
   const headerTitle = props.mode === "edit" ? "Edit Draft Sales Invoice" : "Create Draft Sales Invoice";
   const headerDesc = "Draft first, then Post when ready (stock + GL).";
+
+  function IssuePill(props: { tone?: "warn" | "danger"; children: React.ReactNode }) {
+    const tone = props.tone || "warn";
+    const cls =
+      tone === "danger"
+        ? "border-danger/35 bg-danger/10 text-danger"
+        : "border-border-subtle bg-bg-sunken/40 text-fg-muted";
+    return (
+      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${cls}`}>
+        {props.children}
+      </span>
+    );
+  }
+
+  function lineIssues(l: InvoiceLineDraft) {
+    const uom = String(l.uom || l.unit_of_measure || "").trim();
+    const vatMissing = !String(l.tax_code_id || "").trim();
+    const costUsd = toNum(String(l.standard_cost_usd ?? 0));
+    const costLbp = toNum(String(l.standard_cost_lbp ?? 0));
+    const costMissing = costUsd <= 0 && costLbp <= 0;
+    return {
+      uomMissing: !uom,
+      vatMissing,
+      costMissing,
+    };
+  }
 
   return (
     <Page width="lg">
@@ -583,7 +687,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
-                <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={loading} />
+                <Input inputMode="decimal" value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={loading} />
               </div>
               <div className="md:col-span-2 flex items-end">
                 <label className="flex items-center gap-2 text-xs text-fg-muted">
@@ -607,6 +711,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                        value={invoiceDiscountPct}
 	                        onChange={(e) => setInvoiceDiscountPct(e.target.value)}
 	                        placeholder="0"
+                          inputMode="decimal"
 	                        className="h-8 w-28 text-right font-mono text-xs"
 	                      />
 	                    </div>
@@ -637,7 +742,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Qty</label>
                     <div className="relative">
-                      <Input ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} className="pr-14" />
+                      <Input inputMode="decimal" ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} className="pr-14" />
                       {addItem?.unit_of_measure ? (
                         <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[11px] text-fg-subtle">
                           {addItem.unit_of_measure}
@@ -647,15 +752,15 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Unit USD</label>
-                    <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" />
+                    <Input inputMode="decimal" value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" />
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Unit LL</label>
-                    <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
+                    <Input inputMode="decimal" value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
                   </div>
                   <div className="space-y-1 md:col-span-1">
                     <label className="text-xs font-medium text-fg-muted">Disc%</label>
-                    <Input value={addDiscPct} onChange={(e) => setAddDiscPct(e.target.value)} placeholder="0" />
+                    <Input inputMode="decimal" value={addDiscPct} onChange={(e) => setAddDiscPct(e.target.value)} placeholder="0" />
                   </div>
                   <div className="md:col-span-12 flex justify-end gap-2">
                     <Button type="submit" variant="outline" disabled={loading}>
@@ -699,7 +804,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                     <thead className="ui-thead">
 	                      <tr>
 	                        <th className="px-3 py-2">Item</th>
-	                        <th className="px-3 py-2 text-right">Qty (Entered)</th>
+	                        <th className="px-3 py-2 text-right">Qty</th>
 	                        <th className="px-3 py-2">UOM</th>
 	                        <th className="px-3 py-2 text-right">Unit USD</th>
 	                        <th className="px-3 py-2 text-right">Unit LL</th>
@@ -711,6 +816,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                     </thead>
                     <tbody>
 	                      {lines.map((l, idx) => {
+                          const issues = lineIssues(l);
 	                        const r = resolveLine(l, toNum(exchangeRate));
 	                        const convs = uomConvByItem[l.item_id] || [];
 	                        const uomOpts = (() => {
@@ -737,12 +843,23 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                                 <span className="font-mono text-xs">{l.item_sku || l.item_id.slice(0, 8)}</span>
                                 {l.item_name ? <span> · {l.item_name}</span> : null}
                               </ShortcutLink>
+                              {issues.uomMissing || issues.vatMissing || issues.costMissing ? (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {issues.uomMissing ? <IssuePill tone="danger">Missing UOM</IssuePill> : null}
+                                  {issues.vatMissing ? <IssuePill>VAT template missing</IssuePill> : null}
+                                  {issues.costMissing ? <IssuePill>Cost missing</IssuePill> : null}
+                                </div>
+                              ) : null}
                             </td>
 	                            <td className="px-3 py-2 text-right">
 	                              <div className="flex items-center justify-end gap-2">
 	                                <Input
 	                                  value={l.qty}
 	                                  onChange={(e) => patchLine(idx, { qty: e.target.value })}
+                                    inputMode="decimal"
+                                    data-line-idx={idx}
+                                    data-line-field="qty"
+                                    onKeyDown={(e) => onLineKeyDown(e, idx, "qty")}
 	                                  className="h-8 w-24 text-right font-mono text-xs"
 	                                />
 	                              </div>
@@ -772,6 +889,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                                value={l.pre_unit_price_usd}
 	                                onChange={(e) => patchLine(idx, { pre_unit_price_usd: e.target.value })}
 	                                placeholder="0.00"
+                                  inputMode="decimal"
+                                  data-line-idx={idx}
+                                  data-line-field="usd"
+                                  onKeyDown={(e) => onLineKeyDown(e, idx, "usd")}
                                 className="h-8 w-28 text-right font-mono text-xs"
                               />
                             </td>
@@ -780,6 +901,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                                 value={l.pre_unit_price_lbp}
                                 onChange={(e) => patchLine(idx, { pre_unit_price_lbp: e.target.value })}
                                 placeholder="0"
+                                inputMode="decimal"
+                                data-line-idx={idx}
+                                data-line-field="lbp"
+                                onKeyDown={(e) => onLineKeyDown(e, idx, "lbp")}
                                 className="h-8 w-28 text-right font-mono text-xs"
                               />
                             </td>
@@ -788,6 +913,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                                 value={l.discount_pct}
                                 onChange={(e) => patchLine(idx, { discount_pct: e.target.value })}
                                 placeholder="0"
+                                inputMode="decimal"
+                                data-line-idx={idx}
+                                data-line-field="disc"
+                                onKeyDown={(e) => onLineKeyDown(e, idx, "disc")}
                                 className="h-8 w-20 text-right font-mono text-xs"
                               />
                             </td>

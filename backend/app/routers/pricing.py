@@ -409,6 +409,8 @@ def catalog_typeahead(
             cur.execute(
                 """
                 SELECT i.id, i.sku, i.barcode, i.name, i.unit_of_measure, i.is_active,
+                       i.tax_code_id,
+                       i.standard_cost_usd, i.standard_cost_lbp,
                        COALESCE(plp.price_usd, p.price_usd) AS price_usd,
                        COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
                        COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes

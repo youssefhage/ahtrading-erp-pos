@@ -193,7 +193,7 @@ function SalesInvoiceShowInner() {
     }
   }
 
-  async function openPostDialog() {
+  const openPostDialog = useCallback(async () => {
     if (!detail) return;
     if (detail.invoice.status !== "draft") return;
     if (!(detail.lines || []).length) {
@@ -223,7 +223,84 @@ function SalesInvoiceShowInner() {
       setPostPreview(null);
     }
     setPostOpen(true);
-  }
+  }, [detail]);
+
+  useEffect(() => {
+    function isTypingTarget(t: EventTarget | null) {
+      if (!(t instanceof HTMLElement)) return false;
+      const tag = (t.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if ((t as any).isContentEditable) return true;
+      return false;
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (!detail) return;
+      if (isTypingTarget(e.target)) return;
+
+      const key = (e.key || "").toLowerCase();
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+
+      // Cmd/Ctrl+P: open the printable page (instead of browser print).
+      if (key === "p" && !e.shiftKey) {
+        e.preventDefault();
+        window.open(`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/print`, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      // Cmd/Ctrl+Shift+P: jump to "Record Payment" for this invoice.
+      if (key === "p" && e.shiftKey) {
+        e.preventDefault();
+        window.open(
+          `/sales/payments?invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`,
+          "_blank",
+          "noopener,noreferrer"
+        );
+        return;
+      }
+
+      // Cmd/Ctrl+Enter: post draft quickly.
+      if (key === "enter") {
+        if (detail.invoice.status === "draft") {
+          e.preventDefault();
+          void openPostDialog();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [detail, openPostDialog]);
+
+  const postChecklist = useMemo(() => {
+    const inv = detail?.invoice;
+    const lines = detail?.lines || [];
+    const rate = Number(inv?.exchange_rate || 0);
+    const missingUom = lines.filter((l) => !String(l.uom || "").trim()).length;
+    const zeroPrice = lines.filter((l) => Number(l.unit_price_usd || 0) === 0 && Number(l.unit_price_lbp || 0) === 0).length;
+    const blocking: string[] = [];
+    const warnings: string[] = [];
+
+    if (!lines.length) blocking.push("Add at least one line.");
+    if (rate <= 0) blocking.push("Exchange rate is missing (USD→LL).");
+    if (missingUom) blocking.push(`${missingUom} line(s) are missing UOM.`);
+
+    if (zeroPrice) warnings.push(`${zeroPrice} line(s) have zero unit price.`);
+    if (postRecordPayment) {
+      const usd = parseNumberInput(postUsd);
+      const lbp = parseNumberInput(postLbp);
+      if ((!usd.ok && usd.reason === "invalid") || (!lbp.ok && lbp.reason === "invalid")) {
+        blocking.push("Payment amount is invalid.");
+      }
+      const paid = (usd.ok ? usd.value : 0) + (lbp.ok ? lbp.value : 0);
+      if (paid > 0 && !inv?.customer_id) {
+        warnings.push("Walk-in + payment is ok, but credit/partial settlements are safer with a customer.");
+      }
+    }
+
+    return { blocking, warnings };
+  }, [detail, postRecordPayment, postUsd, postLbp]);
 
   async function refreshPostPreview(applyVat: boolean) {
     if (!detail) return;
@@ -621,7 +698,6 @@ function SalesInvoiceShowInner() {
                         <tr>
                           <th className="px-4 py-3">Item</th>
                           <th className="px-4 py-3 text-right">Qty</th>
-                          <th className="px-4 py-3">UOM</th>
                           <th className="px-4 py-3 text-right">Total USD</th>
                           <th className="px-4 py-3 text-right">Total LL</th>
                         </tr>
@@ -647,10 +723,17 @@ function SalesInvoiceShowInner() {
                               )}
                             </td>
                             <td className="px-4 py-3 text-right data-mono text-xs">
-                              {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                            </td>
-                            <td className="px-4 py-3 data-mono text-xs">
-                              {String(l.uom || "").trim().toUpperCase() || "-"}
+                              <div>
+                                <div className="text-foreground">
+                                  {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
+                                  <span className="text-[10px] text-fg-subtle">{String(l.uom || "").trim().toUpperCase() || "-"}</span>
+                                </div>
+                                {Number(l.qty_factor || 1) !== 1 ? (
+                                  <div className="mt-0.5 text-[10px] text-fg-subtle">
+                                    base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+                                  </div>
+                                ) : null}
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-right data-mono text-xs">
                               {fmtUsd(l.line_total_usd)}
@@ -662,7 +745,7 @@ function SalesInvoiceShowInner() {
                         ))}
                         {detail.lines.length === 0 ? (
                           <tr>
-                            <td className="px-4 py-6 text-center text-fg-subtle" colSpan={5}>
+                            <td className="px-4 py-6 text-center text-fg-subtle" colSpan={4}>
                               No lines.
                             </td>
                           </tr>
@@ -743,6 +826,41 @@ function SalesInvoiceShowInner() {
                 <DialogDescription>Posting writes stock moves + GL. You can optionally record a payment now.</DialogDescription>
               </DialogHeader>
               <form onSubmit={postDraftInvoice} className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                <div className="md:col-span-6 rounded-md border border-border-subtle bg-bg-sunken/25 p-3 text-xs text-fg-muted">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-medium text-foreground">Posting checklist</div>
+                    <div className="text-[10px] text-fg-subtle">
+                      Hotkeys: <span className="ui-kbd">⌘</span>+<span className="ui-kbd">Enter</span> post,{" "}
+                      <span className="ui-kbd">⌘</span>+<span className="ui-kbd">P</span> print
+                    </div>
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    {postChecklist.blocking.length ? (
+                      <div className="rounded-md border border-danger/30 bg-danger/10 p-2 text-danger">
+                        <div className="font-medium">Blocking</div>
+                        <ul className="mt-1 list-disc pl-4">
+                          {postChecklist.blocking.map((x) => (
+                            <li key={x}>{x}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-fg-muted">
+                        Ready to post.
+                      </div>
+                    )}
+                    {postChecklist.warnings.length ? (
+                      <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2">
+                        <div className="font-medium text-foreground">Warnings</div>
+                        <ul className="mt-1 list-disc pl-4">
+                          {postChecklist.warnings.map((x) => (
+                            <li key={x}>{x}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
                 <label className="md:col-span-6 flex items-center gap-2 text-xs text-fg-muted">
                   <input
                     type="checkbox"
@@ -808,7 +926,7 @@ function SalesInvoiceShowInner() {
                   </>
                 ) : null}
                 <div className="md:col-span-6 flex justify-end">
-                  <Button type="submit" disabled={postSubmitting}>
+                  <Button type="submit" disabled={postSubmitting || postChecklist.blocking.length > 0}>
                     {postSubmitting ? "..." : "Post Invoice"}
                   </Button>
                 </div>

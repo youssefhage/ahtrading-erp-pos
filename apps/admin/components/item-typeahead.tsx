@@ -15,6 +15,9 @@ export type ItemTypeaheadItem = {
   name: string;
   barcode?: string | null;
   unit_of_measure?: string | null;
+  tax_code_id?: string | null;
+  standard_cost_usd?: string | number | null;
+  standard_cost_lbp?: string | number | null;
   barcodes?: BarcodeRow[] | null;
   price_usd?: string | number | null;
   price_lbp?: string | number | null;

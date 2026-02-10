@@ -910,12 +910,15 @@ def _receipt_html(receipt_row):
     line_rows = []
     for ln in lines:
         name = (ln.get("name") or "").strip() or (ln.get("sku") or "").strip() or ln.get("item_id") or ""
-        qty = ln.get("qty") or 0
+        qty_entered = ln.get("qty_entered")
+        qty = qty_entered if qty_entered is not None else (ln.get("qty") or 0)
+        uom = (ln.get("uom") or "").strip()
+        qty_label = f"{qty} {uom}".strip()
         line_rows.append(
             f"""
             <tr>
               <td class="name">{e(name)}</td>
-              <td class="qty">{e(qty)}</td>
+              <td class="qty">{e(qty_label)}</td>
               <td class="amt">{e(fmt_usd(ln.get("line_total_usd")))}</td>
             </tr>
             """
@@ -1845,8 +1848,13 @@ class Handler(BaseHTTPRequestHandler):
                         "name": info.get("name"),
                         "tax_code_id": info.get("tax_code_id"),
                         "qty": ln.get("qty"),
+                        "uom": ln.get("uom"),
+                        "qty_factor": ln.get("qty_factor"),
+                        "qty_entered": ln.get("qty_entered"),
                         "unit_price_usd": ln.get("unit_price_usd"),
                         "unit_price_lbp": ln.get("unit_price_lbp"),
+                        "unit_price_entered_usd": ln.get("unit_price_entered_usd"),
+                        "unit_price_entered_lbp": ln.get("unit_price_entered_lbp"),
                         "line_total_usd": ln.get("line_total_usd"),
                         "line_total_lbp": ln.get("line_total_lbp"),
                     }
@@ -1941,8 +1949,13 @@ class Handler(BaseHTTPRequestHandler):
                         "name": info.get("name"),
                         "tax_code_id": info.get("tax_code_id"),
                         "qty": ln.get("qty"),
+                        "uom": ln.get("uom"),
+                        "qty_factor": ln.get("qty_factor"),
+                        "qty_entered": ln.get("qty_entered"),
                         "unit_price_usd": ln.get("unit_price_usd"),
                         "unit_price_lbp": ln.get("unit_price_lbp"),
+                        "unit_price_entered_usd": ln.get("unit_price_entered_usd"),
+                        "unit_price_entered_lbp": ln.get("unit_price_entered_lbp"),
                         "line_total_usd": ln.get("line_total_usd"),
                         "line_total_lbp": ln.get("line_total_lbp"),
                     }

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
@@ -135,6 +135,8 @@ function SupplierInvoiceShowInner() {
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodMapping[]>([]);
 
+  const openPostHotkeyRef = useRef<() => void>(() => {});
+
   const [postOpen, setPostOpen] = useState(false);
   const [postSubmitting, setPostSubmitting] = useState(false);
   const [postPostingDate, setPostPostingDate] = useState(() => todayIso());
@@ -198,6 +200,70 @@ function SupplierInvoiceShowInner() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    function isTypingTarget(t: EventTarget | null) {
+      if (!(t instanceof HTMLElement)) return false;
+      const tag = (t.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if ((t as any).isContentEditable) return true;
+      return false;
+    }
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (!detail) return;
+      if (isTypingTarget(e.target)) return;
+
+      const key = (e.key || "").toLowerCase();
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+
+      if (key === "p" && !e.shiftKey) {
+        e.preventDefault();
+        window.open(`/purchasing/supplier-invoices/${encodeURIComponent(detail.invoice.id)}/print`, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      if (key === "p" && e.shiftKey) {
+        e.preventDefault();
+        window.open(
+          `/purchasing/payments?supplier_invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`,
+          "_blank",
+          "noopener,noreferrer"
+        );
+        return;
+      }
+
+      if (key === "enter") {
+        if (detail.invoice.status === "draft") {
+          e.preventDefault();
+          openPostHotkeyRef.current?.();
+        }
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [detail]);
+
+  const postChecklist = useMemo(() => {
+    const inv = detail?.invoice;
+    const lines = detail?.lines || [];
+    const rate = Number(inv?.exchange_rate || 0);
+    const missingUom = lines.filter((l) => !String(l.uom || l.unit_of_measure || "").trim()).length;
+    const zeroCost = lines.filter((l) => Number(l.unit_cost_usd || 0) === 0 && Number(l.unit_cost_lbp || 0) === 0).length;
+    const blocking: string[] = [];
+    const warnings: string[] = [];
+
+    if (!lines.length) blocking.push("Add at least one line.");
+    if (rate <= 0) blocking.push("Exchange rate is missing (USD→LL).");
+    if (missingUom) blocking.push(`${missingUom} line(s) are missing UOM.`);
+
+    if (zeroCost) warnings.push(`${zeroCost} line(s) have zero unit cost.`);
+    if (!String(inv?.tax_code_id || "").trim()) warnings.push("Tax code is empty (ok if this supplier invoice has no tax).");
+
+    return { blocking, warnings };
+  }, [detail]);
+
   async function openPostDialog() {
     if (!detail) return;
     if (detail.invoice.status !== "draft") return;
@@ -227,6 +293,8 @@ function SupplierInvoiceShowInner() {
     }
     setPostOpen(true);
   }
+
+  openPostHotkeyRef.current = () => void openPostDialog();
 
   async function postDraftInvoice(e: React.FormEvent) {
     e.preventDefault();
@@ -692,7 +760,6 @@ function SupplierInvoiceShowInner() {
                         <tr>
                           <th className="px-3 py-2">Item</th>
                           <th className="px-3 py-2 text-right">Qty</th>
-                          <th className="px-3 py-2">UOM</th>
                           <th className="px-3 py-2">Batch</th>
                           <th className="px-3 py-2">Expiry</th>
                           <th className="px-3 py-2 text-right">Total USD</th>
@@ -724,10 +791,19 @@ function SupplierInvoiceShowInner() {
                               )}
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
-                              {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-xs">
-                              {String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}
+                              <div>
+                                <div className="text-foreground">
+                                  {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
+                                  <span className="text-[10px] text-fg-subtle">
+                                    {String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}
+                                  </span>
+                                </div>
+                                {Number(l.qty_factor || 1) !== 1 ? (
+                                  <div className="mt-0.5 text-[10px] text-fg-subtle">
+                                    base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+                                  </div>
+                                ) : null}
+                              </div>
                             </td>
                             <td className="px-3 py-2 font-mono text-xs">
                               {l.batch_no || "-"}
@@ -748,7 +824,7 @@ function SupplierInvoiceShowInner() {
                         ))}
                         {detail.lines.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
+                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                               No lines.
                             </td>
                           </tr>
@@ -803,6 +879,39 @@ function SupplierInvoiceShowInner() {
                 <DialogDescription>Posting writes stock moves + GL. You can optionally record payments now.</DialogDescription>
               </DialogHeader>
               <form onSubmit={postDraftInvoice} className="space-y-4">
+                <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-3 text-xs text-fg-muted">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-medium text-foreground">Posting checklist</div>
+                    <div className="text-[10px] text-fg-subtle">
+                      Hotkeys: <span className="ui-kbd">⌘</span>+<span className="ui-kbd">Enter</span> post,{" "}
+                      <span className="ui-kbd">⌘</span>+<span className="ui-kbd">P</span> print
+                    </div>
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    {postChecklist.blocking.length ? (
+                      <div className="rounded-md border border-danger/30 bg-danger/10 p-2 text-danger">
+                        <div className="font-medium">Blocking</div>
+                        <ul className="mt-1 list-disc pl-4">
+                          {postChecklist.blocking.map((x) => (
+                            <li key={x}>{x}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-fg-muted">Ready to post.</div>
+                    )}
+                    {postChecklist.warnings.length ? (
+                      <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2">
+                        <div className="font-medium text-foreground">Warnings</div>
+                        <ul className="mt-1 list-disc pl-4">
+                          {postChecklist.warnings.map((x) => (
+                            <li key={x}>{x}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
                   <div className="space-y-1 md:col-span-3">
                     <label className="text-xs font-medium text-fg-muted">Posting Date</label>
@@ -890,7 +999,7 @@ function SupplierInvoiceShowInner() {
                 </div>
 
                 <div className="flex justify-end">
-                  <Button type="submit" disabled={postSubmitting}>
+                  <Button type="submit" disabled={postSubmitting || postChecklist.blocking.length > 0}>
                     {postSubmitting ? "..." : "Post Invoice"}
                   </Button>
                 </div>

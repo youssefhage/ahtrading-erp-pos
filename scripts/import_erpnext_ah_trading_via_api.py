@@ -340,9 +340,11 @@ def main() -> int:
         print(f"  - suppliers imported: {imported}/{len(suppliers)}")
 
     print("[5/7] Import items + prices + barcode factors...")
-    items_by_company: dict[str, list[dict]] = {official_id: [], unofficial_id: []}
-    prices_by_company: dict[str, list[dict]] = {official_id: [], unofficial_id: []}
-    opening_by_company: dict[str, list[dict]] = {official_id: [], unofficial_id: []}
+    # Note: ERPNext exports can place company/price/cost in child-table rows where the ID cell is blank.
+    # We treat those as continuation rows for the last-seen SKU.
+    items_by_company: dict[str, dict[str, dict]] = {official_id: {}, unofficial_id: {}}
+    prices_by_company: dict[str, dict[str, dict]] = {official_id: {}, unofficial_id: {}}
+    opening_by_company: dict[str, dict[str, dict]] = {official_id: {}, unofficial_id: {}}
     barcodes_by_company: dict[str, list[dict]] = {official_id: [], unofficial_id: []}
 
     with p.items_csv.open(newline="", encoding="utf-8") as f:
@@ -382,11 +384,13 @@ def main() -> int:
             sku_cell = _strip_wrapped_quotes(row[idx["ID"]])
             name_cell = _norm(row[idx["Item Name"]])
 
+            # Company mapping can appear on base rows and continuation rows.
+            row_company = _strip_wrapped_quotes(row[c_company]) if c_company is not None and c_company < len(row) else ""
+            if row_company:
+                current_company = alias.get(row_company, official_id)
+
             if sku_cell:
                 current_sku = sku_cell
-                # Company mapping comes from the "Company" section; present on the base row.
-                row_company = _strip_wrapped_quotes(row[c_company]) if c_company is not None and c_company < len(row) else ""
-                current_company = alias.get(row_company, official_id)
                 base_uom = _norm(row[c_uom]) if c_uom is not None and c_uom < len(row) else "EA"
                 current_base_uom = (base_uom or "EA").strip().upper()[:32]
 
@@ -401,45 +405,46 @@ def main() -> int:
                     if current_company == unofficial_id:
                         tax_code_name = None
 
-                    val_rate = _to_decimal(row[c_val]) if c_val is not None and c_val < len(row) else Decimal("0")
-                    standard_cost_usd: Optional[str] = None
-                    if val_rate > 0:
-                        standard_cost_usd = str(val_rate)
+                    # Base item upsert payload. Cost may be updated below even if it appears on continuation rows.
+                    items_by_company[current_company][current_sku] = {
+                        "sku": current_sku,
+                        "name": name_cell,
+                        "unit_of_measure": current_base_uom,
+                        # Do NOT set `barcode` here. We'll upsert barcodes with correct UOM + qty_factor below.
+                        "barcode": None,
+                        "tax_code_name": tax_code_name,
+                        "standard_cost_usd": None,
+                        "standard_cost_lbp": None,
+                    }
 
-                    items_by_company[current_company].append(
-                        {
-                            "sku": current_sku,
-                            "name": name_cell,
-                            "unit_of_measure": current_base_uom,
-                            # Do NOT set `barcode` here. We'll upsert barcodes with correct UOM + qty_factor below.
-                            "barcode": None,
-                            "tax_code_name": tax_code_name,
-                            "standard_cost_usd": standard_cost_usd,
-                            "standard_cost_lbp": None,
-                        }
-                    )
-
-                # Price import (USD only for now; LBP can be derived by exchange rate in POS).
-                price_usd = _to_decimal(row[c_price]) if c_price is not None and c_price < len(row) else Decimal("0")
-                if price_usd > 0:
-                    prices_by_company[current_company].append({"sku": current_sku, "price_usd": str(price_usd), "price_lbp": "0"})
-
-                # Opening stock import.
-                if not args.skip_opening_stock:
-                    qty = _to_decimal(row[c_opening]) if c_opening is not None and c_opening < len(row) else Decimal("0")
-                    if qty > 0:
-                        unit_cost_usd = _to_decimal(row[c_val]) if c_val is not None and c_val < len(row) else Decimal("0")
-                        opening_by_company[current_company].append(
-                            {
-                                "sku": current_sku,
-                                "qty": str(qty),
-                                "unit_cost_usd": str(unit_cost_usd if unit_cost_usd > 0 else Decimal("0")),
-                                "unit_cost_lbp": "0",
-                            }
-                        )
-
+            # Continuation rows: import price/cost/opening stock using the last-seen SKU.
             if not current_sku:
                 continue
+
+            # Cost import (Valuation Rate -> items.standard_cost_usd). Only set if > 0.
+            val_rate = _to_decimal(row[c_val]) if c_val is not None and c_val < len(row) else Decimal("0")
+            if val_rate > 0:
+                it = items_by_company.get(current_company, {}).get(current_sku)
+                if it is not None and not it.get("standard_cost_usd"):
+                    it["standard_cost_usd"] = str(val_rate)
+
+            # Price import (USD only for now; LBP can be derived by exchange rate in POS).
+            price_usd = _to_decimal(row[c_price]) if c_price is not None and c_price < len(row) else Decimal("0")
+            if price_usd > 0:
+                prices_by_company[current_company][current_sku] = {"sku": current_sku, "price_usd": str(price_usd), "price_lbp": "0"}
+
+            # Opening stock import.
+            if not args.skip_opening_stock:
+                qty = _to_decimal(row[c_opening]) if c_opening is not None and c_opening < len(row) else Decimal("0")
+                if qty > 0:
+                    unit_cost_usd = _to_decimal(row[c_val]) if c_val is not None and c_val < len(row) else Decimal("0")
+                    # Deduplicate by SKU in case the export repeats opening stock on child rows.
+                    opening_by_company[current_company][current_sku] = {
+                        "sku": current_sku,
+                        "qty": str(qty),
+                        "unit_cost_usd": str(unit_cost_usd if unit_cost_usd > 0 else Decimal("0")),
+                        "unit_cost_lbp": "0",
+                    }
 
             # Collect UOM conversions.
             if c_conv_uom is not None and c_conv_factor is not None and c_conv_uom < len(row) and c_conv_factor < len(row):
@@ -457,8 +462,6 @@ def main() -> int:
                     barcodes_raw_by_sku.setdefault(current_sku, []).append((bc, bc_u))
 
         # Build bulk upsert payload for barcodes with qty_factor derived from UOM conversions.
-        for cid in [official_id, unofficial_id]:
-            pass
 
         # We need to rebuild per-company lists by re-reading only the base rows to know company per SKU.
         # (This keeps the logic simple and robust for ERPNext exports with blank cells on child rows.)
@@ -499,7 +502,7 @@ def main() -> int:
 
     # Upsert items first (needed before prices/opening stock).
     for cid, label in [(official_id, "official"), (unofficial_id, "unofficial")]:
-        items = items_by_company[cid]
+        items = list(items_by_company[cid].values())
         imported_items = _post_with_isolation(
             lambda batch, _cid=cid: api.post_bulk_items(_cid, batch),
             items,
@@ -508,7 +511,7 @@ def main() -> int:
         )
         print(f"  - items upserted ({label}): {imported_items}/{len(items)}")
 
-        prices = prices_by_company[cid]
+        prices = list(prices_by_company[cid].values())
         imported_prices = _post_with_isolation(
             lambda batch, _cid=cid: api.post_bulk_prices(_cid, date.today(), batch),
             prices,
@@ -535,6 +538,7 @@ def main() -> int:
                 _die(f"no warehouse found for {label}")
             warehouse_id = str(wh.get("id") or "")
             lines = opening_by_company[cid]
+            lines = list(opening_by_company[cid].values())
             if not lines:
                 print(f"  - opening stock ({label}): 0 lines (skipped)")
                 continue
