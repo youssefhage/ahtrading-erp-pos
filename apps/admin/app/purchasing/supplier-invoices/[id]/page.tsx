@@ -519,56 +519,110 @@ function SupplierInvoiceShowInner() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-	                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-	                  <p className="text-xs text-fg-muted">Supplier</p>
-	                  <p className="text-sm font-medium text-foreground">
-                      {detail.invoice.supplier_id ? (
-                        <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(detail.invoice.supplier_id)}`} title="Open supplier">
-                          {detail.invoice.supplier_name || detail.invoice.supplier_id}
-                        </ShortcutLink>
-                      ) : (
-                        "-"
-                      )}
-                    </p>
-	                </div>
-	                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-	                  <p className="text-xs text-fg-muted">Supplier Ref</p>
-	                  <p className="text-sm data-mono text-foreground">{(detail.invoice.supplier_ref as any) || "-"}</p>
-	                </div>
-	                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-	                  <p className="text-xs text-fg-muted">Goods Receipt</p>
-	                  <p className="text-sm data-mono text-foreground">
-                      {detail.invoice.goods_receipt_id ? (
-                        <ShortcutLink
-                          href={`/purchasing/goods-receipts/${encodeURIComponent(detail.invoice.goods_receipt_id)}`}
-                          title="Open goods receipt"
-                          className="data-mono"
-                        >
-                          {detail.invoice.goods_receipt_no || detail.invoice.goods_receipt_id.slice(0, 8)}
-                        </ShortcutLink>
-                      ) : (
-                        detail.invoice.goods_receipt_no || "-"
-                      )}
-                    </p>
-	                </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                  <p className="text-xs text-fg-muted">Dates</p>
-                  <p className="text-sm data-mono text-foreground">Inv {fmtIso(detail.invoice.invoice_date)}</p>
-                  <p className="text-sm data-mono text-foreground">Due {fmtIso(detail.invoice.due_date)}</p>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+                <div className="ui-panel p-5 md:col-span-8">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-[220px]">
+                      <p className="ui-panel-title">Supplier</p>
+                      <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
+                        {detail.invoice.supplier_id ? (
+                          <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(detail.invoice.supplier_id)}`} title="Open supplier">
+                            {detail.invoice.supplier_name || detail.invoice.supplier_id}
+                          </ShortcutLink>
+                        ) : (
+                          "-"
+                        )}
+                      </p>
+                      <p className="mt-1 text-xs text-fg-muted">
+                        Created{" "}
+                        <span className="data-mono">
+                          {String(detail.invoice.created_at || "").slice(0, 19).replace("T", " ") || "-"}
+                        </span>
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <span className="ui-chip ui-chip-default">
+                        <span className="text-fg-subtle">Exchange</span>
+                        <span className="data-mono text-foreground">{Number(detail.invoice.exchange_rate || 0).toFixed(0)}</span>
+                      </span>
+                      <span className="ui-chip ui-chip-default">
+                        <span className="text-fg-subtle">Status</span>
+                        <span className="data-mono text-foreground">{detail.invoice.status}</span>
+                      </span>
+                      {detail.invoice.is_on_hold ? (
+                        <span className="ui-chip ui-chip-default">
+                          <span className="text-fg-subtle">Hold</span>
+                          <span className="data-mono text-foreground">{detail.invoice.hold_reason || "on hold"}</span>
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                      <p className="ui-panel-title">Dates</p>
+                      <div className="mt-2 space-y-1">
+                        <div className="ui-kv">
+                          <span className="ui-kv-label">Invoice</span>
+                          <span className="ui-kv-value">{fmtIso(detail.invoice.invoice_date)}</span>
+                        </div>
+                        <div className="ui-kv">
+                          <span className="ui-kv-label">Due</span>
+                          <span className="ui-kv-value">{fmtIso(detail.invoice.due_date)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                      <p className="ui-panel-title">Document</p>
+                      <div className="mt-2 space-y-1">
+                        <div className="ui-kv">
+                          <span className="ui-kv-label">Invoice No</span>
+                          <span className="ui-kv-value">{detail.invoice.invoice_no || "(draft)"}</span>
+                        </div>
+                        <div className="ui-kv">
+                          <span className="ui-kv-label">Supplier Ref</span>
+                          <span className="ui-kv-value">{(detail.invoice.supplier_ref as any) || "-"}</span>
+                        </div>
+                        <div className="ui-kv">
+                          <span className="ui-kv-label">Goods Receipt</span>
+                          <span className="ui-kv-value">
+                            {detail.invoice.goods_receipt_id ? (
+                              <ShortcutLink
+                                href={`/purchasing/goods-receipts/${encodeURIComponent(detail.invoice.goods_receipt_id)}`}
+                                title="Open goods receipt"
+                                className="data-mono"
+                              >
+                                {detail.invoice.goods_receipt_no || detail.invoice.goods_receipt_id.slice(0, 8)}
+                              </ShortcutLink>
+                            ) : (
+                              detail.invoice.goods_receipt_no || "-"
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                  <p className="text-xs text-fg-muted">Totals</p>
-                  <p className="text-sm data-mono text-foreground">
-                    {fmtUsd(detail.invoice.total_usd)}
-                  </p>
-                  <p className="text-sm data-mono text-foreground">
-                    {fmtLbp(detail.invoice.total_lbp)}
-                  </p>
-                </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                  <p className="text-xs text-fg-muted">Status</p>
-                  <p className="text-sm font-medium text-foreground">{detail.invoice.status}</p>
+
+                <div className="ui-panel p-5 md:col-span-4">
+                  <p className="ui-panel-title">Totals</p>
+                  <div className="mt-3">
+                    <div className="text-xs text-fg-muted">Total</div>
+                    <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{fmtUsd(detail.invoice.total_usd)}</div>
+                    <div className="data-mono mt-1 text-sm text-fg-muted">{fmtLbp(detail.invoice.total_lbp)}</div>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <div className="ui-kv ui-kv-strong">
+                      <span className="ui-kv-label">Total USD</span>
+                      <span className="ui-kv-value">{fmtUsd(detail.invoice.total_usd)}</span>
+                    </div>
+                    <div className="ui-kv ui-kv-sub">
+                      <span className="ui-kv-label">Total LL</span>
+                      <span className="ui-kv-value">{fmtLbp(detail.invoice.total_lbp)}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
               {/* Attachments + audit trail are available via the right-rail utilities drawer. */}

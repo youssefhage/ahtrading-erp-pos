@@ -235,110 +235,146 @@ export default function PurchaseOrderViewPage() {
           <Button type="button" variant="outline" onClick={load} disabled={busy || loading}>
             Refresh
           </Button>
+          <Button asChild variant="outline" disabled={busy || !id}>
+            <Link
+              href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/print`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Print / PDF
+            </Link>
+          </Button>
+          <Button asChild variant="outline" disabled={busy || !id}>
+            <a href={`/exports/purchase-orders/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noopener noreferrer">
+              Download PDF
+            </a>
+          </Button>
+          {canEditDraft ? (
+            <Button asChild variant="outline" disabled={busy}>
+              <Link href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/edit`}>Edit Draft</Link>
+            </Button>
+          ) : null}
+          {canPost ? (
+            <Button type="button" onClick={post} disabled={busy}>
+              Post
+            </Button>
+          ) : null}
+          {canCreateReceipt ? (
+            <Button type="button" variant="outline" onClick={openReceive} disabled={busy}>
+              Create GR Draft
+            </Button>
+          ) : null}
+          {canCancel ? (
+            <Button type="button" variant="outline" onClick={cancel} disabled={busy}>
+              Cancel
+            </Button>
+          ) : null}
+          {order ? (
+            <DocumentUtilitiesDrawer
+              entityType="purchase_order"
+              entityId={order.id}
+              allowUploadAttachments={order.status === "draft"}
+              className="ml-1"
+            />
+          ) : null}
           <Button asChild disabled={busy}>
             <Link href="/purchasing/purchase-orders/new">New Draft</Link>
           </Button>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <CardTitle>Summary</CardTitle>
-              <CardDescription>Supplier, warehouse, and totals.</CardDescription>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+        <div className="ui-panel p-5 md:col-span-8">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-[220px]">
+              <p className="ui-panel-title">Supplier</p>
+              <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
+                {order?.supplier_id ? (
+                  <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(order.supplier_id)}`} title="Open supplier">
+                    {order.supplier_name || order.supplier_id}
+                  </ShortcutLink>
+                ) : (
+                  "-"
+                )}
+              </p>
+              <p className="mt-1 text-xs text-fg-muted">
+                Created{" "}
+                <span className="data-mono">
+                  {order ? String(order.created_at || "").slice(0, 19).replace("T", " ") || "-" : "-"}
+                </span>
+              </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button asChild variant="outline" disabled={busy}>
-                <Link
-                  href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/print`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Print / PDF
-                </Link>
-              </Button>
-              <Button asChild variant="outline" disabled={busy}>
-                <a
-                  href={`/exports/purchase-orders/${encodeURIComponent(id)}/pdf`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Download PDF
-                </a>
-              </Button>
-              {canEditDraft ? (
-                <Button asChild variant="outline" disabled={busy}>
-                  <Link href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/edit`}>Edit Draft</Link>
-                </Button>
-              ) : null}
-              {canPost ? (
-                <Button type="button" onClick={post} disabled={busy}>
-                  Post
-                </Button>
-              ) : null}
-              {canCreateReceipt ? (
-                <Button type="button" variant="outline" onClick={openReceive} disabled={busy}>
-                  Create GR Draft
-                </Button>
-              ) : null}
-              {canCancel ? (
-                <Button type="button" variant="outline" onClick={cancel} disabled={busy}>
-                  Cancel
-                </Button>
-              ) : null}
-              {order ? (
-                <DocumentUtilitiesDrawer
-                  entityType="purchase_order"
-                  entityId={order.id}
-                  allowUploadAttachments={order.status === "draft"}
-                  className="ml-1"
-                />
-              ) : null}
+
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <span className="ui-chip ui-chip-default">
+                <span className="text-fg-subtle">Warehouse</span>
+                <span className="data-mono text-foreground">{order?.warehouse_name || order?.warehouse_id || "-"}</span>
+              </span>
+              <span className="ui-chip ui-chip-default">
+                <span className="text-fg-subtle">Exchange</span>
+                <span className="data-mono text-foreground">{order ? Number(order.exchange_rate || 0).toFixed(0) : "-"}</span>
+              </span>
+              <span className="ui-chip ui-chip-default">
+                <span className="text-fg-subtle">Status</span>
+                <span className="data-mono text-foreground">{order?.status || "-"}</span>
+              </span>
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <div>
-            <span className="text-fg-subtle">Supplier:</span>{" "}
-            {order?.supplier_id ? (
-              <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(order.supplier_id)}`} title="Open supplier">
-                {order.supplier_name || order.supplier_id}
-              </ShortcutLink>
-            ) : (
-              "-"
-            )}
+
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+              <p className="ui-panel-title">Dates</p>
+              <div className="mt-2 space-y-1">
+                <div className="ui-kv">
+                  <span className="ui-kv-label">Expected Delivery</span>
+                  <span className="ui-kv-value">{order?.expected_delivery_date || "-"}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+              <p className="ui-panel-title">Document</p>
+              <div className="mt-2 space-y-1">
+                <div className="ui-kv">
+                  <span className="ui-kv-label">Order No</span>
+                  <span className="ui-kv-value">{order?.order_no || "(draft)"}</span>
+                </div>
+                <div className="ui-kv">
+                  <span className="ui-kv-label">Supplier Ref</span>
+                  <span className="ui-kv-value">{order?.supplier_ref || "-"}</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div>
-            <span className="text-fg-subtle">Warehouse:</span> {order?.warehouse_name || order?.warehouse_id || "-"}
-          </div>
-          <div>
-            <span className="text-fg-subtle">Supplier Ref:</span> {order?.supplier_ref || "-"}
-          </div>
-          <div>
-            <span className="text-fg-subtle">Expected Delivery:</span> {order?.expected_delivery_date || "-"}
-          </div>
-          <div>
-            <span className="text-fg-subtle">Exchange:</span> {order ? Number(order.exchange_rate || 0).toFixed(0) : "-"}
-          </div>
-          <div>
-            <span className="text-fg-subtle">Totals:</span>{" "}
-            <span className="data-mono">
-              {totals.usd} / {totals.lbp}
-            </span>
-          </div>
+
           {!canPost && order?.status === "draft" && lines.length === 0 ? (
-            <div className="mt-2">
-              <Banner
-                variant="warning"
-                size="sm"
-                title="Cannot post yet"
-                description="Add at least one line before posting."
-              />
+            <div className="mt-3">
+              <Banner variant="warning" size="sm" title="Cannot post yet" description="Add at least one line before posting." />
             </div>
           ) : null}
-        </CardContent>
-      </Card>
+        </div>
+
+        <div className="ui-panel p-5 md:col-span-4">
+          <p className="ui-panel-title">Totals</p>
+
+          <div className="mt-3">
+            <div className="text-xs text-fg-muted">Total</div>
+            <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{totals.usd}</div>
+            <div className="data-mono mt-1 text-sm text-fg-muted">{totals.lbp}</div>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            <div className="ui-kv ui-kv-strong">
+              <span className="ui-kv-label">Total USD</span>
+              <span className="ui-kv-value">{totals.usd}</span>
+            </div>
+            <div className="ui-kv ui-kv-sub">
+              <span className="ui-kv-label">Total LL</span>
+              <span className="ui-kv-value">{totals.lbp}</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <Card>
         <CardHeader>
