@@ -54,6 +54,36 @@ def _resolve_rel_path(rel_path: str) -> Path:
     return target
 
 
+def _make_world_readable(target: Path, base: Path) -> None:
+    """
+    download.melqard.com serves files directly from the shared /updates volume via nginx.
+    Ensure uploaded files and their directories are traversable/readable by the nginx user.
+    """
+    try:
+        base = base.resolve()
+        target = target.resolve()
+        # Directories from base -> target.parent
+        p = target.parent
+        while True:
+            if p == base:
+                break
+            if base not in p.parents:
+                break
+            try:
+                os.chmod(p, 0o755)
+            except Exception:
+                pass
+            p = p.parent
+        try:
+            os.chmod(target, 0o644)
+        except Exception:
+            pass
+    except Exception:
+        # Never fail the upload due to chmod issues; worst-case nginx returns 403 and
+        # we can diagnose from the outside.
+        return
+
+
 @router.post("/upload")
 async def upload_update_file(
     rel_path: str = Form(...),
@@ -88,6 +118,7 @@ async def upload_update_file(
                     break
                 out.write(chunk)
         tmp.replace(target)
+        _make_world_readable(target, base)
     finally:
         try:
             if tmp.exists():
