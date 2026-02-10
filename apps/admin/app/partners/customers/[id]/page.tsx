@@ -141,6 +141,11 @@ export default function CustomerViewPage() {
               <Link href={`/partners/customers/${encodeURIComponent(customer.id)}/edit`}>Edit</Link>
             </Button>
           ) : null}
+          {customer ? (
+            <Button asChild variant="outline">
+              <Link href={`/accounting/reports/customer-soa?customer_id=${encodeURIComponent(customer.id)}`}>SOA</Link>
+            </Button>
+          ) : null}
           <Button asChild>
             <Link href="/partners/customers/new">New Customer</Link>
           </Button>

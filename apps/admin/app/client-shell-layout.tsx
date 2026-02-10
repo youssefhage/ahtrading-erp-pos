@@ -57,6 +57,8 @@ const TITLE_BY_PATH: Record<string, string> = {
   "/accounting/reports/balance-sheet": "Balance Sheet",
   "/accounting/reports/ar-aging": "AR Aging",
   "/accounting/reports/ap-aging": "AP Aging",
+  "/accounting/reports/customer-soa": "Customer Statement of Account",
+  "/accounting/reports/supplier-soa": "Supplier Statement of Account",
   "/accounting/reports/inventory-valuation": "Inventory Valuation",
   "/accounting/reports/margin-by-item": "Margin by Item",
   "/accounting/reports/margin-by-customer": "Margin by Customer",

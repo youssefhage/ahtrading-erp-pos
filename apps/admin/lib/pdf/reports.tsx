@@ -350,3 +350,122 @@ export function GeneralLedgerPdf(props: { rows: GlRow[]; startDate?: string; end
   );
 }
 
+export type SoaParty = { id: string; code?: string | null; name: string };
+export type SoaRow = {
+  tx_date: string;
+  kind: string;
+  ref?: string | null;
+  memo?: string | null;
+  delta_usd: string | number;
+  delta_lbp: string | number;
+  balance_usd: string | number;
+  balance_lbp: string | number;
+};
+
+function soaKindLabel(kind: string) {
+  const k = String(kind || "").toLowerCase();
+  if (k === "invoice") return "Invoice";
+  if (k === "payment") return "Payment";
+  if (k === "return") return "Return";
+  if (k === "refund") return "Refund";
+  if (k === "credit_note") return "Credit Note";
+  return kind || "-";
+}
+
+export function SoaPdf(props: {
+  title: string;
+  partyLabel: string;
+  party: SoaParty;
+  startDate: string;
+  endDate: string;
+  openingUsd: string | number;
+  openingLbp: string | number;
+  closingUsd: string | number;
+  closingLbp: string | number;
+  rows: SoaRow[];
+}) {
+  const rows = props.rows || [];
+  const subtitle = `${props.partyLabel}: ${props.party?.name || props.party?.id || ""}${
+    props.party?.code ? ` (${props.party.code})` : ""
+  }`;
+  return (
+    <Document title={props.title}>
+      <Page size="A4" style={s.page} wrap>
+        <View style={s.headerRow}>
+          <View>
+            <Text style={s.h1}>{props.title}</Text>
+            <Text style={[s.muted]}>{subtitle}</Text>
+            <Text style={[s.muted, s.mono]}>
+              {props.startDate} to {props.endDate}
+            </Text>
+          </View>
+          <View>
+            <Text style={[s.muted, s.mono, { textAlign: "right" }]}>Rows {rows.length}</Text>
+          </View>
+        </View>
+
+        <View style={s.section}>
+          <View style={s.table}>
+            <View style={s.thead} fixed>
+              <Text style={[s.th, { flex: 1.4 }]}>Date</Text>
+              <Text style={[s.th, { flex: 1.6 }]}>Type</Text>
+              <Text style={[s.th, { flex: 1.7 }]}>Ref</Text>
+              <Text style={[s.th, { flex: 2.6 }]}>Memo</Text>
+              <Text style={[s.th, s.right, { flex: 1.7 }]}>Delta USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.7 }]}>Delta LL</Text>
+              <Text style={[s.th, s.right, { flex: 1.7 }]}>Balance USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.7 }]}>Balance LL</Text>
+            </View>
+
+            {/* Opening row (informational). */}
+            <View style={[s.tr, { backgroundColor: "#f6f6f6" }]} wrap={false}>
+              <Text style={[s.td, s.mono, { flex: 1.4 }]}>{props.startDate}</Text>
+              <Text style={[s.td, { flex: 1.6 }]}>Opening</Text>
+              <Text style={[s.td, s.mono, { flex: 1.7 }]} />
+              <Text style={[s.td, { flex: 2.6 }]} />
+              <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(props.openingUsd, 2)}</Text>
+              <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(props.openingLbp, 0)}</Text>
+              <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(props.openingUsd, 2)}</Text>
+              <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(props.openingLbp, 0)}</Text>
+            </View>
+
+            {rows.map((r, idx) => (
+              <View key={`${r.tx_date}:${r.kind}:${idx}`} style={s.tr} wrap={false}>
+                <Text style={[s.td, s.mono, { flex: 1.4 }]}>{r.tx_date}</Text>
+                <Text style={[s.td, { flex: 1.6 }]}>{soaKindLabel(r.kind)}</Text>
+                <Text style={[s.td, s.mono, { flex: 1.7 }]}>{r.ref || ""}</Text>
+                <Text style={[s.td, { flex: 2.6 }]}>{r.memo || ""}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(r.delta_usd, 2)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(r.delta_lbp, 0)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(r.balance_usd, 2)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(r.balance_lbp, 0)}</Text>
+              </View>
+            ))}
+            {rows.length === 0 ? (
+              <View style={s.tr}>
+                <Text style={[s.td, s.muted, { flex: 1 }]}>No transactions in range.</Text>
+              </View>
+            ) : null}
+
+            {/* Closing summary */}
+            <View style={[s.tr, { backgroundColor: "#f6f6f6" }]} wrap={false}>
+              <Text style={[s.td, { flex: 1.4 }]} />
+              <Text style={[s.td, { flex: 1.6, fontWeight: 700 }]}>Closing</Text>
+              <Text style={[s.td, { flex: 1.7 }]} />
+              <Text style={[s.td, { flex: 2.6 }]} />
+              <Text style={[s.td, { flex: 1.7 }]} />
+              <Text style={[s.td, { flex: 1.7 }]} />
+              <Text style={[s.td, s.right, s.mono, { flex: 1.7, fontWeight: 700 }]}>{fmt(props.closingUsd, 2)}</Text>
+              <Text style={[s.td, s.right, s.mono, { flex: 1.7, fontWeight: 700 }]}>{fmt(props.closingLbp, 0)}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={s.foot}>
+          <Text style={s.mono}>Generated: {generatedAtStamp()}</Text>
+          <Text style={s.mono}>Report: SOA</Text>
+        </View>
+      </Page>
+    </Document>
+  );
+}

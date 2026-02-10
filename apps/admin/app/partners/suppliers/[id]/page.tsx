@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
@@ -108,6 +109,11 @@ export default function SupplierViewPage() {
           <Button type="button" variant="outline" onClick={() => router.push(`/partners/suppliers/${encodeURIComponent(id)}/edit`)}>
             Edit
           </Button>
+          {supplier ? (
+            <Button asChild variant="outline">
+              <Link href={`/accounting/reports/supplier-soa?supplier_id=${encodeURIComponent(supplier.id)}`}>SOA</Link>
+            </Button>
+          ) : null}
         </div>
       </div>
 

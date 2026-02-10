@@ -977,6 +977,434 @@ def ap_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company
             return {"as_of": str(as_of), "rows": cur.fetchall()}
 
 
+def _soa_default_start(today: date) -> date:
+    # Default to current month (typical SOA use), but allow user overrides via query params.
+    return today.replace(day=1)
+
+
+@router.get("/customer-soa", dependencies=[Depends(require_permission("reports:read"))])
+def customer_soa(
+    customer_id: str,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    format: Optional[str] = None,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Statement of Account (SOA) for a single customer.
+    Sign convention: positive balance means customer owes us (AR). Negative means we owe the customer (credit).
+    """
+    today = date.today()
+    start_date = start_date or _soa_default_start(today)
+    end_date = end_date or today
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be <= end_date")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, code, name
+                FROM customers
+                WHERE company_id=%s AND id=%s
+                """,
+                (company_id, customer_id),
+            )
+            cust = cur.fetchone()
+            if not cust:
+                raise HTTPException(status_code=404, detail="Customer not found")
+
+            tx_cte = """
+                WITH tx AS (
+                  -- Posted sales invoices increase AR (positive).
+                  SELECT
+                    si.invoice_date AS tx_date,
+                    si.created_at AS ts,
+                    'invoice'::text AS kind,
+                    si.id AS doc_id,
+                    si.invoice_no AS ref,
+                    NULL::text AS memo,
+                    si.total_usd AS delta_usd,
+                    si.total_lbp AS delta_lbp
+                  FROM sales_invoices si
+                  WHERE si.company_id=%s
+                    AND si.status='posted'
+                    AND si.customer_id=%s
+
+                  UNION ALL
+
+                  -- Payments received decrease AR (negative).
+                  SELECT
+                    sp.created_at::date AS tx_date,
+                    sp.created_at AS ts,
+                    'payment'::text AS kind,
+                    sp.id AS doc_id,
+                    si.invoice_no AS ref,
+                    sp.method AS memo,
+                    -sp.amount_usd AS delta_usd,
+                    -sp.amount_lbp AS delta_lbp
+                  FROM sales_payments sp
+                  JOIN sales_invoices si ON si.id = sp.invoice_id
+                  WHERE si.company_id=%s
+                    AND si.status='posted'
+                    AND si.customer_id=%s
+
+                  UNION ALL
+
+                  -- Posted sales returns reduce AR (negative).
+                  SELECT
+                    sr.created_at::date AS tx_date,
+                    sr.created_at AS ts,
+                    'return'::text AS kind,
+                    sr.id AS doc_id,
+                    COALESCE(sr.return_no, '') AS ref,
+                    NULL::text AS memo,
+                    -sr.total_usd AS delta_usd,
+                    -sr.total_lbp AS delta_lbp
+                  FROM sales_returns sr
+                  JOIN sales_invoices si ON si.id = sr.invoice_id
+                  WHERE sr.company_id=%s
+                    AND sr.status='posted'
+                    AND si.customer_id=%s
+
+                  UNION ALL
+
+                  -- Refunds (cash paid out) settle customer credit balances, moving balance towards zero (positive delta).
+                  SELECT
+                    rf.created_at::date AS tx_date,
+                    rf.created_at AS ts,
+                    'refund'::text AS kind,
+                    rf.id AS doc_id,
+                    COALESCE(sr.return_no, '') AS ref,
+                    rf.method AS memo,
+                    rf.amount_usd AS delta_usd,
+                    rf.amount_lbp AS delta_lbp
+                  FROM sales_refunds rf
+                  JOIN sales_returns sr ON sr.id = rf.sales_return_id
+                  JOIN sales_invoices si ON si.id = sr.invoice_id
+                  WHERE rf.company_id=%s
+                    AND sr.status='posted'
+                    AND si.customer_id=%s
+                )
+            """
+
+            # Opening balance: sum of all deltas prior to the start_date.
+            cur.execute(
+                tx_cte
+                + """
+                SELECT COALESCE(SUM(delta_usd), 0) AS opening_usd,
+                       COALESCE(SUM(delta_lbp), 0) AS opening_lbp
+                FROM tx
+                WHERE tx_date < %s
+                """,
+                (
+                    company_id,
+                    customer_id,
+                    company_id,
+                    customer_id,
+                    company_id,
+                    customer_id,
+                    company_id,
+                    customer_id,
+                    start_date,
+                ),
+            )
+            opening = cur.fetchone() or {"opening_usd": 0, "opening_lbp": 0}
+            opening_usd = Decimal(str(opening.get("opening_usd") or 0))
+            opening_lbp = Decimal(str(opening.get("opening_lbp") or 0))
+
+            # Period rows.
+            cur.execute(
+                tx_cte
+                + """
+                SELECT tx_date, ts, kind, doc_id, ref, memo, delta_usd, delta_lbp
+                FROM tx
+                WHERE tx_date BETWEEN %s AND %s
+                ORDER BY tx_date ASC, ts ASC, kind ASC, doc_id ASC
+                """,
+                (
+                    company_id,
+                    customer_id,
+                    company_id,
+                    customer_id,
+                    company_id,
+                    customer_id,
+                    company_id,
+                    customer_id,
+                    start_date,
+                    end_date,
+                ),
+            )
+            rows = cur.fetchall()
+
+    bal_usd = opening_usd
+    bal_lbp = opening_lbp
+    out_rows = []
+    for r in rows:
+        du = Decimal(str(r.get("delta_usd") or 0))
+        dl = Decimal(str(r.get("delta_lbp") or 0))
+        bal_usd += du
+        bal_lbp += dl
+        out_rows.append(
+            {
+                "tx_date": r.get("tx_date"),
+                "ts": r.get("ts"),
+                "kind": r.get("kind"),
+                "doc_id": r.get("doc_id"),
+                "ref": r.get("ref"),
+                "memo": r.get("memo"),
+                "delta_usd": r.get("delta_usd"),
+                "delta_lbp": r.get("delta_lbp"),
+                "balance_usd": bal_usd,
+                "balance_lbp": bal_lbp,
+            }
+        )
+
+    if format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                "tx_date",
+                "kind",
+                "ref",
+                "memo",
+                "delta_usd",
+                "delta_lbp",
+                "balance_usd",
+                "balance_lbp",
+            ]
+        )
+        # Opening row (informational).
+        writer.writerow([start_date, "opening", "", "", opening_usd, opening_lbp, opening_usd, opening_lbp])
+        for r in out_rows:
+            writer.writerow(
+                [
+                    r["tx_date"],
+                    r["kind"],
+                    r["ref"],
+                    r["memo"],
+                    r["delta_usd"],
+                    r["delta_lbp"],
+                    r["balance_usd"],
+                    r["balance_lbp"],
+                ]
+            )
+        return Response(content=output.getvalue(), media_type="text/csv")
+
+    closing_usd = opening_usd + sum((Decimal(str(r.get("delta_usd") or 0)) for r in rows), Decimal("0"))
+    closing_lbp = opening_lbp + sum((Decimal(str(r.get("delta_lbp") or 0)) for r in rows), Decimal("0"))
+    return {
+        "customer": cust,
+        "start_date": str(start_date),
+        "end_date": str(end_date),
+        "opening_usd": opening_usd,
+        "opening_lbp": opening_lbp,
+        "closing_usd": closing_usd,
+        "closing_lbp": closing_lbp,
+        "rows": out_rows,
+    }
+
+
+@router.get("/supplier-soa", dependencies=[Depends(require_permission("reports:read"))])
+def supplier_soa(
+    supplier_id: str,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    format: Optional[str] = None,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Statement of Account (SOA) for a single supplier.
+    Sign convention: positive balance means we owe the supplier (AP). Negative means supplier owes us (credit).
+    """
+    today = date.today()
+    start_date = start_date or _soa_default_start(today)
+    end_date = end_date or today
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start_date must be <= end_date")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, code, name
+                FROM suppliers
+                WHERE company_id=%s AND id=%s
+                """,
+                (company_id, supplier_id),
+            )
+            sup = cur.fetchone()
+            if not sup:
+                raise HTTPException(status_code=404, detail="Supplier not found")
+
+            tx_cte = """
+                WITH tx AS (
+                  -- Posted supplier invoices increase AP (positive).
+                  SELECT
+                    si.invoice_date AS tx_date,
+                    si.created_at AS ts,
+                    'invoice'::text AS kind,
+                    si.id AS doc_id,
+                    si.invoice_no AS ref,
+                    NULL::text AS memo,
+                    si.total_usd AS delta_usd,
+                    si.total_lbp AS delta_lbp
+                  FROM supplier_invoices si
+                  WHERE si.company_id=%s
+                    AND si.status='posted'
+                    AND si.supplier_id=%s
+
+                  UNION ALL
+
+                  -- Payments made decrease AP (negative).
+                  SELECT
+                    sp.created_at::date AS tx_date,
+                    sp.created_at AS ts,
+                    'payment'::text AS kind,
+                    sp.id AS doc_id,
+                    si.invoice_no AS ref,
+                    sp.method AS memo,
+                    -sp.amount_usd AS delta_usd,
+                    -sp.amount_lbp AS delta_lbp
+                  FROM supplier_payments sp
+                  JOIN supplier_invoices si ON si.id = sp.supplier_invoice_id
+                  WHERE si.company_id=%s
+                    AND si.status='posted'
+                    AND si.supplier_id=%s
+
+                  UNION ALL
+
+                  -- Posted supplier credit notes decrease AP (negative).
+                  SELECT
+                    scn.credit_date AS tx_date,
+                    scn.created_at AS ts,
+                    'credit_note'::text AS kind,
+                    scn.id AS doc_id,
+                    scn.credit_no AS ref,
+                    scn.kind AS memo,
+                    -scn.total_usd AS delta_usd,
+                    -scn.total_lbp AS delta_lbp
+                  FROM supplier_credit_notes scn
+                  WHERE scn.company_id=%s
+                    AND scn.status='posted'
+                    AND scn.supplier_id=%s
+                )
+            """
+
+            cur.execute(
+                tx_cte
+                + """
+                SELECT COALESCE(SUM(delta_usd), 0) AS opening_usd,
+                       COALESCE(SUM(delta_lbp), 0) AS opening_lbp
+                FROM tx
+                WHERE tx_date < %s
+                """,
+                (
+                    company_id,
+                    supplier_id,
+                    company_id,
+                    supplier_id,
+                    company_id,
+                    supplier_id,
+                    start_date,
+                ),
+            )
+            opening = cur.fetchone() or {"opening_usd": 0, "opening_lbp": 0}
+            opening_usd = Decimal(str(opening.get("opening_usd") or 0))
+            opening_lbp = Decimal(str(opening.get("opening_lbp") or 0))
+
+            cur.execute(
+                tx_cte
+                + """
+                SELECT tx_date, ts, kind, doc_id, ref, memo, delta_usd, delta_lbp
+                FROM tx
+                WHERE tx_date BETWEEN %s AND %s
+                ORDER BY tx_date ASC, ts ASC, kind ASC, doc_id ASC
+                """,
+                (
+                    company_id,
+                    supplier_id,
+                    company_id,
+                    supplier_id,
+                    company_id,
+                    supplier_id,
+                    start_date,
+                    end_date,
+                ),
+            )
+            rows = cur.fetchall()
+
+    bal_usd = opening_usd
+    bal_lbp = opening_lbp
+    out_rows = []
+    for r in rows:
+        du = Decimal(str(r.get("delta_usd") or 0))
+        dl = Decimal(str(r.get("delta_lbp") or 0))
+        bal_usd += du
+        bal_lbp += dl
+        out_rows.append(
+            {
+                "tx_date": r.get("tx_date"),
+                "ts": r.get("ts"),
+                "kind": r.get("kind"),
+                "doc_id": r.get("doc_id"),
+                "ref": r.get("ref"),
+                "memo": r.get("memo"),
+                "delta_usd": r.get("delta_usd"),
+                "delta_lbp": r.get("delta_lbp"),
+                "balance_usd": bal_usd,
+                "balance_lbp": bal_lbp,
+            }
+        )
+
+    if format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                "tx_date",
+                "kind",
+                "ref",
+                "memo",
+                "delta_usd",
+                "delta_lbp",
+                "balance_usd",
+                "balance_lbp",
+            ]
+        )
+        writer.writerow([start_date, "opening", "", "", opening_usd, opening_lbp, opening_usd, opening_lbp])
+        for r in out_rows:
+            writer.writerow(
+                [
+                    r["tx_date"],
+                    r["kind"],
+                    r["ref"],
+                    r["memo"],
+                    r["delta_usd"],
+                    r["delta_lbp"],
+                    r["balance_usd"],
+                    r["balance_lbp"],
+                ]
+            )
+        return Response(content=output.getvalue(), media_type="text/csv")
+
+    closing_usd = opening_usd + sum((Decimal(str(r.get("delta_usd") or 0)) for r in rows), Decimal("0"))
+    closing_lbp = opening_lbp + sum((Decimal(str(r.get("delta_lbp") or 0)) for r in rows), Decimal("0"))
+    return {
+        "supplier": sup,
+        "start_date": str(start_date),
+        "end_date": str(end_date),
+        "opening_usd": opening_usd,
+        "opening_lbp": opening_lbp,
+        "closing_usd": closing_usd,
+        "closing_lbp": closing_lbp,
+        "rows": out_rows,
+    }
+
+
 @router.get("/profit-loss", dependencies=[Depends(require_permission("reports:read"))])
 def profit_and_loss(
     start_date: Optional[date] = None,
