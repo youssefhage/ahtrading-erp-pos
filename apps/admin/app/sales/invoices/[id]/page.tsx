@@ -24,12 +24,12 @@ type InvoiceRow = {
   customer_id: string | null;
   customer_name?: string | null;
   status: string;
+  total_usd: string | number;
+  total_lbp: string | number;
   subtotal_usd?: string | number;
   subtotal_lbp?: string | number;
   discount_total_usd?: string | number;
   discount_total_lbp?: string | number;
-  total_usd: string | number;
-  total_lbp: string | number;
   exchange_rate: string | number;
   warehouse_id?: string | null;
   warehouse_name?: string | null;
@@ -392,18 +392,26 @@ function SalesInvoiceShowInner() {
                 </div>
                 <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                   <p className="text-xs text-fg-muted">Totals</p>
-                  <p className="text-sm data-mono text-foreground">
-                    Subtotal: {fmtUsd(detail.invoice.subtotal_usd || 0)} / {fmtLbp(detail.invoice.subtotal_lbp || 0)}
-                  </p>
-                  <p className="text-sm data-mono text-foreground">
-                    Discount: {fmtUsd(detail.invoice.discount_total_usd || 0)} / {fmtLbp(detail.invoice.discount_total_lbp || 0)}
-                  </p>
-                  <p className="text-sm data-mono text-foreground">
-                    Tax:{" "}
-                    {fmtUsd((detail.tax_lines || []).reduce((a, t) => a + Number(t.tax_usd || 0), 0))} /{" "}
-                    {fmtLbp((detail.tax_lines || []).reduce((a, t) => a + Number(t.tax_lbp || 0), 0))}
-                  </p>
-                  <p className="text-sm data-mono text-foreground">Total: {fmtUsd(detail.invoice.total_usd)} / {fmtLbp(detail.invoice.total_lbp)}</p>
+                  <div className="mt-1 space-y-1 text-xs text-fg-muted">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Subtotal</span>
+                      <span className="data-mono text-foreground">
+                        {fmtUsd(detail.invoice.subtotal_usd ?? detail.invoice.total_usd)} / {fmtLbp(detail.invoice.subtotal_lbp ?? detail.invoice.total_lbp)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Discount</span>
+                      <span className="data-mono text-foreground">
+                        {fmtUsd(detail.invoice.discount_total_usd ?? 0)} / {fmtLbp(detail.invoice.discount_total_lbp ?? 0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Total</span>
+                      <span className="data-mono text-foreground">
+                        {fmtUsd(detail.invoice.total_usd)} / {fmtLbp(detail.invoice.total_lbp)}
+                      </span>
+                    </div>
+                  </div>
                   {(() => {
                     const paidUsd = (detail.payments || []).reduce((a, p) => a + Number(p.amount_usd || 0), 0);
                     const paidLbp = (detail.payments || []).reduce((a, p) => a + Number(p.amount_lbp || 0), 0);

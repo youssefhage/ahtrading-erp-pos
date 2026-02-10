@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/empty-state";
 import { ViewRaw } from "@/components/view-raw";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -327,8 +328,13 @@ export default function PurchaseOrderViewPage() {
             </span>
           </div>
           {!canPost && order?.status === "draft" && lines.length === 0 ? (
-            <div className="mt-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
-              Add at least one line before posting.
+            <div className="mt-2">
+              <Banner
+                variant="warning"
+                size="sm"
+                title="Cannot post yet"
+                description="Add at least one line before posting."
+              />
             </div>
           ) : null}
         </CardContent>

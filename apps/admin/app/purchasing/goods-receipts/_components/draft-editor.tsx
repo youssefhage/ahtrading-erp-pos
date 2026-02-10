@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost, ApiError, getCompanyId } from "@/lib/api";
+import { getFxRateUsdToLbp } from "@/lib/fx";
 import { parseNumberInput } from "@/lib/numbers";
 import { getDefaultWarehouseId } from "@/lib/op-context";
 import { ErrorBanner } from "@/components/error-banner";
@@ -86,12 +87,14 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
     setLoading(true);
     setErr(null);
     try {
-      const [wRes, detailRes] = await Promise.all([
+      const [wRes, detailRes, fx] = await Promise.all([
         apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
         props.mode === "edit" && receiptId ? apiGet<ReceiptDetail>(`/purchases/receipts/${encodeURIComponent(receiptId)}`) : Promise.resolve(null),
+        getFxRateUsdToLbp(),
       ]);
       const whs = wRes.warehouses || [];
       setWarehouses(whs);
+      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 90000;
       const preferredWarehouseId = (() => {
         const cid = getCompanyId();
         const pref = getDefaultWarehouseId(cid);
@@ -106,7 +109,8 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
 
         const r = (detailRes as any).receipt as ReceiptRow;
         setWarehouseId(String(r.warehouse_id || preferredWarehouseId || (whs?.[0]?.id || "")));
-        setExchangeRate(String(r.exchange_rate || 0));
+        const ex = Number(r.exchange_rate || 0);
+        setExchangeRate(String(ex > 0 ? ex : defaultEx));
         setSupplierRef(String(r.supplier_ref || ""));
         setPurchaseOrderId(String(r.purchase_order_id || ""));
 
@@ -155,7 +159,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
       } else {
         setSelectedSupplier(null);
         setWarehouseId(String(preferredWarehouseId || (whs?.[0]?.id || "")));
-        setExchangeRate("90000");
+        setExchangeRate(String(defaultEx));
         setSupplierRef("");
         setPurchaseOrderId("");
         setLines([]);

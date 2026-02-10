@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { getFxRateUsdToLbp } from "@/lib/fx";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -78,6 +79,23 @@ export default function IntercompanyPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function prime() {
+      // Only prime if the user hasn't set anything yet.
+      const curr = Number(exchangeRate || 0);
+      if (Number.isFinite(curr) && curr > 0) return;
+      const r = await getFxRateUsdToLbp();
+      if (cancelled) return;
+      const n = Number(r?.usd_to_lbp || 0);
+      if (Number.isFinite(n) && n > 0) setExchangeRate(String(n));
+    }
+    prime().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [exchangeRate]);
 
   async function settle(e: React.FormEvent) {
     e.preventDefault();

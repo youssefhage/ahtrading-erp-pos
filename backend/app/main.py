@@ -39,13 +39,13 @@ from .routers.whatsapp import router as whatsapp_router
 from .routers.landed_costs import router as landed_costs_router
 from .routers.stock_transfers import router as stock_transfers_router
 from .routers.updates import router as updates_router
+from .routers.fx import router as fx_router
 from .config import settings
 from .routers.inventory_locations import router as inventory_locations_router
 from .routers.inventory_warehouses_locations import router as inventory_warehouses_locations_router
 from .routers.devtools import router as devtools_router
 from .routers.edge_sync import router as edge_sync_router
 from .routers.auth import router as auth_router
-from .config import settings
 from .deps import require_company_access
 from .db import get_admin_conn
 
@@ -166,6 +166,7 @@ app.include_router(accounting_router, dependencies=[Depends(require_company_acce
 app.include_router(banking_router, dependencies=[Depends(require_company_access)])
 app.include_router(pricing_router, dependencies=[Depends(require_company_access)])
 app.include_router(promotions_router, dependencies=[Depends(require_company_access)])
+app.include_router(fx_router, dependencies=[Depends(require_company_access)])
 app.include_router(telegram_router)
 app.include_router(whatsapp_router)
 app.include_router(updates_router)

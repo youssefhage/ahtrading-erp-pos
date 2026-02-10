@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
@@ -15,19 +15,23 @@ import { CustomerTypeahead, type CustomerTypeaheadCustomer } from "@/components/
 import { SearchableSelect } from "@/components/searchable-select";
 import { Page, PageHeader } from "@/components/page";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { getFxRateUsdToLbp } from "@/lib/fx";
 
 type Warehouse = { id: string; name: string };
+type UomConv = { uom_code: string; to_base_factor: string | number; is_active: boolean };
 
 type InvoiceLineDraft = {
   item_id: string;
   item_sku?: string | null;
   item_name?: string | null;
   unit_of_measure?: string | null;
+  // Entered UOM context (persisted on document lines).
+  uom?: string | null;
+  qty_factor?: string | null; // entered -> base multiplier
   qty: string;
-  unit_price_usd: string;
-  unit_price_lbp: string;
-  // Discount percent as 0..100 (UI-friendly). Saved to backend as 0..1.
-  discount_pct: string;
+  pre_unit_price_usd: string;
+  pre_unit_price_lbp: string;
+  discount_pct: string; // UI percent (e.g. "10" == 10%)
 };
 
 type InvoiceDetail = {
@@ -47,11 +51,16 @@ type InvoiceDetail = {
     item_name?: string | null;
     unit_of_measure?: string | null;
     qty: string | number;
+    uom?: string | null;
+    qty_factor?: string | number | null;
+    qty_entered?: string | number | null;
     unit_price_usd: string | number;
     unit_price_lbp: string | number;
-    pre_discount_unit_price_usd?: string | number | null;
-    pre_discount_unit_price_lbp?: string | number | null;
-    discount_pct?: string | number | null;
+    pre_discount_unit_price_usd?: string | number;
+    pre_discount_unit_price_lbp?: string | number;
+    discount_pct?: string | number; // fraction (0.10 == 10%)
+    discount_amount_usd?: string | number;
+    discount_amount_lbp?: string | number;
   }>;
 };
 
@@ -60,18 +69,49 @@ function toNum(v: string) {
   return r.ok ? r.value : 0;
 }
 
-function clampPct01(v: number) {
-  if (!Number.isFinite(v)) return 0;
-  if (v < 0) return 0;
-  if (v > 1) return 1;
-  return v;
+function clampPct(pct: number) {
+  if (!Number.isFinite(pct)) return 0;
+  return Math.max(0, Math.min(100, pct));
 }
 
-function parsePct100(v: string) {
-  const n = toNum(v);
-  if (!Number.isFinite(n) || n <= 0) return { pct100: 0, pct01: 0 };
-  const pct100 = Math.min(100, Math.max(0, n));
-  return { pct100, pct01: clampPct01(pct100 / 100) };
+function resolveLine(l: InvoiceLineDraft, exchangeRate: number) {
+  const qtyEntered = toNum(String(l.qty));
+  const qtyFactor = toNum(String(l.qty_factor || "1")) || 1;
+  const qtyBase = qtyEntered * qtyFactor;
+  let preUsd = toNum(String(l.pre_unit_price_usd));
+  let preLbp = toNum(String(l.pre_unit_price_lbp));
+  const discPctUi = clampPct(toNum(String(l.discount_pct)));
+  const discFrac = discPctUi / 100;
+
+  if (exchangeRate > 0) {
+    if (preUsd === 0 && preLbp > 0) preUsd = preLbp / exchangeRate;
+    if (preLbp === 0 && preUsd > 0) preLbp = preUsd * exchangeRate;
+  }
+
+  const netUsd = preUsd * (1 - discFrac);
+  const netLbp = preLbp * (1 - discFrac);
+
+  const totalUsd = qtyBase * netUsd;
+  const totalLbp = qtyBase * netLbp;
+
+  const discountUsd = Math.max(0, qtyBase * (preUsd - netUsd));
+  const discountLbp = Math.max(0, qtyBase * (preLbp - netLbp));
+
+  return {
+    qtyEntered,
+    qtyFactor,
+    qtyBase,
+    preUsd,
+    preLbp,
+    discPctUi,
+    discFrac,
+    netUsd,
+    netLbp,
+    totalUsd,
+    totalLbp,
+    discountUsd,
+    discountLbp,
+  };
 }
 
 function todayIso() {
@@ -104,23 +144,68 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [exchangeRate, setExchangeRate] = useState("0");
 
   const [lines, setLines] = useState<InvoiceLineDraft[]>([]);
+  const [invoiceDiscountPct, setInvoiceDiscountPct] = useState("0");
+  const [uomConvByItem, setUomConvByItem] = useState<Record<string, UomConv[]>>({});
 
   const [addItem, setAddItem] = useState<ItemTypeaheadItem | null>(null);
   const [addQty, setAddQty] = useState("1");
   const [addUsd, setAddUsd] = useState("");
   const [addLbp, setAddLbp] = useState("");
-  const [addDisc, setAddDisc] = useState("0");
-
-  const [bulkDisc, setBulkDisc] = useState("");
+  const [addDiscPct, setAddDiscPct] = useState("0");
 
   const addQtyRef = useRef<HTMLInputElement | null>(null);
+
+  const ensureUomConversions = useCallback(async (itemIds: string[]) => {
+    const ids = Array.from(new Set((itemIds || []).map((x) => String(x || "").trim()).filter(Boolean)));
+    if (!ids.length) return;
+    try {
+      const res = await apiPost<{ conversions: Record<string, UomConv[]> }>("/items/uom-conversions/lookup", { item_ids: ids });
+      setUomConvByItem((prev) => ({ ...prev, ...(res.conversions || {}) }));
+    } catch {
+      // Non-blocking: the editor still works in base UOM without this lookup.
+    }
+  }, []);
+
+  const totals = useMemo(() => {
+    const ex = toNum(exchangeRate);
+    let subtotalUsd = 0;
+    let subtotalLbp = 0;
+    let discountUsd = 0;
+    let discountLbp = 0;
+    for (const l of lines || []) {
+      const r = resolveLine(l, ex);
+      subtotalUsd += r.totalUsd;
+      subtotalLbp += r.totalLbp;
+      discountUsd += r.discountUsd;
+      discountLbp += r.discountLbp;
+    }
+    return {
+      subtotalUsd,
+      subtotalLbp,
+      discountUsd,
+      discountLbp,
+      totalUsd: subtotalUsd,
+      totalLbp: subtotalLbp,
+    };
+  }, [lines, exchangeRate]);
+
+  function applyInvoiceDiscountToAllLines() {
+    const pct = clampPct(toNum(invoiceDiscountPct));
+    setInvoiceDiscountPct(String(pct));
+    setAddDiscPct(String(pct));
+    setLines((prev) => prev.map((l) => ({ ...l, discount_pct: String(pct) })));
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
     setStatus("Loading...");
     try {
-      const [wh] = await Promise.all([apiGet<{ warehouses: Warehouse[] }>("/warehouses")]);
+      const [wh, fx] = await Promise.all([
+        apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
+        getFxRateUsdToLbp(),
+      ]);
       setWarehouses(wh.warehouses || []);
+      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 90000;
 
       const firstWhId = (wh.warehouses || [])[0]?.id || "";
       const preferredWhId = (() => {
@@ -143,6 +228,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
             })
           : { items: [] };
         const byId = new Map((look.items || []).map((it) => [it.id, it]));
+        await ensureUomConversions(uniq);
 
         setCustomerId(det.invoice.customer_id || "");
         if (det.invoice.customer_id) {
@@ -162,19 +248,41 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         setAutoDueDate(false);
         setDueDate(String(det.invoice.due_date || det.invoice.invoice_date || todayIso()).slice(0, 10));
         setReserveStock(Boolean(det.invoice.reserve_stock));
-        setExchangeRate(String(det.invoice.exchange_rate || 0));
-        setLines(
-          (det.lines || []).map((l) => ({
+        const invEx = Number(det.invoice.exchange_rate || 0);
+        setExchangeRate(String(invEx > 0 ? invEx : defaultEx));
+        const mapped = (det.lines || []).map((l) => {
+          const qtyEntered = Number((l as any).qty_entered ?? l.qty ?? 0);
+          const uom = String((l as any).uom || (l as any).unit_of_measure || byId.get(l.item_id)?.unit_of_measure || "").trim() || null;
+          const qtyFactor = Number((l as any).qty_factor || 1) || 1;
+          const unitUsd = Number(l.unit_price_usd || 0);
+          const unitLbp = Number(l.unit_price_lbp || 0);
+          const preUsd = Number((l as any).pre_discount_unit_price_usd || 0);
+          const preLbp = Number((l as any).pre_discount_unit_price_lbp || 0);
+          const discFrac = Number((l as any).discount_pct || 0);
+          let discPctUi = discFrac > 0 ? discFrac * 100 : 0;
+          if (discPctUi === 0) {
+            if (preUsd > 0 && unitUsd >= 0 && preUsd !== unitUsd) discPctUi = (1 - unitUsd / preUsd) * 100;
+            else if (preLbp > 0 && unitLbp >= 0 && preLbp !== unitLbp) discPctUi = (1 - unitLbp / preLbp) * 100;
+          }
+          discPctUi = clampPct(discPctUi);
+
+          return {
             item_id: l.item_id,
             item_sku: (l as any).item_sku || byId.get(l.item_id)?.sku || null,
             item_name: (l as any).item_name || byId.get(l.item_id)?.name || null,
             unit_of_measure: (l as any).unit_of_measure || byId.get(l.item_id)?.unit_of_measure || null,
-            qty: String(l.qty || 0),
-            unit_price_usd: String((l as any).pre_discount_unit_price_usd ?? l.unit_price_usd ?? 0),
-            unit_price_lbp: String((l as any).pre_discount_unit_price_lbp ?? l.unit_price_lbp ?? 0),
-            discount_pct: String(Math.round(Number((l as any).discount_pct || 0) * 10000) / 100)
-          }))
-        );
+            uom,
+            qty_factor: String(qtyFactor),
+            qty: String(qtyEntered || 0),
+            pre_unit_price_usd: String(preUsd > 0 ? preUsd : unitUsd || 0),
+            pre_unit_price_lbp: String(preLbp > 0 ? preLbp : unitLbp || 0),
+            discount_pct: discPctUi ? String(discPctUi) : "0",
+          } satisfies InvoiceLineDraft;
+        });
+        setLines(mapped);
+
+        const uniqDisc = Array.from(new Set(mapped.map((x) => clampPct(toNum(x.discount_pct))).filter((n) => n > 0)));
+        setInvoiceDiscountPct(uniqDisc.length === 1 ? String(uniqDisc[0]) : "0");
       } else {
         setCustomerId("");
         setSelectedCustomer(null);
@@ -182,8 +290,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         setAutoDueDate(true);
         setDueDate(todayIso());
         setReserveStock(false);
-        setExchangeRate("0");
+        setExchangeRate(String(defaultEx));
         setLines([]);
+        setInvoiceDiscountPct("0");
       }
 
       setStatus("");
@@ -193,7 +302,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     } finally {
       setLoading(false);
     }
-  }, [props.mode, props.invoiceId]);
+  }, [props.mode, props.invoiceId, ensureUomConversions]);
 
   useEffect(() => {
     load();
@@ -209,7 +318,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 
   function onPickItem(it: ItemTypeaheadItem) {
     setAddItem(it);
+    // Best-effort preload conversions so the line UOM selector is ready.
+    ensureUomConversions([it.id]);
     setAddQty("1");
+    setAddDiscPct(invoiceDiscountPct || "0");
 
     const usd = toNum(String((it as any).price_usd ?? ""));
     const lbp = toNum(String((it as any).price_lbp ?? ""));
@@ -240,18 +352,38 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         item_sku: addItem.sku,
         item_name: addItem.name,
         unit_of_measure: addItem.unit_of_measure ?? null,
+        uom: addItem.unit_of_measure ?? null,
+        qty_factor: "1",
         qty: String(q),
-        unit_price_usd: String(unitUsd),
-        unit_price_lbp: String(unitLbp),
-        discount_pct: String(parsePct100(addDisc).pct100 || 0)
+        pre_unit_price_usd: String(unitUsd),
+        pre_unit_price_lbp: String(unitLbp),
+        discount_pct: addDiscPct || "0"
       }
     ]);
     setAddItem(null);
     setAddQty("1");
     setAddUsd("");
     setAddLbp("");
-    setAddDisc("0");
+    setAddDiscPct(invoiceDiscountPct || "0");
     setStatus("");
+  }
+
+  function patchLine(idx: number, patch: Partial<InvoiceLineDraft>) {
+    setLines((prev) =>
+      prev.map((l, i) => {
+        if (i !== idx) return l;
+        const out: InvoiceLineDraft = { ...l, ...patch } as InvoiceLineDraft;
+        const ex = toNum(exchangeRate);
+        if (ex > 0) {
+          const usd = toNum(out.pre_unit_price_usd);
+          const lbp = toNum(out.pre_unit_price_lbp);
+          if (patch.pre_unit_price_usd !== undefined && usd > 0 && lbp === 0) out.pre_unit_price_lbp = String(usd * ex);
+          if (patch.pre_unit_price_lbp !== undefined && lbp > 0 && usd === 0) out.pre_unit_price_usd = String(lbp / ex);
+        }
+        if (patch.discount_pct !== undefined) out.discount_pct = String(clampPct(toNum(out.discount_pct)));
+        return out;
+      })
+    );
   }
 
   async function save(e?: React.FormEvent) {
@@ -264,55 +396,66 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 
     const linesOut: Array<{
       item_id: string;
-      qty: number;
+      qty: number; // base qty
       uom?: string | null;
-      qty_factor?: number;
-      qty_entered?: number;
-      unit_price_usd: number;
+      qty_factor?: number | null;
+      qty_entered?: number | null;
+      unit_price_usd: number; // per base UOM
       unit_price_lbp: number;
-      pre_discount_unit_price_usd?: number;
-      pre_discount_unit_price_lbp?: number;
-      discount_pct?: number;
-      discount_amount_usd?: number;
-      discount_amount_lbp?: number;
+      unit_price_entered_usd?: number | null; // per entered UOM
+      unit_price_entered_lbp?: number | null;
+      pre_discount_unit_price_usd: number;
+      pre_discount_unit_price_lbp: number;
+      discount_pct: number; // fraction (0.10 == 10%)
     }> = [];
     for (let i = 0; i < (lines || []).length; i++) {
       const l = lines[i];
       const qtyRes = parseNumberInput(l.qty);
-      const usdRes = parseNumberInput(l.unit_price_usd);
-      const lbpRes = parseNumberInput(l.unit_price_lbp);
+      const usdRes = parseNumberInput(l.pre_unit_price_usd);
+      const lbpRes = parseNumberInput(l.pre_unit_price_lbp);
       const discRes = parseNumberInput(l.discount_pct);
       if (!qtyRes.ok && qtyRes.reason === "invalid") return setStatus(`Invalid qty on line ${i + 1}.`);
       if (!usdRes.ok && usdRes.reason === "invalid") return setStatus(`Invalid unit USD on line ${i + 1}.`);
       if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid unit LL on line ${i + 1}.`);
       if (!discRes.ok && discRes.reason === "invalid") return setStatus(`Invalid discount % on line ${i + 1}.`);
-      const qty = qtyRes.ok ? qtyRes.value : 0;
+      const qtyEntered = qtyRes.ok ? qtyRes.value : 0;
       let preUsd = usdRes.ok ? usdRes.value : 0;
       let preLbp = lbpRes.ok ? lbpRes.value : 0;
-      const disc = parsePct100(String(discRes.ok ? discRes.value : 0));
-      if (qty <= 0) return setStatus(`Qty must be > 0 (line ${i + 1}).`);
-      if (preUsd === 0 && preLbp === 0) return setStatus(`Set USD or LL unit price (line ${i + 1}).`);
+      const discPctUi = clampPct(discRes.ok ? discRes.value : 0);
+      const discFrac = discPctUi / 100;
+      if (qtyEntered <= 0) return setStatus(`Qty must be > 0 (line ${i + 1}).`);
+
+      const uom = String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || null;
+      const qtyFactor = toNum(String(l.qty_factor || "1")) || 1;
+      if (qtyFactor <= 0) return setStatus(`qty_factor must be > 0 (line ${i + 1}).`);
+      const qtyBase = qtyEntered * qtyFactor;
+
       if (ex > 0) {
         if (preUsd === 0 && preLbp > 0) preUsd = preLbp / ex;
         if (preLbp === 0 && preUsd > 0) preLbp = preUsd * ex;
       }
-      const netUsd = preUsd * (1 - disc.pct01);
-      const netLbp = preLbp * (1 - disc.pct01);
-      const discAmtUsd = (preUsd - netUsd) * qty;
-      const discAmtLbp = (preLbp - netLbp) * qty;
+      if (preUsd === 0 && preLbp === 0) return setStatus(`Set USD or LL unit price (line ${i + 1}).`);
+
+      let netUsd = preUsd * (1 - discFrac);
+      let netLbp = preLbp * (1 - discFrac);
+      if (ex > 0) {
+        if (netUsd === 0 && netLbp > 0) netUsd = netLbp / ex;
+        if (netLbp === 0 && netUsd > 0) netLbp = netUsd * ex;
+      }
+
       linesOut.push({
         item_id: l.item_id,
-        qty,
-        uom: l.unit_of_measure || undefined,
-        qty_factor: 1,
-        qty_entered: qty,
+        qty: qtyBase,
+        uom,
+        qty_factor: qtyFactor,
+        qty_entered: qtyEntered,
         unit_price_usd: netUsd,
         unit_price_lbp: netLbp,
+        unit_price_entered_usd: netUsd * qtyFactor,
+        unit_price_entered_lbp: netLbp * qtyFactor,
         pre_discount_unit_price_usd: preUsd,
         pre_discount_unit_price_lbp: preLbp,
-        discount_pct: disc.pct01,
-        discount_amount_usd: discAmtUsd,
-        discount_amount_lbp: discAmtLbp
+        discount_pct: discFrac
       });
     }
 
@@ -450,15 +593,29 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
               </div>
             </div>
 
-            <Card>
-              <CardHeader>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <CardTitle className="text-base">Lines</CardTitle>
-                    <CardDescription>Add items, then Post when ready.</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
+	            <Card>
+	              <CardHeader>
+	                <div className="flex flex-wrap items-start justify-between gap-2">
+	                  <div>
+	                    <CardTitle className="text-base">Lines</CardTitle>
+	                    <CardDescription>Add items, then Post when ready.</CardDescription>
+	                  </div>
+	                  <div className="flex flex-wrap items-end justify-end gap-2">
+	                    <div className="space-y-1">
+	                      <label className="text-[11px] font-medium text-fg-muted">Invoice Disc%</label>
+	                      <Input
+	                        value={invoiceDiscountPct}
+	                        onChange={(e) => setInvoiceDiscountPct(e.target.value)}
+	                        placeholder="0"
+	                        className="h-8 w-28 text-right font-mono text-xs"
+	                      />
+	                    </div>
+	                    <Button type="button" size="sm" variant="outline" onClick={applyInvoiceDiscountToAllLines} disabled={loading}>
+	                      Apply to Lines
+	                    </Button>
+	                  </div>
+	                </div>
+	              </CardHeader>
               <CardContent className="space-y-3">
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
                   <div className="space-y-1 md:col-span-5">
@@ -498,88 +655,80 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                   </div>
                   <div className="space-y-1 md:col-span-1">
                     <label className="text-xs font-medium text-fg-muted">Disc%</label>
-                    <Input value={addDisc} onChange={(e) => setAddDisc(e.target.value)} placeholder="0" />
+                    <Input value={addDiscPct} onChange={(e) => setAddDiscPct(e.target.value)} placeholder="0" />
                   </div>
                   <div className="md:col-span-12 flex justify-end gap-2">
                     <Button type="submit" variant="outline" disabled={loading}>
                       Add Line
                     </Button>
                   </div>
-                </form>
+	                </form>
 
-                <div className="ui-table-wrap">
-                  <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
-                    <div className="text-[11px] text-fg-subtle">
-                      {(() => {
-                        let subtotalUsd = 0;
-                        let subtotalLbp = 0;
-                        let discUsd = 0;
-                        let discLbp = 0;
-                        for (const ln of lines || []) {
-                          const qty = toNum(String(ln.qty || 0));
-                          const preUsd = toNum(String(ln.unit_price_usd || 0));
-                          const preLbp = toNum(String(ln.unit_price_lbp || 0));
-                          const d = parsePct100(String(ln.discount_pct || 0));
-                          subtotalUsd += qty * preUsd;
-                          subtotalLbp += qty * preLbp;
-                          discUsd += qty * preUsd * d.pct01;
-                          discLbp += qty * preLbp * d.pct01;
-                        }
-                        const totalUsd = subtotalUsd - discUsd;
-                        const totalLbp = subtotalLbp - discLbp;
-                        return (
-                          <>
-                            Subtotal {subtotalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} USD ·{" "}
-                            {subtotalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL{" "}
-                            <span className="px-1">·</span> Discount {discUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} USD ·{" "}
-                            {discLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL{" "}
-                            <span className="px-1">·</span> Total {totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} USD ·{" "}
-                            {totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL
-                          </>
-                        );
-                      })()}
-                    </div>
-                    <div className="flex items-end gap-2">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Invoice Disc%</label>
-                        <Input value={bulkDisc} onChange={(e) => setBulkDisc(e.target.value)} placeholder="0" className="w-24" />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          const d = parsePct100(bulkDisc);
-                          setLines((prev) => prev.map((x) => ({ ...x, discount_pct: String(d.pct100 || 0) })));
-                        }}
-                        disabled={loading || saving || lines.length === 0}
-                      >
-                        Apply
-                      </Button>
-                    </div>
-                  </div>
+	                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+	                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-xs text-fg-muted">
+	                    <div className="flex items-center justify-between gap-2">
+	                      <span>Subtotal</span>
+	                      <span className="font-mono text-foreground">
+	                        {totals.subtotalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} /{" "}
+	                        {totals.subtotalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+	                      </span>
+	                    </div>
+	                  </div>
+	                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-xs text-fg-muted">
+	                    <div className="flex items-center justify-between gap-2">
+	                      <span>Discount</span>
+	                      <span className="font-mono text-foreground">
+	                        {totals.discountUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} /{" "}
+	                        {totals.discountLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+	                      </span>
+	                    </div>
+	                  </div>
+	                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-xs text-fg-muted">
+	                    <div className="flex items-center justify-between gap-2">
+	                      <span>Total</span>
+	                      <span className="font-mono text-foreground">
+	                        {totals.totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} /{" "}
+	                        {totals.totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+	                      </span>
+	                    </div>
+	                  </div>
+	                </div>
+
+	                <div className="ui-table-wrap">
                   <table className="ui-table">
                     <thead className="ui-thead">
-                      <tr>
-                        <th className="px-3 py-2">Item</th>
-                        <th className="px-3 py-2 text-right">Qty</th>
-                        <th className="px-3 py-2 text-right">Unit USD</th>
-                        <th className="px-3 py-2 text-right">Unit LL</th>
-                        <th className="px-3 py-2 text-right">Disc%</th>
-                        <th className="px-3 py-2 text-right">Total USD</th>
-                        <th className="px-3 py-2 text-right">Total LL</th>
-                        <th className="px-3 py-2 text-right">Actions</th>
-                      </tr>
+	                      <tr>
+	                        <th className="px-3 py-2">Item</th>
+	                        <th className="px-3 py-2 text-right">Qty (Entered)</th>
+	                        <th className="px-3 py-2">UOM</th>
+	                        <th className="px-3 py-2 text-right">Unit USD</th>
+	                        <th className="px-3 py-2 text-right">Unit LL</th>
+	                        <th className="px-3 py-2 text-right">Disc%</th>
+	                        <th className="px-3 py-2 text-right">Net USD</th>
+	                        <th className="px-3 py-2 text-right">Net LL</th>
+	                        <th className="px-3 py-2 text-right">Actions</th>
+	                      </tr>
                     </thead>
                     <tbody>
-                      {lines.map((l, idx) => {
-                        const qty = toNum(String(l.qty));
-                        const unitUsd = toNum(String(l.unit_price_usd));
-                        const unitLbp = toNum(String(l.unit_price_lbp));
-                        const d = parsePct100(String(l.discount_pct || 0));
-                        const netUsd = unitUsd * (1 - d.pct01);
-                        const netLbp = unitLbp * (1 - d.pct01);
-                        return (
-                          <tr key={`${l.item_id}-${idx}`} className="ui-tr-hover">
+	                      {lines.map((l, idx) => {
+	                        const r = resolveLine(l, toNum(exchangeRate));
+	                        const convs = uomConvByItem[l.item_id] || [];
+	                        const uomOpts = (() => {
+	                          const seen = new Set<string>();
+	                          const out: Array<{ value: string; label: string }> = [];
+	                          for (const c of convs || []) {
+	                            if (!c?.is_active) continue;
+	                            const u = String(c.uom_code || "").trim().toUpperCase();
+	                            if (!u || seen.has(u)) continue;
+	                            seen.add(u);
+	                            out.push({ value: u, label: u });
+	                          }
+	                          const base = String(l.unit_of_measure || "").trim().toUpperCase();
+	                          if (base && !seen.has(base)) out.unshift({ value: base, label: `${base} (base)` });
+	                          return out.length ? out : base ? [{ value: base, label: base }] : [];
+	                        })();
+	                        return (
+	                          <tr key={`${l.item_id}-${idx}`} className="ui-tr-hover">
                             <td className="px-3 py-2">
                               <ShortcutLink
                                 href={`/catalog/items/${encodeURIComponent(l.item_id)}`}
@@ -589,32 +738,64 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                                 {l.item_name ? <span> · {l.item_name}</span> : null}
                               </ShortcutLink>
                             </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
-                              {qty.toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
-                              {l.unit_of_measure ? <span className="text-[10px] text-fg-subtle">{l.unit_of_measure}</span> : null}
+	                            <td className="px-3 py-2 text-right">
+	                              <div className="flex items-center justify-end gap-2">
+	                                <Input
+	                                  value={l.qty}
+	                                  onChange={(e) => patchLine(idx, { qty: e.target.value })}
+	                                  className="h-8 w-24 text-right font-mono text-xs"
+	                                />
+	                              </div>
+	                            </td>
+	                            <td className="px-3 py-2">
+	                              <div className="flex items-center gap-2">
+	                                <div className="min-w-[8rem]">
+	                                  <SearchableSelect
+	                                    value={String(l.uom || l.unit_of_measure || "").trim().toUpperCase()}
+	                                    onChange={(v) => {
+	                                      const u = String(v || "").trim().toUpperCase();
+	                                      const hit = (convs || []).find((c) => String(c.uom_code || "").trim().toUpperCase() === u);
+	                                      const f = hit ? Number(hit.to_base_factor || 1) : 1;
+	                                      patchLine(idx, { uom: u, qty_factor: String(f > 0 ? f : 1) });
+	                                    }}
+	                                    disabled={loading}
+	                                    placeholder="UOM..."
+	                                    searchPlaceholder="Search UOM..."
+	                                    options={uomOpts}
+	                                  />
+	                                </div>
+	                                <span className="text-[10px] text-fg-subtle font-mono">x{r.qtyFactor}</span>
+	                              </div>
+	                            </td>
+	                            <td className="px-3 py-2 text-right">
+	                              <Input
+	                                value={l.pre_unit_price_usd}
+	                                onChange={(e) => patchLine(idx, { pre_unit_price_usd: e.target.value })}
+	                                placeholder="0.00"
+                                className="h-8 w-28 text-right font-mono text-xs"
+                              />
                             </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
-                              {unitUsd.toLocaleString("en-US", { maximumFractionDigits: 4 })}
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
-                              {unitLbp.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                            <td className="px-3 py-2 text-right">
+                              <Input
+                                value={l.pre_unit_price_lbp}
+                                onChange={(e) => patchLine(idx, { pre_unit_price_lbp: e.target.value })}
+                                placeholder="0"
+                                className="h-8 w-28 text-right font-mono text-xs"
+                              />
                             </td>
                             <td className="px-3 py-2 text-right">
                               <Input
                                 value={l.discount_pct}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  setLines((prev) => prev.map((x, i) => (i === idx ? { ...x, discount_pct: v } : x)));
-                                }}
-                                className="h-8 w-20 text-right font-mono text-xs"
+                                onChange={(e) => patchLine(idx, { discount_pct: e.target.value })}
                                 placeholder="0"
+                                className="h-8 w-20 text-right font-mono text-xs"
                               />
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
-                              {(qty * netUsd).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                              {r.totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
-                              {(qty * netLbp).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                              {r.totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                             </td>
                             <td className="px-3 py-2 text-right">
                               <div className="flex justify-end gap-2">
@@ -631,13 +812,13 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                           </tr>
                         );
                       })}
-                      {lines.length === 0 ? (
-                        <tr>
-                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
-                            No lines yet.
-                          </td>
-                        </tr>
-                      ) : null}
+	                      {lines.length === 0 ? (
+	                        <tr>
+	                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={9}>
+	                            No lines yet.
+	                          </td>
+	                        </tr>
+	                      ) : null}
                     </tbody>
                   </table>
                 </div>

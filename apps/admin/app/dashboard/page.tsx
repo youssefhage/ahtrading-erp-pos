@@ -18,8 +18,12 @@ import {
 } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
+import { getFxRateUsdToLbp, upsertFxRateUsdToLbp } from "@/lib/fx";
+import { cn } from "@/lib/utils";
+import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type Metrics = {
@@ -190,8 +194,6 @@ function StatusIndicator({
   );
 }
 
-import { cn } from "@/lib/utils";
-
 export default function DashboardPage() {
   const router = useRouter();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -199,9 +201,24 @@ export default function DashboardPage() {
   const [status, setStatus] = useState<string>("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [fxLoading, setFxLoading] = useState(true);
+  const [usdToLbp, setUsdToLbp] = useState("90000");
+  const [savingFx, setSavingFx] = useState(false);
+  const [fxStatus, setFxStatus] = useState("");
 
   function aiCount(agentCode: string) {
     return Number(aiSummary[agentCode] || 0);
+  }
+
+  async function loadFx() {
+    setFxLoading(true);
+    try {
+      const r = await getFxRateUsdToLbp();
+      const n = Number(r?.usd_to_lbp || 0);
+      if (Number.isFinite(n) && n > 0) setUsdToLbp(String(n));
+    } finally {
+      setFxLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -233,6 +250,10 @@ export default function DashboardPage() {
     run();
   }, []);
 
+  useEffect(() => {
+    loadFx();
+  }, []);
+
   async function refresh() {
     setRefreshing(true);
     try {
@@ -257,6 +278,13 @@ export default function DashboardPage() {
       setStatus(message);
     } finally {
       setRefreshing(false);
+    }
+
+    // Best-effort: keep the rate card in sync on manual refresh.
+    try {
+      await loadFx();
+    } catch {
+      // ignore
     }
   }
 
@@ -294,19 +322,90 @@ export default function DashboardPage() {
 
       {/* Error State */}
       {status && status !== "Loading..." && (
-        <Card className="border-danger/30 bg-danger/10">
-          <CardContent className="flex items-center gap-3 py-4">
-            <AlertTriangle className="h-5 w-5 text-danger" />
-            <div>
-              <p className="text-sm font-medium text-danger">Error loading metrics</p>
-              <p className="text-xs text-danger/70">{status}</p>
-            </div>
-          </CardContent>
-        </Card>
+        <Banner
+          variant="danger"
+          title="Error loading metrics"
+          description={status}
+          actions={
+            <Button variant="secondary" size="sm" onClick={refresh} disabled={refreshing} className="gap-2">
+              <RefreshCw className={refreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              Retry
+            </Button>
+          }
+        />
       )}
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Card className="transition-all duration-200 hover:border-border-strong hover:bg-bg-sunken/60">
+          <CardHeader className="pb-2">
+            <div className="flex items-start justify-between">
+              <div className="flex flex-col gap-1">
+                <CardTitle className="text-sm font-medium text-fg-muted">USD to LL Rate</CardTitle>
+                <CardDescription className="text-xs">Default exchange rate used across drafts</CardDescription>
+              </div>
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-sunken text-fg-muted">
+                <DollarSign className="h-4 w-4" />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {fxLoading ? (
+              <>
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-8 w-full" />
+              </>
+            ) : (
+              <>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <label className="text-[11px] font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
+                    <Input value={usdToLbp} onChange={(e) => setUsdToLbp(e.target.value)} inputMode="decimal" />
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="h-9"
+                    disabled={savingFx}
+                    onClick={async () => {
+                      const n = Number(usdToLbp || 0);
+                      if (!Number.isFinite(n) || n <= 0) {
+                        setFxStatus("Rate must be > 0");
+                        return;
+                      }
+                      setSavingFx(true);
+                      setFxStatus("");
+                      try {
+                        await upsertFxRateUsdToLbp({ usdToLbp: n });
+                        setFxStatus("Saved");
+                      } catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        setFxStatus(msg);
+                      } finally {
+                        setSavingFx(false);
+                        window.setTimeout(() => setFxStatus(""), 2500);
+                      }
+                    }}
+                  >
+                    {savingFx ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px]">
+                  <button
+                    type="button"
+                    className="ui-link text-[11px]"
+                    onClick={() => router.push("/system/config")}
+                    title="Open Admin -> Config -> Exchange Rates"
+                  >
+                    Manage exchange rates
+                  </button>
+                  {fxStatus ? <span className="text-fg-subtle">{fxStatus}</span> : <span />}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
         <MetricCard
           title="Today's Sales"
           description="USD revenue today"

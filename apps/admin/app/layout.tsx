@@ -30,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Script
           id="admin-theme-init"
           strategy="beforeInteractive"
-        >{`(function(){try{var t=localStorage.getItem('admin.colorTheme');if(!t){t='light';}var d=document.documentElement;if(t==='dark'){d.classList.add('dark');}else{d.classList.remove('dark');}}catch(e){}})();`}</Script>
+        >{`(function(){try{var ct=localStorage.getItem('admin.colorTheme');if(!ct){ct='light';}var at=localStorage.getItem('admin.accentTheme');if(!at){at='sky';}var d=document.documentElement;if(ct==='dark'){d.classList.add('dark');}else{d.classList.remove('dark');}try{var cls=Array.prototype.slice.call(d.classList);for(var i=0;i<cls.length;i++){if(String(cls[i]||'').indexOf('theme-')===0){d.classList.remove(cls[i]);}}}catch(e2){}d.classList.add('theme-'+at);}catch(e){}})();`}</Script>
       </head>
       <body className="font-sans antialiased">
         <ToastProvider>

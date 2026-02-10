@@ -122,6 +122,30 @@ function toNum(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function normQtyFactor(v) {
+  const f = Number(v);
+  return Number.isFinite(f) && f > 0 ? f : 1;
+}
+
+function normUom(v) {
+  const u = String(v || "").trim().toUpperCase();
+  return u ? u : null;
+}
+
+function qtyEnteredOf(line) {
+  if (!line) return 0;
+  if (line.qty_entered != null) return toNum(line.qty_entered);
+  const qb = toNum(line.qty ?? 0);
+  const qf = normQtyFactor(line.qty_factor ?? 1);
+  return qf ? qb / qf : qb;
+}
+
+function qtyBaseOf(line) {
+  if (!line) return 0;
+  if (line.qty_entered != null) return qtyEnteredOf(line) * normQtyFactor(line.qty_factor ?? 1);
+  return toNum(line.qty ?? 0);
+}
+
 function getRate() {
   return toNum(state.config?.exchange_rate || 0);
 }
@@ -154,8 +178,8 @@ function cartKey(itemId, batchNo, expiryDate, uom, qtyFactor) {
   const bn = (batchNo || "").trim();
   const ex = (expiryDate || "").trim();
   const u = (uom || "").trim().toUpperCase();
-  const f = Number(qtyFactor || 1);
-  return `${String(itemId || "")}|${bn}|${ex}|${u}|${Number.isFinite(f) ? f : 1}`;
+  const f = normQtyFactor(qtyFactor);
+  return `${String(itemId || "")}|${bn}|${ex}|${u}|${f}`;
 }
 
 function escapeHtml(s) {
@@ -188,7 +212,7 @@ function computeTotals() {
   const legacyVatRate = Number(state.config?.vat_rate || 0);
 
   for (const i of state.cart) {
-    const qtyBase = Number(i.qty || 0);
+    const qtyBase = qtyBaseOf(i);
     const lineUsd = Number(i.price_usd || 0) * qtyBase;
     let lineLbp = Number(i.price_lbp || 0) * qtyBase;
     if (!lineLbp && fxRate) lineLbp = lineUsd * fxRate;
@@ -366,9 +390,11 @@ function computeUnitPricesWithPromo(line) {
   const rate = getRate();
   const baseUsd = toNum(line.base_price_usd ?? line.price_usd ?? 0);
   const baseLbp = toNum(line.base_price_lbp ?? line.price_lbp ?? 0);
-  const qty = toNum(line.qty || 0);
+  const qtyEntered = toNum(line.qty_entered ?? line.qty ?? 0);
+  const qtyFactor = toNum(line.qty_factor || 1);
+  const qtyBase = qtyEntered * qtyFactor;
 
-  const picked = bestPromoRule(line.id, qty);
+  const picked = bestPromoRule(line.id, qtyBase);
   if (!picked) {
     return {
       price_usd: baseUsd,
@@ -379,7 +405,9 @@ function computeUnitPricesWithPromo(line) {
       applied_promotion_item_id: null,
       pre_discount_unit_price_usd: baseUsd,
       pre_discount_unit_price_lbp: baseLbp,
-      discount_pct: 0
+      discount_pct: 0,
+      discount_amount_usd: 0,
+      discount_amount_lbp: 0
     };
   }
 
@@ -388,6 +416,7 @@ function computeUnitPricesWithPromo(line) {
 
   let usd = baseUsd;
   let lbp = baseLbp;
+  let discFrac = 0;
 
   const promoUsd = toNum(rule.promo_price_usd || 0);
   const promoLbp = toNum(rule.promo_price_lbp || 0);
@@ -396,9 +425,13 @@ function computeUnitPricesWithPromo(line) {
   if (promoUsd > 0 || promoLbp > 0) {
     usd = promoUsd > 0 ? promoUsd : (rate ? promoLbp / rate : 0);
     lbp = promoLbp > 0 ? promoLbp : (rate ? promoUsd * rate : 0);
+    if (baseUsd > 0 && usd >= 0) discFrac = Math.max(0, Math.min(1, (baseUsd - usd) / baseUsd));
+    else if (baseLbp > 0 && lbp >= 0) discFrac = Math.max(0, Math.min(1, (baseLbp - lbp) / baseLbp));
   } else if (disc > 0) {
-    usd = baseUsd * (1 - disc);
-    lbp = baseLbp ? baseLbp * (1 - disc) : (rate ? usd * rate : 0);
+    const d = disc > 1 ? (disc / 100) : disc;
+    discFrac = Math.max(0, Math.min(1, d));
+    usd = baseUsd * (1 - discFrac);
+    lbp = baseLbp ? baseLbp * (1 - discFrac) : (rate ? usd * rate : 0);
   }
 
   return {
@@ -410,7 +443,9 @@ function computeUnitPricesWithPromo(line) {
     applied_promotion_item_id: rule.id || null,
     pre_discount_unit_price_usd: baseUsd,
     pre_discount_unit_price_lbp: baseLbp,
-    discount_pct: disc > 0 ? disc : 0
+    discount_pct: discFrac,
+    discount_amount_usd: Math.max(0, (baseUsd - usd) * qtyBase),
+    discount_amount_lbp: Math.max(0, (baseLbp - lbp) * qtyBase)
   };
 }
 
@@ -426,9 +461,8 @@ function repriceCart() {
     line.pre_discount_unit_price_usd = p.pre_discount_unit_price_usd;
     line.pre_discount_unit_price_lbp = p.pre_discount_unit_price_lbp;
     line.discount_pct = p.discount_pct;
-    // Let the backend resolve discount amounts consistently (keep as explicit zeros).
-    line.discount_amount_usd = 0;
-    line.discount_amount_lbp = 0;
+    line.discount_amount_usd = p.discount_amount_usd;
+    line.discount_amount_lbp = p.discount_amount_lbp;
   }
 }
 
@@ -511,22 +545,23 @@ function renderCart() {
   const container = el("cart");
   container.innerHTML = "";
   state.cart.forEach((item) => {
+    const qtyEntered = qtyEnteredOf(item);
+    const qtyFactor = normQtyFactor(item.qty_factor ?? 1);
+    const qtyBase = qtyEntered * qtyFactor;
     const row = document.createElement("div");
     row.className = "cart-item";
     const promo = item.promo_code ? `<div class="meta">Promo: ${escapeHtml(item.promo_code)}</div>` : "";
-    const uomLabel = (item.uom || item.unit_of_measure || "").trim();
-    const qtyEntered = toNum(item.qty_entered ?? item.qty ?? 0);
-    const qtyFactor = toNum(item.qty_factor ?? 1) || 1;
+    const uomLabel = (normUom(item.uom || item.unit_of_measure) || "").trim();
     const enteredUsd = (item.price_usd || 0) * qtyFactor;
     const enteredLbp = (item.price_lbp || 0) * qtyFactor;
     row.innerHTML = `
-      <div>
-        <div>${item.name}</div>
-        <div class="meta">${fmtUsd(item.price_usd || 0)} USD · ${fmtLbp(item.price_lbp || 0)} LBP</div>
-        ${qtyFactor !== 1 && uomLabel ? `<div class="meta">Per ${escapeHtml(uomLabel)}: ${fmtUsd(enteredUsd)} USD · ${fmtLbp(enteredLbp)} LBP</div>` : ""}
-        <div class="meta">${qtyEntered}${uomLabel ? ` ${escapeHtml(uomLabel)}` : ""}${qtyFactor !== 1 ? ` (x${qtyFactor})` : ""}</div>
-        ${promo}
-      </div>
+        <div>
+          <div>${item.name}</div>
+          <div class="meta">${fmtUsd(item.price_usd || 0)} USD · ${fmtLbp(item.price_lbp || 0)} LBP</div>
+          ${qtyFactor !== 1 && uomLabel ? `<div class="meta">Per ${escapeHtml(uomLabel)}: ${fmtUsd(enteredUsd)} USD · ${fmtLbp(enteredLbp)} LBP</div>` : ""}
+          <div class="meta">Qty: ${qtyEntered}${uomLabel ? ` ${escapeHtml(uomLabel)}` : ""}${qtyFactor !== 1 ? ` (x${qtyFactor} = ${qtyBase})` : ""}</div>
+          ${promo}
+        </div>
       <div class="qty">
         <button data-id="${item.id}" data-action="dec">-</button>
         <span>${qtyEntered}</span>
@@ -536,18 +571,16 @@ function renderCart() {
     row.querySelectorAll("button").forEach((btn) => {
       btn.addEventListener("click", () => {
         const action = btn.dataset.action;
-        const stepEntered = 1;
-        const factor = toNum(item.qty_factor ?? 1) || 1;
-        if (action === "inc") {
-          item.qty_entered = toNum(item.qty_entered ?? item.qty ?? 0) + stepEntered;
-          item.qty = toNum(item.qty ?? 0) + factor * stepEntered;
-        }
-        if (action === "dec") {
-          const nextEntered = Math.max(stepEntered, toNum(item.qty_entered ?? item.qty ?? 0) - stepEntered);
-          const deltaEntered = nextEntered - toNum(item.qty_entered ?? item.qty ?? 0);
-          item.qty_entered = nextEntered;
-          item.qty = Math.max(factor * stepEntered, toNum(item.qty ?? 0) + factor * deltaEntered);
-        }
+        const step = 1;
+        const nextEntered =
+          action === "inc"
+            ? (qtyEnteredOf(item) + step)
+            : Math.max(step, qtyEnteredOf(item) - step);
+        item.qty_entered = nextEntered;
+        item.qty_factor = qtyFactor;
+        item.uom = normUom(item.uom || item.unit_of_measure) || null;
+        // Keep legacy `qty` in sync as base qty.
+        item.qty = nextEntered * qtyFactor;
         repriceCart();
         renderCart();
         updateTotals();
@@ -566,14 +599,16 @@ function updateTotals() {
   setText("loyaltyPoints", loyaltyRate ? fmtUsd((totals.base_usd || 0) * loyaltyRate) : "0");
 }
 
-function addToCart(item, qty) {
-  const inc = Number.isFinite(qty) && qty > 0 ? qty : 1;
+function addToCart(item, qtyEntered, uom, qtyFactor) {
+  const inc = Number.isFinite(qtyEntered) && qtyEntered > 0 ? qtyEntered : 1;
+  const factor = normQtyFactor(qtyFactor ?? 1);
+  const u = normUom(uom || item?.unit_of_measure) || null;
   const needsLot = isTrackedForLot(item) && (item.track_batches || item.track_expiry || requireManualLotSelection());
   if (needsLot) {
-    openLotModal(item, inc, (item.unit_of_measure || "").trim() || null, 1);
+    openLotModal(item, inc, u, factor);
     return;
   }
-  addCartLine(item, inc, null, null, (item.unit_of_measure || "").trim() || null, 1);
+  addCartLine(item, inc, null, null, u, factor);
   repriceCart();
   renderCart();
   updateTotals();
@@ -581,29 +616,30 @@ function addToCart(item, qty) {
 
 function addToCartWithUom(item, qtyEntered, uom, qtyFactor) {
   const entered = Number.isFinite(qtyEntered) && qtyEntered > 0 ? qtyEntered : 1;
-  const factor = toNum(qtyFactor ?? 1) || 1;
+  const factor = normQtyFactor(qtyFactor ?? 1);
+  const u = normUom(uom || item?.unit_of_measure) || null;
   const needsLot = isTrackedForLot(item) && (item.track_batches || item.track_expiry || requireManualLotSelection());
   if (needsLot) {
-    openLotModal(item, entered, uom, factor);
+    openLotModal(item, entered, u, factor);
     return;
   }
-  addCartLine(item, entered, null, null, uom, factor);
+  addCartLine(item, entered, null, null, u, factor);
   repriceCart();
   renderCart();
   updateTotals();
 }
 
 function addCartLine(item, incEntered, batchNo, expiryDate, uom, qtyFactor) {
-  const factor = toNum(qtyFactor ?? 1) || 1;
+  const factor = normQtyFactor(qtyFactor ?? 1);
   const entered = Number.isFinite(incEntered) && incEntered > 0 ? incEntered : 1;
-  const u = (uom || item.unit_of_measure || "").trim() || null;
+  const u = normUom(uom || item?.unit_of_measure) || null;
   const key = cartKey(item.id, batchNo, expiryDate, u, factor);
-  const existing = state.cart.find(
-    (i) => cartKey(i.id, i.batch_no, i.expiry_date, i.uom, i.qty_factor) === key
-  );
+  const existing = state.cart.find((i) => cartKey(i.id, i.batch_no, i.expiry_date, i.uom, i.qty_factor) === key);
   if (existing) {
-    existing.qty_entered = toNum(existing.qty_entered ?? existing.qty ?? 0) + entered;
-    existing.qty = toNum(existing.qty ?? 0) + entered * factor;
+    existing.qty_entered = toNum(existing.qty_entered ?? 0) + entered;
+    existing.qty_factor = factor;
+    existing.uom = u;
+    existing.qty = toNum(existing.qty_entered ?? 0) * factor;
     return;
   }
   state.cart.push({
@@ -616,6 +652,13 @@ function addCartLine(item, incEntered, batchNo, expiryDate, uom, qtyFactor) {
     base_price_lbp: toNum(item.price_lbp || 0),
     promo_code: "",
     promo_name: "",
+    applied_promotion_id: null,
+    applied_promotion_item_id: null,
+    pre_discount_unit_price_usd: toNum(item.price_usd || 0),
+    pre_discount_unit_price_lbp: toNum(item.price_lbp || 0),
+    discount_pct: 0,
+    discount_amount_usd: 0,
+    discount_amount_lbp: 0,
     batch_no: (batchNo || "").trim() || null,
     expiry_date: (expiryDate || "").trim() || null
   });
@@ -631,7 +674,8 @@ function validateIsoDate(s) {
 function openLotModal(item, qtyEntered, uom, qtyFactor) {
   state.lotContext = { item, qtyEntered, uom, qtyFactor };
   state.lotBatches = [];
-  setText("lotSubtitle", `${item.name} · Qty ${qtyEntered}`);
+  const u = normUom(uom || item?.unit_of_measure);
+  setText("lotSubtitle", `${item.name} · Qty ${qtyEntered}${u ? " " + u : ""}`);
   el("lotBatchNo").value = "";
   el("lotExpiryDate").value = "";
   el("lotBatches").innerHTML = "";
@@ -697,8 +741,8 @@ function confirmLotAdd() {
   if (!ctx?.item) return;
   const item = ctx.item;
   const qtyEntered = Number(ctx.qtyEntered || 1) || 1;
-  const uom = (ctx.uom || item.unit_of_measure || "").trim() || null;
-  const qtyFactor = toNum(ctx.qtyFactor ?? 1) || 1;
+  const uom = normUom(ctx.uom || item?.unit_of_measure) || null;
+  const qtyFactor = normQtyFactor(ctx.qtyFactor ?? 1);
 
   const batchNo = (el("lotBatchNo").value || "").trim();
   const expiryDate = (el("lotExpiryDate").value || "").trim();
@@ -993,6 +1037,31 @@ function closeShiftDialog() {
   showModal("shiftCloseModal");
 }
 
+function serializeCartLine(i) {
+  const qtyFactor = normQtyFactor(i?.qty_factor ?? 1);
+  const qtyEntered = qtyEnteredOf(i);
+  const qtyBase = qtyEntered * qtyFactor;
+  return {
+    id: i.id,
+    // Base qty (inventory/costing) is canonical.
+    qty: qtyBase,
+    qty_entered: qtyEntered,
+    uom: normUom(i.uom || i.unit_of_measure),
+    qty_factor: qtyFactor,
+    price_usd: toNum(i.price_usd || 0),
+    price_lbp: toNum(i.price_lbp || 0),
+    pre_discount_unit_price_usd: toNum(i.pre_discount_unit_price_usd ?? i.base_price_usd ?? 0),
+    pre_discount_unit_price_lbp: toNum(i.pre_discount_unit_price_lbp ?? i.base_price_lbp ?? 0),
+    discount_pct: toNum(i.discount_pct || 0),
+    discount_amount_usd: toNum(i.discount_amount_usd || 0),
+    discount_amount_lbp: toNum(i.discount_amount_lbp || 0),
+    applied_promotion_id: i.applied_promotion_id || null,
+    applied_promotion_item_id: i.applied_promotion_item_id || null,
+    batch_no: i.batch_no || null,
+    expiry_date: i.expiry_date || null
+  };
+}
+
 function openPayDialog() {
   if (!state.cart.length) return;
   el("paymentMethod").value = "cash";
@@ -1028,24 +1097,7 @@ async function confirmPay() {
   }
 
   const payload = {
-    cart: state.cart.map((i) => ({
-      id: i.id,
-      qty: i.qty, // base qty (inventory)
-      qty_entered: i.qty_entered ?? i.qty,
-      uom: i.uom || i.unit_of_measure || null,
-      qty_factor: i.qty_factor ?? 1,
-      price_usd: i.price_usd || 0,
-      price_lbp: i.price_lbp || 0,
-      pre_discount_unit_price_usd: i.pre_discount_unit_price_usd || 0,
-      pre_discount_unit_price_lbp: i.pre_discount_unit_price_lbp || 0,
-      discount_pct: i.discount_pct || 0,
-      discount_amount_usd: i.discount_amount_usd || 0,
-      discount_amount_lbp: i.discount_amount_lbp || 0,
-      applied_promotion_id: i.applied_promotion_id || null,
-      applied_promotion_item_id: i.applied_promotion_item_id || null,
-      batch_no: i.batch_no || null,
-      expiry_date: i.expiry_date || null
-    })),
+    cart: state.cart.map(serializeCartLine),
     exchange_rate: getRate(),
     pricing_currency: getCurrency(),
     customer_id: customerId,
@@ -1085,24 +1137,7 @@ async function confirmReturn() {
   const refundMethod = el("refundMethod").value || "cash";
   const invoiceId = (el("returnInvoiceId").value || "").trim() || null;
   const payload = {
-    cart: state.cart.map((i) => ({
-      id: i.id,
-      qty: i.qty, // base qty
-      qty_entered: i.qty_entered ?? i.qty,
-      uom: i.uom || i.unit_of_measure || null,
-      qty_factor: i.qty_factor ?? 1,
-      price_usd: i.price_usd || 0,
-      price_lbp: i.price_lbp || 0,
-      pre_discount_unit_price_usd: i.pre_discount_unit_price_usd || 0,
-      pre_discount_unit_price_lbp: i.pre_discount_unit_price_lbp || 0,
-      discount_pct: i.discount_pct || 0,
-      discount_amount_usd: i.discount_amount_usd || 0,
-      discount_amount_lbp: i.discount_amount_lbp || 0,
-      applied_promotion_id: i.applied_promotion_id || null,
-      applied_promotion_item_id: i.applied_promotion_item_id || null,
-      batch_no: i.batch_no || null,
-      expiry_date: i.expiry_date || null
-    })),
+    cart: state.cart.map(serializeCartLine),
     exchange_rate: getRate(),
     pricing_currency: getCurrency(),
     invoice_id: invoiceId,
@@ -1309,7 +1344,7 @@ function bind() {
         if (!it) return;
         const factor = toNum(bc.qty_factor || 1);
         const qtyFactor = factor > 0 ? factor : 1;
-        const uom = (bc.uom_code || it.unit_of_measure || "").trim() || null;
+        const uom = normUom(bc.uom_code || it.unit_of_measure) || null;
         addToCartWithUom(it, 1, uom, qtyFactor);
       }
       return;

@@ -48,9 +48,18 @@ type Category = { id: string; name: string; parent_id: string | null; is_active:
 type ItemBarcode = {
   id: string;
   barcode: string;
+  uom_code: string | null;
   qty_factor: string | number;
   label: string | null;
   is_primary: boolean;
+};
+
+type ItemUomConversion = {
+  uom_code: string;
+  uom_name?: string | null;
+  uom_precision?: number | null;
+  to_base_factor: string | number;
+  is_active: boolean;
 };
 
 type SupplierRow = {
@@ -118,9 +127,16 @@ export default function ItemEditPage() {
 
   const [barcodes, setBarcodes] = useState<ItemBarcode[]>([]);
   const [newBarcode, setNewBarcode] = useState("");
+  const [newBarcodeUom, setNewBarcodeUom] = useState("");
   const [newFactor, setNewFactor] = useState("1");
   const [newLabel, setNewLabel] = useState("");
   const [newPrimary, setNewPrimary] = useState(false);
+
+  const [convBaseUom, setConvBaseUom] = useState("");
+  const [conversions, setConversions] = useState<ItemUomConversion[]>([]);
+  const [newConvUom, setNewConvUom] = useState("");
+  const [newConvFactor, setNewConvFactor] = useState("1");
+  const [newConvActive, setNewConvActive] = useState(true);
 
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
   const [itemLinks, setItemLinks] = useState<ItemSupplierLinkRow[]>([]);
@@ -164,12 +180,13 @@ export default function ItemEditPage() {
     setLoading(true);
     setErr(null);
     try {
-      const [it, tc, cats, uo, bc, sup, links] = await Promise.all([
+      const [it, tc, cats, uo, bc, conv, sup, links] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
         apiGet<{ categories: Category[] }>("/item-categories").catch(() => ({ categories: [] as Category[] })),
         apiGet<{ uoms: string[] }>("/items/uoms?limit=200").catch(() => ({ uoms: [] as string[] })),
         apiGet<{ barcodes: ItemBarcode[] }>(`/items/${encodeURIComponent(id)}/barcodes`).catch(() => ({ barcodes: [] as ItemBarcode[] })),
+        apiGet<{ base_uom: string; conversions: ItemUomConversion[] }>(`/items/${encodeURIComponent(id)}/uom-conversions`).catch(() => ({ base_uom: "", conversions: [] as ItemUomConversion[] })),
         apiGet<{ suppliers: SupplierRow[] }>("/suppliers").catch(() => ({ suppliers: [] as SupplierRow[] })),
         apiGet<{ suppliers: ItemSupplierLinkRow[] }>(`/suppliers/items/${encodeURIComponent(id)}`).catch(() => ({ suppliers: [] as ItemSupplierLinkRow[] })),
       ]);
@@ -179,6 +196,8 @@ export default function ItemEditPage() {
       setCategories(cats.categories || []);
       setUoms((uo.uoms || []).map((x) => String(x || "").trim()).filter(Boolean));
       setBarcodes(bc.barcodes || []);
+      setConvBaseUom(String(conv.base_uom || row?.unit_of_measure || "").trim().toUpperCase());
+      setConversions(conv.conversions || []);
       setSuppliers(sup.suppliers || []);
       setItemLinks(links.suppliers || []);
 
@@ -188,6 +207,9 @@ export default function ItemEditPage() {
         setEditType((row.item_type as any) || "stocked");
         setEditTags(Array.isArray(row.tags) ? row.tags.join(", ") : "");
         setEditUom(row.unit_of_measure || "");
+        setNewBarcodeUom(row.unit_of_measure || "");
+        setNewConvUom("");
+        setNewConvFactor("1");
         setEditTaxCodeId(row.tax_code_id || "");
         setEditCategoryId((row.category_id as any) || "");
         setEditBrand((row.brand as any) || "");
@@ -373,6 +395,7 @@ export default function ItemEditPage() {
     try {
       await apiPost(`/items/${encodeURIComponent(item.id)}/barcodes`, {
         barcode: code,
+        uom_code: (newBarcodeUom || editUom || "").trim().toUpperCase() || null,
         qty_factor: factorRes.value,
         label: newLabel.trim() || null,
         is_primary: Boolean(newPrimary),
@@ -403,6 +426,41 @@ export default function ItemEditPage() {
     setStatus("Deleting barcode...");
     try {
       await apiDelete(`/items/barcodes/${encodeURIComponent(barcodeId)}`);
+      await load();
+      setStatus("");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function addConversion(e: React.FormEvent) {
+    e.preventDefault();
+    if (!item) return;
+    const u = (newConvUom || "").trim().toUpperCase();
+    if (!u) return setStatus("UOM is required.");
+    const f = parseNumberInput(newConvFactor);
+    if (!f.ok) return setStatus("Invalid conversion factor.");
+    if (f.value <= 0) return setStatus("Conversion factor must be > 0.");
+    setStatus("Adding conversion...");
+    try {
+      await apiPost(`/items/${encodeURIComponent(item.id)}/uom-conversions`, { uom_code: u, to_base_factor: f.value, is_active: Boolean(newConvActive) });
+      setNewConvUom("");
+      setNewConvFactor("1");
+      setNewConvActive(true);
+      await load();
+      setStatus("");
+    } catch (e2) {
+      setStatus(e2 instanceof Error ? e2.message : String(e2));
+    }
+  }
+
+  async function updateConversion(uomCode: string, patch: any) {
+    if (!item) return;
+    const u = (uomCode || "").trim().toUpperCase();
+    if (!u) return;
+    setStatus("Updating conversion...");
+    try {
+      await apiPatch(`/items/${encodeURIComponent(item.id)}/uom-conversions/${encodeURIComponent(u)}`, patch);
       await load();
       setStatus("");
     } catch (e) {
@@ -763,13 +821,16 @@ export default function ItemEditPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <form onSubmit={addBarcode} className="grid grid-cols-1 gap-2 md:grid-cols-12">
-                <div className="md:col-span-5">
+                <div className="md:col-span-4">
                   <Input value={newBarcode} onChange={(e) => setNewBarcode(e.target.value)} placeholder="barcode" />
+                </div>
+                <div className="md:col-span-2">
+                  <SearchableSelect value={newBarcodeUom} onChange={setNewBarcodeUom} searchPlaceholder="UOM..." options={uomOptions} />
                 </div>
                 <div className="md:col-span-2">
                   <Input value={newFactor} onChange={(e) => setNewFactor(e.target.value)} placeholder="factor" inputMode="decimal" />
                 </div>
-                <div className="md:col-span-3">
+                <div className="md:col-span-2">
                   <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="label (optional)" />
                 </div>
                 <label className="md:col-span-1 flex items-center gap-2 text-xs text-fg-muted">
@@ -787,6 +848,7 @@ export default function ItemEditPage() {
                   <thead className="ui-thead">
                     <tr>
                       <th className="px-3 py-2">Barcode</th>
+                      <th className="px-3 py-2">UOM</th>
                       <th className="px-3 py-2 text-right">Factor</th>
                       <th className="px-3 py-2">Label</th>
                       <th className="px-3 py-2">Primary</th>
@@ -797,8 +859,42 @@ export default function ItemEditPage() {
                     {barcodes.map((b) => (
                       <tr key={b.id} className="ui-tr-hover">
                         <td className="px-3 py-2 font-mono text-xs">{b.barcode}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(b.qty_factor || 1)}</td>
-                        <td className="px-3 py-2 text-xs text-fg-muted">{b.label || "-"}</td>
+                        <td className="px-3 py-2">
+                          <div className="min-w-[10rem]">
+                            <SearchableSelect
+                              value={String(b.uom_code || editUom || "").trim()}
+                              onChange={(v) => updateBarcode(b.id, { uom_code: String(v || "").trim().toUpperCase() || null })}
+                              searchPlaceholder="UOM..."
+                              options={uomOptions}
+                            />
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs">
+                          <Input
+                            defaultValue={String(b.qty_factor || 1)}
+                            inputMode="decimal"
+                            onBlur={(e) => {
+                              const r = parseNumberInput(e.currentTarget.value);
+                              if (!r.ok) return;
+                              if (r.value <= 0) return;
+                              const prev = toNum(String(b.qty_factor || 1));
+                              if (Math.abs(prev - r.value) < 1e-12) return;
+                              updateBarcode(b.id, { qty_factor: r.value });
+                            }}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">
+                          <Input
+                            defaultValue={b.label || ""}
+                            placeholder="-"
+                            onBlur={(e) => {
+                              const next = (e.currentTarget.value || "").trim() || null;
+                              const prev = (b.label || "").trim() || null;
+                              if (next === prev) return;
+                              updateBarcode(b.id, { label: next });
+                            }}
+                          />
+                        </td>
                         <td className="px-3 py-2 text-xs">{b.is_primary ? "yes" : "no"}</td>
                         <td className="px-3 py-2 text-right">
                           <div className="inline-flex items-center gap-2">
@@ -816,8 +912,91 @@ export default function ItemEditPage() {
                     ))}
                     {barcodes.length === 0 ? (
                       <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
+                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
                           No barcodes.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>UOM Conversions</CardTitle>
+              <CardDescription>
+                Define alternate UOMs for this item. Factor means: <span className="font-mono">base_qty = entered_qty * factor</span>. Base UOM is{" "}
+                <span className="font-mono">{convBaseUom || editUom || "-"}</span>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <form onSubmit={addConversion} className="grid grid-cols-1 gap-2 md:grid-cols-12">
+                <div className="md:col-span-4">
+                  <SearchableSelect value={newConvUom} onChange={setNewConvUom} searchPlaceholder="UOM..." options={uomOptions} />
+                </div>
+                <div className="md:col-span-4">
+                  <Input value={newConvFactor} onChange={(e) => setNewConvFactor(e.target.value)} placeholder="factor to base" inputMode="decimal" />
+                </div>
+                <label className="md:col-span-2 flex items-center gap-2 text-xs text-fg-muted">
+                  <input type="checkbox" checked={newConvActive} onChange={(e) => setNewConvActive(e.target.checked)} /> Active
+                </label>
+                <div className="md:col-span-2 flex justify-end">
+                  <Button type="submit" variant="outline">
+                    Add / Update
+                  </Button>
+                </div>
+              </form>
+
+              <div className="ui-table-wrap">
+                <table className="ui-table">
+                  <thead className="ui-thead">
+                    <tr>
+                      <th className="px-3 py-2">UOM</th>
+                      <th className="px-3 py-2 text-right">Factor</th>
+                      <th className="px-3 py-2">Active</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {conversions.map((c) => {
+                      const isBase = String(c.uom_code || "").trim().toUpperCase() === String(convBaseUom || editUom || "").trim().toUpperCase();
+                      return (
+                        <tr key={c.uom_code} className="ui-tr-hover">
+                          <td className="px-3 py-2 font-mono text-xs">{c.uom_code}</td>
+                          <td className="px-3 py-2 text-right font-mono text-xs">
+                            <Input
+                              defaultValue={String(c.to_base_factor || 1)}
+                              inputMode="decimal"
+                              disabled={isBase}
+                              onBlur={(e) => {
+                                const r = parseNumberInput(e.currentTarget.value);
+                                if (!r.ok) return;
+                                if (r.value <= 0) return;
+                                const prev = toNum(String(c.to_base_factor || 1));
+                                if (Math.abs(prev - r.value) < 1e-12) return;
+                                updateConversion(c.uom_code, { to_base_factor: r.value });
+                              }}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-xs">
+                            <label className="inline-flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(c.is_active)}
+                                disabled={isBase}
+                                onChange={(e) => updateConversion(c.uom_code, { is_active: e.target.checked })}
+                              />
+                              {c.is_active ? "yes" : "no"}
+                            </label>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {conversions.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
+                          No conversions yet.
                         </td>
                       </tr>
                     ) : null}
