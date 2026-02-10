@@ -1,17 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
-import { filterAndRankByFuzzy } from "@/lib/fuzzy";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
+import { ShortcutLink } from "@/components/shortcut-link";
 import { ViewRaw } from "@/components/view-raw";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 
 type PartyType = "individual" | "business";
 type Supplier = {
@@ -103,22 +102,85 @@ export default function SuppliersListPage() {
   const [importErrors, setImportErrors] = useState<string>("");
   const [importing, setImporting] = useState(false);
 
-  const filtered = useMemo(() => {
-    return filterAndRankByFuzzy(suppliers || [], q, (s) => {
-      return [
-        s.name,
-        s.code || "",
-        s.legal_name || "",
-        s.phone || "",
-        s.email || "",
-        s.vat_no || "",
-        s.tax_id || "",
-        s.id,
-      ]
-        .filter(Boolean)
-        .join(" ");
-    });
-  }, [suppliers, q]);
+  const columns = useMemo((): Array<DataTableColumn<Supplier>> => {
+    return [
+      {
+        id: "supplier",
+        header: "Supplier",
+        accessor: (s) => s.name,
+        sortable: true,
+        cell: (s) => (
+          <div>
+            <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(s.id)}`} title="Open supplier">
+              {s.code ? <span className="font-mono text-xs text-fg-muted">{s.code}</span> : null}
+              {s.code ? <span className="text-fg-muted"> · </span> : null}
+              <span className="font-medium text-foreground">{s.name}</span>
+            </ShortcutLink>
+            {s.legal_name ? <div className="text-xs text-fg-subtle">{s.legal_name}</div> : null}
+          </div>
+        ),
+      },
+      {
+        id: "phone",
+        header: "Phone",
+        accessor: (s) => s.phone || "",
+        cell: (s) => <span className="text-sm text-fg-muted">{s.phone || "-"}</span>,
+      },
+      {
+        id: "email",
+        header: "Email",
+        accessor: (s) => s.email || "",
+        cell: (s) => <span className="text-sm text-fg-muted">{s.email || "-"}</span>,
+      },
+      {
+        id: "terms",
+        header: "Terms",
+        accessor: (s) => Number(s.payment_terms_days || 0),
+        sortable: true,
+        align: "right",
+        mono: true,
+        cell: (s) => <span className="text-xs text-fg-muted">{Number(s.payment_terms_days || 0)}</span>,
+      },
+      {
+        id: "status",
+        header: "Status",
+        accessor: (s) => (s.is_active === false ? "inactive" : "active"),
+        cell: (s) => (
+          <span
+            className={
+              s.is_active === false
+                ? "inline-flex items-center rounded-full border border-border-subtle bg-bg-muted px-2 py-0.5 text-[10px] font-medium text-fg-muted"
+                : "inline-flex items-center rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success"
+            }
+          >
+            {s.is_active === false ? "inactive" : "active"}
+          </span>
+        ),
+      },
+      {
+        id: "vat_no",
+        header: "VAT No",
+        accessor: (s) => s.vat_no || "",
+        defaultHidden: true,
+        cell: (s) => <span className="data-mono text-xs text-fg-muted">{s.vat_no || "-"}</span>,
+      },
+      {
+        id: "tax_id",
+        header: "Tax ID",
+        accessor: (s) => s.tax_id || "",
+        defaultHidden: true,
+        cell: (s) => <span className="data-mono text-xs text-fg-muted">{s.tax_id || "-"}</span>,
+      },
+      {
+        id: "id",
+        header: "ID",
+        accessor: (s) => s.id,
+        mono: true,
+        defaultHidden: true,
+        cell: (s) => <span className="text-xs text-fg-subtle">{s.id}</span>,
+      },
+    ];
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -194,7 +256,7 @@ export default function SuppliersListPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Suppliers</h1>
-          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${filtered.length} supplier(s)`}</p>
+          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${suppliers.length} supplier(s)`}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" onClick={load} disabled={loading}>
@@ -243,49 +305,18 @@ export default function SuppliersListPage() {
           <CardDescription>Search and open suppliers.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="w-full md:w-96">
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name / code / phone / VAT..." />
-          </div>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Supplier</th>
-                  <th className="px-3 py-2">Phone</th>
-                  <th className="px-3 py-2">Email</th>
-                  <th className="px-3 py-2 text-right">Terms</th>
-                  <th className="px-3 py-2">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((s) => (
-                  <tr key={s.id} className="ui-tr-hover">
-                    <td className="px-3 py-2">
-                      <Link
-                        className="focus-ring inline-flex items-center gap-1 text-primary hover:underline"
-                        href={`/partners/suppliers/${encodeURIComponent(s.id)}`}
-                      >
-                        {s.code ? <span className="font-mono text-xs text-fg-muted">{s.code}</span> : null}
-                        {s.code ? <span className="text-fg-muted"> · </span> : null}
-                        <span className="font-medium text-foreground">{s.name}</span>
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2 text-sm text-fg-muted">{s.phone || "-"}</td>
-                    <td className="px-3 py-2 text-sm text-fg-muted">{s.email || "-"}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{Number(s.payment_terms_days || 0)}</td>
-                    <td className="px-3 py-2 text-sm">{s.is_active === false ? "inactive" : "active"}</td>
-                  </tr>
-                ))}
-                {!loading && filtered.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                      No suppliers.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<Supplier>
+            tableId="partners.suppliers"
+            rows={suppliers}
+            columns={columns}
+            isLoading={loading}
+            onRowClick={(s) => router.push(`/partners/suppliers/${encodeURIComponent(s.id)}`)}
+            emptyText="No suppliers."
+            globalFilterPlaceholder="Search name / code / phone / VAT..."
+            globalFilterValue={q}
+            onGlobalFilterValueChange={setQ}
+            initialSort={{ columnId: "supplier", dir: "asc" }}
+          />
         </CardContent>
       </Card>
     </div>

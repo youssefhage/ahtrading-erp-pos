@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
 import { SearchableSelect } from "@/components/searchable-select";
@@ -171,6 +172,60 @@ export default function SupplierPaymentsPage() {
     }
   }
 
+  const columns = useMemo((): Array<DataTableColumn<SupplierPaymentRow>> => {
+    return [
+      { id: "created_at", header: "Created", accessor: (p) => p.created_at, sortable: true, mono: true, cell: (p) => <span className="text-xs">{p.created_at}</span> },
+      {
+        id: "invoice",
+        header: "Invoice",
+        accessor: (p) => p.invoice_no || "",
+        sortable: true,
+        mono: true,
+        cell: (p) => (
+          <ShortcutLink
+            href={`/purchasing/supplier-invoices/${encodeURIComponent(p.supplier_invoice_id)}`}
+            title="Open supplier invoice"
+            className="font-mono text-xs"
+          >
+            {p.invoice_no || p.supplier_invoice_id.slice(0, 8)}
+          </ShortcutLink>
+        ),
+      },
+      {
+        id: "supplier",
+        header: "Supplier",
+        accessor: (p) => p.supplier_name || (p.supplier_id ? supplierById.get(p.supplier_id)?.name || p.supplier_id : ""),
+        cell: (p) =>
+          p.supplier_id ? (
+            <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(p.supplier_id)}`} title="Open supplier">
+              {p.supplier_name || supplierById.get(p.supplier_id)?.name || p.supplier_id}
+            </ShortcutLink>
+          ) : (
+            "-"
+          ),
+      },
+      { id: "method", header: "Method", accessor: (p) => p.method, sortable: true, mono: true, cell: (p) => <span className="text-xs">{p.method}</span> },
+      {
+        id: "usd",
+        header: "USD",
+        accessor: (p) => Number(p.amount_usd || 0),
+        sortable: true,
+        align: "right",
+        mono: true,
+        cell: (p) => <span className="text-xs">{Number(p.amount_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>,
+      },
+      {
+        id: "lbp",
+        header: "LL",
+        accessor: (p) => Number(p.amount_lbp || 0),
+        sortable: true,
+        align: "right",
+        mono: true,
+        cell: (p) => <span className="text-xs">{Number(p.amount_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>,
+      },
+    ];
+  }, [supplierById]);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
         {status ? <ErrorBanner error={status} onRetry={loadAll} /> : null}
@@ -326,55 +381,14 @@ export default function SupplierPaymentsPage() {
             <CardDescription>{payments.length} rows</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Created</th>
-                    <th className="px-3 py-2">Invoice</th>
-                    <th className="px-3 py-2">Supplier</th>
-                    <th className="px-3 py-2">Method</th>
-                    <th className="px-3 py-2 text-right">USD</th>
-                    <th className="px-3 py-2 text-right">LL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map((p) => (
-                    <tr key={p.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{p.created_at}</td>
-                      <td className="px-3 py-2 font-mono text-xs">
-                        <ShortcutLink
-                          href={`/purchasing/supplier-invoices/${encodeURIComponent(p.supplier_invoice_id)}`}
-                          title="Open supplier invoice"
-                          className="font-mono text-xs"
-                        >
-                          {p.invoice_no || p.supplier_invoice_id.slice(0, 8)}
-                        </ShortcutLink>
-                      </td>
-                      <td className="px-3 py-2">
-                        {p.supplier_id ? (
-                          <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(p.supplier_id)}`} title="Open supplier">
-                            {p.supplier_name || supplierById.get(p.supplier_id)?.name || p.supplier_id}
-                          </ShortcutLink>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs">{p.method}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(p.amount_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(p.amount_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  ))}
-                  {payments.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                        No payments.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<SupplierPaymentRow>
+              tableId="purchasing.payments"
+              rows={payments}
+              columns={columns}
+              emptyText="No payments."
+              globalFilterPlaceholder="Search invoice / supplier / method..."
+              initialSort={{ columnId: "created_at", dir: "desc" }}
+            />
           </CardContent>
         </Card>
       </div>);

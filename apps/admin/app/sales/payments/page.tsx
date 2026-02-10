@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
 import { SearchableSelect } from "@/components/searchable-select";
@@ -229,6 +230,78 @@ function SalesPaymentsPageInner() {
     return out;
   }, [payments]);
 
+  const columns = useMemo((): Array<DataTableColumn<SalesPaymentRow>> => {
+    return [
+      { id: "created_at", header: "Created", accessor: (p) => p.created_at, sortable: true, mono: true, cell: (p) => <span className="text-xs">{p.created_at}</span> },
+      {
+        id: "invoice",
+        header: "Invoice",
+        accessor: (p) => p.invoice_no,
+        sortable: true,
+        mono: true,
+        cell: (p) => (
+          <ShortcutLink href={`/sales/invoices/${encodeURIComponent(p.invoice_id)}`} title="Open invoice" className="font-mono text-xs">
+            {p.invoice_no}
+          </ShortcutLink>
+        ),
+      },
+      {
+        id: "customer",
+        header: "Customer",
+        accessor: (p) => p.customer_name || (p.customer_id ? customerById.get(p.customer_id)?.name || p.customer_id : "Walk-in"),
+        cell: (p) =>
+          p.customer_id ? (
+            <ShortcutLink href={`/partners/customers/${encodeURIComponent(p.customer_id)}`} title="Open customer">
+              {p.customer_name || customerById.get(p.customer_id)?.name || p.customer_id}
+            </ShortcutLink>
+          ) : (
+            "Walk-in"
+          ),
+      },
+      { id: "method", header: "Method", accessor: (p) => p.method, sortable: true, mono: true, cell: (p) => <span className="text-xs">{p.method}</span> },
+      {
+        id: "usd",
+        header: "USD",
+        accessor: (p) => (hasTender(p) ? n(p.tender_usd) : n(p.amount_usd)),
+        sortable: true,
+        align: "right",
+        mono: true,
+        cell: (p) => {
+          const show = hasTender(p) ? n(p.tender_usd) : n(p.amount_usd);
+          const applied = n(p.amount_usd);
+          return (
+            <div className="text-right">
+              <div className="text-xs">{show.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+              {hasTender(p) && Math.abs(show - applied) > 0.00005 ? (
+                <div className="mt-0.5 text-[10px] text-fg-muted">Applied: {applied.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+              ) : null}
+            </div>
+          );
+        },
+      },
+      {
+        id: "lbp",
+        header: "LL",
+        accessor: (p) => (hasTender(p) ? n(p.tender_lbp) : n(p.amount_lbp)),
+        sortable: true,
+        align: "right",
+        mono: true,
+        cell: (p) => {
+          const show = hasTender(p) ? n(p.tender_lbp) : n(p.amount_lbp);
+          const applied = n(p.amount_lbp);
+          return (
+            <div className="text-right">
+              <div className="text-xs">{show.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+              {hasTender(p) && Math.abs(show - applied) > 0.005 ? (
+                <div className="mt-0.5 text-[10px] text-fg-muted">Applied: {applied.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+              ) : null}
+            </div>
+          );
+        },
+      },
+    ];
+  }, [customerById]);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
         {status ? <ErrorBanner error={status} onRetry={loadPayments} /> : null}
@@ -446,77 +519,14 @@ function SalesPaymentsPageInner() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Created</th>
-                    <th className="px-3 py-2">Invoice</th>
-                    <th className="px-3 py-2">Customer</th>
-                    <th className="px-3 py-2">Method</th>
-                    <th className="px-3 py-2 text-right">USD</th>
-                    <th className="px-3 py-2 text-right">LL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map((p) => (
-                    <tr key={p.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{p.created_at}</td>
-                      <td className="px-3 py-2 font-mono text-xs">
-                        <ShortcutLink href={`/sales/invoices/${encodeURIComponent(p.invoice_id)}`} title="Open invoice" className="font-mono text-xs">
-                          {p.invoice_no}
-                        </ShortcutLink>
-                      </td>
-                      <td className="px-3 py-2">
-                        {p.customer_id ? (
-                          <ShortcutLink href={`/partners/customers/${encodeURIComponent(p.customer_id)}`} title="Open customer">
-                            {p.customer_name || customerById.get(p.customer_id)?.name || p.customer_id}
-                          </ShortcutLink>
-                        ) : (
-                          "Walk-in"
-                        )}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs">{p.method}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">
-                        {(() => {
-                          const show = hasTender(p) ? n(p.tender_usd) : n(p.amount_usd);
-                          const applied = n(p.amount_usd);
-                          return (
-                            <div className="text-right">
-                              <div>{show.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
-                              {hasTender(p) && Math.abs(show - applied) > 0.00005 ? (
-                                <div className="mt-0.5 text-[10px] text-fg-muted">Applied: {applied.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
-                              ) : null}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">
-                        {(() => {
-                          const show = hasTender(p) ? n(p.tender_lbp) : n(p.amount_lbp);
-                          const applied = n(p.amount_lbp);
-                          return (
-                            <div className="text-right">
-                              <div>{show.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
-                              {hasTender(p) && Math.abs(show - applied) > 0.005 ? (
-                                <div className="mt-0.5 text-[10px] text-fg-muted">Applied: {applied.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
-                              ) : null}
-                            </div>
-                          );
-                        })()}
-                      </td>
-                    </tr>
-                  ))}
-                  {payments.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                        No payments.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<SalesPaymentRow>
+              tableId="sales.payments"
+              rows={payments}
+              columns={columns}
+              emptyText="No payments."
+              globalFilterPlaceholder="Search invoice / customer / method..."
+              initialSort={{ columnId: "created_at", dir: "desc" }}
+            />
           </CardContent>
         </Card>
       </div>);

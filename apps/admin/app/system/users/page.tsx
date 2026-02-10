@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,7 +30,20 @@ export default function UsersPage() {
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
 
-  async function load() {
+  const columns = useMemo((): Array<DataTableColumn<UserRow>> => {
+    return [
+      { id: "email", header: "Email", accessor: (u) => u.email, sortable: true },
+      { id: "id", header: "User ID", accessor: (u) => u.id, mono: true, defaultHidden: true },
+      {
+        id: "active",
+        header: "Active",
+        accessor: (u) => (u.is_active ? "yes" : "no"),
+        cell: (u) => (u.is_active ? "yes" : "no"),
+      },
+    ];
+  }, []);
+
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const [u, r] = await Promise.all([
@@ -43,11 +57,11 @@ export default function UsersPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     if (!assignRoleId && roles.length) setAssignRoleId(roles[0]?.id || "");
@@ -190,33 +204,14 @@ export default function UsersPage() {
             <CardDescription>{users.length} users with access to this company</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Email</th>
-                    <th className="px-3 py-2">User ID</th>
-                    <th className="px-3 py-2">Active</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((u) => (
-                    <tr key={u.id} className="ui-tr-hover">
-                      <td className="px-3 py-2">{u.email}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{u.id}</td>
-                      <td className="px-3 py-2">{u.is_active ? "yes" : "no"}</td>
-                    </tr>
-                  ))}
-                  {users.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
-                        No users.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<UserRow>
+              tableId="system.users"
+              rows={users}
+              columns={columns}
+              emptyText="No users."
+              globalFilterPlaceholder="Search email / id..."
+              initialSort={{ columnId: "email", dir: "asc" }}
+            />
           </CardContent>
         </Card>
       </div>);

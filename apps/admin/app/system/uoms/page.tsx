@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,15 +48,70 @@ export default function UomsPage() {
     load();
   }, [load]);
 
-  const filtered = useMemo(() => {
-    const needle = String(q || "").trim().toLowerCase();
-    if (!needle) return rows;
-    return (rows || []).filter((r) => {
-      const code = String(r.code || "").toLowerCase();
-      const name = String(r.name || "").toLowerCase();
-      return code.includes(needle) || name.includes(needle);
-    });
-  }, [rows, q]);
+  const toggleActive = useCallback(
+    async (code: string, next: boolean) => {
+      setStatus("Saving...");
+      try {
+        await apiPatch(`/items/uoms/${encodeURIComponent(code)}`, { is_active: next });
+        await load();
+        setStatus("");
+      } catch (e) {
+        setStatus(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [load]
+  );
+
+  const rename = useCallback(
+    async (code: string, name: string) => {
+      const nm = String(name || "").trim();
+      if (!nm) return;
+      setStatus("Saving...");
+      try {
+        await apiPatch(`/items/uoms/${encodeURIComponent(code)}`, { name: nm });
+        await load();
+        setStatus("");
+      } catch (e) {
+        setStatus(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [load]
+  );
+
+  const columns = useMemo((): Array<DataTableColumn<UomRow>> => {
+    return [
+      { id: "code", header: "Code", accessor: (r) => r.code, mono: true, sortable: true, cell: (r) => <span className="text-xs">{r.code}</span> },
+      {
+        id: "name",
+        header: "Name",
+        accessor: (r) => r.name,
+        sortable: true,
+        cell: (r) => (
+          <Input
+            defaultValue={r.name}
+            onBlur={(e) => rename(r.code, e.target.value)}
+            className="h-9"
+          />
+        ),
+      },
+      { id: "usage", header: "Usage", accessor: (r) => Number(r.usage_count || 0), sortable: true, mono: true, cell: (r) => <span className="text-xs">{Number(r.usage_count || 0)}</span> },
+      {
+        id: "active",
+        header: "Active",
+        accessor: (r) => (r.is_active ? "active" : "inactive"),
+        cell: (r) => (
+          <Button
+            type="button"
+            size="sm"
+            variant={r.is_active ? "default" : "outline"}
+            onClick={() => toggleActive(r.code, !r.is_active)}
+          >
+            {r.is_active ? "Active" : "Inactive"}
+          </Button>
+        ),
+      },
+    ];
+  }, [rename, toggleActive]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -75,30 +131,6 @@ export default function UomsPage() {
       setStatus(e2 instanceof Error ? e2.message : String(e2));
     } finally {
       setCreating(false);
-    }
-  }
-
-  async function toggleActive(code: string, next: boolean) {
-    setStatus("Saving...");
-    try {
-      await apiPatch(`/items/uoms/${encodeURIComponent(code)}`, { is_active: next });
-      await load();
-      setStatus("");
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function rename(code: string, name: string) {
-    const nm = String(name || "").trim();
-    if (!nm) return;
-    setStatus("Saving...");
-    try {
-      await apiPatch(`/items/uoms/${encodeURIComponent(code)}`, { name: nm });
-      await load();
-      setStatus("");
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -146,57 +178,19 @@ export default function UomsPage() {
           <CardDescription>Deactivate instead of deleting (so historical items/invoices remain valid).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="max-w-sm">
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search code or name..." />
-          </div>
-
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Code</th>
-                  <th className="px-3 py-2">Name</th>
-                  <th className="px-3 py-2">Usage</th>
-                  <th className="px-3 py-2">Active</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => (
-                  <tr key={r.code} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
-                    <td className="px-3 py-2">
-                      <Input
-                        defaultValue={r.name}
-                        onBlur={(e) => rename(r.code, e.target.value)}
-                        className="h-9"
-                      />
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">{Number(r.usage_count || 0)}</td>
-                    <td className="px-3 py-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={r.is_active ? "default" : "outline"}
-                        onClick={() => toggleActive(r.code, !r.is_active)}
-                      >
-                        {r.is_active ? "Active" : "Inactive"}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {!filtered.length ? (
-                  <tr>
-                    <td className="px-3 py-6 text-sm text-fg-muted" colSpan={4}>
-                      {loading ? "Loading..." : "No UOMs found."}
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<UomRow>
+            tableId="system.uoms"
+            rows={rows}
+            columns={columns}
+            isLoading={loading}
+            emptyText={loading ? "Loading..." : "No UOMs found."}
+            globalFilterPlaceholder="Search code or name..."
+            globalFilterValue={q}
+            onGlobalFilterValueChange={setQ}
+            initialSort={{ columnId: "code", dir: "asc" }}
+          />
         </CardContent>
       </Card>
     </div>
   );
 }
-

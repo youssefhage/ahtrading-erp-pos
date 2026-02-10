@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,62 @@ export default function AuditLogsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const columns = useMemo((): Array<DataTableColumn<AuditLogRow>> => {
+    return [
+      {
+        id: "created_at",
+        header: "Time",
+        accessor: (r) => r.created_at,
+        sortable: true,
+        mono: true,
+        cell: (r) => <span className="text-xs text-fg-subtle">{r.created_at}</span>,
+      },
+      {
+        id: "action",
+        header: "Action",
+        accessor: (r) => r.action,
+        sortable: true,
+        cell: (r) => <span className="text-sm text-fg-muted">{r.action}</span>,
+      },
+      {
+        id: "entity",
+        header: "Entity",
+        accessor: (r) => `${r.entity_type} ${r.entity_id}`,
+        cell: (r) => (
+          <div className="text-fg-muted">
+            <div className="text-sm">{r.entity_type}</div>
+            <div className="text-fg-subtle data-mono text-xs">{r.entity_id}</div>
+          </div>
+        ),
+      },
+      {
+        id: "user",
+        header: "User",
+        accessor: (r) => r.user_email || r.user_id || "",
+        cell: (r) => <span className="text-sm text-fg-subtle">{r.user_email || r.user_id || "-"}</span>,
+      },
+      {
+        id: "details",
+        header: "Details",
+        accessor: (r) => "",
+        globalSearch: false,
+        defaultHidden: true,
+        cell: (r) => (
+          <pre className="max-w-[680px] whitespace-pre-wrap text-left text-xs text-fg-subtle">{JSON.stringify(r.details ?? {}, null, 2)}</pre>
+        ),
+      },
+      {
+        id: "id",
+        header: "ID",
+        accessor: (r) => r.id,
+        mono: true,
+        globalSearch: false,
+        defaultHidden: true,
+        cell: (r) => <span className="text-xs text-fg-subtle">{r.id}</span>,
+      },
+    ];
+  }, []);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
@@ -101,45 +158,14 @@ export default function AuditLogsPage() {
           <CardDescription>Most recent first.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th>Time</th>
-                  <th>Action</th>
-                  <th>Entity</th>
-                  <th>User</th>
-                  <th className="text-right">Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length ? (
-                  rows.map((r) => (
-                    <tr key={r.id} className="ui-tr ui-tr-hover align-top">
-                      <td className="text-fg-subtle data-mono">{r.created_at}</td>
-                      <td className="text-fg-muted">{r.action}</td>
-                      <td className="text-fg-muted">
-                        <div className="text-fg-muted">{r.entity_type}</div>
-                        <div className="text-fg-subtle data-mono">{r.entity_id}</div>
-                      </td>
-                      <td className="text-fg-subtle">{r.user_email || r.user_id || "-"}</td>
-                      <td className="text-right">
-                        <pre className="whitespace-pre-wrap text-left text-xs text-fg-subtle">
-                          {JSON.stringify(r.details ?? {}, null, 2)}
-                        </pre>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr className="ui-tr">
-                    <td colSpan={5} className="py-8 text-center text-fg-subtle">
-                      No audit logs found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<AuditLogRow>
+            tableId="system.auditLogs"
+            rows={rows}
+            columns={columns}
+            emptyText="No audit logs found."
+            globalFilterPlaceholder="Search action / entity / user..."
+            initialSort={{ columnId: "created_at", dir: "desc" }}
+          />
         </CardContent>
       </Card>
     </div>
