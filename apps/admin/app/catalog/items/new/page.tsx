@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { ComboboxInput } from "@/components/combobox-input";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +22,6 @@ export default function NewItemPage() {
 
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [uoms, setUoms] = useState<string[]>([]);
 
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
@@ -35,14 +35,12 @@ export default function NewItemPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [tc, cats, uo] = await Promise.all([
+      const [tc, cats] = await Promise.all([
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
         apiGet<{ categories: Category[] }>("/item-categories").catch(() => ({ categories: [] as Category[] })),
-        apiGet<{ uoms: string[] }>("/items/uoms?limit=200").catch(() => ({ uoms: [] as string[] })),
       ]);
       setTaxCodes(tc.tax_codes || []);
       setCategories(cats.categories || []);
-      setUoms((uo.uoms || []).filter((x) => String(x || "").trim()));
       setStatus("");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
@@ -54,16 +52,6 @@ export default function NewItemPage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  // Enforce UOM as a strict pick-list: if current value isn't supported, clear it.
-  useEffect(() => {
-    const cur = String(uom || "").trim();
-    if (!cur) return;
-    if (!uoms.length) return;
-    if (uoms.includes(cur)) return;
-    setUom("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uoms]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -125,13 +113,14 @@ export default function NewItemPage() {
             </div>
             <div className="space-y-1 md:col-span-2">
               <label className="text-xs font-medium text-fg-muted">UOM</label>
-              <SearchableSelect
+              <ComboboxInput
                 value={uom}
                 onChange={setUom}
                 disabled={creating || loading}
-                placeholder="Select UOM..."
-                searchPlaceholder="Search UOMs..."
-                options={uoms.map((x) => ({ value: x, label: x }))}
+                placeholder="EA"
+                endpoint="/items/uoms"
+                responseKey="uoms"
+                limit={80}
               />
             </div>
             <div className="space-y-1 md:col-span-4">

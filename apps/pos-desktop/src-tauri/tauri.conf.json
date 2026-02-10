@@ -26,7 +26,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://pos.melqard.com/updates/pos/latest.json"
+        "https://download.melqard.com/updates/pos/latest.json"
       ],
       "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBKEY"
     }

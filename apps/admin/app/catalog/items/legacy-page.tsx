@@ -7,6 +7,7 @@ import { apiGet, apiPatch, apiPost, apiPostForm, apiUrl } from "@/lib/api";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { ErrorBanner } from "@/components/error-banner";
 import { ViewRaw } from "@/components/view-raw";
+import { ComboboxInput } from "@/components/combobox-input";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -92,7 +93,6 @@ export default function ItemsPage() {
   const [items, setItems] = useState<Item[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [uoms, setUoms] = useState<string[]>([]);
   const [status, setStatus] = useState<string>("");
 
   const [q, setQ] = useState("");
@@ -179,16 +179,14 @@ export default function ItemsPage() {
   async function load() {
     setStatus("Loading...");
     try {
-      const [res, tc, cats, uo] = await Promise.all([
+      const [res, tc, cats] = await Promise.all([
         apiGet<{ items: Item[] }>("/items"),
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes"),
         apiGet<{ categories: Category[] }>("/item-categories"),
-        apiGet<{ uoms: string[] }>("/items/uoms?limit=200").catch(() => ({ uoms: [] as string[] }))
       ]);
       setItems(res.items || []);
       setTaxCodes(tc.tax_codes || []);
       setCategories(cats.categories || []);
-      setUoms((uo.uoms || []).map((x) => String(x || "").trim()).filter(Boolean));
 
       // AI is optional: don't block the Items page if the user lacks ai:read or if AI endpoints fail.
       try {
@@ -210,32 +208,7 @@ export default function ItemsPage() {
     load();
   }, []);
 
-  // UOM is a strict pick-list: if current value isn't supported, clear it.
-  useEffect(() => {
-    const cur = String(uom || "").trim();
-    if (!cur) return;
-    if (!uoms.length) return;
-    if (uoms.includes(cur)) return;
-    setUom("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uoms]);
-
-  const uomOptions = useMemo(() => {
-    const out: Array<{ value: string; label: string }> = [];
-    const seen = new Set<string>();
-    const cur = String(editUom || "").trim();
-    if (cur && !seen.has(cur) && !(uoms || []).includes(cur)) {
-      seen.add(cur);
-      out.push({ value: cur, label: `${cur} (current)` });
-    }
-    for (const x of uoms || []) {
-      const v = String(x || "").trim();
-      if (!v || seen.has(v)) continue;
-      seen.add(v);
-      out.push({ value: v, label: v });
-    }
-    return out;
-  }, [uoms, editUom]);
+  // UOM is free text with suggestions; no strict pick-list.
 
   function parseTags(input: string): string[] | null {
     const parts = (input || "")
@@ -863,12 +836,13 @@ export default function ItemsPage() {
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <div className="space-y-1">
                           <label className="text-xs font-medium text-fg-muted">UOM</label>
-                          <SearchableSelect
+                          <ComboboxInput
                             value={uom}
                             onChange={setUom}
-                            placeholder="Select UOM..."
-                            searchPlaceholder="Search UOMs..."
-                            options={(uoms || []).map((x) => ({ value: x, label: x }))}
+                            placeholder="EA"
+                            endpoint="/items/uoms"
+                            responseKey="uoms"
+                            limit={80}
                           />
                         </div>
                         <div className="space-y-1">
@@ -1094,12 +1068,13 @@ export default function ItemsPage() {
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-fg-muted">UOM</label>
-                      <SearchableSelect
+                      <ComboboxInput
                         value={editUom}
                         onChange={setEditUom}
-                        placeholder="Select UOM..."
-                        searchPlaceholder="Search UOMs..."
-                        options={uomOptions}
+                        placeholder="EA"
+                        endpoint="/items/uoms"
+                        responseKey="uoms"
+                        limit={80}
                       />
                     </div>
                   </div>
