@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   async rewrites() {
-    const rawTarget = process.env.API_PROXY_TARGET || "http://api:8000";
+    const rawTarget = process.env.API_PROXY_TARGET || "http://api_melqard:8000";
     const target = rawTarget.replace(/\/$/, "");
     return [
       {

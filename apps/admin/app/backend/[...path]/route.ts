@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function upstreamBase(): string {
-  const raw = (process.env.API_PROXY_TARGET || "http://api:8000").trim();
+  const raw = (process.env.API_PROXY_TARGET || "http://api_melqard:8000").trim();
   return raw.replace(/\/+$/, "");
 }
 
@@ -72,4 +72,3 @@ export const PUT = proxy;
 export const PATCH = proxy;
 export const DELETE = proxy;
 export const OPTIONS = proxy;
-

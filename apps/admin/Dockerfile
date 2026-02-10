@@ -5,11 +5,11 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Build-time config (Next.js inlines NEXT_PUBLIC_* variables).
-ARG NEXT_PUBLIC_API_BASE_URL=https://api.melqard.com
+ARG NEXT_PUBLIC_API_BASE_URL=/mapi
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 
 # Optional: server-side rewrite target for same-origin /api proxy.
-ARG API_PROXY_TARGET=http://api:8000
+ARG API_PROXY_TARGET=http://api_melqard:8000
 ENV API_PROXY_TARGET=$API_PROXY_TARGET
 
 COPY apps/admin/package.json apps/admin/package-lock.json /app/

@@ -6,7 +6,7 @@ function stripTrailingSlash(s: string) {
 
 export function backendBaseUrl(): string {
   // Match `next.config.js` rewrite default to keep local/dev simple.
-  return stripTrailingSlash(process.env.API_PROXY_TARGET || "http://api:8000");
+  return stripTrailingSlash(process.env.API_PROXY_TARGET || "http://api_melqard:8000");
 }
 
 export class BackendHttpError extends Error {
@@ -36,4 +36,3 @@ export async function backendGetJson<T>(path: string): Promise<T> {
   }
   return (await res.json()) as T;
 }
-

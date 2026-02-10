@@ -90,13 +90,8 @@ services:
     # during /health, which blocks the entire deployment. To make networking
     # deterministic, explicitly attach routed services to both networks.
     networks:
-      default:
-        aliases:
-          # Keep compatibility with code/builds that expect the API to be reachable as `http://api:8000`.
-          - api
-      dokploy:
-        aliases:
-          - api
+      - default
+      - dokploy
 
   worker:
     build:
@@ -139,12 +134,12 @@ services:
       context: ..
       dockerfile: apps/admin/Dockerfile
       args:
-        # Cloud pilot: use a dedicated API domain (avoid path-prefix collisions on app.melqard.com).
-        NEXT_PUBLIC_API_BASE_URL: https://api.melqard.com
-        API_PROXY_TARGET: http://api:8000
+        # Cloud pilot: use a same-origin proxy prefix to avoid path/host collisions.
+        NEXT_PUBLIC_API_BASE_URL: /mapi
+        API_PROXY_TARGET: http://api_melqard:8000
     restart: unless-stopped
     environment:
-      API_PROXY_TARGET: http://api:8000
+      API_PROXY_TARGET: http://api_melqard:8000
     # Admin can start even if API isn't healthy yet (it will just show API errors).
     # This avoids app.melqard.com going dark during API init/debug.
     depends_on:
