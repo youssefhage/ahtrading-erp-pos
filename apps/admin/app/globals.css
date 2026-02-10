@@ -5,15 +5,17 @@
 @layer base {
   :root {
     /* Industrial Terminal - Light Mode Design System (default) */
-    /* Background hierarchy: light at bottom, slightly darker as we rise */
-    --bg: 250 250 250; /* zinc-50 */
-    --bg-elevated: 244 244 245; /* zinc-100 */
+    /* Background hierarchy:
+       - Use a slightly darker app background
+       - Use pure white for elevated surfaces (cards/tables) for readability */
+    --bg: 244 244 245; /* zinc-100 */
+    --bg-elevated: 255 255 255; /* white */
     --bg-sunken: 228 228 231; /* zinc-200 */
 
     /* Foreground: near-black for readability on light */
     --fg: 24 24 27; /* zinc-900 */
-    --fg-muted: 63 63 70; /* zinc-700 */
-    --fg-subtle: 113 113 122; /* zinc-500 */
+    --fg-muted: 39 39 42; /* zinc-800 */
+    --fg-subtle: 82 82 91; /* zinc-600 */
 
     /* Border: subtle definition */
     --border: 212 212 216; /* zinc-300 */
@@ -232,7 +234,9 @@
 
   /* Table styling - data terminal aesthetic */
   .ui-table-wrap {
-    @apply relative overflow-auto rounded-lg border border-border-subtle bg-bg-elevated/60;
+    /* Tables are dense: keep them crisp and high-contrast. */
+    @apply relative overflow-auto rounded-lg border border-border bg-bg-elevated;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
   }
 
   .ui-table {
@@ -251,7 +255,8 @@
   }
 
   .ui-thead {
-    @apply text-xs font-medium uppercase tracking-wider text-fg-subtle;
+    /* Slightly larger + darker header text improves scan-ability. */
+    @apply text-[11px] font-semibold uppercase tracking-wider text-fg-muted;
     @apply bg-bg-elevated border-b border-border-subtle;
   }
 
@@ -260,7 +265,7 @@
   }
 
   .ui-tr {
-    @apply border-b border-border-subtle/60 transition-colors;
+    @apply border-b border-border-subtle transition-colors;
   }
 
   .ui-tr-hover {

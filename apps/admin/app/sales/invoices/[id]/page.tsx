@@ -369,7 +369,7 @@ function SalesInvoiceShowInner() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
                   <p className="text-xs text-fg-muted">Customer</p>
                   <p className="text-sm font-medium text-foreground">
                     {detail.invoice.customer_id ? (
@@ -381,16 +381,16 @@ function SalesInvoiceShowInner() {
                     )}
                   </p>
                 </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
                   <p className="text-xs text-fg-muted">Warehouse</p>
                   <p className="text-sm font-medium text-foreground">{detail.invoice.warehouse_name || detail.invoice.warehouse_id || "-"}</p>
                 </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
                   <p className="text-xs text-fg-muted">Dates</p>
                   <p className="text-sm data-mono text-foreground">Inv {fmtIso(detail.invoice.invoice_date)}</p>
                   <p className="text-sm data-mono text-foreground">Due {fmtIso(detail.invoice.due_date)}</p>
                 </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
                   <p className="text-xs text-fg-muted">Totals</p>
                   <div className="mt-1 space-y-1 text-xs text-fg-muted">
                     <div className="flex items-center justify-between gap-2">
@@ -427,7 +427,7 @@ function SalesInvoiceShowInner() {
                     );
                   })()}
                 </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
                   <p className="text-xs text-fg-muted">Status</p>
                   <p className="text-sm font-medium text-foreground">{detail.invoice.status}</p>
                 </div>
@@ -453,8 +453,10 @@ function SalesInvoiceShowInner() {
                           <tr key={l.id} className="ui-tr-hover">
                             <td className="px-3 py-2">
                               {l.item_sku || l.item_name ? (
-                                <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
-                                  <span className="font-mono text-xs">{l.item_sku || "-"}</span> · {l.item_name || "-"}
+                                <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="text-sm">
+                                  <span className="font-mono text-xs">{l.item_sku || "-"}</span>{" "}
+                                  <span className="text-fg-subtle">·</span>{" "}
+                                  <span dir="auto">{l.item_name || "-"}</span>
                                 </ShortcutLink>
                               ) : (
                                 <ShortcutLink
@@ -491,7 +493,7 @@ function SalesInvoiceShowInner() {
               </Card>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium text-foreground">Payments</p>
                     <Button asChild variant="outline" size="sm">
@@ -511,7 +513,7 @@ function SalesInvoiceShowInner() {
                   </div>
                 </div>
 
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
                   <p className="text-sm font-medium text-foreground">Tax Lines</p>
                   <div className="mt-2 space-y-1 text-xs text-fg-muted">
                     {detail.tax_lines.map((t) => (
