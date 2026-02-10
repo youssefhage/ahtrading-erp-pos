@@ -1,5 +1,9 @@
 services:
-  db:
+  # NOTE: Dokploy attaches routed services (api/admin) to a shared network
+  # (`dokploy-network`). To keep DNS resolution working (api -> db) we run all
+  # services on that same network, and we use a unique DB service name to avoid
+  # collisions with other stacks.
+  db_ahtrading_pos:
     image: postgres:15
     restart: unless-stopped
     environment:
@@ -14,8 +18,7 @@ services:
       timeout: 5s
       retries: 30
       start_period: 20s
-    networks:
-      - internal
+    network_mode: dokploy-network
 
   api:
     build:
@@ -25,11 +28,11 @@ services:
     restart: unless-stopped
     environment:
       APP_ENV: ${APP_ENV:-prod}
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db_ahtrading_pos:5432/${POSTGRES_DB}
       # Non-superuser app role used by API/worker so RLS is actually enforced.
       APP_DB_USER: ${APP_DB_USER}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD}
-      APP_DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB}
+      APP_DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@db_ahtrading_pos:5432/${POSTGRES_DB}
       # Cloud endpoint for edge -> cloud replication (optional but recommended on cloud).
       EDGE_SYNC_KEY: ${EDGE_SYNC_KEY:-}
       # Safety: do not auto-create/reset admin users in production.
@@ -38,7 +41,7 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       BOOTSTRAP_ADMIN_RESET_PASSWORD: ${BOOTSTRAP_ADMIN_RESET_PASSWORD:-0}
     depends_on:
-      db:
+      db_ahtrading_pos:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
@@ -62,9 +65,7 @@ services:
           sleep 2
         done
         exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
-    networks:
-      - internal
-      - dokploy
+    network_mode: dokploy-network
 
   worker:
     build:
@@ -72,10 +73,10 @@ services:
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db_ahtrading_pos:5432/${POSTGRES_DB}
       APP_DB_USER: ${APP_DB_USER}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD}
-      APP_DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@db:5432/${POSTGRES_DB}
+      APP_DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@db_ahtrading_pos:5432/${POSTGRES_DB}
     depends_on:
       api:
         condition: service_healthy
@@ -95,8 +96,7 @@ services:
           sleep 2
         done
         exec python3 -m backend.workers.worker_service --db "$$APP_DATABASE_URL"
-    networks:
-      - internal
+    network_mode: dokploy-network
 
   admin:
     build:
@@ -108,19 +108,7 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    networks:
-      - internal
-      - dokploy
+    network_mode: dokploy-network
 
 volumes:
   pgdata:
-
-networks:
-  # Internal per-compose network: safe for service-name DNS like `db`, `api`, etc.
-  internal:
-    driver: bridge
-  # Shared dokploy/traefik network for inbound routing.
-  # Dokploy sets this up; we attach only the services that need to be routed.
-  dokploy:
-    external: true
-    name: dokploy-network
