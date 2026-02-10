@@ -48,6 +48,9 @@ type InvoiceLine = {
   item_sku?: string | null;
   item_name?: string | null;
   qty: string | number;
+  uom?: string | null;
+  qty_factor?: string | number | null;
+  qty_entered?: string | number | null;
   unit_price_usd: string | number;
   unit_price_lbp: string | number;
   line_total_usd: string | number;
@@ -618,6 +621,7 @@ function SalesInvoiceShowInner() {
                         <tr>
                           <th className="px-4 py-3">Item</th>
                           <th className="px-4 py-3 text-right">Qty</th>
+                          <th className="px-4 py-3">UOM</th>
                           <th className="px-4 py-3 text-right">Total USD</th>
                           <th className="px-4 py-3 text-right">Total LL</th>
                         </tr>
@@ -643,7 +647,10 @@ function SalesInvoiceShowInner() {
                               )}
                             </td>
                             <td className="px-4 py-3 text-right data-mono text-xs">
-                              {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+                              {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+                            </td>
+                            <td className="px-4 py-3 data-mono text-xs">
+                              {String(l.uom || "").trim().toUpperCase() || "-"}
                             </td>
                             <td className="px-4 py-3 text-right data-mono text-xs">
                               {fmtUsd(l.line_total_usd)}
@@ -655,7 +662,7 @@ function SalesInvoiceShowInner() {
                         ))}
                         {detail.lines.length === 0 ? (
                           <tr>
-                            <td className="px-4 py-6 text-center text-fg-subtle" colSpan={4}>
+                            <td className="px-4 py-6 text-center text-fg-subtle" colSpan={5}>
                               No lines.
                             </td>
                           </tr>

@@ -1454,7 +1454,10 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
             cur.execute(
                 """
                 SELECT l.id, l.goods_receipt_line_id, l.item_id, it.sku AS item_sku, it.name AS item_name,
-                       l.qty, l.unit_cost_usd, l.unit_cost_lbp, l.line_total_usd, l.line_total_lbp,
+                       l.qty,
+                       l.uom, l.qty_factor, l.qty_entered,
+                       it.unit_of_measure,
+                       l.unit_cost_usd, l.unit_cost_lbp, l.line_total_usd, l.line_total_lbp,
                        l.batch_id, b.batch_no, b.expiry_date, b.status AS batch_status,
                        l.supplier_item_code, l.supplier_item_name
                 FROM supplier_invoice_lines l

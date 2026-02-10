@@ -50,6 +50,10 @@ type InvoiceLine = {
   supplier_item_code?: string | null;
   supplier_item_name?: string | null;
   qty: string | number;
+  uom?: string | null;
+  qty_factor?: string | number | null;
+  qty_entered?: string | number | null;
+  unit_of_measure?: string | null;
   unit_cost_usd: string | number;
   unit_cost_lbp: string | number;
   line_total_usd: string | number;
@@ -688,6 +692,7 @@ function SupplierInvoiceShowInner() {
                         <tr>
                           <th className="px-3 py-2">Item</th>
                           <th className="px-3 py-2 text-right">Qty</th>
+                          <th className="px-3 py-2">UOM</th>
                           <th className="px-3 py-2">Batch</th>
                           <th className="px-3 py-2">Expiry</th>
                           <th className="px-3 py-2 text-right">Total USD</th>
@@ -719,7 +724,10 @@ function SupplierInvoiceShowInner() {
                               )}
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
-                              {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+                              {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs">
+                              {String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}
                             </td>
                             <td className="px-3 py-2 font-mono text-xs">
                               {l.batch_no || "-"}
@@ -740,7 +748,7 @@ function SupplierInvoiceShowInner() {
                         ))}
                         {detail.lines.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
+                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
                               No lines.
                             </td>
                           </tr>
