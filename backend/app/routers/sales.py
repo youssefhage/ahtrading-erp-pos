@@ -11,6 +11,7 @@ import uuid
 from backend.workers import pos_processor
 from ..journal_utils import auto_balance_journal
 from ..validation import CurrencyCode, PaymentMethod, DocStatus
+from ..uom import load_item_uom_context, resolve_line_uom
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
@@ -627,34 +628,25 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                # Resolve base item UOMs so drafts always store a concrete UOM code.
-                item_ids = sorted({str(l.item_id) for l in (data.lines or []) if l.item_id})
-                uom_by_item: dict[str, str] = {}
-                if item_ids:
-                    cur.execute(
-                        """
-                        SELECT id, unit_of_measure
-                        FROM items
-                        WHERE company_id=%s AND id = ANY(%s::uuid[])
-                        """,
-                        (company_id, item_ids),
-                    )
-                    uom_by_item = {str(r["id"]): (r.get("unit_of_measure") or "") for r in cur.fetchall()}
+                item_ids = [str(l.item_id) for l in (data.lines or []) if l.item_id]
+                base_uom_by_item, factors_by_item = load_item_uom_context(cur, company_id, item_ids)
 
                 for idx, l in enumerate(data.lines or []):
-                    if l.qty <= 0:
-                        raise HTTPException(status_code=400, detail=f"line {idx+1}: qty must be > 0")
-
-                    qty_factor = Decimal(str(l.qty_factor or 1))
-                    if qty_factor <= 0:
-                        raise HTTPException(status_code=400, detail=f"line {idx+1}: qty_factor must be > 0")
-
-                    base_uom = (uom_by_item.get(str(l.item_id)) or "").strip()
-                    if not base_uom:
-                        raise HTTPException(status_code=400, detail=f"line {idx+1}: invalid item_id")
-                    uom = (l.uom or base_uom).strip().upper()
-
-                    qty_entered = l.qty_entered if l.qty_entered is not None else (l.qty / qty_factor)
+                    resolved = resolve_line_uom(
+                        line_label=f"line {idx+1}",
+                        item_id=l.item_id,
+                        qty_base=Decimal(str(l.qty or 0)),
+                        qty_entered=(Decimal(str(l.qty_entered)) if l.qty_entered is not None else None),
+                        uom=l.uom,
+                        qty_factor=(Decimal(str(l.qty_factor)) if l.qty_factor is not None else None),
+                        base_uom_by_item=base_uom_by_item,
+                        factors_by_item=factors_by_item,
+                        strict_factor=True,
+                    )
+                    qty_base = resolved["qty"]
+                    uom = resolved["uom"]
+                    qty_factor = resolved["qty_factor"]
+                    qty_entered = resolved["qty_entered"]
 
                     unit_usd = Decimal(str(l.unit_price_usd or 0))
                     unit_lbp = Decimal(str(l.unit_price_lbp or 0))
@@ -667,8 +659,8 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                     if unit_usd == 0 and unit_lbp == 0:
                         raise HTTPException(status_code=400, detail=f"line {idx+1}: unit price is required")
 
-                    line_usd = unit_usd * l.qty
-                    line_lbp = unit_lbp * l.qty
+                    line_usd = unit_usd * qty_base
+                    line_lbp = unit_lbp * qty_base
                     if line_lbp == 0 and data.exchange_rate:
                         line_lbp = line_usd * data.exchange_rate
                     if line_usd == 0 and data.exchange_rate:
@@ -694,19 +686,19 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                     disc_usd = Decimal(str(l.discount_amount_usd or 0))
                     disc_lbp = Decimal(str(l.discount_amount_lbp or 0))
                     if disc_usd == 0 and disc_lbp == 0:
-                        disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * l.qty)
-                        disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * l.qty)
+                        disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * qty_base)
+                        disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty_base)
 
                     base_usd += line_usd
                     base_lbp += line_lbp
-                    subtotal_usd += pre_unit_usd * l.qty
-                    subtotal_lbp += pre_unit_lbp * l.qty
+                    subtotal_usd += pre_unit_usd * qty_base
+                    subtotal_lbp += pre_unit_lbp * qty_base
                     discount_total_usd += disc_usd
                     discount_total_lbp += disc_lbp
                     lines_norm.append(
                         {
                             "item_id": l.item_id,
-                            "qty": l.qty,
+                            "qty": qty_base,
                             "uom": uom,
                             "qty_factor": qty_factor,
                             "qty_entered": qty_entered,
@@ -883,30 +875,24 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                     discount_total_usd = Decimal("0")
                     discount_total_lbp = Decimal("0")
                     exchange_rate = Decimal(str(patch.get("exchange_rate") or inv["exchange_rate"] or 0))
-                    item_ids = sorted({str(l.item_id) for l in (lines_in or []) if l.item_id})
-                    uom_by_item: dict[str, str] = {}
-                    if item_ids:
-                        cur.execute(
-                            """
-                            SELECT id, unit_of_measure
-                            FROM items
-                            WHERE company_id=%s AND id = ANY(%s::uuid[])
-                            """,
-                            (company_id, item_ids),
+                    item_ids = [str(l.item_id) for l in (lines_in or []) if l.item_id]
+                    base_uom_by_item, factors_by_item = load_item_uom_context(cur, company_id, item_ids)
+                    for idx, l in enumerate(lines_in or []):
+                        resolved = resolve_line_uom(
+                            line_label=f"line {idx+1}",
+                            item_id=l.item_id,
+                            qty_base=Decimal(str(l.qty or 0)),
+                            qty_entered=(Decimal(str(l.qty_entered)) if l.qty_entered is not None else None),
+                            uom=l.uom,
+                            qty_factor=(Decimal(str(l.qty_factor)) if l.qty_factor is not None else None),
+                            base_uom_by_item=base_uom_by_item,
+                            factors_by_item=factors_by_item,
+                            strict_factor=True,
                         )
-                        uom_by_item = {str(r["id"]): (r.get("unit_of_measure") or "") for r in cur.fetchall()}
-                    for l in (lines_in or []):
-                        if l.qty <= 0:
-                            raise HTTPException(status_code=400, detail="qty must be > 0")
-
-                        qty_factor = Decimal(str(l.qty_factor or 1))
-                        if qty_factor <= 0:
-                            raise HTTPException(status_code=400, detail="qty_factor must be > 0")
-                        base_uom = (uom_by_item.get(str(l.item_id)) or "").strip()
-                        if not base_uom:
-                            raise HTTPException(status_code=400, detail="invalid item_id")
-                        uom = (l.uom or base_uom).strip().upper()
-                        qty_entered = l.qty_entered if l.qty_entered is not None else (l.qty / qty_factor)
+                        qty_base = resolved["qty"]
+                        uom = resolved["uom"]
+                        qty_factor = resolved["qty_factor"]
+                        qty_entered = resolved["qty_entered"]
 
                         unit_usd = Decimal(str(l.unit_price_usd or 0))
                         unit_lbp = Decimal(str(l.unit_price_lbp or 0))
@@ -917,8 +903,8 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                                 unit_lbp = Decimal(str(l.unit_price_entered_lbp or 0)) / qty_factor
                         if unit_usd == 0 and unit_lbp == 0:
                             raise HTTPException(status_code=400, detail="unit price is required")
-                        line_usd = unit_usd * l.qty
-                        line_lbp = unit_lbp * l.qty
+                        line_usd = unit_usd * qty_base
+                        line_lbp = unit_lbp * qty_base
                         if line_lbp == 0 and exchange_rate:
                             line_lbp = line_usd * exchange_rate
                         if line_usd == 0 and exchange_rate:
@@ -945,10 +931,10 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                         disc_usd = Decimal(str(l.discount_amount_usd or 0))
                         disc_lbp = Decimal(str(l.discount_amount_lbp or 0))
                         if disc_usd == 0 and disc_lbp == 0:
-                            disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * l.qty)
-                            disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * l.qty)
-                        subtotal_usd += pre_unit_usd * l.qty
-                        subtotal_lbp += pre_unit_lbp * l.qty
+                            disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * qty_base)
+                            disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty_base)
+                        subtotal_usd += pre_unit_usd * qty_base
+                        subtotal_lbp += pre_unit_lbp * qty_base
                         discount_total_usd += disc_usd
                         discount_total_lbp += disc_lbp
 
@@ -972,7 +958,7 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                             (
                                 invoice_id,
                                 l.item_id,
-                                l.qty,
+                                qty_base,
                                 qty_entered,
                                 uom,
                                 qty_factor,

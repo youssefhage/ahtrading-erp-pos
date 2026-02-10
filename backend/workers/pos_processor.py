@@ -95,6 +95,109 @@ def q_points(v: Decimal) -> Decimal:
     # customer_loyalty_ledger.points is numeric(18,4)
     return v.quantize(Decimal("0.0001"))
 
+UOM_Q6 = Decimal("0.000001")
+
+
+def _q6(v: Decimal) -> Decimal:
+    return v.quantize(UOM_Q6)
+
+
+def _norm_uom_code(v) -> str | None:
+    c = (str(v or "")).strip().upper()
+    return c or None
+
+
+def _load_item_uom_context(cur, company_id: str, item_ids: list[str]) -> tuple[dict[str, str], dict[str, dict[str, Decimal]]]:
+    ids = sorted({str(x) for x in (item_ids or []) if str(x).strip()})
+    if not ids:
+        return {}, {}
+
+    cur.execute(
+        """
+        SELECT id, unit_of_measure
+        FROM items
+        WHERE company_id=%s AND id = ANY(%s::uuid[])
+        """,
+        (company_id, ids),
+    )
+    base_uom_by_item = {str(r["id"]): (_norm_uom_code(r.get("unit_of_measure")) or "EA") for r in (cur.fetchall() or [])}
+
+    cur.execute(
+        """
+        SELECT item_id, uom_code, to_base_factor
+        FROM item_uom_conversions
+        WHERE company_id=%s AND item_id = ANY(%s::uuid[]) AND is_active=true
+        """,
+        (company_id, ids),
+    )
+    factors_by_item: dict[str, dict[str, Decimal]] = {}
+    for r in (cur.fetchall() or []):
+        it = str(r["item_id"])
+        u = _norm_uom_code(r.get("uom_code"))
+        if not u:
+            continue
+        f = Decimal(str(r.get("to_base_factor") or 0))
+        if f <= 0:
+            continue
+        factors_by_item.setdefault(it, {})[u] = _q6(f)
+
+    # Always resolve base uom to factor 1.
+    for it, bu in base_uom_by_item.items():
+        factors_by_item.setdefault(it, {})[bu] = Decimal("1")
+
+    return base_uom_by_item, factors_by_item
+
+
+def _resolve_line_uom(
+    *,
+    line_label: str,
+    item_id: str,
+    qty_base: Decimal,
+    qty_entered: Decimal | None,
+    uom: str | None,
+    qty_factor: Decimal | None,
+    base_uom_by_item: dict[str, str],
+    factors_by_item: dict[str, dict[str, Decimal]],
+    epsilon: Decimal = UOM_Q6,
+) -> tuple[str, Decimal, Decimal]:
+    """
+    Validates that uom/qty_factor match item_uom_conversions, and that qty/qty_entered are consistent.
+    Returns (uom, qty_factor, qty_entered).
+    """
+    it = str(item_id or "").strip()
+    if not it:
+        raise ValueError(f"{line_label}: missing item_id")
+    if qty_base <= 0:
+        raise ValueError(f"{line_label}: qty must be > 0")
+
+    base_uom = (base_uom_by_item.get(it) or "").strip().upper()
+    if not base_uom:
+        raise ValueError(f"{line_label}: invalid item_id {it}")
+
+    u = _norm_uom_code(uom) or base_uom
+    expected = Decimal("1") if u == base_uom else factors_by_item.get(it, {}).get(u, Decimal("0"))
+    if expected <= 0:
+        raise ValueError(f"{line_label}: missing UOM conversion for item_id={it} uom={u}")
+    expected = _q6(expected)
+
+    if qty_factor is not None:
+        f_in = _q6(Decimal(str(qty_factor or 0)))
+        if f_in <= 0:
+            raise ValueError(f"{line_label}: qty_factor must be > 0")
+        if f_in != expected:
+            raise ValueError(f"{line_label}: qty_factor mismatch for uom {u} (expected {expected}, got {f_in})")
+
+    if qty_entered is not None:
+        qe_in = _q6(Decimal(str(qty_entered or 0)))
+        if qe_in <= 0:
+            raise ValueError(f"{line_label}: qty_entered must be > 0")
+        expect_base = _q6(qe_in * expected)
+        if (qty_base - expect_base).copy_abs() > epsilon:
+            raise ValueError(f"{line_label}: qty and qty_entered mismatch (qty={qty_base}, qty_entered={qe_in}, factor={expected})")
+
+    qe = _q6(qty_base / expected) if expected else _q6(qty_base)
+    return u, expected, qe
+
 
 def fetch_loyalty_policy(cur, company_id: str) -> tuple[Decimal, Decimal]:
     """
@@ -834,6 +937,10 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     )
     invoice_id = cur.fetchone()["id"]
 
+    # Validate and normalize UOM context against per-item conversions.
+    item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
+    base_uom_by_item, factors_by_item = _load_item_uom_context(cur, company_id, item_ids)
+
     for l in lines:
         # Generate stable ids so downstream artifacts (stock moves, etc.) can link to document lines.
         line_id = str(uuid.uuid4())
@@ -843,14 +950,16 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         unit_price_lbp = Decimal(str(l.get("unit_price_lbp", 0) or 0))
         line_total_usd = Decimal(str(l.get("line_total_usd", 0) or 0))
         line_total_lbp = Decimal(str(l.get("line_total_lbp", 0) or 0))
-        qty_factor = Decimal(str(l.get("qty_factor", 1) or 1))
-        if qty_factor <= 0:
-            qty_factor = Decimal("1")
-
-        if l.get("qty_entered") is not None:
-            qty_entered = Decimal(str(l.get("qty_entered") or 0))
-        else:
-            qty_entered = (qty / qty_factor) if qty_factor else qty
+        uom, qty_factor, qty_entered = _resolve_line_uom(
+            line_label="sale line",
+            item_id=str(l.get("item_id") or ""),
+            qty_base=qty,
+            qty_entered=(Decimal(str(l.get("qty_entered") or 0)) if l.get("qty_entered") is not None else None),
+            uom=(l.get("uom") or None),
+            qty_factor=(Decimal(str(l.get("qty_factor") or 0)) if l.get("qty_factor") is not None else None),
+            base_uom_by_item=base_uom_by_item,
+            factors_by_item=factors_by_item,
+        )
 
         if l.get("unit_price_entered_usd") is not None:
             unit_price_entered_usd = Decimal(str(l.get("unit_price_entered_usd") or 0))
@@ -889,7 +998,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 unit_price_lbp,
                 line_total_usd,
                 line_total_lbp,
-                l.get("uom"),
+                uom,
                 qty_factor,
                 qty_entered,
                 unit_price_entered_usd,
@@ -1415,6 +1524,8 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
 
     # Stock moves (qty_in)
     warehouse_id = payload.get("warehouse_id")
+    item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
+    base_uom_by_item, factors_by_item = _load_item_uom_context(cur, company_id, item_ids)
     for l in lines:
         if not l.get("item_id") or not warehouse_id:
             continue
@@ -1483,13 +1594,15 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         if isinstance(line_condition, str):
             line_condition = line_condition.strip() or None
 
-        qty_factor = Decimal(str(l.get("qty_factor", 1) or 1))
-        if qty_factor <= 0:
-            qty_factor = Decimal("1")
-        qty_entered = (
-            Decimal(str(l.get("qty_entered") or 0))
-            if l.get("qty_entered") is not None
-            else ((qty / qty_factor) if qty_factor else qty)
+        uom, qty_factor, qty_entered = _resolve_line_uom(
+            line_label="return line",
+            item_id=str(l.get("item_id") or ""),
+            qty_base=qty,
+            qty_entered=(Decimal(str(l.get("qty_entered") or 0)) if l.get("qty_entered") is not None else None),
+            uom=(l.get("uom") or None),
+            qty_factor=(Decimal(str(l.get("qty_factor") or 0)) if l.get("qty_factor") is not None else None),
+            base_uom_by_item=base_uom_by_item,
+            factors_by_item=factors_by_item,
         )
         unit_price_entered_usd = unit_price_usd * qty_factor
         unit_price_entered_lbp = unit_price_lbp * qty_factor
@@ -1518,7 +1631,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                 return_id,
                 l.get("item_id"),
                 qty,
-                l.get("uom"),
+                uom,
                 qty_factor,
                 qty_entered,
                 unit_price_usd,
@@ -1924,6 +2037,8 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
     gr_id = cur.fetchone()["id"]
 
     warehouse_id = payload.get("warehouse_id")
+    item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
+    base_uom_by_item, factors_by_item = _load_item_uom_context(cur, company_id, item_ids)
     for l in lines:
         if not l.get("item_id") or not warehouse_id:
             continue
@@ -1943,13 +2058,15 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
         unit_cost_lbp = Decimal(str(l.get("unit_cost_lbp", 0) or 0))
         line_total_usd = Decimal(str(l.get("line_total_usd", 0) or 0))
         line_total_lbp = Decimal(str(l.get("line_total_lbp", 0) or 0))
-        qty_factor = Decimal(str(l.get("qty_factor", 1) or 1))
-        if qty_factor <= 0:
-            qty_factor = Decimal("1")
-        qty_entered = (
-            Decimal(str(l.get("qty_entered") or 0))
-            if l.get("qty_entered") is not None
-            else ((qty / qty_factor) if qty_factor else qty)
+        uom, qty_factor, qty_entered = _resolve_line_uom(
+            line_label="goods receipt line",
+            item_id=str(l.get("item_id") or ""),
+            qty_base=qty,
+            qty_entered=(Decimal(str(l.get("qty_entered") or 0)) if l.get("qty_entered") is not None else None),
+            uom=(l.get("uom") or None),
+            qty_factor=(Decimal(str(l.get("qty_factor") or 0)) if l.get("qty_factor") is not None else None),
+            base_uom_by_item=base_uom_by_item,
+            factors_by_item=factors_by_item,
         )
         unit_cost_entered_usd = unit_cost_usd * qty_factor
         unit_cost_entered_lbp = unit_cost_lbp * qty_factor
@@ -1975,7 +2092,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
                 l.get("item_id"),
                 batch_id,
                 qty,
-                l.get("uom"),
+                uom,
                 qty_factor,
                 qty_entered,
                 unit_cost_usd,
@@ -2183,6 +2300,8 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
     )
     inv_id = cur.fetchone()["id"]
 
+    item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
+    base_uom_by_item, factors_by_item = _load_item_uom_context(cur, company_id, item_ids)
     for l in lines:
         batch_id = get_or_create_batch(cur, company_id, l.get("item_id"), l.get("batch_no"), l.get("expiry_date"))
         touch_batch_received_metadata(
@@ -2199,13 +2318,15 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
         unit_cost_lbp = Decimal(str(l.get("unit_cost_lbp", 0) or 0))
         line_total_usd = Decimal(str(l.get("line_total_usd", 0) or 0))
         line_total_lbp = Decimal(str(l.get("line_total_lbp", 0) or 0))
-        qty_factor = Decimal(str(l.get("qty_factor", 1) or 1))
-        if qty_factor <= 0:
-            qty_factor = Decimal("1")
-        qty_entered = (
-            Decimal(str(l.get("qty_entered") or 0))
-            if l.get("qty_entered") is not None
-            else ((qty / qty_factor) if qty_factor else qty)
+        uom, qty_factor, qty_entered = _resolve_line_uom(
+            line_label="supplier invoice line",
+            item_id=str(l.get("item_id") or ""),
+            qty_base=qty,
+            qty_entered=(Decimal(str(l.get("qty_entered") or 0)) if l.get("qty_entered") is not None else None),
+            uom=(l.get("uom") or None),
+            qty_factor=(Decimal(str(l.get("qty_factor") or 0)) if l.get("qty_factor") is not None else None),
+            base_uom_by_item=base_uom_by_item,
+            factors_by_item=factors_by_item,
         )
         unit_cost_entered_usd = unit_cost_usd * qty_factor
         unit_cost_entered_lbp = unit_cost_lbp * qty_factor
@@ -2228,7 +2349,7 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
                 l.get("item_id"),
                 batch_id,
                 qty,
-                l.get("uom"),
+                uom,
                 qty_factor,
                 qty_entered,
                 unit_cost_usd,
