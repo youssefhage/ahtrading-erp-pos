@@ -311,7 +311,7 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                                    payment_terms_days, credit_limit_usd, credit_limit_lbp, price_list_id, is_active)
                                 VALUES
                                   (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                ON CONFLICT (company_id, code) DO UPDATE
+                                ON CONFLICT (company_id, code) WHERE code IS NOT NULL AND code <> '' DO UPDATE
                                 SET name = EXCLUDED.name,
                                     phone = EXCLUDED.phone,
                                     email = EXCLUDED.email,

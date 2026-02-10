@@ -231,7 +231,7 @@ def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_c
                                   (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active)
                                 VALUES
                                   (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                ON CONFLICT (company_id, code) DO UPDATE
+                                ON CONFLICT (company_id, code) WHERE code IS NOT NULL AND code <> '' DO UPDATE
                                 SET name = EXCLUDED.name,
                                     phone = EXCLUDED.phone,
                                     email = EXCLUDED.email,
