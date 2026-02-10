@@ -575,7 +575,7 @@
   /* Hover affordance: arrow appears only on hover/focus (keep the UI calm by default). */
   .ui-link::after,
   .ui-shortcut::after {
-    content: "\\2192";
+    content: "\2192";
     display: inline-block;
     /* Reserve space to avoid layout shift on hover, but keep it in-flow so it can't overlap text. */
     width: 1.1em;
