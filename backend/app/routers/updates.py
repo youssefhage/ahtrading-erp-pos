@@ -125,29 +125,6 @@ def _html_index(dir_path: Path, rel_dir: str) -> str:
     )
 
 
-@router.get("/{rel_path:path}")
-def get_update_file(rel_path: str):
-    """
-    Public read-only access to update artifacts.
-    """
-    base = _updates_dir()
-    target = _resolve_rel_path(rel_path)
-
-    if target.exists() and target.is_dir():
-        html = _html_index(target, rel_path)
-        return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
-
-    if not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail="not found")
-
-    rel = str(target.relative_to(base))
-    return FileResponse(
-        path=str(target),
-        filename=target.name,
-        headers={"Cache-Control": _cache_control_for_rel(rel)},
-    )
-
-
 @router.get("/_debug/ls")
 def debug_list_updates(
     prefix: str = "",
@@ -241,3 +218,26 @@ async def upload_update_file(
             pass
 
     return {"ok": True, "path": str(target.relative_to(base))}
+
+
+@router.get("/{rel_path:path}")
+def get_update_file(rel_path: str):
+    """
+    Public read-only access to update artifacts.
+    """
+    base = _updates_dir()
+    target = _resolve_rel_path(rel_path)
+
+    if target.exists() and target.is_dir():
+        html = _html_index(target, rel_path)
+        return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
+
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+
+    rel = str(target.relative_to(base))
+    return FileResponse(
+        path=str(target),
+        filename=target.name,
+        headers={"Cache-Control": _cache_control_for_rel(rel)},
+    )
