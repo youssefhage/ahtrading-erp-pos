@@ -369,9 +369,9 @@ function SalesInvoiceShowInner() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
-                  <p className="text-xs text-fg-muted">Customer</p>
-                  <p className="text-sm font-medium text-foreground">
+                <div className="ui-panel p-4">
+                  <p className="ui-panel-title">Customer</p>
+                  <p className="ui-panel-value mt-1">
                     {detail.invoice.customer_id ? (
                       <ShortcutLink href={`/partners/customers/${encodeURIComponent(detail.invoice.customer_id)}`} title="Open customer">
                         {detail.invoice.customer_name || detail.invoice.customer_id}
@@ -381,33 +381,35 @@ function SalesInvoiceShowInner() {
                     )}
                   </p>
                 </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
-                  <p className="text-xs text-fg-muted">Warehouse</p>
-                  <p className="text-sm font-medium text-foreground">{detail.invoice.warehouse_name || detail.invoice.warehouse_id || "-"}</p>
+                <div className="ui-panel p-4">
+                  <p className="ui-panel-title">Warehouse</p>
+                  <p className="ui-panel-value mt-1">{detail.invoice.warehouse_name || detail.invoice.warehouse_id || "-"}</p>
                 </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
-                  <p className="text-xs text-fg-muted">Dates</p>
-                  <p className="text-sm data-mono text-foreground">Inv {fmtIso(detail.invoice.invoice_date)}</p>
-                  <p className="text-sm data-mono text-foreground">Due {fmtIso(detail.invoice.due_date)}</p>
+                <div className="ui-panel p-4">
+                  <p className="ui-panel-title">Dates</p>
+                  <div className="mt-1 space-y-0.5">
+                    <p className="ui-panel-value-mono">Inv {fmtIso(detail.invoice.invoice_date)}</p>
+                    <p className="ui-panel-value-mono text-fg-muted">Due {fmtIso(detail.invoice.due_date)}</p>
+                  </div>
                 </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
-                  <p className="text-xs text-fg-muted">Totals</p>
-                  <div className="mt-1 space-y-1 text-xs text-fg-muted">
+                <div className="ui-panel p-4">
+                  <p className="ui-panel-title">Totals</p>
+                  <div className="mt-2 space-y-1.5 text-sm text-fg-muted">
                     <div className="flex items-center justify-between gap-2">
                       <span>Subtotal</span>
-                      <span className="data-mono text-foreground">
+                      <span className="data-mono text-foreground tabular-nums">
                         {fmtUsd(detail.invoice.subtotal_usd ?? detail.invoice.total_usd)} / {fmtLbp(detail.invoice.subtotal_lbp ?? detail.invoice.total_lbp)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span>Discount</span>
-                      <span className="data-mono text-foreground">
+                      <span className="data-mono text-foreground tabular-nums">
                         {fmtUsd(detail.invoice.discount_total_usd ?? 0)} / {fmtLbp(detail.invoice.discount_total_lbp ?? 0)}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-border-subtle pt-2">
                       <span>Total</span>
-                      <span className="data-mono text-foreground">
+                      <span className="data-mono text-foreground tabular-nums">
                         {fmtUsd(detail.invoice.total_usd)} / {fmtLbp(detail.invoice.total_lbp)}
                       </span>
                     </div>
@@ -418,7 +420,7 @@ function SalesInvoiceShowInner() {
                     const balUsd = Number(detail.invoice.total_usd || 0) - paidUsd;
                     const balLbp = Number(detail.invoice.total_lbp || 0) - paidLbp;
                     return (
-                      <p className="mt-2 text-xs text-fg-muted">
+                      <p className="mt-2 text-sm text-fg-muted">
                         Balance:{" "}
                         <span className="data-mono text-foreground">
                           {fmtUsd(balUsd)} / {fmtLbp(balLbp)}
@@ -427,9 +429,9 @@ function SalesInvoiceShowInner() {
                     );
                   })()}
                 </div>
-                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
-                  <p className="text-xs text-fg-muted">Status</p>
-                  <p className="text-sm font-medium text-foreground">{detail.invoice.status}</p>
+                <div className="ui-panel p-4">
+                  <p className="ui-panel-title">Status</p>
+                  <p className="ui-panel-value mt-1">{detail.invoice.status}</p>
                 </div>
               </div>
 
@@ -442,16 +444,16 @@ function SalesInvoiceShowInner() {
                     <table className="ui-table">
                       <thead className="ui-thead">
                         <tr>
-                          <th className="px-3 py-2">Item</th>
-                          <th className="px-3 py-2 text-right">Qty</th>
-                          <th className="px-3 py-2 text-right">Total USD</th>
-                          <th className="px-3 py-2 text-right">Total LL</th>
+                          <th className="px-4 py-3">Item</th>
+                          <th className="px-4 py-3 text-right">Qty</th>
+                          <th className="px-4 py-3 text-right">Total USD</th>
+                          <th className="px-4 py-3 text-right">Total LL</th>
                         </tr>
                       </thead>
                       <tbody>
                         {detail.lines.map((l) => (
                           <tr key={l.id} className="ui-tr-hover">
-                            <td className="px-3 py-2">
+                            <td className="px-4 py-3">
                               {l.item_sku || l.item_name ? (
                                 <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="text-sm">
                                   <span className="font-mono text-xs">{l.item_sku || "-"}</span>{" "}
@@ -468,20 +470,20 @@ function SalesInvoiceShowInner() {
                                 </ShortcutLink>
                               )}
                             </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
+                            <td className="px-4 py-3 text-right data-mono text-xs">
                               {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
                             </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
+                            <td className="px-4 py-3 text-right data-mono text-xs">
                               {fmtUsd(l.line_total_usd)}
                             </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
+                            <td className="px-4 py-3 text-right data-mono text-xs">
                               {fmtLbp(l.line_total_lbp)}
                             </td>
                           </tr>
                         ))}
                         {detail.lines.length === 0 ? (
                           <tr>
-                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
+                            <td className="px-4 py-6 text-center text-fg-subtle" colSpan={4}>
                               No lines.
                             </td>
                           </tr>
@@ -493,7 +495,7 @@ function SalesInvoiceShowInner() {
               </Card>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
+                <div className="ui-panel p-4">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-medium text-foreground">Payments</p>
                     <Button asChild variant="outline" size="sm">
@@ -513,7 +515,7 @@ function SalesInvoiceShowInner() {
                   </div>
                 </div>
 
-                <div className="rounded-md border border-border-subtle bg-bg-elevated p-3">
+                <div className="ui-panel p-4">
                   <p className="text-sm font-medium text-foreground">Tax Lines</p>
                   <div className="mt-2 space-y-1 text-xs text-fg-muted">
                     {detail.tax_lines.map((t) => (

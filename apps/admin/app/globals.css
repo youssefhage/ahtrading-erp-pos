@@ -178,6 +178,24 @@
     font-feature-settings: "zero" 0;
   }
 
+  /* Polished surface for “cards inside cards” and dense summaries. */
+  .ui-panel {
+    @apply rounded-xl border border-border-subtle bg-bg-elevated;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 10px 24px rgba(0, 0, 0, 0.06);
+  }
+
+  .ui-panel-title {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-fg-subtle;
+  }
+
+  .ui-panel-value {
+    @apply text-base font-semibold text-foreground;
+  }
+
+  .ui-panel-value-mono {
+    @apply data-mono text-sm text-foreground;
+  }
+
   /* Navigation rail item */
   .nav-rail-item {
     @apply relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200;
@@ -281,7 +299,7 @@
      We keep it neutral so feature-specific accents (USD/LBP/status) can override cleanly. */
   .ui-table td.data-mono,
   .ui-table td .data-mono {
-    color: rgb(var(--fg-muted));
+    color: rgb(var(--fg));
   }
 
   /* Optional semantic accents (keep subtle; used intentionally in tables). */
