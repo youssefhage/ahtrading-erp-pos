@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 import { apiBase, apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
@@ -58,9 +57,6 @@ function kindLabel(kind: string) {
 }
 
 export default function CustomerSoaPage() {
-  const sp = useSearchParams();
-  const initialCustomerId = (sp?.get("customer_id") || "").trim();
-
   const [status, setStatus] = useState("");
   const [data, setData] = useState<SoaRes | null>(null);
 
@@ -139,12 +135,20 @@ export default function CustomerSoaPage() {
   }, [customer?.id, query]);
 
   useEffect(() => {
-    // If linked from a Customer page with a customer_id in the URL, auto-load details.
-    // We keep this lightweight: customer object is resolved lazily from the report response.
-    if (!initialCustomerId || customer?.id) return;
-    setCustomer({ id: initialCustomerId, name: initialCustomerId } as any);
+    // Support direct deep-linking without using useSearchParams(), which can require Suspense wrappers.
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      const cid = (qs.get("customer_id") || "").trim();
+      const sd = (qs.get("start_date") || "").trim();
+      const ed = (qs.get("end_date") || "").trim();
+      if (!customer?.id && cid) setCustomer({ id: cid, name: cid } as any);
+      if (sd) setStartDate(sd);
+      if (ed) setEndDate(ed);
+    } catch {
+      // ignore
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialCustomerId]);
+  }, []);
 
   useEffect(() => {
     if (!canLoad) return;
@@ -315,4 +319,3 @@ export default function CustomerSoaPage() {
     </div>
   );
 }
-

@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 import { apiBase, apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
@@ -57,9 +56,6 @@ function kindLabel(kind: string) {
 }
 
 export default function SupplierSoaPage() {
-  const sp = useSearchParams();
-  const initialSupplierId = (sp?.get("supplier_id") || "").trim();
-
   const [status, setStatus] = useState("");
   const [data, setData] = useState<SoaRes | null>(null);
 
@@ -138,10 +134,20 @@ export default function SupplierSoaPage() {
   }, [supplier?.id, query]);
 
   useEffect(() => {
-    if (!initialSupplierId || supplier?.id) return;
-    setSupplier({ id: initialSupplierId, name: initialSupplierId } as any);
+    // Support direct deep-linking without useSearchParams() (avoids Suspense requirements in Next builds).
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      const sid = (qs.get("supplier_id") || "").trim();
+      const sd = (qs.get("start_date") || "").trim();
+      const ed = (qs.get("end_date") || "").trim();
+      if (!supplier?.id && sid) setSupplier({ id: sid, name: sid } as any);
+      if (sd) setStartDate(sd);
+      if (ed) setEndDate(ed);
+    } catch {
+      // ignore
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSupplierId]);
+  }, []);
 
   useEffect(() => {
     if (!canLoad) return;
@@ -312,4 +318,3 @@ export default function SupplierSoaPage() {
     </div>
   );
 }
-

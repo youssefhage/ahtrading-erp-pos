@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
@@ -41,11 +40,9 @@ function kindLabel(kind: string) {
 }
 
 export default function CustomerSoaPrintPage() {
-  const sp = useSearchParams();
-
-  const customerId = (sp?.get("customer_id") || "").trim();
-  const startDate = (sp?.get("start_date") || "").trim();
-  const endDate = (sp?.get("end_date") || "").trim();
+  const [customerId, setCustomerId] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   const query = useMemo(() => {
     const qs = new URLSearchParams();
@@ -58,6 +55,18 @@ export default function CustomerSoaPrintPage() {
 
   const [data, setData] = useState<SoaRes | null>(null);
   const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    // Avoid useSearchParams() to keep Next builds happy without extra Suspense wrappers.
+    try {
+      const qs = new URLSearchParams(window.location.search);
+      setCustomerId((qs.get("customer_id") || "").trim());
+      setStartDate((qs.get("start_date") || "").trim());
+      setEndDate((qs.get("end_date") || "").trim());
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const load = useCallback(async () => {
     if (!customerId) return;
@@ -189,4 +198,3 @@ export default function CustomerSoaPrintPage() {
     </div>
   );
 }
-
