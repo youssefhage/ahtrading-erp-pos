@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { ErrorBanner } from "@/components/error-banner";
 import { SearchableSelect } from "@/components/searchable-select";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -22,7 +22,6 @@ type Category = {
 export default function ItemCategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [status, setStatus] = useState("");
-  const [q, setQ] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
@@ -39,9 +38,56 @@ export default function ItemCategoriesPage() {
 
   const parentNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
 
-  const filtered = useMemo(() => {
-    return filterAndRankByFuzzy(categories || [], q, (c) => `${c.name} ${c.id}`);
-  }, [categories, q]);
+  const columns = useMemo((): Array<DataTableColumn<Category>> => {
+    return [
+      {
+        id: "name",
+        header: "Name",
+        accessor: (c) => c.name || "",
+        sortable: true,
+        cell: (c) => (
+          <button type="button" className="ui-link text-left font-medium" onClick={() => openEdit(c)}>
+            {c.name}
+          </button>
+        ),
+      },
+      {
+        id: "parent",
+        header: "Parent",
+        accessor: (c) => (c.parent_id ? parentNameById.get(c.parent_id) || c.parent_id : ""),
+        sortable: true,
+        cell: (c) => (c.parent_id ? parentNameById.get(c.parent_id) || c.parent_id : <span className="text-fg-subtle">-</span>),
+      },
+      {
+        id: "is_active",
+        header: "Active",
+        accessor: (c) => (c.is_active === false ? "No" : "Yes"),
+        sortable: true,
+        globalSearch: false,
+        cell: (c) => (c.is_active === false ? <span className="text-fg-subtle">No</span> : "Yes"),
+      },
+      {
+        id: "actions",
+        header: "",
+        accessor: () => "",
+        align: "right",
+        globalSearch: false,
+        cell: (c) => (
+          <Button
+            size="sm"
+            variant="outline"
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              openEdit(c);
+            }}
+          >
+            Edit
+          </Button>
+        ),
+      },
+    ];
+  }, [parentNameById]);
 
   async function load() {
     setStatus("Loading...");
@@ -186,50 +232,14 @@ export default function ItemCategoriesPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="w-full md:w-96">
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name..." />
-            </div>
-          </div>
-
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Name</th>
-                  <th className="px-3 py-2">Parent</th>
-                  <th className="px-3 py-2">Active</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((c) => (
-                  <tr key={c.id} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-medium">
-                      <button type="button" className="ui-link text-left" onClick={() => openEdit(c)}>
-                        {c.name}
-                      </button>
-                    </td>
-                    <td className="px-3 py-2">{c.parent_id ? parentNameById.get(c.parent_id) || c.parent_id : "-"}</td>
-                    <td className="px-3 py-2">{c.is_active === false ? <span className="text-fg-subtle">No</span> : "Yes"}</td>
-                    <td className="px-3 py-2 text-right">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          openEdit(c);
-                        }}
-                      >
-                        Edit
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<Category>
+            tableId="catalog.itemCategories"
+            rows={categories}
+            columns={columns}
+            initialSort={{ columnId: "name", dir: "asc" }}
+            globalFilterPlaceholder="Search categories..."
+            emptyText="No categories."
+          />
 
           <Dialog open={editOpen} onOpenChange={setEditOpen}>
             <DialogContent className="max-w-xl">
