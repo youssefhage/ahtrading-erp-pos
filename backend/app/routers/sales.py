@@ -272,6 +272,7 @@ def list_sales_payments(
     customer_id: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
+    include_voided: bool = False,
     limit: int = 500,
     company_id: str = Depends(get_company_id),
 ):
@@ -292,6 +293,8 @@ def list_sales_payments(
                 WHERE i.company_id = %s
             """
             params: list = [company_id]
+            if not include_voided:
+                sql += " AND p.voided_at IS NULL"
             if invoice_id:
                 sql += " AND p.invoice_id = %s"
                 params.append(invoice_id)
@@ -463,9 +466,11 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
                 """
                 SELECT id, method, amount_usd, amount_lbp,
                        tender_usd, tender_lbp,
-                       reference, auth_code, provider, settlement_currency, captured_at, created_at
+                       reference, auth_code, provider, settlement_currency, captured_at,
+                       voided_at, void_reason,
+                       created_at
                 FROM sales_payments
-                WHERE invoice_id = %s
+                WHERE invoice_id = %s AND voided_at IS NULL
                 ORDER BY created_at ASC
                 """,
                 (invoice_id,),
@@ -1111,7 +1116,7 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                 cur.execute("SELECT 1 FROM tax_lines WHERE company_id=%s AND source_type='sales_invoice' AND source_id=%s LIMIT 1", (company_id, invoice_id))
                 if cur.fetchone():
                     raise HTTPException(status_code=400, detail="invoice already has tax lines")
-                cur.execute("SELECT 1 FROM sales_payments WHERE invoice_id=%s LIMIT 1", (invoice_id,))
+                cur.execute("SELECT 1 FROM sales_payments WHERE invoice_id=%s AND voided_at IS NULL LIMIT 1", (invoice_id,))
                 if cur.fetchone():
                     raise HTTPException(status_code=400, detail="invoice already has payments")
 
@@ -1594,7 +1599,7 @@ def cancel_sales_invoice(invoice_id: str, data: SalesInvoiceCancelIn, company_id
                 if inv["status"] != "posted":
                     raise HTTPException(status_code=400, detail="only posted invoices can be canceled")
 
-                cur.execute("SELECT 1 FROM sales_payments WHERE invoice_id=%s LIMIT 1", (invoice_id,))
+                cur.execute("SELECT 1 FROM sales_payments WHERE invoice_id=%s AND voided_at IS NULL LIMIT 1", (invoice_id,))
                 if cur.fetchone():
                     raise HTTPException(status_code=400, detail="cannot cancel an invoice with payments; use a return/credit note flow")
 
@@ -2079,6 +2084,161 @@ class SalesPaymentRecomputeIn(BaseModel):
     tender_usd: Optional[Decimal] = None
     tender_lbp: Optional[Decimal] = None
     settlement_currency: Optional[CurrencyCode] = None
+
+class SalesPaymentVoidIn(BaseModel):
+    reason: Optional[str] = None
+
+@router.post("/payments/{payment_id}/void", dependencies=[Depends(require_permission("sales:write"))])
+def void_sales_payment(payment_id: str, data: SalesPaymentVoidIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Soft-void a sales payment:
+    - Marks the payment as voided.
+    - Creates a reversing GL journal for the payment.
+    - Creates an optional reversing bank transaction (if the original was system-created).
+
+    Safety:
+    - Only supports invoices that were posted as credit sales (invoice journal has an AR debit),
+      because otherwise removing a payment would require rewriting the original sales invoice journal.
+    """
+    reason = (data.reason or "").strip() or None
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT p.id, p.invoice_id, p.method,
+                           p.amount_usd, p.amount_lbp,
+                           p.tender_usd, p.tender_lbp,
+                           p.voided_at,
+                           si.customer_id, si.invoice_no, si.exchange_rate
+                    FROM sales_payments p
+                    JOIN sales_invoices si ON si.id = p.invoice_id AND si.company_id = %s
+                    WHERE p.id = %s::uuid
+                    FOR UPDATE
+                    """,
+                    (company_id, payment_id),
+                )
+                pay = cur.fetchone()
+                if not pay:
+                    raise HTTPException(status_code=404, detail="payment not found")
+                if pay.get("voided_at"):
+                    return {"ok": True}
+
+                invoice_id = str(pay["invoice_id"])
+                exchange_rate = Decimal(str(pay.get("exchange_rate") or 0))
+
+                # Must be a credit-sale invoice: invoice journal must include AR debit.
+                defaults = _fetch_account_defaults(cur, company_id)
+                ar = defaults.get("AR")
+                if not ar:
+                    raise HTTPException(status_code=400, detail="Missing AR default")
+
+                cur.execute(
+                    """
+                    SELECT id
+                    FROM gl_journals
+                    WHERE company_id=%s AND source_type='sales_invoice' AND source_id=%s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (company_id, invoice_id),
+                )
+                inv_j = cur.fetchone()
+                if not inv_j:
+                    raise HTTPException(status_code=400, detail="missing invoice GL journal")
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM gl_entries
+                    WHERE journal_id=%s AND account_id=%s AND (debit_usd>0 OR debit_lbp>0)
+                    LIMIT 1
+                    """,
+                    (inv_j["id"], ar),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="cannot void payment for a cash-sale invoice; use a return/credit note flow",
+                    )
+
+                # Reverse the payment journal.
+                memo = f"Void customer payment {str(payment_id)[:8]}" + (f" ({reason})" if reason else "")
+                void_journal_id = _reverse_gl_journal(
+                    cur,
+                    company_id,
+                    "sales_payment",
+                    str(payment_id),
+                    "sales_payment_void",
+                    date.today(),
+                    user["user_id"],
+                    memo,
+                )
+                # Ensure exchange_rate is carried (used by reports).
+                cur.execute(
+                    "UPDATE gl_journals SET exchange_rate=%s WHERE company_id=%s AND id=%s",
+                    (exchange_rate, company_id, void_journal_id),
+                )
+
+                # Reverse bank transaction if we had auto-created one for this payment.
+                cur.execute(
+                    """
+                    SELECT id, bank_account_id, txn_date, amount_usd, amount_lbp, description, reference, counterparty
+                    FROM bank_transactions
+                    WHERE company_id=%s AND source_type='sales_payment' AND source_id=%s
+                    ORDER BY imported_at DESC
+                    LIMIT 1
+                    """,
+                    (company_id, str(payment_id)),
+                )
+                bt = cur.fetchone()
+                if bt and bt.get("bank_account_id"):
+                    cur.execute(
+                        """
+                        INSERT INTO bank_transactions
+                          (id, company_id, bank_account_id, txn_date, direction, amount_usd, amount_lbp,
+                           description, reference, counterparty, matched_journal_id, matched_at,
+                           source_type, source_id, imported_by_user_id, imported_at)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, 'outflow', %s, %s,
+                           %s, %s, %s, %s, now(),
+                           'sales_payment_void', %s, %s, now())
+                        """,
+                        (
+                            company_id,
+                            bt["bank_account_id"],
+                            bt.get("txn_date") or date.today(),
+                            Decimal(str(bt.get("amount_usd") or 0)),
+                            Decimal(str(bt.get("amount_lbp") or 0)),
+                            f"Void payment {str(payment_id)[:8]}",
+                            bt.get("reference"),
+                            bt.get("counterparty"),
+                            void_journal_id,
+                            str(payment_id),
+                            user["user_id"],
+                        ),
+                    )
+
+                cur.execute(
+                    """
+                    UPDATE sales_payments
+                    SET voided_at=now(),
+                        voided_by_user_id=%s,
+                        void_reason=%s
+                    WHERE id=%s::uuid
+                    """,
+                    (user["user_id"], reason, payment_id),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'sales_payment_void', 'sales_payment', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], payment_id, json.dumps({"invoice_id": invoice_id, "reason": reason, "void_journal_id": str(void_journal_id)})),
+                )
+
+                return {"ok": True, "void_journal_id": str(void_journal_id)}
 
 @router.post("/payments/{payment_id}/recompute", dependencies=[Depends(require_permission("sales:write"))])
 def recompute_sales_payment(payment_id: str, data: SalesPaymentRecomputeIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):

@@ -175,6 +175,21 @@ function SalesInvoiceShowInner() {
     }
   }
 
+  async function voidPayment(paymentId: string) {
+    if (!detail) return;
+    const ok = window.confirm("Void this payment? This will create a reversing GL entry.");
+    if (!ok) return;
+    setStatus("Voiding payment...");
+    try {
+      await apiPost(`/sales/payments/${encodeURIComponent(paymentId)}/void`, {});
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }
+
   async function openPostDialog() {
     if (!detail) return;
     if (detail.invoice.status !== "draft") return;
@@ -620,6 +635,9 @@ function SalesInvoiceShowInner() {
                           </span>
                           <Button variant="outline" size="sm" onClick={() => recomputePayment(p.id)}>
                             Fix
+                          </Button>
+                          <Button variant="destructive" size="sm" onClick={() => voidPayment(p.id)}>
+                            Void
                           </Button>
                         </div>
                       </div>
