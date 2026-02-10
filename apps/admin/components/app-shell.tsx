@@ -287,6 +287,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Config", href: "/system/config" },
       { label: "Dimensions", href: "/system/dimensions" },
       { label: "Branches", href: "/system/branches" },
+      { label: "UOMs", href: "/system/uoms" },
       { label: "Warehouses", href: "/system/warehouses" },
       { label: "Warehouse Locations", href: "/system/warehouse-locations" },
       { label: "Users", href: "/system/users" },
@@ -320,7 +321,8 @@ const LITE_NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Users", href: "/system/users" },
       { label: "Audit Logs", href: "/system/audit-logs" },
-      { label: "Config", href: "/system/config" }
+      { label: "Config", href: "/system/config" },
+      { label: "UOMs", href: "/system/uoms" },
     ]
   }
 ];

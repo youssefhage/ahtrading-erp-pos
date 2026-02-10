@@ -16,6 +16,29 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 ItemType = Literal["stocked", "service", "bundle"]
 
+def _norm_uom(code: Optional[str]) -> str:
+    c = (code or "").strip()
+    if not c:
+        raise HTTPException(status_code=400, detail="unit_of_measure is required")
+    c = c.upper()
+    if len(c) > 32:
+        raise HTTPException(status_code=400, detail="unit_of_measure code is too long (max 32 chars)")
+    return c
+
+
+def _ensure_uom_exists(cur, company_id: str, code: str) -> None:
+    # Keep the existing name if present; only create if missing and re-activate if disabled.
+    cur.execute(
+        """
+        INSERT INTO unit_of_measures (id, company_id, code, name, is_active)
+        VALUES (gen_random_uuid(), %s, %s, %s, true)
+        ON CONFLICT (company_id, code) DO UPDATE
+        SET is_active = true,
+            updated_at = now()
+        """,
+        (company_id, code, code),
+    )
+
 
 class ItemIn(BaseModel):
     sku: str
@@ -185,9 +208,9 @@ def list_item_uoms(
     company_id: str = Depends(get_company_id),
 ):
     """
-    Suggest unit_of_measure values (combobox helper).
+    List UOM codes (master data).
 
-    Returns distinct UOMs, ordered by usage frequency (and then alphabetically).
+    Returns active UOM codes, ordered by usage frequency (and then alphabetically).
     """
     qq = (q or "").strip()
     if limit <= 0 or limit > 200:
@@ -195,36 +218,136 @@ def list_item_uoms(
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            if qq:
-                like = f"%{qq}%"
-                cur.execute(
-                    """
-                    SELECT i.unit_of_measure AS uom, COUNT(*)::int AS n
-                    FROM items i
-                    WHERE i.company_id = %s
-                      AND COALESCE(i.unit_of_measure, '') <> ''
-                      AND i.unit_of_measure ILIKE %s
-                    GROUP BY i.unit_of_measure
-                    ORDER BY n DESC, i.unit_of_measure ASC
-                    LIMIT %s
-                    """,
-                    (company_id, like, limit),
+            like = f"%{qq}%" if qq else None
+            cur.execute(
+                """
+                WITH usage AS (
+                  SELECT unit_of_measure AS code, COUNT(*)::int AS n
+                  FROM items
+                  WHERE company_id = %s AND COALESCE(unit_of_measure, '') <> ''
+                  GROUP BY unit_of_measure
                 )
-            else:
-                cur.execute(
-                    """
-                    SELECT i.unit_of_measure AS uom, COUNT(*)::int AS n
-                    FROM items i
-                    WHERE i.company_id = %s
-                      AND COALESCE(i.unit_of_measure, '') <> ''
-                    GROUP BY i.unit_of_measure
-                    ORDER BY n DESC, i.unit_of_measure ASC
-                    LIMIT %s
-                    """,
-                    (company_id, limit),
-                )
+                SELECT u.code AS uom, COALESCE(us.n, 0)::int AS n
+                FROM unit_of_measures u
+                LEFT JOIN usage us ON us.code = u.code
+                WHERE u.company_id = %s
+                  AND u.is_active = true
+                  AND (%s::text IS NULL OR u.code ILIKE %s OR u.name ILIKE %s)
+                ORDER BY COALESCE(us.n, 0) DESC, u.code ASC
+                LIMIT %s
+                """,
+                (company_id, company_id, like, like, like, limit),
+            )
             rows = cur.fetchall()
             return {"uoms": [r["uom"] for r in rows]}
+
+
+class UomRow(BaseModel):
+    code: str
+    name: str
+    is_active: bool
+    usage_count: int = 0
+
+
+@router.get("/uoms/manage", dependencies=[Depends(require_permission("config:write"))])
+def list_uoms_manage(company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH usage AS (
+                  SELECT unit_of_measure AS code, COUNT(*)::int AS n
+                  FROM items
+                  WHERE company_id = %s AND COALESCE(unit_of_measure, '') <> ''
+                  GROUP BY unit_of_measure
+                )
+                SELECT u.code, u.name, u.is_active, COALESCE(us.n, 0)::int AS usage_count
+                FROM unit_of_measures u
+                LEFT JOIN usage us ON us.code = u.code
+                WHERE u.company_id = %s
+                ORDER BY u.is_active DESC, COALESCE(us.n, 0) DESC, u.code ASC
+                """,
+                (company_id, company_id),
+            )
+            return {"uoms": cur.fetchall()}
+
+
+class UomCreateIn(BaseModel):
+    code: str
+    name: Optional[str] = None
+    is_active: bool = True
+
+
+@router.post("/uoms", dependencies=[Depends(require_permission("config:write"))])
+def create_uom(data: UomCreateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    code = _norm_uom(data.code)
+    name = (data.name or "").strip() or code
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO unit_of_measures (id, company_id, code, name, is_active)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                    ON CONFLICT (company_id, code) DO UPDATE
+                    SET name = EXCLUDED.name,
+                        is_active = EXCLUDED.is_active,
+                        updated_at = now()
+                    """,
+                    (company_id, code, name, bool(data.is_active)),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'uom_upsert', 'uom', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], code, json.dumps({"code": code, "name": name, "is_active": bool(data.is_active)})),
+                )
+                return {"ok": True, "code": code}
+
+
+class UomUpdateIn(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.patch("/uoms/{code}", dependencies=[Depends(require_permission("config:write"))])
+def update_uom(code: str, data: UomUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    ucode = _norm_uom(code)
+    patch = data.model_dump(exclude_unset=True)
+    if not patch:
+        return {"ok": True}
+    fields = []
+    params = []
+    if "name" in patch:
+        fields.append("name = %s")
+        params.append((patch.get("name") or "").strip() or ucode)
+    if "is_active" in patch:
+        fields.append("is_active = %s")
+        params.append(bool(patch.get("is_active")))
+    params.extend([company_id, ucode])
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    UPDATE unit_of_measures
+                    SET {', '.join(fields)}, updated_at = now()
+                    WHERE company_id = %s AND code = %s
+                    """,
+                    params,
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'uom_update', 'uom', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], ucode, json.dumps(patch)),
+                )
+                return {"ok": True}
 
 @router.get("/{item_id}", dependencies=[Depends(require_permission("items:read"))])
 def get_item(item_id: str, company_id: str = Depends(get_company_id)):
@@ -267,6 +390,8 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
             with conn.cursor() as cur:
                 barcode = data.barcode.strip() if data.barcode else None
                 tags = [t.strip() for t in (data.tags or []) if (t or "").strip()] or None
+                uom = _norm_uom(data.unit_of_measure)
+                _ensure_uom_exists(cur, company_id, uom)
                 cur.execute(
                     """
                     INSERT INTO items
@@ -289,7 +414,7 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                         data.name,
                         data.item_type,
                         tags,
-                        data.unit_of_measure,
+                        uom,
                         data.tax_code_id,
                         data.reorder_point or 0,
                         data.reorder_qty or 0,
@@ -353,9 +478,11 @@ def bulk_upsert_items(data: BulkItemsIn, company_id: str = Depends(get_company_i
                 for it in items:
                     sku = (it.sku or "").strip()
                     name = (it.name or "").strip()
-                    uom = (it.unit_of_measure or "").strip() or "EA"
+                    uom = _norm_uom((it.unit_of_measure or "").strip() or "EA")
                     if not sku or not name:
                         raise HTTPException(status_code=400, detail="each item requires sku and name")
+
+                    _ensure_uom_exists(cur, company_id, uom)
 
                     barcode = (it.barcode or "").strip() or None
                     tax_code_id = None
@@ -447,10 +574,16 @@ class ItemUpdate(BaseModel):
 
 @router.patch("/{item_id}", dependencies=[Depends(require_permission("items:write"))])
 def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    patch = data.model_dump(exclude_unset=True)
+    uom_to_ensure: Optional[str] = None
+    if "unit_of_measure" in patch:
+        uom_to_ensure = _norm_uom(patch.get("unit_of_measure"))
+        patch["unit_of_measure"] = uom_to_ensure
+
     fields = []
     params = []
     # Use exclude_unset so clients can explicitly clear nullable fields (e.g. tax_code_id).
-    for k, v in data.model_dump(exclude_unset=True).items():
+    for k, v in patch.items():
         fields.append(f"{k} = %s")
         if k == "barcode" and isinstance(v, str):
             params.append(v.strip() or None)
@@ -468,6 +601,8 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                if uom_to_ensure:
+                    _ensure_uom_exists(cur, company_id, uom_to_ensure)
                 cur.execute(
                     f"""
                     UPDATE items
@@ -516,7 +651,7 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                     VALUES (gen_random_uuid(), %s, %s, 'item_update', 'item', %s, %s::jsonb)
                     """,
-                    (company_id, user["user_id"], item_id, json.dumps(data.model_dump(exclude_unset=True), default=str)),
+                    (company_id, user["user_id"], item_id, json.dumps(patch, default=str)),
                 )
                 return {"ok": True}
 

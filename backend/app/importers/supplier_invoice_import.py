@@ -407,6 +407,17 @@ def apply_extracted_purchase_invoice_to_draft(
             if not sku:
                 sku = f"AUTO-{uuid.uuid4().hex[:8].upper()}"
             name = _clean_item_name(supplier_item_name or supplier_item_code or "New Item")
+            # Ensure base UOM exists (FK on items.unit_of_measure).
+            cur.execute(
+                """
+                INSERT INTO unit_of_measures (id, company_id, code, name, is_active)
+                VALUES (gen_random_uuid(), %s, 'EA', 'EA', true)
+                ON CONFLICT (company_id, code) DO UPDATE
+                SET is_active = true,
+                    updated_at = now()
+                """,
+                (company_id,),
+            )
             cur.execute(
                 """
                 INSERT INTO items (id, company_id, sku, barcode, name, item_type, tags, unit_of_measure, tax_code_id, reorder_point, reorder_qty, is_active)

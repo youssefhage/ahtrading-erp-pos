@@ -413,6 +413,9 @@ def import_items(
     stock_moves_upserted = 0
     supplier_links = 0
 
+    # Cache (company_id, uom_code) we already ensured to reduce DB roundtrips.
+    ensured_uoms: set[tuple[str, str]] = set()
+
     default_warehouse_id = None
     if default_warehouse_name:
         default_warehouse_id = _get_or_create_warehouse(cur, default_company_id, default_warehouse_name)
@@ -465,7 +468,24 @@ def import_items(
                 continue
 
             uom = _norm(row[c_uom]) if c_uom is not None else None
-            uom = uom or "EA"
+            uom = (uom or "EA").strip().upper()
+            if len(uom) > 32:
+                uom = uom[:32]
+
+            # Ensure UOM exists in master data (items.unit_of_measure has an FK).
+            key = (company_id, uom)
+            if key not in ensured_uoms:
+                cur.execute(
+                    """
+                    INSERT INTO unit_of_measures (id, company_id, code, name, is_active)
+                    VALUES (gen_random_uuid(), %s::uuid, %s, %s, true)
+                    ON CONFLICT (company_id, code) DO UPDATE
+                    SET is_active = true,
+                        updated_at = now()
+                    """,
+                    (company_id, uom, uom),
+                )
+                ensured_uoms.add(key)
             group = _norm(row[c_group]) if c_group is not None else None
             category_id = _get_or_create_category(cur, company_id, group or "") if group else None
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost, apiPostForm } from "@/lib/api";
@@ -9,7 +10,6 @@ import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
-import { ComboboxInput } from "@/components/combobox-input";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -114,6 +114,7 @@ export default function ItemEditPage() {
   const [item, setItem] = useState<Item | null>(null);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [uoms, setUoms] = useState<string[]>([]);
 
   const [barcodes, setBarcodes] = useState<ItemBarcode[]>([]);
   const [newBarcode, setNewBarcode] = useState("");
@@ -163,10 +164,11 @@ export default function ItemEditPage() {
     setLoading(true);
     setErr(null);
     try {
-      const [it, tc, cats, bc, sup, links] = await Promise.all([
+      const [it, tc, cats, uo, bc, sup, links] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
         apiGet<{ categories: Category[] }>("/item-categories").catch(() => ({ categories: [] as Category[] })),
+        apiGet<{ uoms: string[] }>("/items/uoms?limit=200").catch(() => ({ uoms: [] as string[] })),
         apiGet<{ barcodes: ItemBarcode[] }>(`/items/${encodeURIComponent(id)}/barcodes`).catch(() => ({ barcodes: [] as ItemBarcode[] })),
         apiGet<{ suppliers: SupplierRow[] }>("/suppliers").catch(() => ({ suppliers: [] as SupplierRow[] })),
         apiGet<{ suppliers: ItemSupplierLinkRow[] }>(`/suppliers/items/${encodeURIComponent(id)}`).catch(() => ({ suppliers: [] as ItemSupplierLinkRow[] })),
@@ -175,6 +177,7 @@ export default function ItemEditPage() {
       setItem(row);
       setTaxCodes(tc.tax_codes || []);
       setCategories(cats.categories || []);
+      setUoms((uo.uoms || []).map((x) => String(x || "").trim()).filter(Boolean));
       setBarcodes(bc.barcodes || []);
       setSuppliers(sup.suppliers || []);
       setItemLinks(links.suppliers || []);
@@ -223,7 +226,23 @@ export default function ItemEditPage() {
     load();
   }, [load]);
 
-  // UOM is free text with suggestions; no strict pick-list.
+  const uomOptions = useMemo(() => {
+    const out: Array<{ value: string; label: string }> = [];
+    const seen = new Set<string>();
+    const cur = String(editUom || "").trim();
+    if (cur && !seen.has(cur) && !(uoms || []).includes(cur)) {
+      // If DB contains an unexpected/inactive UOM, still show it so the user can correct it.
+      seen.add(cur);
+      out.push({ value: cur, label: `${cur} (current)` });
+    }
+    for (const x of uoms || []) {
+      const v = String(x || "").trim();
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      out.push({ value: v, label: v });
+    }
+    return out;
+  }, [uoms, editUom]);
 
   const title = useMemo(() => {
     if (loading) return "Loading...";
@@ -585,15 +604,21 @@ export default function ItemEditPage() {
                 </div>
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">UOM</label>
-                  <ComboboxInput
+                  <SearchableSelect
                     value={editUom}
                     onChange={setEditUom}
                     disabled={saving}
-                    placeholder="EA"
-                    endpoint="/items/uoms"
-                    responseKey="uoms"
-                    limit={80}
+                    placeholder="Select UOM..."
+                    searchPlaceholder="Search UOMs..."
+                    options={uomOptions}
                   />
+                  <div className="mt-1 text-[11px] text-fg-subtle">
+                    Missing a UOM? Add it in{" "}
+                    <Link href="/system/uoms" className="underline underline-offset-2 hover:text-foreground">
+                      System &rarr; UOMs
+                    </Link>
+                    .
+                  </div>
                 </div>
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">Tags</label>

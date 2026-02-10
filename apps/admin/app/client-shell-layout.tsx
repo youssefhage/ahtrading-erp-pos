@@ -69,6 +69,7 @@ const TITLE_BY_PATH: Record<string, string> = {
   "/system/dimensions": "Dimensions",
   "/system/branches": "Branches",
   "/system/warehouses": "Warehouses",
+  "/system/uoms": "UOMs",
   "/system/users": "Users",
   "/system/roles-permissions": "Roles & Permissions",
   "/system/pos-devices": "POS Devices",
