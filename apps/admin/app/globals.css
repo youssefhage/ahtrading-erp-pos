@@ -525,6 +525,50 @@
   }
 }
 
+/* ------------------------------------------------------------
+   Print / PDF (browser print dialog)
+   ------------------------------------------------------------ */
+
+/* Use on elements that should never appear in print/PDF. */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  /* Force a neutral paper look even if the UI is in dark mode. */
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Links should not show as blue/underlined on official documents. */
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+
+  /* Make table headers repeat across pages. */
+  thead {
+    display: table-header-group;
+  }
+  tfoot {
+    display: table-footer-group;
+  }
+}
+
+/* Default page settings (most printers support A4; browsers will map if needed). */
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+/* Use for the paper container (works both on-screen and in print). */
+.print-paper {
+  background: #fff;
+  color: #000;
+}
+
 @keyframes pulseSubtle {
   0%, 100% {
     opacity: 1;

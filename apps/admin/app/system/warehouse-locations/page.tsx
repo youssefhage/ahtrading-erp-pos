@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
+import { SearchableSelect } from "@/components/searchable-select";
 
 type WarehouseRow = { id: string; name: string };
 type LocationRow = {
@@ -38,6 +39,15 @@ export default function WarehouseLocationsPage() {
   const [editName, setEditName] = useState("");
   const [editActive, setEditActive] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    // Ensure we have a valid selection after warehouses load.
+    if (!warehouses.length) return;
+    setWarehouseId((cur) => {
+      if (cur && warehouses.some((w) => w.id === cur)) return cur;
+      return warehouses[0]?.id || "";
+    });
+  }, [warehouses]);
 
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
 
@@ -158,13 +168,12 @@ export default function WarehouseLocationsPage() {
         <CardContent className="flex flex-wrap items-end justify-between gap-3">
           <div className="w-full md:w-96 space-y-1">
             <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-            <select className="ui-select" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={warehouseId}
+              onChange={setWarehouseId}
+              searchPlaceholder="Search warehouses..."
+              options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+            />
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={() => loadLocations(warehouseId)} disabled={!warehouseId}>

@@ -13,13 +13,14 @@ from urllib.error import URLError
 import secrets
 from datetime import timedelta
 from typing import Optional
+import time
 
 import bcrypt
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(ROOT, 'pos.sqlite')
+DB_PATH = os.path.join(ROOT, 'pos.sqlite')  # can be overridden via CLI/env (see main())
 SCHEMA_PATH = os.path.join(os.path.dirname(ROOT), 'pos', 'sqlite_schema.sql')
-CONFIG_PATH = os.path.join(ROOT, 'config.json')
+CONFIG_PATH = os.path.join(ROOT, 'config.json')  # can be overridden via CLI/env (see main())
 UI_PATH = os.path.join(ROOT, 'ui')
 
 DEFAULT_CONFIG = {
@@ -340,6 +341,11 @@ def fetch_json(url, headers=None):
     with urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode('utf-8'))
 
+def _fetch_json_timeout(url, headers=None, timeout_s: float = 1.0):
+    req = Request(url, headers=headers or {}, method="GET")
+    with urlopen(req, timeout=max(0.2, float(timeout_s or 1.0))) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
 
 def post_json(url, payload, headers=None):
     data = json.dumps(payload).encode('utf-8')
@@ -354,6 +360,57 @@ def device_headers(cfg):
         'X-Device-Id': cfg.get('device_id') or '',
         'X-Device-Token': cfg.get('device_token') or ''
     }
+
+def count_outbox_pending() -> int:
+    with db_connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(1) FROM pos_outbox_events WHERE status='pending'")
+        row = cur.fetchone()
+        try:
+            return int(row[0] if row else 0)
+        except Exception:
+            return 0
+
+
+def edge_health(cfg: dict, timeout_s: float = 0.8) -> dict:
+    base = (cfg.get("api_base_url") or "").strip()
+    if not base:
+        return {"ok": False, "error": "missing api_base_url", "latency_ms": None, "url": ""}
+    url = f"{base.rstrip('/')}/health"
+    started = time.time()
+    try:
+        data = _fetch_json_timeout(url, headers=None, timeout_s=timeout_s)
+        ok = bool((data or {}).get("ok", True))
+        lat = int((time.time() - started) * 1000)
+        return {"ok": ok, "error": None, "latency_ms": lat, "url": url}
+    except Exception as ex:
+        lat = int((time.time() - started) * 1000)
+        return {"ok": False, "error": str(ex), "latency_ms": lat, "url": url}
+
+
+def submit_single_event(cfg: dict, event_id: str, event_type: str, payload: dict, created_at: str) -> tuple[bool, dict]:
+    """
+    Submit a single outbox event immediately to the edge server.
+    Used for higher-risk ops like credit sales and returns so we don't print a receipt
+    unless the edge accepted the document for posting.
+    """
+    base = (cfg.get("api_base_url") or "").strip()
+    company_id = (cfg.get("company_id") or "").strip()
+    device_id = (cfg.get("device_id") or "").strip()
+    if not base or not company_id or not device_id:
+        return False, {"error": "missing edge configuration"}
+    if not (cfg.get("device_token") or "").strip():
+        return False, {"error": "missing device token"}
+    bundle = {
+        "company_id": company_id,
+        "device_id": device_id,
+        "events": [
+            {"event_id": event_id, "event_type": event_type, "payload": payload, "created_at": created_at},
+        ],
+    }
+    res = post_json(f"{base.rstrip('/')}/pos/outbox/submit", bundle, headers=device_headers(cfg))
+    accepted = set(res.get("accepted") or [])
+    return (event_id in accepted), res
 
 
 def get_sync_cursor(resource: str):
@@ -853,14 +910,14 @@ def _receipt_html(receipt_row):
     <meta name="viewport" content="width=device-width,initial-scale=1" />
 	    <title>{e(title)}</title>
 	    <style>
-	      @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;700&display=swap');
 	      :root {{
 	        --w: 80mm;
 	        --fg: #111;
 	        --muted: #666;
 	        --border: #ddd;
-	        --mono: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-	        --sans: Roboto, ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+	        /* Avoid external font fetches so receipt printing stays fast offline. */
+	        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+	        --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial, "Noto Sans", "Liberation Sans", sans-serif;
 	      }}
       body {{
         margin: 0;
@@ -1396,6 +1453,20 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == '/api/health':
             json_response(self, {'ok': True})
             return
+        if parsed.path == "/api/edge/status":
+            st = edge_health(cfg, timeout_s=0.8)
+            json_response(
+                self,
+                {
+                    "ok": True,
+                    "edge_ok": bool(st.get("ok")),
+                    "edge_latency_ms": st.get("latency_ms"),
+                    "edge_url": (st.get("url") or ""),
+                    "edge_error": st.get("error"),
+                    "outbox_pending": count_outbox_pending(),
+                },
+            )
+            return
         if parsed.path == '/api/config':
             json_response(self, _public_config(cfg))
             return
@@ -1537,6 +1608,7 @@ class Handler(BaseHTTPRequestHandler):
             pricing_currency = data.get('pricing_currency') or cfg.get('pricing_currency') or 'USD'
             customer_id = data.get('customer_id')
             payment_method = data.get('payment_method') or 'cash'
+            pm = (payment_method or "cash").strip().lower()
             shift_id = data.get('shift_id') or cfg.get('shift_id') or None
             cashier_id = data.get('cashier_id') or cfg.get('cashier_id') or None
             payload = build_sale_payload(
@@ -1549,13 +1621,48 @@ class Handler(BaseHTTPRequestHandler):
                 shift_id,
                 cashier_id,
             )
+            # Allow callers (e.g. unified pilot UI) to attach extra metadata.
+            # The backend stores receipt_meta on the sales invoice for audit/review.
+            if isinstance(data.get("receipt_meta"), (dict, list)):
+                payload["receipt_meta"] = data.get("receipt_meta")
+            if "skip_stock_moves" in data:
+                payload["skip_stock_moves"] = bool(data.get("skip_stock_moves"))
+            created_at = datetime.utcnow().isoformat()
             event_id = add_outbox_event('sale.completed', payload)
+
+            # Higher-risk rule:
+            # - Credit sales should only be allowed when the register can reach the edge AND the edge accepts the event.
+            # Otherwise we risk printing a receipt for a sale that will later be rejected (credit limits, customer missing, etc).
+            if pm == "credit":
+                st = edge_health(cfg, timeout_s=0.8)
+                if not st.get("ok"):
+                    json_response(
+                        self,
+                        {"error": "edge_offline", "hint": "Credit is disabled when the edge server is unreachable."},
+                        status=503,
+                    )
+                    return
+                ok, res = submit_single_event(cfg, event_id, "sale.completed", payload, created_at)
+                if not ok:
+                    json_response(
+                        self,
+                        {
+                            "error": "edge_rejected",
+                            "hint": "Credit requires edge acceptance. Try again when edge is reachable, or use cash/card.",
+                            "detail": res,
+                        },
+                        status=409,
+                    )
+                    return
+                mark_outbox_sent([event_id])
+
             # Persist a printable receipt snapshot locally (offline-friendly).
             items_map = {i["id"]: i for i in (get_items() or [])}
+            cart_map = {str(i.get("id")): i for i in (cart or []) if i.get("id")}
             cashier_map = {c["id"]: c for c in (get_cashiers() or [])}
             receipt_lines = []
             for ln in payload.get("lines") or []:
-                info = items_map.get(ln.get("item_id")) or {}
+                info = items_map.get(ln.get("item_id")) or cart_map.get(str(ln.get("item_id"))) or {}
                 receipt_lines.append(
                     {
                         "item_id": ln.get("item_id"),
@@ -1569,7 +1676,7 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 )
             receipt = {
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": created_at,
                 "event_id": event_id,
                 "company_id": cfg.get("company_id"),
                 "device_id": cfg.get("device_id"),
@@ -1584,7 +1691,7 @@ class Handler(BaseHTTPRequestHandler):
                 "totals": _compute_totals(receipt_lines, float(cfg.get("vat_rate") or 0), float(exchange_rate or 0)),
             }
             save_receipt("sale", receipt)
-            json_response(self, {'event_id': event_id})
+            json_response(self, {'event_id': event_id, "edge_accepted": True if pm == "credit" else None})
             return
 
         if parsed.path == '/api/return':
@@ -1610,12 +1717,41 @@ class Handler(BaseHTTPRequestHandler):
                 shift_id,
                 cashier_id,
             )
+            if isinstance(data.get("receipt_meta"), (dict, list)):
+                payload["receipt_meta"] = data.get("receipt_meta")
+            if "skip_stock_moves" in data:
+                payload["skip_stock_moves"] = bool(data.get("skip_stock_moves"))
+            created_at = datetime.utcnow().isoformat()
             event_id = add_outbox_event('sale.returned', payload)
+
+            # Returns are also high-risk: do not print a refund receipt unless the edge accepts it.
+            st = edge_health(cfg, timeout_s=0.8)
+            if not st.get("ok"):
+                json_response(
+                    self,
+                    {"error": "edge_offline", "hint": "Returns are disabled when the edge server is unreachable."},
+                    status=503,
+                )
+                return
+            ok, res = submit_single_event(cfg, event_id, "sale.returned", payload, created_at)
+            if not ok:
+                json_response(
+                    self,
+                    {
+                        "error": "edge_rejected",
+                        "hint": "Return requires edge acceptance. Reconnect to edge and try again.",
+                        "detail": res,
+                    },
+                    status=409,
+                )
+                return
+            mark_outbox_sent([event_id])
             items_map = {i["id"]: i for i in (get_items() or [])}
+            cart_map = {str(i.get("id")): i for i in (cart or []) if i.get("id")}
             cashier_map = {c["id"]: c for c in (get_cashiers() or [])}
             receipt_lines = []
             for ln in payload.get("lines") or []:
-                info = items_map.get(ln.get("item_id")) or {}
+                info = items_map.get(ln.get("item_id")) or cart_map.get(str(ln.get("item_id"))) or {}
                 receipt_lines.append(
                     {
                         "item_id": ln.get("item_id"),
@@ -1629,7 +1765,7 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 )
             receipt = {
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": created_at,
                 "event_id": event_id,
                 "company_id": cfg.get("company_id"),
                 "device_id": cfg.get("device_id"),
@@ -1645,7 +1781,7 @@ class Handler(BaseHTTPRequestHandler):
                 "invoice_id": invoice_id,
             }
             save_receipt("return", receipt)
-            json_response(self, {'event_id': event_id})
+            json_response(self, {'event_id': event_id, "edge_accepted": True})
             return
 
         if parsed.path == '/api/cashiers/login':
@@ -1902,8 +2038,19 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global DB_PATH, CONFIG_PATH
     parser = argparse.ArgumentParser()
     parser.add_argument("--init-db", action="store_true", help="Initialize local SQLite schema and exit")
+    parser.add_argument(
+        "--db",
+        default=os.environ.get("POS_DB_PATH", DB_PATH),
+        help="SQLite DB path (default: pos-desktop/pos.sqlite). Useful to run multiple agents (one per company).",
+    )
+    parser.add_argument(
+        "--config",
+        default=os.environ.get("POS_CONFIG_PATH", CONFIG_PATH),
+        help="Config JSON path (default: pos-desktop/config.json). Useful to run multiple agents (one per company).",
+    )
     parser.add_argument(
         "--host",
         default=os.environ.get("POS_HOST", "127.0.0.1"),
@@ -1911,6 +2058,11 @@ def main():
     )
     parser.add_argument("--port", type=int, default=int(os.environ.get("POS_PORT", "7070")), help="HTTP port (default: 7070)")
     args = parser.parse_args()
+
+    # Override module-level paths so the rest of the agent uses the selected files.
+    # This is intentionally global because helpers read DB_PATH/CONFIG_PATH directly.
+    DB_PATH = os.path.abspath(args.db)
+    CONFIG_PATH = os.path.abspath(args.config)
 
     if args.init_db:
         init_db()

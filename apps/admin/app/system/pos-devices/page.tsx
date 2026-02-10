@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
+import { SearchableSelect } from "@/components/searchable-select";
 
 type DeviceRow = {
   id: string;
@@ -188,14 +189,16 @@ export default function PosDevicesPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg-muted">Branch (optional)</label>
-                    <select className="ui-select" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
-                      <option value="">No branch</option>
-                      {branches.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchableSelect
+                      value={branchId}
+                      onChange={setBranchId}
+                      placeholder="No branch"
+                      searchPlaceholder="Search branches..."
+                      options={[
+                        { value: "", label: "No branch" },
+                        ...branches.map((b) => ({ value: b.id, label: b.name })),
+                      ]}
+                    />
                     {branchId ? <div className="text-[11px] text-fg-subtle">Branch ID: {branchId}</div> : null}
                   </div>
                   <div className="flex justify-end">

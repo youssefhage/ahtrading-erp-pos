@@ -305,6 +305,24 @@ function SalesInvoiceShowInner() {
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button asChild variant="outline">
+                    <Link
+                      href={`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/print`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Print / PDF
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <a
+                      href={`/exports/sales-invoices/${encodeURIComponent(detail.invoice.id)}/pdf`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Download PDF
+                    </a>
+                  </Button>
                   {detail.invoice.status === "draft" ? (
                     <>
                       <Button asChild variant="outline">

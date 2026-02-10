@@ -19,6 +19,9 @@ backend/.env
 .env
 *.tsbuildinfo
 
+# Local ERPNext export data (pilot import)
+Data AH Trading/
+
 # Node (admin app to be added)
 node_modules/
 .next/

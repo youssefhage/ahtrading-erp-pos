@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
@@ -105,6 +106,24 @@ export default function ProfitLossPage() {
               <div className="flex items-center gap-2">
                 <Button variant="outline" onClick={load}>
                   Refresh
+                </Button>
+                <Button asChild variant="outline">
+                  <Link
+                    href={`/accounting/reports/profit-loss/print?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Print / PDF
+                  </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <a
+                    href={`/exports/reports/profit-loss/pdf?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Download PDF
+                  </a>
                 </Button>
                 <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
                   <DialogTrigger asChild>

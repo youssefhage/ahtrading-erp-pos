@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
@@ -68,9 +69,29 @@ export default function BalanceSheetPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center justify-between gap-2">
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={load}>
+                Refresh
+              </Button>
+              <Button asChild variant="outline">
+                <Link
+                  href={`/accounting/reports/balance-sheet/print?as_of=${encodeURIComponent(asOf)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Print / PDF
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <a
+                  href={`/exports/reports/balance-sheet/pdf?as_of=${encodeURIComponent(asOf)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Download PDF
+                </a>
+              </Button>
+            </div>
             <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline">Filters</Button>

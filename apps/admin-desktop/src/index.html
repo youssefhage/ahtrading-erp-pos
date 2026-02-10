@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AH Trading Admin Desktop</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="card">
+        <h1>Admin Desktop</h1>
+        <p class="muted">
+          Works without internet as long as you can reach the on-prem edge server on the local network.
+        </p>
+
+        <label class="label" for="serverUrl">Admin URL</label>
+        <input
+          id="serverUrl"
+          class="input"
+          placeholder="http://192.168.1.50:3000"
+          inputmode="url"
+          autocomplete="off"
+          spellcheck="false"
+        />
+
+        <div class="row">
+          <button id="openBtn" class="btn primary">Open Admin</button>
+          <button id="resetBtn" class="btn">Reset</button>
+        </div>
+
+        <p id="status" class="status muted"></p>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
+

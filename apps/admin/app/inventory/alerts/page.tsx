@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -243,14 +244,16 @@ export default function InventoryAlertsPage() {
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div className="w-full md:w-96 space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Warehouse (optional)</label>
-                <select className="ui-select" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
-                  <option value="">All warehouses</option>
-                  {warehouses.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={warehouseId}
+                  onChange={setWarehouseId}
+                  placeholder="All warehouses"
+                  searchPlaceholder="Search warehouses..."
+                  options={[
+                    { value: "", label: "All warehouses" },
+                    ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+                  ]}
+                />
               </div>
               <Button variant="outline" onClick={loadReorder}>
                 Refresh

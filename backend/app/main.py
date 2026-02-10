@@ -41,6 +41,7 @@ from .routers.stock_transfers import router as stock_transfers_router
 from .routers.inventory_locations import router as inventory_locations_router
 from .routers.inventory_warehouses_locations import router as inventory_warehouses_locations_router
 from .routers.devtools import router as devtools_router
+from .routers.edge_sync import router as edge_sync_router
 from .routers.auth import router as auth_router
 from .config import settings
 from .deps import require_company_access
@@ -168,6 +169,7 @@ app.include_router(pricing_router, dependencies=[Depends(require_company_access)
 app.include_router(promotions_router, dependencies=[Depends(require_company_access)])
 app.include_router(telegram_router)
 app.include_router(whatsapp_router)
+app.include_router(edge_sync_router)
 app.include_router(landed_costs_router, dependencies=[Depends(require_company_access)])
 app.include_router(stock_transfers_router, dependencies=[Depends(require_company_access)])
 app.include_router(inventory_locations_router, dependencies=[Depends(require_company_access)])

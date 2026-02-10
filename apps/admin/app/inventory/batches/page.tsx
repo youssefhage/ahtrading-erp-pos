@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPatch } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -171,14 +172,17 @@ export default function InventoryBatchesPage() {
         <div className="grid w-full grid-cols-1 gap-2 md:grid-cols-12">
           <div className="md:col-span-5">
             <label className="text-xs font-medium text-fg-muted">Item (optional)</label>
-            <select className="ui-select" value={filterItemId} onChange={(e) => setFilterItemId(e.target.value)}>
-              <option value="">All items</option>
-              {items.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.sku} · {i.name}
-                </option>
-              ))}
-            </select>
+            <SearchableSelect
+              value={filterItemId}
+              onChange={setFilterItemId}
+              placeholder="All items"
+              searchPlaceholder="Search items..."
+              maxOptions={120}
+              options={[
+                { value: "", label: "All items" },
+                ...items.map((i) => ({ value: i.id, label: `${i.sku} · ${i.name}`, keywords: `${i.sku} ${i.name}` })),
+              ]}
+            />
           </div>
           <div className="md:col-span-3">
             <label className="text-xs font-medium text-fg-muted">Status (optional)</label>

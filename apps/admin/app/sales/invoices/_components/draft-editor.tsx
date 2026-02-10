@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
 import { CustomerTypeahead, type CustomerTypeaheadCustomer } from "@/components/customer-typeahead";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Page, PageHeader } from "@/components/page";
 import { ShortcutLink } from "@/components/shortcut-link";
 
@@ -338,14 +339,17 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-                <select className="ui-select" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} disabled={loading}>
-                  <option value="">Select warehouse...</option>
-                  {warehouses.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={warehouseId}
+                  onChange={setWarehouseId}
+                  disabled={loading}
+                  placeholder="Select warehouse..."
+                  searchPlaceholder="Search warehouses..."
+                  options={[
+                    { value: "", label: "Select warehouse..." },
+                    ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+                  ]}
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Invoice Date</label>

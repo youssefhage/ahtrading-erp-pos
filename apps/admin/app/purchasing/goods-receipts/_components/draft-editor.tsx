@@ -9,6 +9,7 @@ import { getDefaultWarehouseId } from "@/lib/op-context";
 import { ErrorBanner } from "@/components/error-banner";
 import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
 import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -316,14 +317,17 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-                <select className="ui-select" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} disabled={saving || loading}>
-                  <option value="">Select warehouse...</option>
-                  {warehouses.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={warehouseId}
+                  onChange={setWarehouseId}
+                  disabled={saving || loading}
+                  placeholder="Select warehouse..."
+                  searchPlaceholder="Search warehouses..."
+                  options={[
+                    { value: "", label: "Select warehouse..." },
+                    ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+                  ]}
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD to LL)</label>
@@ -388,20 +392,22 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
 	                        <Input value={l.unit_cost_lbp} onChange={(e) => updateLine(idx, { unit_cost_lbp: e.target.value })} disabled={saving || loading} inputMode="decimal" />
 	                      </td>
 	                      <td className="px-3 py-2">
-	                        <select
-	                          className="ui-select"
-	                          value={l.location_id}
-	                          onChange={(e) => updateLine(idx, { location_id: e.target.value })}
+	                        <SearchableSelect
+	                          value={String(l.location_id || "")}
+	                          onChange={(v) => updateLine(idx, { location_id: v })}
 	                          disabled={saving || loading || !warehouseId || locations.length === 0}
-	                        >
-	                          <option value="">{locations.length ? "(no bin)" : "(no bins)"}</option>
-	                          {locations.map((loc) => (
-	                            <option key={loc.id} value={loc.id}>
-	                              {loc.code}
-	                              {loc.name ? ` · ${loc.name}` : ""}
-	                            </option>
-	                          ))}
-	                        </select>
+	                          placeholder={locations.length ? "(no bin)" : "(no bins)"}
+	                          searchPlaceholder="Search bins..."
+	                          maxOptions={120}
+	                          options={[
+	                            { value: "", label: locations.length ? "(no bin)" : "(no bins)" },
+	                            ...locations.map((loc) => ({
+	                              value: loc.id,
+	                              label: `${loc.code}${loc.name ? ` · ${loc.name}` : ""}`,
+	                              keywords: `${loc.code} ${loc.name || ""}`.trim(),
+	                            })),
+	                          ]}
+	                        />
 	                      </td>
 	                      <td className="px-3 py-2 text-right">
 	                        <Input

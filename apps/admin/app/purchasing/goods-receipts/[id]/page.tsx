@@ -248,6 +248,24 @@ export default function GoodsReceiptViewPage() {
           <Button type="button" variant="outline" onClick={() => router.push("/purchasing/goods-receipts")}>
             Back
           </Button>
+          <Button asChild variant="outline">
+            <a
+              href={`/purchasing/goods-receipts/${encodeURIComponent(id)}/print`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Print / PDF
+            </a>
+          </Button>
+          <Button asChild variant="outline">
+            <a
+              href={`/exports/goods-receipts/${encodeURIComponent(id)}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Download PDF
+            </a>
+          </Button>
           {detail?.receipt?.status === "draft" ? (
             <Button type="button" variant="outline" onClick={() => router.push(`/purchasing/goods-receipts/${encodeURIComponent(id)}/edit`)}>
               Edit Draft

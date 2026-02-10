@@ -7,6 +7,7 @@ import { fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
+import { SearchableSelect } from "@/components/searchable-select";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
@@ -281,33 +282,30 @@ export default function SupplierPaymentsPage() {
               <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Supplier</label>
-                  <select
-                    className="ui-select"
+                  <SearchableSelect
                     value={supplierId}
-                    onChange={(e) => setSupplierId(e.target.value)}
-                  >
-                    <option value="">All</option>
-                    {suppliers.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setSupplierId}
+                    placeholder="All"
+                    searchPlaceholder="Search suppliers..."
+                    options={[
+                      { value: "", label: "All" },
+                      ...suppliers.map((s) => ({ value: s.id, label: s.name })),
+                    ]}
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Supplier Invoice</label>
-                  <select
-                    className="ui-select"
+                  <SearchableSelect
                     value={supplierInvoiceId}
-                    onChange={(e) => setSupplierInvoiceId(e.target.value)}
-                  >
-                    <option value="">All</option>
-                    {invoices.slice(0, 2000).map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.invoice_no || i.id}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setSupplierInvoiceId}
+                    placeholder="All"
+                    searchPlaceholder="Search invoices..."
+                    maxOptions={120}
+                    options={[
+                      { value: "", label: "All" },
+                      ...invoices.slice(0, 2000).map((i) => ({ value: i.id, label: i.invoice_no || i.id, keywords: `${i.invoice_no || ""} ${i.id}`.trim() })),
+                    ]}
+                  />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">From</label>

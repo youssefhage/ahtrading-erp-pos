@@ -41,6 +41,38 @@ p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
 
 .status { display: flex; gap: 10px; align-items: center; }
 
+.edge-badge {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  user-select: none;
+}
+.edge-queue {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.72);
+  padding: 0 2px;
+  min-width: 72px;
+  text-align: right;
+}
+.edge-ok {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: rgba(255, 255, 255, 0.92);
+}
+.edge-offline {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: rgba(255, 255, 255, 0.92);
+}
+.edge-unknown {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.9);
+}
+
 button {
   background: var(--accent);
   border: none;

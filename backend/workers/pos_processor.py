@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 from datetime import datetime, date, timedelta
 from typing import Optional
 from decimal import Decimal
 import uuid
 import psycopg
 from psycopg.rows import dict_row
+from psycopg import errors as pg_errors
 
 DB_URL_DEFAULT = 'postgresql://localhost/ahtrading'
 MAX_ATTEMPTS_DEFAULT = 5
@@ -14,6 +16,28 @@ MAX_ATTEMPTS_DEFAULT = 5
 
 def get_conn(db_url):
     return psycopg.connect(db_url, row_factory=dict_row)
+
+def _edge_sync_enabled() -> bool:
+    # Edge nodes enqueue into an outbox and a background worker pushes to the cloud.
+    # If the target isn't configured, avoid accumulating outbox rows.
+    return bool((os.getenv("EDGE_SYNC_TARGET_URL") or "").strip())
+
+
+def enqueue_edge_sync_outbox(cur, company_id: str, entity_type: str, entity_id: str) -> None:
+    if not _edge_sync_enabled():
+        return
+    try:
+        cur.execute(
+            """
+            INSERT INTO edge_sync_outbox (company_id, entity_type, entity_id)
+            VALUES (%s, %s, %s::uuid)
+            ON CONFLICT (company_id, entity_type, entity_id) DO NOTHING
+            """,
+            (company_id, entity_type, entity_id),
+        )
+    except pg_errors.UndefinedTable:
+        # Migration not applied yet (or cloud-only env). Keep POS flow running.
+        return
 
 
 def set_company_context(cur, company_id: str):
@@ -801,6 +825,19 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 (p.get("settlement_currency") or settlement_currency or None),
             ),
         )
+
+    # Enqueue for edge->cloud sync (phase 1): replicate posted sales invoices to the cloud.
+    enqueue_edge_sync_outbox(cur, company_id, "sales_invoice", str(invoice_id))
+
+    # Pilot/support escape hatch:
+    # Some real-world flows want to issue a sales invoice in one company while fulfilling inventory
+    # from another company (intercompany), or they want to flag invoices for later adjustment.
+    # Our full intercompany fulfillment workflow is not implemented yet, so allow the POS to request
+    # skipping stock moves (inventory impact) for this invoice.
+    #
+    # This keeps the pilot unblocked while making the behavior explicit in the payload/receipt_meta.
+    if bool(payload.get("skip_stock_moves")):
+        return {"ok": True, "invoice_id": str(invoice_id), "skipped_stock_moves": True}
 
     # Stock moves (FEFO batch allocation). If items are configured to require batch/expiry,
     # do not allow unbatched remainder.

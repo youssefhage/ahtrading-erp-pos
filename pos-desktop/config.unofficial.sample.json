@@ -1,0 +1,10 @@
+{
+  "api_base_url": "http://localhost:8001",
+  "company_id": "00000000-0000-0000-0000-000000000002",
+  "branch_id": "00000000-0000-0000-0000-000000000012",
+  "device_code": "POS-UNOFFICIAL-01",
+  "device_id": "",
+  "device_token": "",
+  "shift_id": ""
+}
+

@@ -38,6 +38,7 @@ try:
     from .supplier_invoice_import_job import run_supplier_invoice_import_job
     from .cycle_count_scheduler import run_cycle_count_scheduler
     from .recurring_journal_scheduler import run_recurring_journal_scheduler
+    from .edge_cloud_sync import run_edge_cloud_sync
 except ImportError:  # pragma: no cover
     # Allow running as a script: `python3 backend/workers/worker_service.py`
     from pos_processor import process_events, DB_URL_DEFAULT, MAX_ATTEMPTS_DEFAULT, set_company_context
@@ -56,6 +57,7 @@ except ImportError:  # pragma: no cover
     from supplier_invoice_import_job import run_supplier_invoice_import_job
     from cycle_count_scheduler import run_cycle_count_scheduler
     from recurring_journal_scheduler import run_recurring_journal_scheduler
+    from edge_cloud_sync import run_edge_cloud_sync
 
 
 DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
@@ -80,6 +82,8 @@ DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
     "CYCLE_COUNT_SCHEDULER": {"interval_seconds": 3600, "options_json": {"limit_plans": 50}},
     # Accounting v2: recurring journals from templates.
     "RECURRING_JOURNAL_SCHEDULER": {"interval_seconds": 3600, "options_json": {"limit_rules": 25}},
+    # Edge -> Cloud replication (phase 1): push posted docs to cloud when internet is available.
+    "EDGE_CLOUD_SYNC": {"interval_seconds": 15, "options_json": {"limit": 5}},
 }
 
 WORKER_NAME = "outbox-worker"
@@ -270,6 +274,10 @@ def execute_job(db_url: str, company_id: str, job_code: str, options: dict):
     if job_code == "RECURRING_JOURNAL_SCHEDULER":
         limit_rules = int(options.get("limit_rules") or 25)
         run_recurring_journal_scheduler(db_url, company_id, limit_rules=limit_rules)
+        return
+    if job_code == "EDGE_CLOUD_SYNC":
+        limit = int(options.get("limit") or 5)
+        run_edge_cloud_sync(db_url, company_id, limit=limit)
         return
     raise ValueError(f"unknown job_code: {job_code}")
 

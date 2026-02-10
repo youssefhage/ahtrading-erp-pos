@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Unified POS (Pilot)</title>
+    <link rel="stylesheet" href="/unified.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <div class="title">Unified POS</div>
+        <div class="subtitle">Pilot multi-company mode (Official + Unofficial)</div>
+      </div>
+      <div class="controls">
+        <label class="pill">
+          Invoice Company
+          <select id="invoiceCompany">
+            <option value="unofficial" selected>Unofficial (default)</option>
+            <option value="official">Official</option>
+          </select>
+        </label>
+        <label class="pill">
+          Other Agent URL
+          <input id="otherAgentUrl" type="text" value="http://localhost:7072" />
+        </label>
+        <button id="syncBtn" class="btn">Sync Both</button>
+        <button id="pushBtn" class="btn ghost">Push Both</button>
+        <button id="reconnectBothBtn" class="btn ghost">Reconnect</button>
+        <button id="loginBtn" class="btn ghost">Cashier PIN</button>
+        <div class="edgeBadges">
+          <span id="edgeUnofficial" class="edgeBadge edgeUnknown">Unofficial: …</span>
+          <span id="edgeOfficial" class="edgeBadge edgeUnknown">Official: …</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="panel">
+        <div class="panelHead">
+          <div class="panelTitle">Scan / Search</div>
+          <div id="status" class="status">Loading…</div>
+        </div>
+        <div class="scanRow">
+          <input id="scan" type="text" placeholder="Scan barcode or type and press Enter" autocomplete="off" />
+          <button id="addBtn" class="btn">Add</button>
+        </div>
+        <div class="hint">
+          Rule: if barcode exists in both companies, we pick <strong>Unofficial</strong> first (unless Invoice Company is set to Official).
+        </div>
+        <div class="results" id="results"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panelHead">
+          <div class="panelTitle">Cart</div>
+          <div class="cartMeta">
+            <label class="check">
+              <input id="flagOfficial" type="checkbox" />
+              If needed, flag for later adjustment
+            </label>
+          </div>
+        </div>
+
+        <div id="cart" class="cart"></div>
+
+        <div class="totals">
+          <div class="row"><span>Subtotal (USD)</span><strong id="tSubtotal">0.00</strong></div>
+          <div class="row"><span>VAT (USD)</span><strong id="tVat">0.00</strong></div>
+          <div class="row"><span>Total (USD)</span><strong id="tTotal">0.00</strong></div>
+        </div>
+
+        <div class="pay">
+          <div class="cust">
+            <label class="pill">
+              Customer ID (optional)
+              <input id="customerId" type="text" placeholder="Leave blank for walk-in" />
+            </label>
+            <div class="custLookup">
+              <input id="customerQuery" type="text" placeholder="Search customer name/phone…" />
+              <button id="customerSearchBtn" class="btn ghost">Find</button>
+            </div>
+            <div id="customerResults" class="custResults"></div>
+          </div>
+          <label class="pill">
+            Payment
+            <select id="payment">
+              <option value="cash" selected>Cash</option>
+              <option value="card">Card</option>
+              <option value="transfer">Transfer</option>
+              <option value="credit">Credit</option>
+            </select>
+          </label>
+          <button id="payBtn" class="btn primary">Pay + Print</button>
+          <button id="receiptBtn" class="btn ghost">Last Receipt</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="mono">
+        This page is served by the local POS agent. It coordinates two agents to avoid switching UIs.
+      </div>
+    </footer>
+
+    <script src="/unified.js"></script>
+  </body>
+</html>

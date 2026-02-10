@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
@@ -247,6 +248,24 @@ export default function SupplierCreditDetailPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline">
+              <Link
+                href={`/purchasing/supplier-credits/${encodeURIComponent(id)}/print`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Print / PDF
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <a
+                href={`/exports/supplier-credits/${encodeURIComponent(id)}/pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Download PDF
+              </a>
+            </Button>
             {credit?.status === "draft" ? (
               <>
                 <Button variant="outline" onClick={() => router.push(`/purchasing/supplier-credits/${encodeURIComponent(id)}/edit`)}>

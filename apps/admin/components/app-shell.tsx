@@ -196,6 +196,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     label: "Sales",
     items: [
       { label: "Sales Invoices", href: "/sales/invoices" },
+      { label: "Adjustment Queue", href: "/sales/adjustment-queue" },
       { label: "Sales Payments", href: "/sales/payments" },
       { label: "Sales Returns", href: "/sales/returns" }
     ]

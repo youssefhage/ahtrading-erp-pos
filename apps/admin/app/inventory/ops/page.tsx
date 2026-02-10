@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -503,14 +504,16 @@ export default function InventoryOpsPage() {
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-6">
                       <div className="space-y-1 md:col-span-3">
                         <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-                        <select className="ui-select" value={openingWarehouseId} onChange={(e) => setOpeningWarehouseId(e.target.value)}>
-                          <option value="">Select warehouse...</option>
-                          {warehouses.map((w) => (
-                            <option key={w.id} value={w.id}>
-                              {w.name}
-                            </option>
-                          ))}
-                        </select>
+                        <SearchableSelect
+                          value={openingWarehouseId}
+                          onChange={setOpeningWarehouseId}
+                          placeholder="Select warehouse..."
+                          searchPlaceholder="Search warehouses..."
+                          options={[
+                            { value: "", label: "Select warehouse..." },
+                            ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+                          ]}
+                        />
                       </div>
                       <div className="space-y-1 md:col-span-2">
                         <label className="text-xs font-medium text-fg-muted">Posting Date</label>
@@ -645,33 +648,30 @@ export default function InventoryOpsPage() {
                   <form onSubmit={submitAdjust} className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <div className="space-y-1 md:col-span-3">
                       <label className="text-xs font-medium text-fg-muted">Item</label>
-                      <select
-                        className="ui-select"
+                      <SearchableSelect
                         value={adjust.item_id}
-                        onChange={(e) => setAdjust((p) => ({ ...p, item_id: e.target.value }))}
-                      >
-                        <option value="">Select item...</option>
-                        {items.map((it) => (
-                          <option key={it.id} value={it.id}>
-                            {it.sku} · {it.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => setAdjust((p) => ({ ...p, item_id: v }))}
+                        placeholder="Select item..."
+                        searchPlaceholder="Search items..."
+                        maxOptions={120}
+                        options={[
+                          { value: "", label: "Select item..." },
+                          ...items.map((it) => ({ value: it.id, label: `${it.sku} · ${it.name}`, keywords: `${it.sku} ${it.name}` })),
+                        ]}
+                      />
                     </div>
                     <div className="space-y-1 md:col-span-3">
                       <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-                      <select
-                        className="ui-select"
+                      <SearchableSelect
                         value={adjust.warehouse_id}
-                        onChange={(e) => setAdjust((p) => ({ ...p, warehouse_id: e.target.value }))}
-                      >
-                        <option value="">Select warehouse...</option>
-                        {warehouses.map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => setAdjust((p) => ({ ...p, warehouse_id: v }))}
+                        placeholder="Select warehouse..."
+                        searchPlaceholder="Search warehouses..."
+                        options={[
+                          { value: "", label: "Select warehouse..." },
+                          ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+                        ]}
+                      />
                     </div>
                     <div className="space-y-1 md:col-span-1">
                       <label className="text-xs font-medium text-fg-muted">Qty In</label>
@@ -724,84 +724,75 @@ export default function InventoryOpsPage() {
                   <form onSubmit={submitTransfer} className="grid grid-cols-1 gap-3 md:grid-cols-6">
                     <div className="space-y-1 md:col-span-3">
                       <label className="text-xs font-medium text-fg-muted">Item</label>
-                      <select
-                        className="ui-select"
+                      <SearchableSelect
                         value={transfer.item_id}
-                        onChange={(e) => setTransfer((p) => ({ ...p, item_id: e.target.value }))}
-                      >
-                        <option value="">Select item...</option>
-                        {items.map((it) => (
-                          <option key={it.id} value={it.id}>
-                            {it.sku} · {it.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => setTransfer((p) => ({ ...p, item_id: v }))}
+                        placeholder="Select item..."
+                        searchPlaceholder="Search items..."
+                        maxOptions={120}
+                        options={[
+                          { value: "", label: "Select item..." },
+                          ...items.map((it) => ({ value: it.id, label: `${it.sku} · ${it.name}`, keywords: `${it.sku} ${it.name}` })),
+                        ]}
+                      />
                     </div>
                     <div className="space-y-1 md:col-span-3">
                       <label className="text-xs font-medium text-fg-muted">From Warehouse</label>
-                      <select
-                        className="ui-select"
+                      <SearchableSelect
                         value={transfer.from_warehouse_id}
-                        onChange={(e) => setTransfer((p) => ({ ...p, from_warehouse_id: e.target.value }))}
-                      >
-                        <option value="">Select warehouse...</option>
-                        {warehouses.map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => setTransfer((p) => ({ ...p, from_warehouse_id: v }))}
+                        placeholder="Select warehouse..."
+                        searchPlaceholder="Search warehouses..."
+                        options={[
+                          { value: "", label: "Select warehouse..." },
+                          ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+                        ]}
+                      />
                     </div>
                     <div className="space-y-1 md:col-span-3">
                       <label className="text-xs font-medium text-fg-muted">From Location (optional)</label>
-                      <select
-                        className="ui-select"
+                      <SearchableSelect
                         value={transfer.from_location_id}
-                        onChange={(e) => setTransfer((p) => ({ ...p, from_location_id: e.target.value }))}
-                      >
-                        <option value="">No bin</option>
-                        {fromLocations
-                          .filter((l) => l.is_active)
-                          .map((l) => (
-                            <option key={l.id} value={l.id}>
-                              {l.code}
-                              {l.name ? ` - ${l.name}` : ""}
-                            </option>
-                          ))}
-                      </select>
+                        onChange={(v) => setTransfer((p) => ({ ...p, from_location_id: v }))}
+                        placeholder="No bin"
+                        searchPlaceholder="Search bins..."
+                        maxOptions={120}
+                        options={[
+                          { value: "", label: "No bin" },
+                          ...fromLocations
+                            .filter((l) => l.is_active)
+                            .map((l) => ({ value: l.id, label: `${l.code}${l.name ? ` - ${l.name}` : ""}`, keywords: `${l.code} ${l.name || ""}`.trim() })),
+                        ]}
+                      />
                     </div>
                     <div className="space-y-1 md:col-span-3">
                       <label className="text-xs font-medium text-fg-muted">To Warehouse</label>
-                      <select
-                        className="ui-select"
+                      <SearchableSelect
                         value={transfer.to_warehouse_id}
-                        onChange={(e) => setTransfer((p) => ({ ...p, to_warehouse_id: e.target.value }))}
-                      >
-                        <option value="">Select warehouse...</option>
-                        {warehouses.map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => setTransfer((p) => ({ ...p, to_warehouse_id: v }))}
+                        placeholder="Select warehouse..."
+                        searchPlaceholder="Search warehouses..."
+                        options={[
+                          { value: "", label: "Select warehouse..." },
+                          ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+                        ]}
+                      />
                     </div>
                     <div className="space-y-1 md:col-span-3">
                       <label className="text-xs font-medium text-fg-muted">To Location (optional)</label>
-                      <select
-                        className="ui-select"
+                      <SearchableSelect
                         value={transfer.to_location_id}
-                        onChange={(e) => setTransfer((p) => ({ ...p, to_location_id: e.target.value }))}
-                      >
-                        <option value="">No bin</option>
-                        {toLocations
-                          .filter((l) => l.is_active)
-                          .map((l) => (
-                            <option key={l.id} value={l.id}>
-                              {l.code}
-                              {l.name ? ` - ${l.name}` : ""}
-                            </option>
-                          ))}
-                      </select>
+                        onChange={(v) => setTransfer((p) => ({ ...p, to_location_id: v }))}
+                        placeholder="No bin"
+                        searchPlaceholder="Search bins..."
+                        maxOptions={120}
+                        options={[
+                          { value: "", label: "No bin" },
+                          ...toLocations
+                            .filter((l) => l.is_active)
+                            .map((l) => ({ value: l.id, label: `${l.code}${l.name ? ` - ${l.name}` : ""}`, keywords: `${l.code} ${l.name || ""}`.trim() })),
+                        ]}
+                      />
                     </div>
                     <div className="space-y-1 md:col-span-1">
                       <label className="text-xs font-medium text-fg-muted">Qty</label>
@@ -849,18 +840,16 @@ export default function InventoryOpsPage() {
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                       <div className="space-y-1 md:col-span-1">
                         <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-                        <select
-                          className="ui-select"
+                        <SearchableSelect
                           value={cycleWarehouseId}
-                          onChange={(e) => setCycleWarehouseId(e.target.value)}
-                        >
-                          <option value="">Select warehouse...</option>
-                          {warehouses.map((w) => (
-                            <option key={w.id} value={w.id}>
-                              {w.name}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={setCycleWarehouseId}
+                          placeholder="Select warehouse..."
+                          searchPlaceholder="Search warehouses..."
+                          options={[
+                            { value: "", label: "Select warehouse..." },
+                            ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+                          ]}
+                        />
                       </div>
                       <div className="space-y-1 md:col-span-2">
                         <label className="text-xs font-medium text-fg-muted">Reason (optional)</label>
@@ -881,18 +870,18 @@ export default function InventoryOpsPage() {
                           {cycleLines.map((l, idx) => (
                             <tr key={idx} className="ui-tr-hover">
                               <td className="px-3 py-2">
-                                <select
-                                  className="ui-select ui-control-sm"
+                                <SearchableSelect
                                   value={l.item_id}
-                                  onChange={(e) => updateCycleLine(idx, { item_id: e.target.value })}
-                                >
-                                  <option value="">Select item...</option>
-                                  {items.map((it) => (
-                                    <option key={it.id} value={it.id}>
-                                      {it.sku} · {it.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                  onChange={(v) => updateCycleLine(idx, { item_id: v })}
+                                  placeholder="Select item..."
+                                  searchPlaceholder="Search items..."
+                                  maxOptions={120}
+                                  controlClassName="ui-select ui-control-sm"
+                                  options={[
+                                    { value: "", label: "Select item..." },
+                                    ...items.map((it) => ({ value: it.id, label: `${it.sku} · ${it.name}`, keywords: `${it.sku} ${it.name}` })),
+                                  ]}
+                                />
                               </td>
                               <td className="px-3 py-2 text-right">
                                 <Input value={l.counted_qty} onChange={(e) => updateCycleLine(idx, { counted_qty: e.target.value })} />

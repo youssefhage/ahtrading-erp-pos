@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiBase, apiGet } from "@/lib/api";
@@ -104,6 +105,24 @@ export default function GeneralLedgerPage() {
               <div className="flex items-center gap-2">
                 <Button variant="outline" onClick={load}>
                   Refresh
+                </Button>
+                <Button asChild variant="outline">
+                  <Link
+                    href={`/accounting/reports/general-ledger/print?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Print / PDF
+                  </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <a
+                    href={`/exports/reports/general-ledger/pdf?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Download PDF
+                  </a>
                 </Button>
                 <Button variant="secondary" onClick={downloadCsv}>
                   Download CSV

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { apiBase, apiGet } from "@/lib/api";
@@ -76,6 +77,16 @@ export default function VatReportPage() {
             <div className="flex items-center justify-end gap-2">
               <Button variant="outline" onClick={load}>
                 Refresh
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/accounting/reports/vat/print" target="_blank" rel="noopener noreferrer">
+                  Print / PDF
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <a href="/exports/reports/vat/pdf" target="_blank" rel="noopener noreferrer">
+                  Download PDF
+                </a>
               </Button>
               <Button variant="secondary" onClick={downloadCsv}>
                 Download CSV

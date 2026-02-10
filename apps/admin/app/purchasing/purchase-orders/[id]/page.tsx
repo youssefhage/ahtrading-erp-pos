@@ -248,6 +248,24 @@ export default function PurchaseOrderViewPage() {
               <CardDescription>Supplier, warehouse, and totals.</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Button asChild variant="outline" disabled={busy}>
+                <Link
+                  href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/print`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Print / PDF
+                </Link>
+              </Button>
+              <Button asChild variant="outline" disabled={busy}>
+                <a
+                  href={`/exports/purchase-orders/${encodeURIComponent(id)}/pdf`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Download PDF
+                </a>
+              </Button>
               {canEditDraft ? (
                 <Button asChild variant="outline" disabled={busy}>
                   <Link href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/edit`}>Edit Draft</Link>

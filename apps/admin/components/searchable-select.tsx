@@ -52,7 +52,9 @@ export function SearchableSelect(props: {
       (o) => `${o.label} ${o.keywords || ""} ${o.value}`.trim(),
       { limit: maxOptions }
     );
-    return out;
+    // `filterAndRankByFuzzy()` returns the input unchanged when query is empty,
+    // so we still enforce a hard cap here to avoid rendering huge menus.
+    return (out || []).slice(0, Math.max(0, maxOptions));
   }, [options, q, maxOptions]);
 
   useEffect(() => setActive(0), [q, open]);
@@ -184,4 +186,3 @@ export function SearchableSelect(props: {
     </div>
   );
 }
-

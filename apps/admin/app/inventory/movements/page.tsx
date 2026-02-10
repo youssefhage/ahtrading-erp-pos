@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -83,33 +84,30 @@ export default function InventoryMovementsPage() {
           <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
             <div className="space-y-1 md:col-span-1">
               <label className="text-xs font-medium text-fg-muted">Item</label>
-              <select
-                className="ui-select"
+              <SearchableSelect
                 value={itemId}
-                onChange={(e) => setItemId(e.target.value)}
-              >
-                <option value="">All items</option>
-                {items.map((it) => (
-                  <option key={it.id} value={it.id}>
-                    {it.sku} · {it.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setItemId}
+                placeholder="All items"
+                searchPlaceholder="Search items..."
+                maxOptions={120}
+                options={[
+                  { value: "", label: "All items" },
+                  ...items.map((it) => ({ value: it.id, label: `${it.sku} · ${it.name}`, keywords: `${it.sku} ${it.name}` })),
+                ]}
+              />
             </div>
             <div className="space-y-1 md:col-span-1">
               <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-              <select
-                className="ui-select"
+              <SearchableSelect
                 value={warehouseId}
-                onChange={(e) => setWarehouseId(e.target.value)}
-              >
-                <option value="">All warehouses</option>
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setWarehouseId}
+                placeholder="All warehouses"
+                searchPlaceholder="Search warehouses..."
+                options={[
+                  { value: "", label: "All warehouses" },
+                  ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+                ]}
+              />
             </div>
             <div className="space-y-1 md:col-span-1">
               <label className="text-xs font-medium text-fg-muted">Source Type</label>

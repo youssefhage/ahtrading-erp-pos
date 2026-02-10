@@ -76,7 +76,8 @@ const state = {
   modalOpen: null,
   customerPickerTarget: null,
   lotContext: null,
-  lotBatches: []
+  lotBatches: [],
+  edge: { ok: null, latency_ms: null, pending: 0, error: "" }
 };
 
 const el = (id) => document.getElementById(id);
@@ -396,6 +397,56 @@ function renderHeader() {
     setText("shiftStatus", `Open · ${state.shiftId.slice(0, 8)}`);
   } else {
     setText("shiftStatus", "Closed");
+  }
+  renderEdgeStatus();
+}
+
+function renderEdgeStatus() {
+  const badge = el("edgeBanner");
+  const q = el("edgeQueue");
+  if (!badge || !q) return;
+
+  const ok = state.edge.ok;
+  const pending = Number(state.edge.pending || 0);
+  q.textContent = `${pending} queued`;
+
+  badge.classList.remove("edge-ok", "edge-offline", "edge-unknown");
+  if (ok === true) {
+    const ms = Number(state.edge.latency_ms || 0);
+    badge.classList.add("edge-ok");
+    badge.textContent = `EDGE OK${ms ? ` (${ms}ms)` : ""}`;
+  } else if (ok === false) {
+    badge.classList.add("edge-offline");
+    badge.textContent = "EDGE OFFLINE";
+  } else {
+    badge.classList.add("edge-unknown");
+    badge.textContent = "EDGE …";
+  }
+
+  // Disable high-risk actions while edge is unreachable.
+  const creditOpt = el("paymentMethod")?.querySelector?.('option[value="credit"]');
+  if (creditOpt) creditOpt.disabled = ok === false;
+  const returnBtn = el("return");
+  if (returnBtn) {
+    returnBtn.disabled = ok === false;
+    returnBtn.title = ok === false ? "Returns disabled when edge is offline." : "";
+  }
+}
+
+async function refreshEdgeStatus() {
+  try {
+    const res = await api.get("/edge/status");
+    state.edge.ok = !!res.edge_ok;
+    state.edge.latency_ms = res.edge_latency_ms ?? null;
+    state.edge.pending = Number(res.outbox_pending || 0);
+    state.edge.error = res.edge_error || "";
+  } catch (err) {
+    state.edge.ok = false;
+    state.edge.latency_ms = null;
+    state.edge.pending = state.edge.pending || 0;
+    state.edge.error = String(err?.message || err || "");
+  } finally {
+    renderEdgeStatus();
   }
 }
 
@@ -739,9 +790,34 @@ async function syncPush() {
     if ((res.rejected || []).length) {
       setText("saleStatus", `Some events rejected. Check Admin Outbox.`);
     }
+    // Refresh the edge banner/queue after pushing.
+    refreshEdgeStatus();
   } catch (err) {
     setText("syncStatus", `Error`);
     setText("saleStatus", `Push error: ${err.message}`);
+  }
+}
+
+async function reconnectChecklist() {
+  setText("saleStatus", "");
+  setText("syncStatus", "Reconnect...");
+  await refreshEdgeStatus();
+  if (state.edge.ok === false) {
+    setText("syncStatus", "EDGE OFFLINE");
+    setText("saleStatus", "Edge is offline. Check LAN cable/WiFi, then try Reconnect again.");
+    return;
+  }
+  try {
+    setText("syncStatus", "Pull + Push...");
+    await syncPull();
+    await syncPush();
+    await refreshEdgeStatus();
+    const pending = Number(state.edge.pending || 0);
+    if (pending === 0) setText("saleStatus", "Back online. Queue cleared.");
+    else setText("saleStatus", `Back online. Still ${pending} queued (will retry).`);
+  } catch (err) {
+    setText("syncStatus", "Error");
+    setText("saleStatus", `Reconnect error: ${err.message}`);
   }
 }
 
@@ -847,6 +923,7 @@ function openPayDialog() {
   setText("payStatus", "");
   hydrateCustomerLabels();
   showModal("payModal");
+  renderEdgeStatus();
 }
 
 function openReceiptWindow() {
@@ -860,6 +937,10 @@ async function confirmPay() {
   if (!state.cart.length) return;
   const method = el("paymentMethod").value || "cash";
   const customerId = (el("payCustomerId").value || "").trim() || null;
+  if (method === "credit" && state.edge.ok === false) {
+    setText("payStatus", "Credit is disabled when the edge server is offline.");
+    return;
+  }
   if (method === "credit" && !customerId) {
     setText("payStatus", "Credit sale requires a customer.");
     return;
@@ -902,6 +983,10 @@ async function confirmPay() {
 
 function openReturnDialog() {
   if (!state.cart.length) return;
+  if (state.edge.ok === false) {
+    setText("saleStatus", "Returns are disabled while edge is offline. Reconnect to edge and try again.");
+    return;
+  }
   el("refundMethod").value = "cash";
   el("returnInvoiceId").value = "";
   setText("returnStatus", "");
@@ -994,6 +1079,7 @@ function openSettingsDialog() {
 function bind() {
   el("search").addEventListener("input", filterItems);
 
+  el("reconnectBtn").addEventListener("click", reconnectChecklist);
   el("syncPull").addEventListener("click", syncPull);
   el("syncPush").addEventListener("click", syncPush);
   el("settingsBtn").addEventListener("click", openSettingsDialog);
@@ -1147,6 +1233,9 @@ async function boot() {
   await loadPromotions();
   updateTotals();
   renderHeader();
+  // Live edge connectivity + queued events indicator.
+  refreshEdgeStatus();
+  setInterval(refreshEdgeStatus, 3000);
 
   if (!state.cashierId) {
     setText(

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
@@ -50,9 +51,19 @@ export default function TrialBalancePage() {
             <CardDescription>Aggregated from GL entries. {rows.length} accounts</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-end gap-2">
               <Button variant="outline" onClick={load}>
                 Refresh
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/accounting/reports/trial-balance/print" target="_blank" rel="noopener noreferrer">
+                  Print / PDF
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <a href="/exports/reports/trial-balance/pdf" target="_blank" rel="noopener noreferrer">
+                  Download PDF
+                </a>
               </Button>
             </div>
 

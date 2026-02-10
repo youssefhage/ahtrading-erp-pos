@@ -273,6 +273,7 @@ def list_sales_invoices(
     date_to: Optional[date] = None,
     sort: Optional[str] = None,
     dir: Optional[str] = None,
+    flagged_for_adjustment: Optional[bool] = None,
 ):
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -330,6 +331,14 @@ def list_sales_invoices(
                   )
                 """
                 params.extend([needle, needle, needle, needle, needle])
+
+            # Pilot adjustment queue: invoices created via unified POS can be flagged in receipt_meta.
+            # Shape: receipt_meta = {"pilot": {"flagged_for_adjustment": true, ...}}
+            if flagged_for_adjustment is not None:
+                base_sql += """
+                  AND COALESCE((i.receipt_meta->'pilot'->>'flagged_for_adjustment')::boolean, false) = %s
+                """
+                params.append(bool(flagged_for_adjustment))
 
             select_sql = f"""
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name,

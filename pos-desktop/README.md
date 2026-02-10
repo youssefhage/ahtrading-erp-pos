@@ -11,6 +11,20 @@ python3 pos-desktop/agent.py
 ```
 Open:
 - http://localhost:7070
+- Unified pilot UI (two-company mode): http://localhost:7070/unified.html
+
+### Multi-Company Pilot (Run Two Agents)
+Local caches are per-agent (SQLite). For a pilot where the cashier needs both companies, run two agents on different ports, each with its own `--config` and `--db`:
+
+```bash
+# Official
+cp pos-desktop/config.official.sample.json pos-desktop/config.official.json
+python3 pos-desktop/agent.py --port 7070 --config pos-desktop/config.official.json --db pos-desktop/pos.official.sqlite
+
+# Unofficial
+cp pos-desktop/config.unofficial.sample.json pos-desktop/config.unofficial.json
+python3 pos-desktop/agent.py --port 7072 --config pos-desktop/config.unofficial.json --db pos-desktop/pos.unofficial.sqlite
+```
 
 ## Config
 Edit `pos-desktop/config.json` or call POST /api/config
