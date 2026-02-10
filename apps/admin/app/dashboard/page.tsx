@@ -164,6 +164,29 @@ function QuickAction({
   );
 }
 
+function QuickActionCompact({
+  icon: Icon,
+  label,
+  onClick
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={onClick}
+      className="h-9 justify-start gap-2 rounded-full bg-bg-elevated/40 px-3 text-xs"
+    >
+      <Icon className="h-4 w-4 text-fg-muted" />
+      <span className="text-foreground">{label}</span>
+    </Button>
+  );
+}
+
 function StatusIndicator({
   label,
   value,
@@ -334,6 +357,22 @@ export default function DashboardPage() {
           }
         />
       )}
+
+      {/* Quick actions (compact, top) */}
+      <div className="rounded-xl border border-border-subtle bg-bg-sunken/20 p-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-foreground">Quick Actions</div>
+            <div className="text-xs text-fg-subtle">Common tasks</div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <QuickActionCompact icon={ShoppingCart} label="Sales Invoice" onClick={() => router.push("/sales/invoices")} />
+            <QuickActionCompact icon={Truck} label="Purchase Order" onClick={() => router.push("/purchasing/purchase-orders")} />
+            <QuickActionCompact icon={Package} label="Stock" onClick={() => router.push("/inventory/stock")} />
+            <QuickActionCompact icon={Users} label="Customers" onClick={() => router.push("/partners/customers")} />
+          </div>
+        </div>
+      </div>
 
       {/* Top Section: Metrics + System Status */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
@@ -594,44 +633,6 @@ export default function DashboardPage() {
                   </p>
                 </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Bottom Section */}
-      <div className="grid grid-cols-1 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Quick Actions</CardTitle>
-            <CardDescription>Common tasks and workflows</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <QuickAction
-                icon={ShoppingCart}
-                label="Create Sales Invoice"
-                description="New customer invoice"
-                onClick={() => router.push("/sales/invoices")}
-              />
-              <QuickAction
-                icon={Truck}
-                label="Create Purchase Order"
-                description="Order from suppliers"
-                onClick={() => router.push("/purchasing/purchase-orders")}
-              />
-              <QuickAction
-                icon={Package}
-                label="View Stock Levels"
-                description="Check inventory status"
-                onClick={() => router.push("/inventory/stock")}
-              />
-              <QuickAction
-                icon={Users}
-                label="Manage Customers"
-                description="Customer directory"
-                onClick={() => router.push("/partners/customers")}
-              />
             </div>
           </CardContent>
         </Card>
