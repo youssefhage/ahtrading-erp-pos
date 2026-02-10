@@ -375,14 +375,22 @@ def main() -> int:
     # Upsert items first (needed before prices/opening stock).
     for cid, label in [(official_id, "official"), (unofficial_id, "unofficial")]:
         items = items_by_company[cid]
-        for chunk in _chunks(items, 5000):
-            api.post_bulk_items(cid, chunk)
-        print(f"  - items upserted ({label}): {len(items)}")
+        imported_items = _post_with_isolation(
+            lambda batch, _cid=cid: api.post_bulk_items(_cid, batch),
+            items,
+            5000,
+            f"items/{label}",
+        )
+        print(f"  - items upserted ({label}): {imported_items}/{len(items)}")
 
         prices = prices_by_company[cid]
-        for chunk in _chunks(prices, 5000):
-            api.post_bulk_prices(cid, date.today(), chunk)
-        print(f"  - prices upserted ({label}): {len(prices)}")
+        imported_prices = _post_with_isolation(
+            lambda batch, _cid=cid: api.post_bulk_prices(_cid, date.today(), batch),
+            prices,
+            5000,
+            f"prices/{label}",
+        )
+        print(f"  - prices upserted ({label}): {imported_prices}/{len(prices)}")
 
     if not args.skip_opening_stock:
         print("[6/6] Import opening stock...")
