@@ -139,13 +139,12 @@ services:
       context: ..
       dockerfile: apps/admin/Dockerfile
       args:
-        # Cloud pilot: call API on its own subdomain (avoid /api collisions on app.melqard.com).
-        NEXT_PUBLIC_API_BASE_URL: https://api.melqard.com
-        # Keep /api proxy working for any server-side routes that still use it.
+        # Cloud pilot: avoid /api host-level collisions by using /__api (Next.js rewrite).
+        NEXT_PUBLIC_API_BASE_URL: /__api
         API_PROXY_TARGET: http://api:8000
     restart: unless-stopped
     environment:
-      API_PROXY_TARGET: http://api_melqard:8000
+      API_PROXY_TARGET: http://api:8000
     # Admin can start even if API isn't healthy yet (it will just show API errors).
     # This avoids app.melqard.com going dark during API init/debug.
     depends_on:
