@@ -47,7 +47,7 @@ export type DataTableProps<T> = {
   // Pagination (client-side)
   enablePagination?: boolean; // default: true
   pageSizeOptions?: number[]; // default: [25, 50, 100, 200]
-  defaultPageSize?: number; // default: 50
+  defaultPageSize?: number; // default: 25
 };
 
 function safeJsonParse<T>(raw: string | null): T | null {
@@ -102,10 +102,13 @@ export function DataTable<T>(props: DataTableProps<T>) {
     actions,
     enablePagination = true,
     pageSizeOptions = [25, 50, 100, 200],
-    defaultPageSize = 50,
+    defaultPageSize = 25,
   } = props;
 
-  const storageKey = `admin.tablePrefs.${tableId}.v3`;
+  // v4: default page size changed from 50 -> 25. We migrate old prefs so we don't wipe
+  // column visibility / filters, but we treat legacy pageSize=50 as "old default".
+  const storageKey = `admin.tablePrefs.${tableId}.v4`;
+  const legacyStorageKey = `admin.tablePrefs.${tableId}.v3`;
 
   const defaultVisibility = useMemo(() => {
     const vis: ColumnVisibility = {};
@@ -127,6 +130,14 @@ export function DataTable<T>(props: DataTableProps<T>) {
     } catch {
       raw = null;
     }
+    // Fallback: migrate legacy v3 prefs into v4.
+    if (!raw) {
+      try {
+        raw = localStorage.getItem(legacyStorageKey);
+      } catch {
+        raw = null;
+      }
+    }
     const saved = safeJsonParse<{
       columnVisibility?: ColumnVisibility;
       globalFilter?: string;
@@ -145,7 +156,11 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
     if (typeof saved?.globalFilter === "string") setGlobalFilter(saved.globalFilter);
     if (saved && Object.prototype.hasOwnProperty.call(saved, "sort")) setSort(saved.sort ?? null);
-    if (typeof saved?.pageSize === "number" && saved.pageSize > 0) setPageSize(saved.pageSize);
+    if (typeof saved?.pageSize === "number" && saved.pageSize > 0) {
+      // If the legacy default (50) was persisted automatically, prefer the new default (25).
+      // Keep other user-selected sizes as-is.
+      setPageSize(saved.pageSize === 50 ? defaultPageSize : saved.pageSize);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
@@ -447,4 +462,3 @@ export function DataTable<T>(props: DataTableProps<T>) {
     </div>
   );
 }
-
