@@ -84,6 +84,56 @@ def _make_world_readable(target: Path, base: Path) -> None:
         return
 
 
+@router.get("/_debug/ls")
+def debug_list_updates(
+    prefix: str = "",
+    x_updates_key: Optional[str] = Header(default=None, alias="X-Updates-Key"),
+):
+    """
+    Debug helper for production deployments: verifies that `/updates` is mounted and
+    shared across services. Protected by the same publish key as uploads.
+    """
+    _require_publish_key(x_updates_key)
+    base = _updates_dir()
+    try:
+        is_mount = os.path.ismount(str(base))
+    except Exception:
+        is_mount = False
+
+    rel = (prefix or "").strip().lstrip("/")
+    if rel and not _SAFE_PATH_RE.match(rel):
+        raise HTTPException(status_code=400, detail="invalid prefix")
+    target = (base / rel).resolve()
+    base_resolved = base.resolve()
+    if base_resolved not in target.parents and target != base_resolved:
+        raise HTTPException(status_code=400, detail="invalid prefix")
+
+    entries = []
+    try:
+        if target.exists() and target.is_dir():
+            for p in sorted(target.iterdir()):
+                try:
+                    st = p.stat()
+                    entries.append(
+                        {
+                            "name": p.name,
+                            "is_dir": p.is_dir(),
+                            "size": st.st_size,
+                        }
+                    )
+                except Exception:
+                    entries.append({"name": p.name, "is_dir": p.is_dir()})
+    except Exception:
+        entries = []
+
+    return {
+        "base": str(base),
+        "is_mount": is_mount,
+        "prefix": rel,
+        "entries": entries[:200],
+    }
+
+
 @router.post("/upload")
 async def upload_update_file(
     rel_path: str = Form(...),
