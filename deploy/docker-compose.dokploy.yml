@@ -98,8 +98,11 @@ services:
       APP_DB_USER: ${APP_DB_USER}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD}
       APP_DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@db_ahtrading_pos:5432/${POSTGRES_DB}
+    # Don't hard-block startup on API health. If the API is still initializing
+    # (migrations/seeds), we still want the stack to come up so we can debug via
+    # logs and UI instead of Dokploy/compose failing the whole deployment.
     depends_on:
-      api_melqard:
+      db_ahtrading_pos:
         condition: service_healthy
     command:
       - sh
@@ -128,9 +131,10 @@ services:
     restart: unless-stopped
     environment:
       API_PROXY_TARGET: http://api_melqard:8000
+    # Admin can start even if API isn't healthy yet (it will just show API errors).
+    # This avoids app.melqard.com going dark during API init/debug.
     depends_on:
-      api_melqard:
-        condition: service_healthy
+      - api_melqard
     networks:
       - default
       - dokploy
