@@ -57,3 +57,4 @@ Open: http://localhost:7070
 - Migrations + seeds are applied via `backend/scripts/init_db.sh`.
 - Master data is bootstrapped for usability (default warehouse, VAT code, account defaults).
 - For real deployments, review account defaults, exchange rate sources, and auth/session hardening.
+# ahtrading-erp-pos
