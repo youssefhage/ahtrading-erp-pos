@@ -210,10 +210,10 @@ def import_sales_invoice_bundle(
                     cur.execute(
                         """
                         INSERT INTO sales_payments
-                          (id, invoice_id, method, amount_usd, amount_lbp,
+                          (id, invoice_id, method, amount_usd, amount_lbp, tender_usd, tender_lbp,
                            reference, auth_code, provider, settlement_currency, captured_at, created_at)
                         VALUES
-                          (%s::uuid, %s::uuid, %s, %s, %s,
+                          (%s::uuid, %s::uuid, %s, %s, %s, %s, %s,
                            %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (id) DO NOTHING
                         """,
@@ -223,6 +223,8 @@ def import_sales_invoice_bundle(
                             p.get("method"),
                             p.get("amount_usd") or 0,
                             p.get("amount_lbp") or 0,
+                            p.get("tender_usd") or 0,
+                            p.get("tender_lbp") or 0,
                             p.get("reference"),
                             p.get("auth_code"),
                             p.get("provider"),

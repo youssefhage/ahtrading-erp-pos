@@ -380,6 +380,42 @@ def normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -
             lbp = usd * exchange_rate
     return usd, lbp
 
+USD_Q = Decimal("0.0001")
+LBP_Q = Decimal("0.01")
+
+def q_usd(v: Decimal) -> Decimal:
+    return (v or Decimal("0")).quantize(USD_Q)
+
+def q_lbp(v: Decimal) -> Decimal:
+    return (v or Decimal("0")).quantize(LBP_Q)
+
+def compute_applied_from_tender(*, tender_usd: Decimal, tender_lbp: Decimal, exchange_rate: Decimal, settle: str) -> tuple[Decimal, Decimal]:
+    settle = (settle or "USD").upper()
+    if settle not in {"USD", "LBP"}:
+        raise ValueError("unsupported settlement_currency (expected USD or LBP)")
+    if tender_usd < 0 or tender_lbp < 0:
+        raise ValueError("amounts must be >= 0")
+    if tender_usd == 0 and tender_lbp == 0:
+        raise ValueError("amount is required")
+    if settle == "USD" and tender_lbp != 0 and not exchange_rate:
+        raise ValueError("exchange_rate is required for LBP tender on a USD invoice")
+    if settle == "LBP" and tender_usd != 0 and not exchange_rate:
+        raise ValueError("exchange_rate is required for USD tender on a LBP invoice")
+
+    applied_usd = Decimal("0")
+    applied_lbp = Decimal("0")
+    if settle == "USD":
+        applied_usd = tender_usd + ((tender_lbp / exchange_rate) if exchange_rate else Decimal("0"))
+        applied_usd = q_usd(applied_usd)
+        applied_usd, applied_lbp = normalize_dual_amounts(applied_usd, Decimal("0"), exchange_rate)
+        applied_lbp = q_lbp(applied_lbp)
+    else:
+        applied_lbp = tender_lbp + (tender_usd * exchange_rate)
+        applied_lbp = q_lbp(applied_lbp)
+        applied_usd, applied_lbp = normalize_dual_amounts(Decimal("0"), applied_lbp, exchange_rate)
+        applied_usd = q_usd(applied_usd)
+    return applied_usd, applied_lbp
+
 
 def compute_vat_breakdown(
     cur,
@@ -802,15 +838,30 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
 
-    # Payments (normalize to dual-ledger amounts so GL always balances per currency).
+    # Payments:
+    # - Tender is what the cashier received (USD +/or LBP).
+    # - Applied is the accounting value that settles the invoice in the settlement currency (USD or LBP),
+    #   with the other currency derived via exchange_rate.
     raw_payments = payload.get("payments", []) or []
     payments = []
     for p in raw_payments:
         method = (p.get("method") or "cash").strip().lower()
-        amount_usd = Decimal(str(p.get("amount_usd", 0)))
-        amount_lbp = Decimal(str(p.get("amount_lbp", 0)))
-        amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
-        payments.append({"method": method, "amount_usd": amount_usd, "amount_lbp": amount_lbp})
+        tender_usd = Decimal(str(p.get("tender_usd", p.get("amount_usd", 0)) or 0))
+        tender_lbp = Decimal(str(p.get("tender_lbp", p.get("amount_lbp", 0)) or 0))
+        if tender_usd == 0 and tender_lbp == 0:
+            continue
+        applied_usd, applied_lbp = compute_applied_from_tender(
+            tender_usd=tender_usd, tender_lbp=tender_lbp, exchange_rate=exchange_rate, settle=settlement_currency
+        )
+        payments.append(
+            {
+                "method": method,
+                "tender_usd": tender_usd,
+                "tender_lbp": tender_lbp,
+                "amount_usd": applied_usd,
+                "amount_lbp": applied_lbp,
+            }
+        )
 
     # Credit sale validation (compute outstanding before creating the invoice).
     customer_id = payload.get("customer_id")
@@ -822,12 +873,24 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             continue
         total_paid_usd += Decimal(str(p.get("amount_usd", 0)))
         total_paid_lbp += Decimal(str(p.get("amount_lbp", 0)))
-    credit_usd = total_usd - total_paid_usd
-    credit_lbp = total_lbp - total_paid_lbp
-    if credit_usd < 0 or credit_lbp < 0:
-        raise ValueError("Payments exceed invoice total")
+    eps_usd = Decimal("0.01")
+    eps_lbp = Decimal("100")
+    if str(settlement_currency or "USD").upper() == "USD":
+        credit_usd = total_usd - total_paid_usd
+        if credit_usd < -eps_usd:
+            raise ValueError("Payments exceed invoice total")
+        if abs(credit_usd) <= eps_usd:
+            credit_usd = Decimal("0")
+        credit_usd, credit_lbp = normalize_dual_amounts(credit_usd, Decimal("0"), exchange_rate)
+    else:
+        credit_lbp = total_lbp - total_paid_lbp
+        if credit_lbp < -eps_lbp:
+            raise ValueError("Payments exceed invoice total")
+        if abs(credit_lbp) <= eps_lbp:
+            credit_lbp = Decimal("0")
+        credit_usd, credit_lbp = normalize_dual_amounts(Decimal("0"), credit_lbp, exchange_rate)
 
-    credit_sale = credit_usd > 0 or credit_lbp > 0
+    credit_sale = credit_usd > eps_usd or credit_lbp > eps_lbp
     if credit_sale:
         if not customer_id:
             raise ValueError("Credit sale requires customer_id")
@@ -1073,19 +1136,26 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     # Persist payments.
     for p in raw_payments:
         method = (p.get("method") or "cash").strip().lower()
-        amount_usd = Decimal(str(p.get("amount_usd", 0)))
-        amount_lbp = Decimal(str(p.get("amount_lbp", 0)))
-        amount_usd, amount_lbp = normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
+        tender_usd = Decimal(str(p.get("tender_usd", p.get("amount_usd", 0)) or 0))
+        tender_lbp = Decimal(str(p.get("tender_lbp", p.get("amount_lbp", 0)) or 0))
+        if tender_usd == 0 and tender_lbp == 0:
+            continue
+        amount_usd, amount_lbp = compute_applied_from_tender(
+            tender_usd=tender_usd, tender_lbp=tender_lbp, exchange_rate=exchange_rate, settle=settlement_currency
+        )
         cur.execute(
             """
-            INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at)
-            VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, now())
+            INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp, tender_usd, tender_lbp,
+                                        reference, auth_code, provider, settlement_currency, captured_at)
+            VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
             """,
             (
                 invoice_id,
                 method,
                 amount_usd,
                 amount_lbp,
+                tender_usd,
+                tender_lbp,
                 (p.get("reference") or None),
                 (p.get("auth_code") or None),
                 (p.get("provider") or None),

@@ -127,6 +127,33 @@ def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) 
             lbp = usd * exchange_rate
     return usd, lbp
 
+def _compute_applied_from_tender(*, tender_usd: Decimal, tender_lbp: Decimal, exchange_rate: Decimal, settle: str) -> tuple[Decimal, Decimal]:
+    settle = (settle or "USD").upper()
+    if settle not in {"USD", "LBP"}:
+        raise HTTPException(status_code=400, detail="unsupported settlement_currency (expected USD or LBP)")
+    if tender_usd < 0 or tender_lbp < 0:
+        raise HTTPException(status_code=400, detail="amounts must be >= 0")
+    if tender_usd == 0 and tender_lbp == 0:
+        raise HTTPException(status_code=400, detail="amount is required")
+    if settle == "USD" and tender_lbp != 0 and not exchange_rate:
+        raise HTTPException(status_code=400, detail="exchange_rate is required for LBP tender on a USD invoice")
+    if settle == "LBP" and tender_usd != 0 and not exchange_rate:
+        raise HTTPException(status_code=400, detail="exchange_rate is required for USD tender on a LBP invoice")
+
+    applied_usd = Decimal("0")
+    applied_lbp = Decimal("0")
+    if settle == "USD":
+        applied_usd = tender_usd + ((tender_lbp / exchange_rate) if exchange_rate else Decimal("0"))
+        applied_usd = q_usd(applied_usd)
+        applied_usd, applied_lbp = _normalize_dual_amounts(applied_usd, Decimal("0"), exchange_rate)
+        applied_lbp = q_lbp(applied_lbp)
+    else:
+        applied_lbp = tender_lbp + (tender_usd * exchange_rate)
+        applied_lbp = q_lbp(applied_lbp)
+        applied_usd, applied_lbp = _normalize_dual_amounts(Decimal("0"), applied_lbp, exchange_rate)
+        applied_usd = q_usd(applied_usd)
+    return applied_usd, applied_lbp
+
 def _fetch_account_defaults(cur, company_id: str) -> dict:
     cur.execute(
         """
@@ -174,8 +201,11 @@ class TaxBlock(BaseModel):
 
 class PaymentBlock(BaseModel):
     method: PaymentMethod
-    amount_usd: Decimal
-    amount_lbp: Decimal
+    # Backward compatible: some clients send legacy amount_* fields. New clients should prefer tender_*.
+    amount_usd: Decimal = Decimal("0")
+    amount_lbp: Decimal = Decimal("0")
+    tender_usd: Optional[Decimal] = None
+    tender_lbp: Optional[Decimal] = None
 
 
 class SalesInvoiceIn(BaseModel):
@@ -1186,30 +1216,49 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                 total_usd = base_usd + tax_usd
                 total_lbp = base_lbp + tax_lbp
 
-                # Normalize payments; if no payments => credit sale.
+                # Payments:
+                # - `tender_*` are what the cashier received.
+                # - `amount_*` are the applied value that settles the invoice (consistent with settlement currency + exchange rate).
+                settle = str(inv.get("settlement_currency") or "USD").upper()
                 payments = []
                 for p in (data.payments or []):
                     method = (p.method or "cash").strip().lower()
-                    amount_usd = Decimal(str(p.amount_usd or 0))
-                    amount_lbp = Decimal(str(p.amount_lbp or 0))
-                    amount_usd, amount_lbp = _normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
-                    if amount_usd == 0 and amount_lbp == 0:
+                    tender_usd = Decimal(str(p.tender_usd if p.tender_usd is not None else p.amount_usd or 0))
+                    tender_lbp = Decimal(str(p.tender_lbp if p.tender_lbp is not None else p.amount_lbp or 0))
+                    if tender_usd == 0 and tender_lbp == 0:
                         continue
-                    payments.append({"method": method, "amount_usd": amount_usd, "amount_lbp": amount_lbp})
+                    applied_usd, applied_lbp = _compute_applied_from_tender(
+                        tender_usd=tender_usd, tender_lbp=tender_lbp, exchange_rate=exchange_rate, settle=settle
+                    )
+                    payments.append(
+                        {
+                            "method": method,
+                            "tender_usd": tender_usd,
+                            "tender_lbp": tender_lbp,
+                            "amount_usd": applied_usd,
+                            "amount_lbp": applied_lbp,
+                        }
+                    )
 
                 total_paid_usd = sum([Decimal(str(p["amount_usd"])) for p in payments])
                 total_paid_lbp = sum([Decimal(str(p["amount_lbp"])) for p in payments])
-                credit_usd = total_usd - total_paid_usd
-                credit_lbp = total_lbp - total_paid_lbp
                 eps_usd = Decimal("0.01")
                 eps_lbp = Decimal("100")
-                # Allow tiny rounding drift (USD decimals / LBP conversion) without forcing a credit sale.
-                if credit_usd < -eps_usd or credit_lbp < -eps_lbp:
-                    raise HTTPException(status_code=400, detail="payments exceed invoice total")
-                if abs(credit_usd) <= eps_usd:
-                    credit_usd = Decimal("0")
-                if abs(credit_lbp) <= eps_lbp:
-                    credit_lbp = Decimal("0")
+                # Single settlement balance: only one currency is the "debt". The other is derived via exchange_rate.
+                if settle == "USD":
+                    credit_usd = total_usd - total_paid_usd
+                    if credit_usd < -eps_usd:
+                        raise HTTPException(status_code=400, detail="payments exceed invoice total")
+                    if abs(credit_usd) <= eps_usd:
+                        credit_usd = Decimal("0")
+                    credit_usd, credit_lbp = _normalize_dual_amounts(credit_usd, Decimal("0"), exchange_rate)
+                else:
+                    credit_lbp = total_lbp - total_paid_lbp
+                    if credit_lbp < -eps_lbp:
+                        raise HTTPException(status_code=400, detail="payments exceed invoice total")
+                    if abs(credit_lbp) <= eps_lbp:
+                        credit_lbp = Decimal("0")
+                    credit_usd, credit_lbp = _normalize_dual_amounts(Decimal("0"), credit_lbp, exchange_rate)
 
                 credit_sale = credit_usd > eps_usd or credit_lbp > eps_lbp
                 customer_id = inv["customer_id"]
@@ -1354,10 +1403,10 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                 for p in payments:
                     cur.execute(
                         """
-                        INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp)
-                        VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                        INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp, tender_usd, tender_lbp)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s)
                         """,
-                        (invoice_id, p["method"], p["amount_usd"], p["amount_lbp"]),
+                        (invoice_id, p["method"], p["amount_usd"], p["amount_lbp"], p["tender_usd"], p["tender_lbp"]),
                     )
 
                 defaults = _fetch_account_defaults(cur, company_id)
@@ -1871,22 +1920,11 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 exchange_rate = Decimal(str(row.get("exchange_rate") or 0))
                 inv_settlement = str(row.get("settlement_currency") or "USD")
                 settle = str(data.settlement_currency or inv_settlement or "USD").upper()
-                if settle not in {"USD", "LBP"}:
-                    raise HTTPException(status_code=400, detail="unsupported settlement_currency (expected USD or LBP)")
 
                 # Applied value (for AR/GL): keep amount_usd and amount_lbp consistent (derived via exchange_rate).
-                applied_usd = Decimal("0")
-                applied_lbp = Decimal("0")
-                if settle == "USD":
-                    applied_usd = tender_usd + ((tender_lbp / exchange_rate) if exchange_rate else Decimal("0"))
-                    applied_usd = q_usd(applied_usd)
-                    applied_usd, applied_lbp = _normalize_dual_amounts(applied_usd, Decimal("0"), exchange_rate)
-                    applied_lbp = q_lbp(applied_lbp)
-                else:
-                    applied_lbp = tender_lbp + (tender_usd * exchange_rate)
-                    applied_lbp = q_lbp(applied_lbp)
-                    applied_usd, applied_lbp = _normalize_dual_amounts(Decimal("0"), applied_lbp, exchange_rate)
-                    applied_usd = q_usd(applied_usd)
+                applied_usd, applied_lbp = _compute_applied_from_tender(
+                    tender_usd=tender_usd, tender_lbp=tender_lbp, exchange_rate=exchange_rate, settle=settle
+                )
 
                 method = data.method  # already normalized by validator
                 # Always require a mapping so methods stay consistent identifiers across the system.
@@ -1968,10 +2006,10 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                         INSERT INTO gl_journals
                           (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, 'sales_payment', %s, %s, 'market', 0, %s, %s)
+                          (gen_random_uuid(), %s, %s, 'sales_payment', %s, %s, 'market', %s, %s, %s)
                         RETURNING id
                         """,
-                        (company_id, f"CP-{str(payment_id)[:8]}", payment_id, pay_date, "Customer payment", user["user_id"]),
+                        (company_id, f"CP-{str(payment_id)[:8]}", payment_id, pay_date, exchange_rate, "Customer payment", user["user_id"]),
                     )
                     journal_id = cur.fetchone()["id"]
 
@@ -2036,6 +2074,174 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 )
 
                 return {"id": payment_id}
+
+class SalesPaymentRecomputeIn(BaseModel):
+    tender_usd: Optional[Decimal] = None
+    tender_lbp: Optional[Decimal] = None
+    settlement_currency: Optional[CurrencyCode] = None
+
+@router.post("/payments/{payment_id}/recompute", dependencies=[Depends(require_permission("sales:write"))])
+def recompute_sales_payment(payment_id: str, data: SalesPaymentRecomputeIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Fix legacy payments that were recorded before we introduced:
+    - tender_usd/tender_lbp (what the cashier received)
+    - applied amount_usd/amount_lbp (what settles the invoice in the settlement currency)
+
+    If tender_* are both 0 on the row, we treat the existing amount_* as the entered tender.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT p.id, p.invoice_id, p.method,
+                           p.amount_usd, p.amount_lbp,
+                           p.tender_usd, p.tender_lbp,
+                           p.settlement_currency AS payment_settlement_currency,
+                           si.customer_id, si.exchange_rate, si.settlement_currency AS invoice_settlement_currency
+                    FROM sales_payments p
+                    JOIN sales_invoices si ON si.id = p.invoice_id AND si.company_id = %s
+                    WHERE p.id = %s::uuid
+                    FOR UPDATE
+                    """,
+                    (company_id, payment_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="payment not found")
+
+                exchange_rate = Decimal(str(row.get("exchange_rate") or 0))
+                settle = str(
+                    data.settlement_currency
+                    or row.get("payment_settlement_currency")
+                    or row.get("invoice_settlement_currency")
+                    or "USD"
+                ).upper()
+
+                old_applied_usd = Decimal(str(row.get("amount_usd") or 0))
+                old_applied_lbp = Decimal(str(row.get("amount_lbp") or 0))
+
+                cur_tender_usd = Decimal(str(row.get("tender_usd") or 0))
+                cur_tender_lbp = Decimal(str(row.get("tender_lbp") or 0))
+                inferred_legacy = (cur_tender_usd == 0 and cur_tender_lbp == 0)
+
+                tender_usd = Decimal(str(data.tender_usd)) if data.tender_usd is not None else (old_applied_usd if inferred_legacy else cur_tender_usd)
+                tender_lbp = Decimal(str(data.tender_lbp)) if data.tender_lbp is not None else (old_applied_lbp if inferred_legacy else cur_tender_lbp)
+
+                new_applied_usd, new_applied_lbp = _compute_applied_from_tender(
+                    tender_usd=tender_usd, tender_lbp=tender_lbp, exchange_rate=exchange_rate, settle=settle
+                )
+
+                cur.execute(
+                    """
+                    UPDATE sales_payments
+                    SET amount_usd=%s, amount_lbp=%s,
+                        tender_usd=%s, tender_lbp=%s,
+                        settlement_currency=%s
+                    WHERE id=%s::uuid
+                    """,
+                    (new_applied_usd, new_applied_lbp, tender_usd, tender_lbp, settle, payment_id),
+                )
+
+                delta_usd = new_applied_usd - old_applied_usd
+                delta_lbp = new_applied_lbp - old_applied_lbp
+
+                if row.get("customer_id") and (delta_usd != 0 or delta_lbp != 0):
+                    cur.execute(
+                        """
+                        UPDATE customers
+                        SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
+                            credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0),
+                            updated_at = now()
+                        WHERE company_id = %s AND id = %s
+                        """,
+                        (delta_usd, delta_lbp, company_id, row["customer_id"]),
+                    )
+
+                # GL journal (if present): rebuild entries so the journal matches the recomputed applied amounts.
+                cur.execute(
+                    """
+                    SELECT id
+                    FROM gl_journals
+                    WHERE company_id=%s AND source_type='sales_payment' AND source_id=%s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (company_id, payment_id),
+                )
+                jrow = cur.fetchone()
+                if jrow:
+                    journal_id = jrow["id"]
+                    cur.execute(
+                        "UPDATE gl_journals SET exchange_rate=%s WHERE company_id=%s AND id=%s",
+                        (exchange_rate, company_id, journal_id),
+                    )
+
+                    defaults = _fetch_account_defaults(cur, company_id)
+                    ar = defaults.get("AR")
+                    if not ar:
+                        raise HTTPException(status_code=400, detail="Missing AR default")
+                    pay_accounts = _fetch_payment_method_accounts(cur, company_id)
+                    pay_account = pay_accounts.get(row["method"])
+                    if not pay_account:
+                        raise HTTPException(status_code=400, detail=f"Missing payment method mapping for {row['method']}")
+
+                    cur.execute("DELETE FROM gl_entries WHERE journal_id=%s", (journal_id,))
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Customer payment (recomputed)')
+                        """,
+                        (journal_id, pay_account, new_applied_usd, new_applied_lbp),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'AR settlement (recomputed)')
+                        """,
+                        (journal_id, ar, new_applied_usd, new_applied_lbp),
+                    )
+
+                # Bank txn (if present)
+                cur.execute(
+                    """
+                    UPDATE bank_transactions
+                    SET amount_usd=%s, amount_lbp=%s
+                    WHERE company_id=%s AND source_type='sales_payment' AND source_id=%s
+                    """,
+                    (new_applied_usd, new_applied_lbp, company_id, payment_id),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'sales_payment_recompute', 'sales_payment', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        payment_id,
+                        json.dumps(
+                            {
+                                "old_applied_usd": str(old_applied_usd),
+                                "old_applied_lbp": str(old_applied_lbp),
+                                "new_applied_usd": str(new_applied_usd),
+                                "new_applied_lbp": str(new_applied_lbp),
+                                "tender_usd": str(tender_usd),
+                                "tender_lbp": str(tender_lbp),
+                                "settlement_currency": settle,
+                            }
+                        ),
+                    ),
+                )
+
+                return {
+                    "ok": True,
+                    "payment_id": str(payment_id),
+                    "old": {"amount_usd": str(old_applied_usd), "amount_lbp": str(old_applied_lbp)},
+                    "new": {"amount_usd": str(new_applied_usd), "amount_lbp": str(new_applied_lbp), "tender_usd": str(tender_usd), "tender_lbp": str(tender_lbp)},
+                }
 
 
 @router.post("/invoices", dependencies=[Depends(require_permission("sales:write"))])

@@ -51,6 +51,15 @@ function toNum(v: string) {
   return r.ok ? r.value : 0;
 }
 
+function n(v: unknown) {
+  const x = Number(v || 0);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function hasTender(p: SalesPaymentRow) {
+  return n(p.tender_usd) !== 0 || n(p.tender_lbp) !== 0;
+}
+
 function SalesPaymentsPageInner() {
   const toast = useToast();
   const searchParams = useSearchParams();
@@ -407,10 +416,32 @@ function SalesPaymentsPageInner() {
                       </td>
                       <td className="px-3 py-2 font-mono text-xs">{p.method}</td>
                       <td className="px-3 py-2 text-right font-mono text-xs">
-                        {Number((p.tender_usd != null ? p.tender_usd : p.amount_usd) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                        {(() => {
+                          const show = hasTender(p) ? n(p.tender_usd) : n(p.amount_usd);
+                          const applied = n(p.amount_usd);
+                          return (
+                            <div className="text-right">
+                              <div>{show.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                              {hasTender(p) && Math.abs(show - applied) > 0.00005 ? (
+                                <div className="mt-0.5 text-[10px] text-fg-muted">Applied: {applied.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2 text-right font-mono text-xs">
-                        {Number((p.tender_lbp != null ? p.tender_lbp : p.amount_lbp) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                        {(() => {
+                          const show = hasTender(p) ? n(p.tender_lbp) : n(p.amount_lbp);
+                          const applied = n(p.amount_lbp);
+                          return (
+                            <div className="text-right">
+                              <div>{show.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                              {hasTender(p) && Math.abs(show - applied) > 0.005 ? (
+                                <div className="mt-0.5 text-[10px] text-fg-muted">Applied: {applied.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                              ) : null}
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}

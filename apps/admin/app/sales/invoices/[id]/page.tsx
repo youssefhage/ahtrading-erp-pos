@@ -90,6 +90,15 @@ function fmtIso(iso?: string | null) {
   return String(iso || "").slice(0, 10) || "-";
 }
 
+function n(v: unknown) {
+  const x = Number(v || 0);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function hasTender(p: SalesPayment) {
+  return n(p.tender_usd) !== 0 || n(p.tender_lbp) !== 0;
+}
+
 function SalesInvoiceShowInner() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -383,8 +392,12 @@ function SalesInvoiceShowInner() {
               {(() => {
                 const paidUsd = (detail.payments || []).reduce((a, p) => a + Number(p.amount_usd || 0), 0);
                 const paidLbp = (detail.payments || []).reduce((a, p) => a + Number(p.amount_lbp || 0), 0);
+                const tenderUsd = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_usd) : 0), 0);
+                const tenderLbp = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_lbp) : 0), 0);
+                const hasAnyTender = (detail.payments || []).some((p) => hasTender(p));
                 const totalUsd = Number(detail.invoice.total_usd || 0);
                 const totalLbp = Number(detail.invoice.total_lbp || 0);
+                const settle = String(detail.invoice.settlement_currency || "USD").toUpperCase();
                 const balUsd = totalUsd - paidUsd;
                 const balLbp = totalLbp - paidLbp;
                 const subUsd = Number(detail.invoice.subtotal_usd ?? detail.invoice.total_usd ?? 0);
@@ -443,8 +456,22 @@ function SalesInvoiceShowInner() {
                       <p className="ui-panel-title">Totals</p>
 
                       <div className="mt-3">
-                        <div className="data-mono text-2xl font-semibold leading-none text-foreground">{fmtUsd(totalUsd)}</div>
-                        <div className="data-mono mt-1 text-base text-fg-muted">{fmtLbp(totalLbp)}</div>
+                        {settle === "LBP" ? (
+                          <>
+                            <div className="data-mono text-2xl font-semibold leading-none text-foreground">{fmtLbp(totalLbp)}</div>
+                            <div className="data-mono mt-1 text-base text-fg-muted">{fmtUsd(totalUsd)}</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="data-mono text-2xl font-semibold leading-none text-foreground">{fmtUsd(totalUsd)}</div>
+                            <div className="data-mono mt-1 text-base text-fg-muted">{fmtLbp(totalLbp)}</div>
+                          </>
+                        )}
+                        <div className="mt-2 text-xs text-fg-muted">
+                          <span className="data-mono">Settle {settle}</span>
+                          <span className="text-fg-subtle"> · </span>
+                          <span className="data-mono">Rate {Number(detail.invoice.exchange_rate || 0).toLocaleString("en-US")}</span>
+                        </div>
                       </div>
 
                       <div className="mt-4 space-y-2 text-sm text-fg-muted">
@@ -461,11 +488,19 @@ function SalesInvoiceShowInner() {
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-2">
-                          <span>Paid</span>
+                          <span>Applied (settles invoice)</span>
                           <span className="data-mono text-foreground">
                             {fmtUsd(paidUsd)} / {fmtLbp(paidLbp)}
                           </span>
                         </div>
+                        {hasAnyTender ? (
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Tender received</span>
+                            <span className="data-mono text-foreground">
+                              {fmtUsd(tenderUsd)} / {fmtLbp(tenderLbp)}
+                            </span>
+                          </div>
+                        ) : null}
                         <div className="section-divider my-3" />
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium text-foreground">Balance</span>
@@ -550,8 +585,24 @@ function SalesInvoiceShowInner() {
                     {detail.payments.map((p) => (
                       <div key={p.id} className="flex items-center justify-between gap-2">
                         <span className="data-mono">{p.method}</span>
-                        <span className="data-mono">
-                          {fmtUsd((p.tender_usd as any) ?? p.amount_usd)} / {fmtLbp((p.tender_lbp as any) ?? p.amount_lbp)}
+                        <span className="data-mono text-right">
+                          {hasTender(p) ? (
+                            <>
+                              <span className="text-foreground">
+                                Tender {fmtUsd(n(p.tender_usd))} / {fmtLbp(n(p.tender_lbp))}
+                              </span>
+                              <span className="text-fg-subtle"> · </span>
+                              <span className="text-fg-muted">
+                                Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-foreground">
+                                Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
+                              </span>
+                            </>
+                          )}
                         </span>
                       </div>
                     ))}
