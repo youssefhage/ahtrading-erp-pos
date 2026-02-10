@@ -22,6 +22,9 @@ backend/.env
 # Local ERPNext export data (pilot import)
 Data AH Trading/
 
+# Local secrets (signing keys, publish tokens)
+.secrets/
+
 # Node (admin app to be added)
 node_modules/
 .next/
