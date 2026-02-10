@@ -90,8 +90,13 @@ services:
     # during /health, which blocks the entire deployment. To make networking
     # deterministic, explicitly attach routed services to both networks.
     networks:
-      - default
-      - dokploy
+      default:
+        aliases:
+          # Keep compatibility with code/builds that expect the API to be reachable as `http://api:8000`.
+          - api
+      dokploy:
+        aliases:
+          - api
 
   worker:
     build:
