@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiBase, apiGet } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,62 @@ export default function GeneralLedgerPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const columns = useMemo((): Array<DataTableColumn<GlRow>> => {
+    return [
+      { id: "journal_date", header: "Date", accessor: (r) => r.journal_date, mono: true, sortable: true, globalSearch: false },
+      { id: "journal_no", header: "Journal", accessor: (r) => r.journal_no, mono: true, sortable: true },
+      {
+        id: "account",
+        header: "Account",
+        accessor: (r) => `${r.account_code} ${r.name_en || ""}`,
+        cell: (r) => (
+          <span>
+            <span className="data-mono text-xs">{r.account_code}</span>{" "}
+            <span className="text-fg-muted">{r.name_en || ""}</span>
+          </span>
+        ),
+        sortable: true,
+      },
+      {
+        id: "debit_usd",
+        header: "Dr USD",
+        accessor: (r) => Number(r.debit_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(r.debit_usd)}</span>,
+      },
+      {
+        id: "credit_usd",
+        header: "Cr USD",
+        accessor: (r) => Number(r.credit_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(r.credit_usd)}</span>,
+      },
+      {
+        id: "debit_lbp",
+        header: "Dr LL",
+        accessor: (r) => Number(r.debit_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(r.debit_lbp)}</span>,
+      },
+      {
+        id: "credit_lbp",
+        header: "Cr LL",
+        accessor: (r) => Number(r.credit_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(r.credit_lbp)}</span>,
+      },
+      { id: "memo", header: "Memo", accessor: (r) => r.memo || "", cell: (r) => <span className="text-xs text-fg-muted">{r.memo || ""}</span> },
+    ];
+  }, []);
 
   async function downloadCsv() {
     setStatus("Downloading CSV...");
@@ -130,46 +187,14 @@ export default function GeneralLedgerPage() {
               </div>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2">Journal</th>
-                    <th className="px-3 py-2">Account</th>
-                    <th className="px-3 py-2 text-right">Dr USD</th>
-                    <th className="px-3 py-2 text-right">Cr USD</th>
-                    <th className="px-3 py-2 text-right">Dr LL</th>
-                    <th className="px-3 py-2 text-right">Cr LL</th>
-                    <th className="px-3 py-2">Memo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, idx) => (
-                    <tr key={`${r.journal_no}:${r.account_code}:${idx}`} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{String(r.journal_date)}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{r.journal_no}</td>
-                      <td className="px-3 py-2">
-                        <span className="font-mono text-xs">{r.account_code}</span>{" "}
-                        <span className="text-fg-muted">{r.name_en || ""}</span>
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.debit_usd)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.credit_usd)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.debit_lbp)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.credit_lbp)}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{r.memo || ""}</td>
-                    </tr>
-                  ))}
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
-                        No GL entries yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<GlRow>
+              tableId="accounting.reports.general_ledger"
+              rows={rows}
+              columns={columns}
+              initialSort={{ columnId: "journal_date", dir: "desc" }}
+              globalFilterPlaceholder="Search journal / account / memo..."
+              emptyText="No GL entries yet."
+            />
           </CardContent>
         </Card>
       </div>);

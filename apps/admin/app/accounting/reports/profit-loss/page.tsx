@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -68,6 +69,32 @@ export default function ProfitLossPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const columns = useMemo((): Array<DataTableColumn<PlRow>> => {
+    return [
+      { id: "kind", header: "Kind", accessor: (r) => r.kind, sortable: true, globalSearch: false },
+      { id: "account_code", header: "Code", accessor: (r) => r.account_code, mono: true, sortable: true, globalSearch: false },
+      { id: "name_en", header: "Account", accessor: (r) => r.name_en || "-", sortable: true },
+      {
+        id: "amount_usd",
+        header: "USD",
+        accessor: (r) => Number(r.amount_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.amount_usd)}</span>,
+      },
+      {
+        id: "amount_lbp",
+        header: "LL",
+        accessor: (r) => Number(r.amount_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.amount_lbp)}</span>,
+      },
+    ];
+  }, []);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -167,37 +194,14 @@ export default function ProfitLossPage() {
             <CardDescription>{data?.rows?.length || 0} accounts</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Kind</th>
-                    <th className="px-3 py-2">Code</th>
-                    <th className="px-3 py-2">Account</th>
-                    <th className="px-3 py-2 text-right">USD</th>
-                    <th className="px-3 py-2 text-right">LL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data?.rows || []).map((r) => (
-                    <tr key={`${r.kind}-${r.account_code}`} className="ui-tr-hover">
-                      <td className="px-3 py-2 text-xs text-fg-muted">{r.kind}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{r.name_en || "-"}</td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.amount_usd)}</td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.amount_lbp)}</td>
-                    </tr>
-                  ))}
-                  {(data?.rows || []).length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No rows.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<PlRow>
+              tableId="accounting.reports.profit_loss"
+              rows={data?.rows || []}
+              columns={columns}
+              initialSort={{ columnId: "amount_usd", dir: "desc" }}
+              globalFilterPlaceholder="Search account..."
+              emptyText="No rows."
+            />
           </CardContent>
         </Card>
       </div>);

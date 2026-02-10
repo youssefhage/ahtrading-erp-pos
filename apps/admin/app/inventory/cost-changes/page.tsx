@@ -4,12 +4,11 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 
 type Row = {
   id: string;
@@ -42,11 +41,50 @@ function Inner() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<unknown>(null);
   const [rows, setRows] = useState<Row[]>([]);
-  const [q, setQ] = useState("");
 
-  const filtered = useMemo(() => {
-    return filterAndRankByFuzzy(rows || [], q, (r) => `${r.sku || ""} ${r.name || ""}`);
-  }, [rows, q]);
+  const columns = useMemo((): Array<DataTableColumn<Row>> => {
+    return [
+      { id: "changed_at", header: "When", accessor: (r) => r.changed_at || "", mono: true, sortable: true, cell: (r) => <span className="data-mono text-xs text-fg-muted">{fmtIso(r.changed_at)}</span> },
+      {
+        id: "item",
+        header: "Item",
+        accessor: (r) => `${r.sku || ""} ${r.name || ""}`.trim(),
+        sortable: true,
+        cell: (r) => (
+          <Link className="ui-link inline-flex flex-col items-start" href={`/catalog/items/${encodeURIComponent(r.item_id)}`}>
+            <div className="flex flex-col gap-0.5">
+              <div className="font-medium">{r.sku}</div>
+              <div className="text-xs text-fg-muted">{r.name}</div>
+            </div>
+          </Link>
+        ),
+      },
+      { id: "warehouse_name", header: "Warehouse", accessor: (r) => r.warehouse_name || "", sortable: true },
+      {
+        id: "old_avg_cost_usd",
+        header: "Old USD",
+        accessor: (r) => Number(r.old_avg_cost_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        globalSearch: false,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.old_avg_cost_usd)}</span>,
+      },
+      {
+        id: "new_avg_cost_usd",
+        header: "New USD",
+        accessor: (r) => Number(r.new_avg_cost_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        globalSearch: false,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.new_avg_cost_usd)}</span>,
+      },
+      { id: "pct_change_usd", header: "Change", accessor: (r) => Number(r.pct_change_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (r) => <span className="data-mono">{pct(r.pct_change_usd)}</span> },
+      { id: "on_hand_qty", header: "On Hand", accessor: (r) => Number(r.on_hand_qty || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (r) => <span className="data-mono">{String(r.on_hand_qty || 0)}</span> },
+      { id: "source", header: "Source", accessor: (r) => r.source || "-", sortable: true, cell: (r) => <span className="text-xs text-fg-muted">{r.source || "-"}</span> },
+    ];
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,7 +109,7 @@ function Inner() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Cost Changes</h1>
-          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${filtered.length} change(s)`}</p>
+          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${rows.length} change(s)`}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" onClick={load} disabled={loading}>
@@ -87,57 +125,16 @@ function Inner() {
           <CardTitle>Recent Avg-Cost Changes</CardTitle>
           <CardDescription>Used by the AI price-impact agent to generate review tasks.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="w-full md:w-96">
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by SKU or item name..." />
-            </div>
-          </div>
-
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">When</th>
-                  <th className="px-3 py-2">Item</th>
-                  <th className="px-3 py-2">Warehouse</th>
-                  <th className="px-3 py-2 text-right">Old USD</th>
-                  <th className="px-3 py-2 text-right">New USD</th>
-                  <th className="px-3 py-2 text-right">Change</th>
-                  <th className="px-3 py-2 text-right">On Hand</th>
-                  <th className="px-3 py-2">Source</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((r) => (
-                  <tr key={r.id} className="ui-tr-hover">
-                    <td className="px-3 py-2 text-xs font-mono text-fg-muted">{fmtIso(r.changed_at)}</td>
-                    <td className="px-3 py-2">
-                      <Link className="ui-link inline-flex flex-col items-start" href={`/catalog/items/${encodeURIComponent(r.item_id)}`}>
-                        <div className="flex flex-col gap-0.5">
-                          <div className="font-medium">{r.sku}</div>
-                          <div className="text-xs text-fg-muted">{r.name}</div>
-                        </div>
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2">{r.warehouse_name}</td>
-                    <td className="px-3 py-2 text-right data-mono">{fmtUsd(r.old_avg_cost_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono">{fmtUsd(r.new_avg_cost_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono">{pct(r.pct_change_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono">{String(r.on_hand_qty || 0)}</td>
-                    <td className="px-3 py-2 text-xs text-fg-muted">{r.source || "-"}</td>
-                  </tr>
-                ))}
-                {!loading && filtered.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
-                      No cost changes yet.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+        <CardContent>
+          <DataTable<Row>
+            tableId="inventory.costChanges"
+            rows={rows}
+            columns={columns}
+            isLoading={loading}
+            initialSort={{ columnId: "changed_at", dir: "desc" }}
+            globalFilterPlaceholder="Search SKU / item / warehouse / source..."
+            emptyText="No cost changes yet."
+          />
         </CardContent>
       </Card>
     </div>

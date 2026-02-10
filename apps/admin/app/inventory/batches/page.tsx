@@ -6,6 +6,7 @@ import { apiGet, apiPatch } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { SearchableSelect } from "@/components/searchable-select";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -85,6 +86,131 @@ export default function InventoryBatchesPage() {
   const [layersRows, setLayersRows] = useState<CostLayerRow[]>([]);
   const [layersLoading, setLayersLoading] = useState(false);
 
+  const openEdit = useCallback((b: BatchRow) => {
+    setEditId(b.id);
+    setEditStatus(b.status);
+    setEditHoldReason(b.hold_reason || "");
+    setEditNotes(b.notes || "");
+    setEditOpen(true);
+  }, []);
+
+  const openLayers = useCallback(async (b: BatchRow) => {
+    setLayersBatch(b);
+    setLayersRows([]);
+    setLayersOpen(true);
+    setLayersLoading(true);
+    try {
+      const res = await apiGet<{ cost_layers: CostLayerRow[] }>(`/inventory/batches/${encodeURIComponent(b.id)}/cost-layers?limit=200`);
+      setLayersRows(res.cost_layers || []);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatus(msg);
+      setLayersRows([]);
+    } finally {
+      setLayersLoading(false);
+    }
+  }, []);
+
+  const batchColumns = useMemo((): Array<DataTableColumn<BatchRow>> => {
+    return [
+      {
+        id: "item",
+        header: "Item",
+        accessor: (b) => {
+          const it = itemById.get(b.item_id);
+          return `${it?.sku || b.item_sku || ""} ${it?.name || b.item_name || ""}`.trim();
+        },
+        cell: (b) => {
+          const it = itemById.get(b.item_id);
+          return (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(b.item_id)}`} title="Open item">
+              <span className="font-mono text-xs">{it?.sku || b.item_sku || "-"}</span> · {it?.name || b.item_name || "-"}
+            </ShortcutLink>
+          );
+        },
+      },
+      { id: "batch_no", header: "Batch", accessor: (b) => b.batch_no || "", mono: true, sortable: true },
+      { id: "expiry_date", header: "Expiry", accessor: (b) => b.expiry_date || "", mono: true, sortable: true, cell: (b) => fmtIso(b.expiry_date) },
+      {
+        id: "status",
+        header: "Status",
+        accessor: (b) => b.status,
+        sortable: true,
+        globalSearch: false,
+        cell: (b) => (
+          <div className="text-xs">
+            <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">{b.status}</span>
+            {b.hold_reason ? <span className="ml-2 text-[10px] text-fg-subtle">{b.hold_reason}</span> : null}
+          </div>
+        ),
+      },
+      {
+        id: "received_at",
+        header: "Received",
+        accessor: (b) => b.received_at || "",
+        sortable: true,
+        globalSearch: false,
+        cell: (b) => (
+          <div className="text-xs text-fg-muted">
+            <div className="data-mono">{fmtIso(b.received_at)}</div>
+            <div className="text-fg-subtle">{(b.received_source_type || "-") + (b.received_supplier_name ? ` · ${b.received_supplier_name}` : "")}</div>
+          </div>
+        ),
+      },
+      {
+        id: "actions",
+        header: "",
+        accessor: () => "",
+        align: "right",
+        globalSearch: false,
+        cell: (b) => (
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => openLayers(b)}>
+              Costs
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openEdit(b)}>
+              Edit
+            </Button>
+          </div>
+        ),
+      },
+    ];
+  }, [itemById, openEdit, openLayers]);
+
+  const layerColumns = useMemo((): Array<DataTableColumn<CostLayerRow>> => {
+    return [
+      { id: "created_at", header: "Created", accessor: (r) => r.created_at || "", mono: true, sortable: true, cell: (r) => fmtIso(r.created_at) },
+      {
+        id: "source",
+        header: "Source",
+        accessor: (r) => `${r.source_type || ""} ${r.goods_receipt_no || ""} ${r.source_id || ""}`.trim(),
+        cell: (r) => (
+          <div className="text-xs">
+            <div className="font-mono text-[10px] text-fg-muted">{r.source_type}</div>
+            <div className="text-fg-subtle">{r.goods_receipt_no ? `GR ${r.goods_receipt_no}` : r.source_id}</div>
+          </div>
+        ),
+      },
+      { id: "warehouse_name", header: "Warehouse", accessor: (r) => r.warehouse_name || "-", sortable: true },
+      {
+        id: "location",
+        header: "Location",
+        accessor: (r) => `${r.location_code || ""} ${r.location_name || ""}`.trim(),
+        cell: (r) => (
+          <div className="text-xs">
+            <div className="font-mono text-[10px]">{r.location_code || "-"}</div>
+            {r.location_name ? <div className="text-[10px] text-fg-subtle">{r.location_name}</div> : null}
+          </div>
+        ),
+      },
+      { id: "qty", header: "Qty", accessor: (r) => Number(r.qty || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (r) => String(r.qty ?? "") },
+      { id: "unit_cost_usd", header: "Unit USD", accessor: (r) => Number(r.unit_cost_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (r) => String(r.unit_cost_usd ?? "") },
+      { id: "unit_cost_lbp", header: "Unit LL", accessor: (r) => Number(r.unit_cost_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (r) => String(r.unit_cost_lbp ?? "") },
+      { id: "landed_cost_total_usd", header: "Landed USD", accessor: (r) => Number(r.landed_cost_total_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (r) => String(r.landed_cost_total_usd ?? "") },
+      { id: "landed_cost_total_lbp", header: "Landed LL", accessor: (r) => Number(r.landed_cost_total_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (r) => String(r.landed_cost_total_lbp ?? "") },
+    ];
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setStatus("Loading...");
@@ -115,31 +241,6 @@ export default function InventoryBatchesPage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  function openEdit(b: BatchRow) {
-    setEditId(b.id);
-    setEditStatus(b.status);
-    setEditHoldReason(b.hold_reason || "");
-    setEditNotes(b.notes || "");
-    setEditOpen(true);
-  }
-
-  async function openLayers(b: BatchRow) {
-    setLayersBatch(b);
-    setLayersRows([]);
-    setLayersOpen(true);
-    setLayersLoading(true);
-    try {
-      const res = await apiGet<{ cost_layers: CostLayerRow[] }>(`/inventory/batches/${encodeURIComponent(b.id)}/cost-layers?limit=200`);
-      setLayersRows(res.cost_layers || []);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setStatus(msg);
-      setLayersRows([]);
-    } finally {
-      setLayersLoading(false);
-    }
-  }
 
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
@@ -216,65 +317,15 @@ export default function InventoryBatchesPage() {
           <CardDescription>Manage lot status (available/quarantine/expired) and see receiving attribution.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Item</th>
-                  <th className="px-3 py-2">Batch</th>
-                  <th className="px-3 py-2">Expiry</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Received</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className={loading ? "opacity-70" : ""}>
-                {rows.map((b) => {
-                  const it = itemById.get(b.item_id);
-                  return (
-                    <tr key={b.id} className="ui-tr-hover">
-                      <td className="px-3 py-2">
-                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(b.item_id)}`} title="Open item">
-                          <span className="font-mono text-xs">{it?.sku || b.item_sku || "-"}</span> · {it?.name || b.item_name || "-"}
-                        </ShortcutLink>
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs">{b.batch_no || "-"}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{fmtIso(b.expiry_date)}</td>
-                      <td className="px-3 py-2 text-xs">
-                        <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">
-                          {b.status}
-                        </span>
-                        {b.hold_reason ? <span className="ml-2 text-[10px] text-fg-subtle">{b.hold_reason}</span> : null}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">
-                        <div className="data-mono">{fmtIso(b.received_at)}</div>
-                        <div className="text-fg-subtle">
-                          {(b.received_source_type || "-") + (b.received_supplier_name ? ` · ${b.received_supplier_name}` : "")}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button variant="outline" size="sm" onClick={() => openLayers(b)}>
-                            Costs
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => openEdit(b)}>
-                            Edit
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {rows.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-8 text-center text-fg-subtle" colSpan={6}>
-                      No batches.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<BatchRow>
+            tableId="inventory.batches"
+            rows={rows}
+            columns={batchColumns}
+            isLoading={loading}
+            initialSort={{ columnId: "expiry_date", dir: "asc" }}
+            globalFilterPlaceholder="Search item / batch..."
+            emptyText="No batches."
+          />
         </CardContent>
       </Card>
 
@@ -293,51 +344,15 @@ export default function InventoryBatchesPage() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Created</th>
-                  <th className="px-3 py-2">Source</th>
-                  <th className="px-3 py-2">Warehouse</th>
-                  <th className="px-3 py-2">Location</th>
-                  <th className="px-3 py-2 text-right">Qty</th>
-                  <th className="px-3 py-2 text-right">Unit USD</th>
-                  <th className="px-3 py-2 text-right">Unit LL</th>
-                  <th className="px-3 py-2 text-right">Landed USD</th>
-                  <th className="px-3 py-2 text-right">Landed LL</th>
-                </tr>
-              </thead>
-              <tbody className={layersLoading ? "opacity-70" : ""}>
-                {layersRows.map((r) => (
-                  <tr key={r.id} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">{fmtIso(r.created_at)}</td>
-                    <td className="px-3 py-2 text-xs">
-                      <div className="font-mono text-[10px] text-fg-muted">{r.source_type}</div>
-                      <div className="text-fg-subtle">{r.goods_receipt_no ? `GR ${r.goods_receipt_no}` : r.source_id}</div>
-                    </td>
-                    <td className="px-3 py-2 text-xs">{r.warehouse_name || "-"}</td>
-                    <td className="px-3 py-2 text-xs">
-                      <div className="font-mono text-[10px]">{r.location_code || "-"}</div>
-                      {r.location_name ? <div className="text-[10px] text-fg-subtle">{r.location_name}</div> : null}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{String(r.qty ?? "")}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{String(r.unit_cost_usd ?? "")}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{String(r.unit_cost_lbp ?? "")}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{String(r.landed_cost_total_usd ?? "")}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs">{String(r.landed_cost_total_lbp ?? "")}</td>
-                  </tr>
-                ))}
-                {!layersLoading && layersRows.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-8 text-center text-fg-subtle" colSpan={9}>
-                      No cost layers recorded for this batch.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<CostLayerRow>
+            tableId="inventory.batches.costLayers"
+            rows={layersRows}
+            columns={layerColumns}
+            isLoading={layersLoading}
+            initialSort={{ columnId: "created_at", dir: "desc" }}
+            globalFilterPlaceholder="Search source / warehouse / location..."
+            emptyText="No cost layers recorded for this batch."
+          />
 
           <div className="flex items-center justify-end">
             <Button variant="outline" onClick={() => setLayersOpen(false)}>

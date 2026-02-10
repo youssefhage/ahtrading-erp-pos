@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiBase, apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 
 type Row = {
   id: string;
@@ -23,6 +24,40 @@ function fmt(n: string | number) {
 export default function InventoryValuationPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState("");
+
+  const columns = useMemo((): Array<DataTableColumn<Row>> => {
+    return [
+      { id: "sku", header: "SKU", accessor: (r) => r.sku, mono: true, sortable: true },
+      { id: "name", header: "Item", accessor: (r) => r.name || "", sortable: true },
+      {
+        id: "qty_on_hand",
+        header: "Qty",
+        accessor: (r) => Number(r.qty_on_hand || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-qty">{fmt(r.qty_on_hand)}</span>,
+      },
+      {
+        id: "value_usd",
+        header: "Value USD",
+        accessor: (r) => Number(r.value_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(r.value_usd)}</span>,
+      },
+      {
+        id: "value_lbp",
+        header: "Value LL",
+        accessor: (r) => Number(r.value_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(r.value_lbp)}</span>,
+      },
+    ];
+  }, []);
 
   async function load() {
     setStatus("Loading...");
@@ -83,37 +118,14 @@ export default function InventoryValuationPage() {
               </Button>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">SKU</th>
-                    <th className="px-3 py-2">Item</th>
-                    <th className="px-3 py-2 text-right">Qty</th>
-                    <th className="px-3 py-2 text-right">Value USD</th>
-                    <th className="px-3 py-2 text-right">Value LL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{r.sku}</td>
-                      <td className="px-3 py-2">{r.name || ""}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.qty_on_hand)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.value_usd)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.value_lbp)}</td>
-                    </tr>
-                  ))}
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No items / moves yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<Row>
+              tableId="accounting.reports.inventory_valuation"
+              rows={rows}
+              columns={columns}
+              initialSort={{ columnId: "value_usd", dir: "desc" }}
+              globalFilterPlaceholder="Search SKU / item..."
+              emptyText="No items / moves yet."
+            />
           </CardContent>
         </Card>
       </div>);

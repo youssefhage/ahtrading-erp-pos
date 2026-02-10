@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiBase, apiGet } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 
 type VatRow = {
   tax_code_id: string;
@@ -23,6 +24,31 @@ function fmtLbp(v: string | number) {
 export default function VatReportPage() {
   const [rows, setRows] = useState<VatRow[]>([]);
   const [status, setStatus] = useState("");
+
+  const columns = useMemo((): Array<DataTableColumn<VatRow>> => {
+    return [
+      { id: "period", header: "Period", accessor: (r) => r.period, mono: true, sortable: true, globalSearch: false },
+      { id: "tax_name", header: "Tax", accessor: (r) => r.tax_name, sortable: true },
+      {
+        id: "base_lbp",
+        header: "Base (LL)",
+        accessor: (r) => Number(r.base_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.base_lbp)}</span>,
+      },
+      {
+        id: "tax_lbp",
+        header: "VAT (LL)",
+        accessor: (r) => Number(r.tax_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.tax_lbp)}</span>,
+      },
+    ];
+  }, []);
 
   async function load() {
     setStatus("Loading...");
@@ -93,35 +119,14 @@ export default function VatReportPage() {
               </Button>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Period</th>
-                    <th className="px-3 py-2">Tax</th>
-                    <th className="px-3 py-2 text-right">Base (LL)</th>
-                    <th className="px-3 py-2 text-right">VAT (LL)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, idx) => (
-                    <tr key={`${r.tax_code_id}:${r.period}:${idx}`} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{r.period}</td>
-                      <td className="px-3 py-2">{r.tax_name}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmtLbp(r.base_lbp)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmtLbp(r.tax_lbp)}</td>
-                    </tr>
-                  ))}
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                        No VAT rows yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<VatRow>
+              tableId="accounting.reports.vat"
+              rows={rows}
+              columns={columns}
+              initialSort={{ columnId: "period", dir: "desc" }}
+              globalFilterPlaceholder="Search period / tax..."
+              emptyText="No VAT rows yet."
+            />
           </CardContent>
         </Card>
       </div>);

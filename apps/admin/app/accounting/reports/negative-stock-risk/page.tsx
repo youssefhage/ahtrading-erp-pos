@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -60,6 +61,69 @@ export default function NegativeStockRiskPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const columns = useMemo((): Array<DataTableColumn<Row>> => {
+    return [
+      {
+        id: "item",
+        header: "Item",
+        accessor: (r) => `${r.sku || ""} ${r.item_name || ""}`,
+        cell: (r) => (
+          <div className="text-xs">
+            <div className="data-mono text-xs text-fg-muted">{r.sku || "-"}</div>
+            <div>{r.item_name || "-"}</div>
+          </div>
+        ),
+        sortable: true,
+      },
+      { id: "warehouse", header: "Warehouse", accessor: (r) => r.warehouse_name || r.warehouse_id, sortable: true },
+      {
+        id: "on_hand_qty",
+        header: "On hand",
+        accessor: (r) => Number(r.on_hand_qty || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-negative">{Number(r.on_hand_qty || 0).toLocaleString("en-US")}</span>,
+      },
+      {
+        id: "avg_cost_usd",
+        header: "Avg cost USD",
+        accessor: (r) => Number(r.avg_cost_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.avg_cost_usd)}</span>,
+      },
+      {
+        id: "avg_cost_lbp",
+        header: "Avg cost LL",
+        accessor: (r) => Number(r.avg_cost_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.avg_cost_lbp)}</span>,
+      },
+      {
+        id: "est_value_usd",
+        header: "Est value USD",
+        accessor: (r) => Number(r.est_value_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.est_value_usd)}</span>,
+      },
+      {
+        id: "est_value_lbp",
+        header: "Est value LL",
+        accessor: (r) => Number(r.est_value_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.est_value_lbp)}</span>,
+      },
+    ];
+  }, []);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -131,49 +195,16 @@ export default function NegativeStockRiskPage() {
           <CardDescription>Investigate root causes before period close.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Item</th>
-                  <th className="px-3 py-2">Warehouse</th>
-                  <th className="px-3 py-2 text-right">On hand</th>
-                  <th className="px-3 py-2 text-right">Avg cost USD</th>
-                  <th className="px-3 py-2 text-right">Avg cost LL</th>
-                  <th className="px-3 py-2 text-right">Est value USD</th>
-                  <th className="px-3 py-2 text-right">Est value LL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.rows || []).map((r) => (
-                  <tr key={`${r.item_id}:${r.warehouse_id}`} className="ui-tr-hover">
-                    <td className="px-3 py-2 text-xs">
-                      <div className="font-mono text-xs text-fg-muted">{r.sku || "-"}</div>
-                      <div>{r.item_name || "-"}</div>
-                    </td>
-                    <td className="px-3 py-2 text-xs">{r.warehouse_name || r.warehouse_id}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">
-                      {Number(r.on_hand_qty || 0).toLocaleString("en-US")}
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.avg_cost_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.avg_cost_lbp)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.est_value_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.est_value_lbp)}</td>
-                  </tr>
-                ))}
-                {(data?.rows || []).length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
-                      No negative stock positions found.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<Row>
+            tableId="accounting.reports.negative_stock_risk"
+            rows={data?.rows || []}
+            columns={columns}
+            initialSort={{ columnId: "on_hand_qty", dir: "asc" }}
+            globalFilterPlaceholder="Search SKU / item / warehouse..."
+            emptyText="No negative stock positions found."
+          />
         </CardContent>
       </Card>
     </div>
   );
 }
-

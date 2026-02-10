@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -79,6 +80,77 @@ export default function ExpiryExposurePage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const columns = useMemo((): Array<DataTableColumn<Row>> => {
+    return [
+      {
+        id: "expiry",
+        header: "Expiry",
+        accessor: (r) => `${r.expiry_date || ""} ${r.days_to_expiry ?? ""}`,
+        mono: true,
+        sortable: true,
+        globalSearch: false,
+        cell: (r) => (
+          <span className="data-mono text-xs">
+            {r.expiry_date || "-"}
+            <div className="text-[11px] text-fg-muted">{String(r.days_to_expiry ?? "-")}d</div>
+          </span>
+        ),
+      },
+      {
+        id: "batch",
+        header: "Batch",
+        accessor: (r) => `${r.batch_no || ""} ${r.batch_status || ""}`,
+        sortable: true,
+        cell: (r) => (
+          <div className="text-xs">
+            <div className="data-mono text-xs">{r.batch_no || "-"}</div>
+            <div className="text-[11px] text-fg-muted">{r.batch_status || ""}</div>
+          </div>
+        ),
+      },
+      {
+        id: "item",
+        header: "Item",
+        accessor: (r) => `${r.sku || ""} ${r.item_name || ""}`,
+        sortable: true,
+        cell: (r) => (
+          <div className="text-xs">
+            <div className="data-mono text-xs text-fg-muted">{r.sku || "-"}</div>
+            <div>{r.item_name || "-"}</div>
+          </div>
+        ),
+      },
+      { id: "warehouse", header: "Warehouse", accessor: (r) => r.warehouse_name || r.warehouse_id, sortable: true },
+      {
+        id: "on_hand_qty",
+        header: "On hand",
+        accessor: (r) => Number(r.on_hand_qty || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-qty">{Number(r.on_hand_qty || 0).toLocaleString("en-US")}</span>,
+      },
+      {
+        id: "est_value_usd",
+        header: "Est value USD",
+        accessor: (r) => Number(r.est_value_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.est_value_usd)}</span>,
+      },
+      {
+        id: "est_value_lbp",
+        header: "Est value LL",
+        accessor: (r) => Number(r.est_value_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.est_value_lbp)}</span>,
+      },
+    ];
+  }, []);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -169,55 +241,16 @@ export default function ExpiryExposurePage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Expiry</th>
-                  <th className="px-3 py-2">Batch</th>
-                  <th className="px-3 py-2">Item</th>
-                  <th className="px-3 py-2">Warehouse</th>
-                  <th className="px-3 py-2 text-right">On hand</th>
-                  <th className="px-3 py-2 text-right">Est value USD</th>
-                  <th className="px-3 py-2 text-right">Est value LL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.rows || []).map((r) => (
-                  <tr key={`${r.batch_id}:${r.warehouse_id}`} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {r.expiry_date || "-"}
-                      <div className="text-[11px] text-fg-muted">{String(r.days_to_expiry ?? "-")}d</div>
-                    </td>
-                    <td className="px-3 py-2 text-xs">
-                      <div className="font-mono text-xs">{r.batch_no || "-"}</div>
-                      <div className="text-[11px] text-fg-muted">{r.batch_status || ""}</div>
-                    </td>
-                    <td className="px-3 py-2 text-xs">
-                      <div className="font-mono text-xs text-fg-muted">{r.sku || "-"}</div>
-                      <div>{r.item_name || "-"}</div>
-                    </td>
-                    <td className="px-3 py-2 text-xs">{r.warehouse_name || r.warehouse_id}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">
-                      {Number(r.on_hand_qty || 0).toLocaleString("en-US")}
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.est_value_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.est_value_lbp)}</td>
-                  </tr>
-                ))}
-                {(data?.rows || []).length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
-                      No expiring batches with on-hand stock found.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<Row>
+            tableId="accounting.reports.expiry_exposure"
+            rows={data?.rows || []}
+            columns={columns}
+            initialSort={{ columnId: "expiry", dir: "asc" }}
+            globalFilterPlaceholder="Search batch / SKU / item / warehouse..."
+            emptyText="No expiring batches with on-hand stock found."
+          />
         </CardContent>
       </Card>
     </div>
   );
 }
-

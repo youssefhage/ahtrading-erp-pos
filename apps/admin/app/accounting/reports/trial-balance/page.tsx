@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -24,6 +25,49 @@ function fmt(n: string | number) {
 export default function TrialBalancePage() {
   const [rows, setRows] = useState<TrialRow[]>([]);
   const [status, setStatus] = useState("");
+
+  const columns = useMemo((): Array<DataTableColumn<TrialRow>> => {
+    return [
+      { id: "account_code", header: "Code", accessor: (r) => r.account_code, mono: true, sortable: true, globalSearch: false },
+      { id: "name_en", header: "Account", accessor: (r) => r.name_en || "", sortable: true },
+      {
+        id: "debit_usd",
+        header: "Dr USD",
+        accessor: (r) => Number(r.debit_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(r.debit_usd)}</span>,
+      },
+      {
+        id: "credit_usd",
+        header: "Cr USD",
+        accessor: (r) => Number(r.credit_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(r.credit_usd)}</span>,
+      },
+      {
+        id: "debit_lbp",
+        header: "Dr LL",
+        accessor: (r) => Number(r.debit_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(r.debit_lbp)}</span>,
+      },
+      {
+        id: "credit_lbp",
+        header: "Cr LL",
+        accessor: (r) => Number(r.credit_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(r.credit_lbp)}</span>,
+      },
+    ];
+  }, []);
 
   async function load() {
     setStatus("Loading...");
@@ -67,39 +111,14 @@ export default function TrialBalancePage() {
               </Button>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Code</th>
-                    <th className="px-3 py-2">Account</th>
-                    <th className="px-3 py-2 text-right">Dr USD</th>
-                    <th className="px-3 py-2 text-right">Cr USD</th>
-                    <th className="px-3 py-2 text-right">Dr LL</th>
-                    <th className="px-3 py-2 text-right">Cr LL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.account_code} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
-                      <td className="px-3 py-2">{r.name_en || ""}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.debit_usd)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.credit_usd)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.debit_lbp)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.credit_lbp)}</td>
-                    </tr>
-                  ))}
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                        No GL entries yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<TrialRow>
+              tableId="accounting.reports.trial_balance"
+              rows={rows}
+              columns={columns}
+              initialSort={{ columnId: "account_code", dir: "asc" }}
+              globalFilterPlaceholder="Search code / account..."
+              emptyText="No GL entries yet."
+            />
           </CardContent>
         </Card>
       </div>);

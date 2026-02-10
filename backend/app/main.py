@@ -47,7 +47,7 @@ from .routers.devtools import router as devtools_router
 from .routers.edge_sync import router as edge_sync_router
 from .routers.auth import router as auth_router
 from .deps import require_company_access
-from .db import get_admin_conn
+from .db import get_admin_conn, close_pools
 
 app = FastAPI(title="AH Trading ERP/POS API", version="0.1.0")
 
@@ -177,6 +177,10 @@ app.include_router(inventory_locations_router, dependencies=[Depends(require_com
 app.include_router(inventory_warehouses_locations_router, dependencies=[Depends(require_company_access)])
 # Dev-only helpers (route handlers self-disable outside local/dev).
 app.include_router(devtools_router, dependencies=[Depends(require_company_access)])
+
+@app.on_event("shutdown")
+def _shutdown():
+    close_pools()
 
 @app.get("/health")
 def health():

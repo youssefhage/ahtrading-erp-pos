@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -56,6 +57,32 @@ export default function BalanceSheetPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const columns = useMemo((): Array<DataTableColumn<BsRow>> => {
+    return [
+      { id: "account_code", header: "Code", accessor: (r) => r.account_code, mono: true, sortable: true, globalSearch: false },
+      { id: "name_en", header: "Account", accessor: (r) => r.name_en || "-", sortable: true },
+      { id: "normal_balance", header: "Normal", accessor: (r) => r.normal_balance, sortable: true, globalSearch: false },
+      {
+        id: "balance_usd",
+        header: "Balance USD",
+        accessor: (r) => Number(r.balance_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(r.balance_usd, 2)}</span>,
+      },
+      {
+        id: "balance_lbp",
+        header: "Balance LL",
+        accessor: (r) => Number(r.balance_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(r.balance_lbp, 0)}</span>,
+      },
+    ];
+  }, []);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -128,37 +155,14 @@ export default function BalanceSheetPage() {
             <CardDescription>{data?.rows?.length || 0} accounts</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Code</th>
-                    <th className="px-3 py-2">Account</th>
-                    <th className="px-3 py-2">Normal</th>
-                    <th className="px-3 py-2 text-right">Balance USD</th>
-                    <th className="px-3 py-2 text-right">Balance LL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data?.rows || []).map((r) => (
-                    <tr key={r.account_code} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{r.name_en || "-"}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{r.normal_balance}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.balance_usd, 2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.balance_lbp, 0)}</td>
-                    </tr>
-                  ))}
-                  {(data?.rows || []).length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No rows.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<BsRow>
+              tableId="accounting.reports.balance_sheet"
+              rows={data?.rows || []}
+              columns={columns}
+              initialSort={{ columnId: "account_code", dir: "asc" }}
+              globalFilterPlaceholder="Search code / account..."
+              emptyText="No rows."
+            />
           </CardContent>
         </Card>
       </div>);

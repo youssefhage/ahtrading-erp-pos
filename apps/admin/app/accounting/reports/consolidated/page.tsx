@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 
 type Company = { id: string; name: string };
 
@@ -63,6 +64,109 @@ export default function ConsolidatedReportsPage() {
   const [pl, setPl] = useState<PLRow[]>([]);
   const [plTotals, setPlTotals] = useState<{ revenue_usd: any; revenue_lbp: any; expense_usd: any; expense_lbp: any; net_profit_usd: any; net_profit_lbp: any } | null>(null);
   const [bs, setBs] = useState<BSRow[]>([]);
+
+  const trialColumns = useMemo((): Array<DataTableColumn<TrialRow>> => {
+    return [
+      { id: "account_code", header: "Code", accessor: (r) => r.account_code, mono: true, sortable: true, globalSearch: false },
+      { id: "name_en", header: "Account", accessor: (r) => r.name_en || "", sortable: true },
+      {
+        id: "debit_usd",
+        header: "Dr USD",
+        accessor: (r) => Number(r.debit_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.debit_usd)}</span>,
+        globalSearch: false,
+      },
+      {
+        id: "credit_usd",
+        header: "Cr USD",
+        accessor: (r) => Number(r.credit_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.credit_usd)}</span>,
+        globalSearch: false,
+      },
+      {
+        id: "debit_lbp",
+        header: "Dr LL",
+        accessor: (r) => Number(r.debit_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.debit_lbp)}</span>,
+        globalSearch: false,
+      },
+      {
+        id: "credit_lbp",
+        header: "Cr LL",
+        accessor: (r) => Number(r.credit_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.credit_lbp)}</span>,
+        globalSearch: false,
+      },
+    ];
+  }, []);
+
+  const plColumns = useMemo((): Array<DataTableColumn<PLRow>> => {
+    return [
+      { id: "account_code", header: "Code", accessor: (r) => r.account_code, mono: true, sortable: true, globalSearch: false },
+      { id: "name_en", header: "Account", accessor: (r) => r.name_en || "", sortable: true },
+      { id: "kind", header: "Kind", accessor: (r) => r.kind, sortable: true, globalSearch: false },
+      {
+        id: "amount_usd",
+        header: "USD",
+        accessor: (r) => Number(r.amount_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.amount_usd)}</span>,
+        globalSearch: false,
+      },
+      {
+        id: "amount_lbp",
+        header: "LL",
+        accessor: (r) => Number(r.amount_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.amount_lbp)}</span>,
+        globalSearch: false,
+      },
+    ];
+  }, []);
+
+  const bsColumns = useMemo((): Array<DataTableColumn<BSRow>> => {
+    return [
+      { id: "account_code", header: "Code", accessor: (r) => r.account_code, mono: true, sortable: true, globalSearch: false },
+      { id: "name_en", header: "Account", accessor: (r) => r.name_en || "", sortable: true },
+      { id: "normal_balance", header: "Normal", accessor: (r) => r.normal_balance || "", sortable: true, globalSearch: false },
+      {
+        id: "balance_usd",
+        header: "Balance USD",
+        accessor: (r) => Number(r.balance_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.balance_usd)}</span>,
+        globalSearch: false,
+      },
+      {
+        id: "balance_lbp",
+        header: "Balance LL",
+        accessor: (r) => Number(r.balance_lbp || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.balance_lbp)}</span>,
+        globalSearch: false,
+      },
+    ];
+  }, []);
 
   const companyIds = useMemo(() => {
     const ids = companies.map((c) => c.id).filter((id) => selected[id]);
@@ -231,38 +335,15 @@ export default function ConsolidatedReportsPage() {
             <CardTitle>Trial Balance (Consolidated)</CardTitle>
             <CardDescription>{trial.length} accounts</CardDescription>
           </CardHeader>
-          <CardContent className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Code</th>
-                  <th className="px-3 py-2">Account</th>
-                  <th className="px-3 py-2 text-right">Dr USD</th>
-                  <th className="px-3 py-2 text-right">Cr USD</th>
-                  <th className="px-3 py-2 text-right">Dr LL</th>
-                  <th className="px-3 py-2 text-right">Cr LL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {trial.map((r) => (
-                  <tr key={r.account_code} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
-                    <td className="px-3 py-2">{r.name_en || ""}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.debit_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.credit_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.debit_lbp)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.credit_lbp)}</td>
-                  </tr>
-                ))}
-                {trial.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                      No GL entries yet.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
+          <CardContent>
+            <DataTable<TrialRow>
+              tableId="accounting.reports.consolidated.trial"
+              rows={trial}
+              columns={trialColumns}
+              initialSort={{ columnId: "account_code", dir: "asc" }}
+              globalFilterPlaceholder="Search code / account..."
+              emptyText="No GL entries yet."
+            />
           </CardContent>
         </Card>
       ) : null}
@@ -282,36 +363,15 @@ export default function ConsolidatedReportsPage() {
               )}
             </CardDescription>
           </CardHeader>
-          <CardContent className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Code</th>
-                  <th className="px-3 py-2">Account</th>
-                  <th className="px-3 py-2">Kind</th>
-                  <th className="px-3 py-2 text-right">USD</th>
-                  <th className="px-3 py-2 text-right">LL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pl.map((r) => (
-                  <tr key={`${r.kind}:${r.account_code}`} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
-                    <td className="px-3 py-2">{r.name_en || ""}</td>
-                    <td className="px-3 py-2">{r.kind}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.amount_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.amount_lbp)}</td>
-                  </tr>
-                ))}
-                {pl.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                      No P&amp;L entries yet.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
+          <CardContent>
+            <DataTable<PLRow>
+              tableId="accounting.reports.consolidated.pl"
+              rows={pl}
+              columns={plColumns}
+              initialSort={{ columnId: "kind", dir: "asc" }}
+              globalFilterPlaceholder="Search code / account..."
+              emptyText="No P&L entries yet."
+            />
           </CardContent>
         </Card>
       ) : null}
@@ -322,36 +382,15 @@ export default function ConsolidatedReportsPage() {
             <CardTitle>Balance Sheet (Consolidated)</CardTitle>
             <CardDescription>{bs.length} accounts</CardDescription>
           </CardHeader>
-          <CardContent className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Code</th>
-                  <th className="px-3 py-2">Account</th>
-                  <th className="px-3 py-2">Normal</th>
-                  <th className="px-3 py-2 text-right">Balance USD</th>
-                  <th className="px-3 py-2 text-right">Balance LL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bs.map((r) => (
-                  <tr key={r.account_code} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">{r.account_code}</td>
-                    <td className="px-3 py-2">{r.name_en || ""}</td>
-                    <td className="px-3 py-2">{r.normal_balance || ""}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(r.balance_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(r.balance_lbp)}</td>
-                  </tr>
-                ))}
-                {bs.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                      No balance sheet entries yet.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
+          <CardContent>
+            <DataTable<BSRow>
+              tableId="accounting.reports.consolidated.bs"
+              rows={bs}
+              columns={bsColumns}
+              initialSort={{ columnId: "account_code", dir: "asc" }}
+              globalFilterPlaceholder="Search code / account..."
+              emptyText="No balance sheet entries yet."
+            />
           </CardContent>
         </Card>
       ) : null}

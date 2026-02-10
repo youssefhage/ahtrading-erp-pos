@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -105,6 +106,55 @@ export default function MarginByCategoryPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const columns = useMemo((): Array<DataTableColumn<Row>> => {
+    return [
+      { id: "name", header: "Category", accessor: (r) => r.name || "-", sortable: true },
+      {
+        id: "revenue_usd",
+        header: "Revenue",
+        accessor: (r) => Number(r.revenue_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => (
+          <span className="data-mono ui-tone-usd">
+            {fmtUsd(r.revenue_usd)}
+            <div className="text-[11px] text-fg-muted">{fmtLbp(r.revenue_lbp)}</div>
+          </span>
+        ),
+      },
+      {
+        id: "cogs_usd",
+        header: "COGS",
+        accessor: (r) => Number(r.cogs_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => (
+          <span className="data-mono ui-tone-usd">
+            {fmtUsd(r.cogs_usd)}
+            <div className="text-[11px] text-fg-muted">{fmtLbp(r.cogs_lbp)}</div>
+          </span>
+        ),
+      },
+      {
+        id: "margin_usd",
+        header: "Margin",
+        accessor: (r) => Number(r.margin_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => (
+          <span className="data-mono ui-tone-usd">
+            {fmtUsd(r.margin_usd)}
+            <div className="text-[11px] text-fg-muted">{fmtLbp(r.margin_lbp)}</div>
+          </span>
+        ),
+      },
+      { id: "margin_pct_usd", header: "Margin %", accessor: (r) => Number(r.margin_pct_usd || 0), align: "right", mono: true, sortable: true, cell: (r) => <span className="data-mono">{fmtPct(r.margin_pct_usd)}</span> },
+    ];
+  }, []);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -214,49 +264,16 @@ export default function MarginByCategoryPage() {
           <CardDescription>Sorted by revenue (USD).</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Category</th>
-                  <th className="px-3 py-2 text-right">Revenue</th>
-                  <th className="px-3 py-2 text-right">COGS</th>
-                  <th className="px-3 py-2 text-right">Margin</th>
-                  <th className="px-3 py-2 text-right">Margin %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.rows || []).map((r) => (
-                  <tr key={r.category_id} className="ui-tr-hover">
-                    <td className="px-3 py-2 text-xs">{r.name || "-"}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">
-                      {fmtUsd(r.revenue_usd)}
-                      <div className="text-[11px] text-fg-muted">{fmtLbp(r.revenue_lbp)}</div>
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">
-                      {fmtUsd(r.cogs_usd)}
-                      <div className="text-[11px] text-fg-muted">{fmtLbp(r.cogs_lbp)}</div>
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">
-                      {fmtUsd(r.margin_usd)}
-                      <div className="text-[11px] text-fg-muted">{fmtLbp(r.margin_lbp)}</div>
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtPct(r.margin_pct_usd)}</td>
-                  </tr>
-                ))}
-                {(data?.rows || []).length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                      No posted sales found for this range.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<Row>
+            tableId="accounting.reports.margin_by_category"
+            rows={data?.rows || []}
+            columns={columns}
+            initialSort={{ columnId: "revenue_usd", dir: "desc" }}
+            globalFilterPlaceholder="Search category..."
+            emptyText="No posted sales found for this range."
+          />
         </CardContent>
       </Card>
     </div>
   );
 }
-

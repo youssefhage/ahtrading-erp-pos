@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -83,6 +84,73 @@ export default function LandedCostImpactPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const columns = useMemo((): Array<DataTableColumn<Row>> => {
+    return [
+      {
+        id: "receipt",
+        header: "Receipt",
+        accessor: (r) => r.goods_receipt_no || r.goods_receipt_id,
+        mono: true,
+        sortable: true,
+        cell: (r) => (
+          <ShortcutLink href={`/purchasing/goods-receipts/${encodeURIComponent(r.goods_receipt_id)}`} title="Open goods receipt" className="data-mono text-xs">
+            {r.goods_receipt_no || r.goods_receipt_id.slice(0, 8)}
+          </ShortcutLink>
+        ),
+      },
+      { id: "supplier_name", header: "Supplier", accessor: (r) => r.supplier_name || "-", sortable: true },
+      {
+        id: "receipt_total_usd",
+        header: "Receipt total",
+        accessor: (r) => Number(r.receipt_total_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => (
+          <span className="data-mono ui-tone-usd">
+            {fmtUsd(r.receipt_total_usd)}
+            <div className="text-[11px] text-fg-muted">{fmtLbp(r.receipt_total_lbp)}</div>
+          </span>
+        ),
+      },
+      {
+        id: "landed_cost_usd",
+        header: "Landed cost",
+        accessor: (r) => Number(r.landed_cost_usd || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => (
+          <span className="data-mono ui-tone-usd">
+            {fmtUsd(r.landed_cost_usd)}
+            <div className="text-[11px] text-fg-muted">{fmtLbp(r.landed_cost_lbp)}</div>
+          </span>
+        ),
+      },
+      {
+        id: "landed_cost_docs",
+        header: "Docs",
+        accessor: (r) => Number(r.landed_cost_docs || 0),
+        align: "right",
+        mono: true,
+        sortable: true,
+      },
+      {
+        id: "posted",
+        header: "First/Last Posted",
+        accessor: (r) => `${r.first_posted_at || ""} ${r.last_posted_at || ""}`,
+        sortable: true,
+        globalSearch: false,
+        cell: (r) => (
+          <div className="text-xs">
+            <div className="data-mono text-[11px]">{r.first_posted_at || "-"}</div>
+            <div className="data-mono text-[11px] text-fg-muted">{r.last_posted_at || "-"}</div>
+          </div>
+        ),
+      },
+    ];
+  }, []);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -165,55 +233,16 @@ export default function LandedCostImpactPage() {
           <CardDescription>Sorted by landed cost (USD).</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Receipt</th>
-                  <th className="px-3 py-2">Supplier</th>
-                  <th className="px-3 py-2 text-right">Receipt total</th>
-                  <th className="px-3 py-2 text-right">Landed cost</th>
-                  <th className="px-3 py-2 text-right">Docs</th>
-                  <th className="px-3 py-2">First/Last Posted</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.rows || []).map((r) => (
-                  <tr key={r.goods_receipt_id} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">
-                      <ShortcutLink href={`/purchasing/goods-receipts/${encodeURIComponent(r.goods_receipt_id)}`} title="Open goods receipt">
-                        {r.goods_receipt_no || r.goods_receipt_id.slice(0, 8)}
-                      </ShortcutLink>
-                    </td>
-                    <td className="px-3 py-2 text-xs">{r.supplier_name || "-"}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">
-                      {fmtUsd(r.receipt_total_usd)}
-                      <div className="text-[11px] text-fg-muted">{fmtLbp(r.receipt_total_lbp)}</div>
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">
-                      {fmtUsd(r.landed_cost_usd)}
-                      <div className="text-[11px] text-fg-muted">{fmtLbp(r.landed_cost_lbp)}</div>
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{Number(r.landed_cost_docs || 0)}</td>
-                    <td className="px-3 py-2 text-xs">
-                      <div className="font-mono text-[11px]">{r.first_posted_at || "-"}</div>
-                      <div className="font-mono text-[11px] text-fg-muted">{r.last_posted_at || "-"}</div>
-                    </td>
-                  </tr>
-                ))}
-                {(data?.rows || []).length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                      No landed cost documents found for this period.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<Row>
+            tableId="accounting.reports.landed_cost_impact"
+            rows={data?.rows || []}
+            columns={columns}
+            initialSort={{ columnId: "landed_cost_usd", dir: "desc" }}
+            globalFilterPlaceholder="Search receipt / supplier..."
+            emptyText="No landed cost documents found for this period."
+          />
         </CardContent>
       </Card>
     </div>
   );
 }
-
