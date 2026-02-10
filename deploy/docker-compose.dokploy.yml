@@ -138,6 +138,11 @@ services:
     build:
       context: ..
       dockerfile: apps/admin/Dockerfile
+      args:
+        # Cloud pilot: use /backend to avoid /api route collisions with other services.
+        NEXT_PUBLIC_API_BASE_URL: /backend
+        # Keep /api proxy working for any server-side routes that still use it.
+        API_PROXY_TARGET: http://api:8000
     restart: unless-stopped
     environment:
       API_PROXY_TARGET: http://api_melqard:8000
