@@ -48,7 +48,8 @@ services:
 
   api:
     build:
-      context: .
+      # This file lives in `deploy/`, so set context to repo root.
+      context: ..
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
@@ -106,7 +107,7 @@ services:
 
   worker:
     build:
-      context: .
+      context: ..
       dockerfile: backend/Dockerfile
     restart: unless-stopped
     environment:
@@ -148,7 +149,7 @@ services:
 
   admin:
     build:
-      context: .
+      context: ..
       dockerfile: apps/admin/Dockerfile
     restart: unless-stopped
     environment:
@@ -162,4 +163,3 @@ services:
 volumes:
   pgdata:
   minio_data:
-
