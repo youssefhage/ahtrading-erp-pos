@@ -46,6 +46,10 @@
 
     /* Ring focus */
     --ring: 14 165 233;    /* sky-500 */
+
+    /* Text selection (subtle light grey) */
+    --selection: 0 0 0;
+    --selection-alpha: 0.08;
   }
 
   /*
@@ -109,6 +113,10 @@
     --border: 63 63 70; /* zinc-700 */
     --border-subtle: 39 39 42; /* zinc-800 */
     --border-strong: 82 82 91; /* zinc-600 */
+
+    /* Text selection (subtle light grey) */
+    --selection: 255 255 255;
+    --selection-alpha: 0.12;
   }
 
   * {
@@ -151,7 +159,12 @@
   }
 
   ::selection {
-    background: rgba(var(--primary), 0.25);
+    background: rgba(var(--selection), var(--selection-alpha));
+    color: rgb(var(--fg));
+  }
+
+  ::-moz-selection {
+    background: rgba(var(--selection), var(--selection-alpha));
     color: rgb(var(--fg));
   }
 

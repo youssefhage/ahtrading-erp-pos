@@ -11,6 +11,16 @@
 
 * { box-sizing: border-box; }
 
+::selection {
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+}
+
+::-moz-selection {
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+}
+
 body {
   margin: 0;
   background: radial-gradient(circle at top left, #1d1f25, #0f1113 60%);

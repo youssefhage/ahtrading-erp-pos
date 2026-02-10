@@ -9,6 +9,16 @@
 
 * { box-sizing: border-box; }
 
+::selection {
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+}
+
+::-moz-selection {
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+}
+
 html, body {
   height: 100%;
   margin: 0;
@@ -116,4 +126,3 @@ code {
 @media (max-width: 740px) {
   .grid { grid-template-columns: 1fr; }
 }
-
