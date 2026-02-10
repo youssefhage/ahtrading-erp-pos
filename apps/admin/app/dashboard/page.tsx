@@ -335,76 +335,9 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card className="transition-all duration-200 hover:border-border-strong hover:bg-bg-sunken/60">
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between">
-              <div className="flex flex-col gap-1">
-                <CardTitle className="text-sm font-medium text-fg-muted">USD to LL Rate</CardTitle>
-                <CardDescription className="text-xs">Default exchange rate used across drafts</CardDescription>
-              </div>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-sunken text-fg-muted">
-                <DollarSign className="h-4 w-4" />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {fxLoading ? (
-              <>
-                <Skeleton className="h-9 w-full" />
-                <Skeleton className="h-8 w-full" />
-              </>
-            ) : (
-              <>
-                <div className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <label className="text-[11px] font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
-                    <Input value={usdToLbp} onChange={(e) => setUsdToLbp(e.target.value)} inputMode="decimal" />
-                  </div>
-                  <Button
-                    variant="outline"
-                    className="h-9"
-                    disabled={savingFx}
-                    onClick={async () => {
-                      const n = Number(usdToLbp || 0);
-                      if (!Number.isFinite(n) || n <= 0) {
-                        setFxStatus("Rate must be > 0");
-                        return;
-                      }
-                      setSavingFx(true);
-                      setFxStatus("");
-                      try {
-                        await upsertFxRateUsdToLbp({ usdToLbp: n });
-                        setFxStatus("Saved");
-                      } catch (err) {
-                        const msg = err instanceof Error ? err.message : String(err);
-                        setFxStatus(msg);
-                      } finally {
-                        setSavingFx(false);
-                        window.setTimeout(() => setFxStatus(""), 2500);
-                      }
-                    }}
-                  >
-                    {savingFx ? "Saving..." : "Save"}
-                  </Button>
-                </div>
-
-                <div className="flex items-center justify-between text-[11px]">
-                  <button
-                    type="button"
-                    className="ui-link text-[11px]"
-                    onClick={() => router.push("/system/config")}
-                    title="Open Admin -> Config -> Exchange Rates"
-                  >
-                    Manage exchange rates
-                  </button>
-                  {fxStatus ? <span className="text-fg-subtle">{fxStatus}</span> : <span />}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+      {/* Top Section: Metrics + System Status */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 lg:col-span-3">
 
         <MetricCard
           title="Today's Sales"
@@ -568,12 +501,107 @@ export default function DashboardPage() {
             )}
           </CardContent>
         </Card>
+        </div>
+
+        {/* System Status (top-right) */}
+        <Card className="lg:col-span-1">
+          <CardHeader>
+            <CardTitle className="text-base">System Status</CardTitle>
+            <CardDescription>Health indicators</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <StatusIndicator label="Database" value="Connected" status="good" />
+            <StatusIndicator label="POS Integration" value="Active" status="good" />
+            <StatusIndicator label="Outbox Queue" value={metrics ? fmtNumber(0) : "-"} status="good" />
+            <StatusIndicator
+              label="Low Stock Items"
+              value={metrics ? fmtNumber(metrics.low_stock_count) : "-"}
+              status={metrics && metrics.low_stock_count > 0 ? "warning" : "good"}
+            />
+
+            {/* Compact FX rate control (reference-only but editable) */}
+            <div className="mt-3 rounded-md border border-border-subtle bg-bg-elevated/60 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-medium text-fg-muted">Default FX (USD→LL)</div>
+                  {fxLoading ? (
+                    <div className="mt-1">
+                      <Skeleton className="h-7 w-24" />
+                    </div>
+                  ) : (
+                    <div className="mt-1 font-mono text-sm tabular-nums text-foreground">{usdToLbp}</div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={usdToLbp}
+                    onChange={(e) => setUsdToLbp(e.target.value)}
+                    inputMode="decimal"
+                    className="h-8 w-[120px] text-right font-mono text-xs"
+                    disabled={fxLoading || savingFx}
+                    aria-label="Default exchange rate USD to LBP"
+                  />
+                  <Button
+                    variant="outline"
+                    className="h-8 px-3"
+                    disabled={fxLoading || savingFx}
+                    onClick={async () => {
+                      const n = Number(usdToLbp || 0);
+                      if (!Number.isFinite(n) || n <= 0) {
+                        setFxStatus("Rate must be > 0");
+                        return;
+                      }
+                      setSavingFx(true);
+                      setFxStatus("");
+                      try {
+                        await upsertFxRateUsdToLbp({ usdToLbp: n });
+                        setFxStatus("Saved");
+                      } catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        setFxStatus(msg);
+                      } finally {
+                        setSavingFx(false);
+                        window.setTimeout(() => setFxStatus(""), 2500);
+                      }
+                    }}
+                  >
+                    Save
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-2 flex items-center justify-between text-[11px]">
+                <button
+                  type="button"
+                  className="ui-link text-[11px]"
+                  onClick={() => router.push("/system/config")}
+                  title="Open Admin -> Config -> Exchange Rates"
+                >
+                  Manage exchange rates
+                </button>
+                {fxStatus ? <span className="text-fg-subtle">{fxStatus}</span> : <span />}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-md border border-primary/20 bg-primary/10 p-3">
+              <div className="flex items-start gap-2">
+                <Activity className="mt-0.5 h-4 w-4 text-primary" />
+                <div>
+                  <p className="text-xs font-medium text-primary">Daily Summary</p>
+                  <p className="text-xs text-fg-muted">
+                    Sales are up 12% compared to yesterday. Consider reviewing stock levels for fast-moving items.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Bottom Section */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Quick Actions */}
-        <Card className="lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6">
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">Quick Actions</CardTitle>
             <CardDescription>Common tasks and workflows</CardDescription>
@@ -604,48 +632,6 @@ export default function DashboardPage() {
                 description="Customer directory"
                 onClick={() => router.push("/partners/customers")}
               />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* System Status */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">System Status</CardTitle>
-            <CardDescription>Health indicators</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <StatusIndicator
-              label="Database"
-              value="Connected"
-              status="good"
-            />
-            <StatusIndicator
-              label="POS Integration"
-              value="Active"
-              status="good"
-            />
-            <StatusIndicator
-              label="Outbox Queue"
-              value={metrics ? fmtNumber(0) : "-"}
-              status="good"
-            />
-            <StatusIndicator
-              label="Low Stock Items"
-              value={metrics ? fmtNumber(metrics.low_stock_count) : "-"}
-              status={metrics && metrics.low_stock_count > 0 ? "warning" : "good"}
-            />
-
-            <div className="mt-4 rounded-md border border-primary/20 bg-primary/10 p-3">
-              <div className="flex items-start gap-2">
-                <Activity className="mt-0.5 h-4 w-4 text-primary" />
-                <div>
-                  <p className="text-xs font-medium text-primary">Daily Summary</p>
-                  <p className="text-xs text-fg-muted">
-                    Sales are up 12% compared to yesterday. Consider reviewing stock levels for fast-moving items.
-                  </p>
-                </div>
-              </div>
             </div>
           </CardContent>
         </Card>
