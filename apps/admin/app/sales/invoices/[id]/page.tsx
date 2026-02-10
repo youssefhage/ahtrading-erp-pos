@@ -162,6 +162,19 @@ function SalesInvoiceShowInner() {
     load();
   }, [load]);
 
+  async function recomputePayment(paymentId: string) {
+    if (!detail) return;
+    setStatus("Fixing payment...");
+    try {
+      await apiPost(`/sales/payments/${encodeURIComponent(paymentId)}/recompute`, {});
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }
+
   async function openPostDialog() {
     if (!detail) return;
     if (detail.invoice.status !== "draft") return;
@@ -585,25 +598,30 @@ function SalesInvoiceShowInner() {
                     {detail.payments.map((p) => (
                       <div key={p.id} className="flex items-center justify-between gap-2">
                         <span className="data-mono">{p.method}</span>
-                        <span className="data-mono text-right">
-                          {hasTender(p) ? (
-                            <>
-                              <span className="text-foreground">
-                                Tender {fmtUsd(n(p.tender_usd))} / {fmtLbp(n(p.tender_lbp))}
-                              </span>
-                              <span className="text-fg-subtle"> · </span>
-                              <span className="text-fg-muted">
-                                Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="text-foreground">
-                                Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
-                              </span>
-                            </>
-                          )}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="data-mono text-right">
+                            {hasTender(p) ? (
+                              <>
+                                <span className="text-foreground">
+                                  Tender {fmtUsd(n(p.tender_usd))} / {fmtLbp(n(p.tender_lbp))}
+                                </span>
+                                <span className="text-fg-subtle"> · </span>
+                                <span className="text-fg-muted">
+                                  Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-foreground">
+                                  Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
+                                </span>
+                              </>
+                            )}
+                          </span>
+                          <Button variant="outline" size="sm" onClick={() => recomputePayment(p.id)}>
+                            Fix
+                          </Button>
+                        </div>
                       </div>
                     ))}
                     {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
