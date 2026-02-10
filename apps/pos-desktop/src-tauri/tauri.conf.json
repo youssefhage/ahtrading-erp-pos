@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AH Trading POS Desktop",
+  "productName": "Melqard POS Desktop",
   "version": "0.0.1",
-  "identifier": "com.ahtrading.pos.desktop",
+  "identifier": "com.melqard.pos.desktop",
   "build": {
     "beforeDevCommand": "",
     "devUrl": "http://localhost",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "AH Trading POS Desktop",
+        "title": "Melqard POS Desktop",
         "width": 1280,
         "height": 820,
         "resizable": true,
@@ -26,7 +26,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://downloads.46.224.34.69.nip.io/updates/pos/latest.json"
+        "https://pos.melqard.com/updates/pos/latest.json"
       ],
       "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBKEY"
     }

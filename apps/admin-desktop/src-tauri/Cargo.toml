@@ -1,8 +1,8 @@
 [package]
-name = "ahtrading-admin-desktop"
+name = "melqard-portal-desktop"
 version = "0.0.1"
-description = "AH Trading Admin Desktop (Tauri)"
-authors = ["AH Trading"]
+description = "Melqard Portal Desktop (Tauri)"
+authors = ["Melqard"]
 edition = "2021"
 
 [build-dependencies]

@@ -38,6 +38,7 @@ from .routers.telegram import router as telegram_router
 from .routers.whatsapp import router as whatsapp_router
 from .routers.landed_costs import router as landed_costs_router
 from .routers.stock_transfers import router as stock_transfers_router
+from .config import settings
 from .routers.inventory_locations import router as inventory_locations_router
 from .routers.inventory_warehouses_locations import router as inventory_warehouses_locations_router
 from .routers.devtools import router as devtools_router
@@ -131,10 +132,7 @@ async def _request_logging(request: Request, call_next):
 # Dev CORS: Admin app runs on a different port during development.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

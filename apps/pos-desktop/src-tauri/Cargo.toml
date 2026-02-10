@@ -1,8 +1,8 @@
 [package]
-name = "ahtrading-pos-desktop"
+name = "melqard-pos-desktop"
 version = "0.0.1"
-description = "AH Trading POS Desktop (Tauri)"
-authors = ["AH Trading"]
+description = "Melqard POS Desktop (Tauri)"
+authors = ["Melqard"]
 edition = "2021"
 
 [build-dependencies]

@@ -37,6 +37,8 @@ services:
       APP_DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@db_ahtrading_pos:5432/${POSTGRES_DB}
       # Cloud endpoint for edge -> cloud replication (optional but recommended on cloud).
       EDGE_SYNC_KEY: ${EDGE_SYNC_KEY:-}
+      # Browser/mobile clients (future): allow these origins.
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.melqard.com,https://pos.melqard.com}
       # Safety: do not auto-create/reset admin users in production.
       BOOTSTRAP_ADMIN: ${BOOTSTRAP_ADMIN:-0}
       BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
