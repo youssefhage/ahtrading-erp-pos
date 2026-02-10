@@ -1,7 +1,6 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function EmptyState(props: {
   title: string;
@@ -10,20 +9,19 @@ export function EmptyState(props: {
   onAction?: () => void;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{props.title}</CardTitle>
-        {props.description ? <CardDescription>{props.description}</CardDescription> : null}
-      </CardHeader>
-      <CardContent className="flex items-center justify-between gap-3">
-        <div className="text-sm text-fg-muted">{props.description || "No data to show."}</div>
+    <div className="rounded-xl border border-border-subtle bg-bg-sunken/10 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-base font-semibold text-foreground">{props.title}</div>
+          {props.description ? <div className="mt-1 text-sm text-fg-muted">{props.description}</div> : null}
+        </div>
+
         {props.actionLabel && props.onAction ? (
           <Button type="button" onClick={props.onAction}>
             {props.actionLabel}
           </Button>
         ) : null}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
-
