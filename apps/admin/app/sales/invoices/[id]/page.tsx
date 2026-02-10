@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { StatusChip } from "@/components/ui/status-chip";
 
 type PaymentMethodMapping = { method: string; role_code: string; created_at: string };
 
@@ -35,6 +36,7 @@ type InvoiceRow = {
   warehouse_name?: string | null;
   pricing_currency: string;
   settlement_currency: string;
+  receipt_no?: string | null;
   invoice_date?: string;
   due_date?: string | null;
   created_at: string;
@@ -302,10 +304,18 @@ function SalesInvoiceShowInner() {
             <CardHeader>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <CardTitle>Sales Invoice</CardTitle>
-                  <CardDescription>
-                    <span className="font-mono text-xs">{detail.invoice.invoice_no || "(draft)"}</span> ·{" "}
-                    <span className="text-xs">{detail.invoice.status}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CardTitle>Sales Invoice</CardTitle>
+                    <StatusChip value={detail.invoice.status} className="translate-y-[1px]" />
+                  </div>
+                  <CardDescription className="mt-1">
+                    <span className="font-mono text-xs">{detail.invoice.invoice_no || "(draft)"}</span>
+                    {detail.invoice.invoice_date ? (
+                      <>
+                        {" "}
+                        · <span className="data-mono text-xs">Inv {fmtIso(detail.invoice.invoice_date)}</span>
+                      </>
+                    ) : null}
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -368,72 +378,104 @@ function SalesInvoiceShowInner() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="ui-panel p-4">
-                  <p className="ui-panel-title">Customer</p>
-                  <p className="ui-panel-value mt-1">
-                    {detail.invoice.customer_id ? (
-                      <ShortcutLink href={`/partners/customers/${encodeURIComponent(detail.invoice.customer_id)}`} title="Open customer">
-                        {detail.invoice.customer_name || detail.invoice.customer_id}
-                      </ShortcutLink>
-                    ) : (
-                      "Walk-in"
-                    )}
-                  </p>
-                </div>
-                <div className="ui-panel p-4">
-                  <p className="ui-panel-title">Warehouse</p>
-                  <p className="ui-panel-value mt-1">{detail.invoice.warehouse_name || detail.invoice.warehouse_id || "-"}</p>
-                </div>
-                <div className="ui-panel p-4">
-                  <p className="ui-panel-title">Dates</p>
-                  <div className="mt-1 space-y-0.5">
-                    <p className="ui-panel-value-mono">Inv {fmtIso(detail.invoice.invoice_date)}</p>
-                    <p className="ui-panel-value-mono text-fg-muted">Due {fmtIso(detail.invoice.due_date)}</p>
+              {(() => {
+                const paidUsd = (detail.payments || []).reduce((a, p) => a + Number(p.amount_usd || 0), 0);
+                const paidLbp = (detail.payments || []).reduce((a, p) => a + Number(p.amount_lbp || 0), 0);
+                const totalUsd = Number(detail.invoice.total_usd || 0);
+                const totalLbp = Number(detail.invoice.total_lbp || 0);
+                const balUsd = totalUsd - paidUsd;
+                const balLbp = totalLbp - paidLbp;
+                const subUsd = Number(detail.invoice.subtotal_usd ?? detail.invoice.total_usd ?? 0);
+                const subLbp = Number(detail.invoice.subtotal_lbp ?? detail.invoice.total_lbp ?? 0);
+                const discUsd = Number(detail.invoice.discount_total_usd ?? 0);
+                const discLbp = Number(detail.invoice.discount_total_lbp ?? 0);
+
+                return (
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+                    <div className="grid grid-cols-1 gap-3 md:col-span-8 md:grid-cols-2">
+                      <div className="ui-panel p-4">
+                        <p className="ui-panel-title">Customer</p>
+                        <p className="ui-panel-value mt-1">
+                          {detail.invoice.customer_id ? (
+                            <ShortcutLink
+                              href={`/partners/customers/${encodeURIComponent(detail.invoice.customer_id)}`}
+                              title="Open customer"
+                            >
+                              {detail.invoice.customer_name || detail.invoice.customer_id}
+                            </ShortcutLink>
+                          ) : (
+                            "Walk-in"
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="ui-panel p-4">
+                        <p className="ui-panel-title">Warehouse</p>
+                        <p className="ui-panel-value mt-1">{detail.invoice.warehouse_name || detail.invoice.warehouse_id || "-"}</p>
+                      </div>
+
+                      <div className="ui-panel p-4">
+                        <p className="ui-panel-title">Dates</p>
+                        <div className="mt-1 space-y-0.5">
+                          <p className="ui-panel-value-mono">Inv {fmtIso(detail.invoice.invoice_date)}</p>
+                          <p className="ui-panel-value-mono text-fg-muted">Due {fmtIso(detail.invoice.due_date)}</p>
+                        </div>
+                      </div>
+
+                      <div className="ui-panel p-4">
+                        <p className="ui-panel-title">Document</p>
+                        <div className="mt-1 space-y-0.5 text-sm text-fg-muted">
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Invoice No</span>
+                            <span className="data-mono text-foreground">{detail.invoice.invoice_no || "(draft)"}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span>Receipt</span>
+                            <span className="data-mono text-foreground">{detail.invoice.receipt_no || "-"}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="ui-panel p-5 md:col-span-4">
+                      <p className="ui-panel-title">Totals</p>
+
+                      <div className="mt-3">
+                        <div className="data-mono text-2xl font-semibold leading-none text-foreground">{fmtUsd(totalUsd)}</div>
+                        <div className="data-mono mt-1 text-base text-fg-muted">{fmtLbp(totalLbp)}</div>
+                      </div>
+
+                      <div className="mt-4 space-y-2 text-sm text-fg-muted">
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Subtotal</span>
+                          <span className="data-mono text-foreground">
+                            {fmtUsd(subUsd)} / {fmtLbp(subLbp)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Discount</span>
+                          <span className="data-mono text-foreground">
+                            {fmtUsd(discUsd)} / {fmtLbp(discLbp)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Paid</span>
+                          <span className="data-mono text-foreground">
+                            {fmtUsd(paidUsd)} / {fmtLbp(paidLbp)}
+                          </span>
+                        </div>
+                        <div className="section-divider my-3" />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-foreground">Balance</span>
+                          <span className="data-mono text-foreground">
+                            {fmtUsd(balUsd)} / {fmtLbp(balLbp)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="ui-panel p-4">
-                  <p className="ui-panel-title">Totals</p>
-                  <div className="mt-2 space-y-1.5 text-sm text-fg-muted">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Subtotal</span>
-                      <span className="data-mono text-foreground tabular-nums">
-                        {fmtUsd(detail.invoice.subtotal_usd ?? detail.invoice.total_usd)} / {fmtLbp(detail.invoice.subtotal_lbp ?? detail.invoice.total_lbp)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Discount</span>
-                      <span className="data-mono text-foreground tabular-nums">
-                        {fmtUsd(detail.invoice.discount_total_usd ?? 0)} / {fmtLbp(detail.invoice.discount_total_lbp ?? 0)}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between gap-2 border-t border-border-subtle pt-2">
-                      <span>Total</span>
-                      <span className="data-mono text-foreground tabular-nums">
-                        {fmtUsd(detail.invoice.total_usd)} / {fmtLbp(detail.invoice.total_lbp)}
-                      </span>
-                    </div>
-                  </div>
-                  {(() => {
-                    const paidUsd = (detail.payments || []).reduce((a, p) => a + Number(p.amount_usd || 0), 0);
-                    const paidLbp = (detail.payments || []).reduce((a, p) => a + Number(p.amount_lbp || 0), 0);
-                    const balUsd = Number(detail.invoice.total_usd || 0) - paidUsd;
-                    const balLbp = Number(detail.invoice.total_lbp || 0) - paidLbp;
-                    return (
-                      <p className="mt-2 text-sm text-fg-muted">
-                        Balance:{" "}
-                        <span className="data-mono text-foreground">
-                          {fmtUsd(balUsd)} / {fmtLbp(balLbp)}
-                        </span>
-                      </p>
-                    );
-                  })()}
-                </div>
-                <div className="ui-panel p-4">
-                  <p className="ui-panel-title">Status</p>
-                  <p className="ui-panel-value mt-1">{detail.invoice.status}</p>
-                </div>
-              </div>
+                );
+              })()}
 
               <Card>
                 <CardHeader>
