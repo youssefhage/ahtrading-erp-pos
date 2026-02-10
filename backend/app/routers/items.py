@@ -114,6 +114,18 @@ class BulkItemPricesIn(BaseModel):
     effective_from: Optional[date] = None
     lines: List[BulkItemPriceIn]
 
+class BulkBarcodeIn(BaseModel):
+    sku: str
+    barcode: str
+    qty_factor: Decimal = Decimal("1")
+    uom_code: Optional[str] = None
+    label: Optional[str] = None
+    is_primary: bool = False
+
+
+class BulkBarcodesIn(BaseModel):
+    lines: List[BulkBarcodeIn]
+
 
 @router.get("", dependencies=[Depends(require_permission("items:read"))])
 def list_items(company_id: str = Depends(get_company_id)):
@@ -406,6 +418,121 @@ def list_all_barcodes(company_id: str = Depends(get_company_id)):
                 (company_id,),
             )
             return {"barcodes": cur.fetchall()}
+
+
+@router.post("/barcodes/bulk", dependencies=[Depends(require_permission("items:write"))])
+def bulk_upsert_barcodes(data: BulkBarcodesIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Go-live utility: upsert item barcodes by (company_id, barcode), linking them to items by SKU.
+
+    Why:
+    - ERPNext exports include barcode UOM and conversion factors.
+    - Our POS relies on barcode.qty_factor and barcode.uom_code to compute base quantities.
+    - The normal `/{item_id}/barcodes` endpoint is intentionally append-only (audit trail),
+      but imports need idempotent upserts.
+    """
+    lines = data.lines or []
+    if not lines:
+        raise HTTPException(status_code=400, detail="lines is required")
+    if len(lines) > 20000:
+        raise HTTPException(status_code=400, detail="too many lines (max 20000)")
+
+    # Preload item ids + base UOMs by SKU for speed.
+    skus = sorted({(ln.sku or "").strip() for ln in lines if (ln.sku or "").strip()})
+    if not skus:
+        raise HTTPException(status_code=400, detail="each line requires sku")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT sku, id, unit_of_measure
+                    FROM items
+                    WHERE company_id=%s AND sku = ANY(%s::text[])
+                    """,
+                    (company_id, skus),
+                )
+                item_by_sku = {(r["sku"] or "").strip(): {"id": r["id"], "uom": _norm_uom(r["unit_of_measure"])} for r in cur.fetchall()}
+
+                missing = [s for s in skus if s not in item_by_sku]
+                if missing:
+                    raise HTTPException(status_code=400, detail=f"unknown sku(s): {missing[:25]}")
+
+                upserted = 0
+                for ln in lines:
+                    sku = (ln.sku or "").strip()
+                    barcode = (ln.barcode or "").strip()
+                    if not sku or not barcode:
+                        raise HTTPException(status_code=400, detail="each line requires sku and barcode")
+                    if Decimal(str(ln.qty_factor or 0)) <= 0:
+                        raise HTTPException(status_code=400, detail="qty_factor must be > 0")
+
+                    it = item_by_sku[sku]
+                    item_id = it["id"]
+                    base_uom = it["uom"]
+
+                    uom_code = _norm_uom(ln.uom_code) if ln.uom_code is not None and str(ln.uom_code).strip() else base_uom
+                    _ensure_uom_exists(cur, company_id, uom_code)
+
+                    qty_factor = Decimal(str(ln.qty_factor))
+
+                    cur.execute(
+                        """
+                        INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, uom_code, label, is_primary)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (company_id, barcode) DO UPDATE
+                        SET item_id = EXCLUDED.item_id,
+                            qty_factor = EXCLUDED.qty_factor,
+                            uom_code = EXCLUDED.uom_code,
+                            label = EXCLUDED.label,
+                            is_primary = EXCLUDED.is_primary,
+                            updated_at = now()
+                        RETURNING id
+                        """,
+                        (company_id, item_id, barcode, qty_factor, uom_code, (ln.label or None), bool(ln.is_primary)),
+                    )
+                    barcode_id = cur.fetchone()["id"]
+                    upserted += 1
+
+                    # Ensure conversion exists for the declared barcode UOM.
+                    cur.execute(
+                        """
+                        INSERT INTO item_uom_conversions (id, company_id, item_id, uom_code, to_base_factor, is_active)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, true)
+                        ON CONFLICT (company_id, item_id, uom_code) DO UPDATE
+                        SET to_base_factor = EXCLUDED.to_base_factor,
+                            is_active = true,
+                            updated_at = now()
+                        """,
+                        (company_id, item_id, uom_code, qty_factor),
+                    )
+
+                    if bool(ln.is_primary):
+                        # Make all other barcodes for this item non-primary.
+                        cur.execute(
+                            """
+                            UPDATE item_barcodes
+                            SET is_primary = false, updated_at = now()
+                            WHERE company_id = %s AND item_id = %s AND id <> %s
+                            """,
+                            (company_id, item_id, barcode_id),
+                        )
+                        cur.execute(
+                            "UPDATE items SET barcode = %s, updated_at = now() WHERE company_id = %s AND id = %s",
+                            (barcode, company_id, item_id),
+                        )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_barcodes_bulk_upsert', 'barcode', gen_random_uuid(), %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], json.dumps({"count": upserted})),
+                )
+
+                return {"ok": True, "upserted": upserted}
 
 @router.get("/{item_id}", dependencies=[Depends(require_permission("items:read"))])
 def get_item(item_id: str, company_id: str = Depends(get_company_id)):
