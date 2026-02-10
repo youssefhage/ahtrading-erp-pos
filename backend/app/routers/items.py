@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from datetime import date
 from decimal import Decimal
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Any, Dict
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission
 from ..deps import get_current_user
@@ -17,6 +17,8 @@ from ..ai.policy import is_external_ai_allowed
 router = APIRouter(prefix="/items", tags=["items"])
 
 ItemType = Literal["stocked", "service", "bundle"]
+CostingMethod = Literal["avg", "fifo", "standard"]
+TaxCategory = Literal["standard", "zero", "exempt"]
 
 def _norm_uom(code: Optional[str]) -> str:
     c = (code or "").strip()
@@ -48,8 +50,12 @@ class ItemIn(BaseModel):
     item_type: ItemType = "stocked"
     tags: Optional[List[str]] = None
     unit_of_measure: str
+    purchase_uom_code: Optional[str] = None
+    sales_uom_code: Optional[str] = None
     barcode: Optional[str] = None
     tax_code_id: Optional[str] = None
+    tax_category: Optional[TaxCategory] = None
+    is_excise: bool = False
     reorder_point: Optional[Decimal] = None
     reorder_qty: Optional[Decimal] = None
     is_active: bool = True
@@ -63,6 +69,16 @@ class ItemIn(BaseModel):
     min_shelf_life_days_for_sale: Optional[int] = None
     expiry_warning_days: Optional[int] = None
     allow_negative_stock: Optional[bool] = None
+    case_pack_qty: Optional[Decimal] = None
+    inner_pack_qty: Optional[Decimal] = None
+    standard_cost_usd: Optional[Decimal] = None
+    standard_cost_lbp: Optional[Decimal] = None
+    min_margin_pct: Optional[Decimal] = None
+    costing_method: Optional[CostingMethod] = None
+    preferred_supplier_id: Optional[str] = None
+    weight: Optional[Decimal] = None
+    volume: Optional[Decimal] = None
+    external_ids: Optional[Dict[str, Any]] = None
     image_attachment_id: Optional[str] = None
     image_alt: Optional[str] = None
 
@@ -108,10 +124,17 @@ def list_items(company_id: str = Depends(get_company_id)):
                 """
                 SELECT i.id, i.sku, i.barcode, i.name, i.item_type, i.tags,
                        i.unit_of_measure, i.tax_code_id, i.reorder_point, i.reorder_qty,
+                       i.purchase_uom_code, i.sales_uom_code,
+                       i.tax_category, i.is_excise,
                        i.is_active, i.category_id, i.brand, i.short_name, i.description,
                        i.track_batches, i.track_expiry,
                        i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
                        i.allow_negative_stock,
+                       i.case_pack_qty, i.inner_pack_qty,
+                       i.standard_cost_usd, i.standard_cost_lbp, i.min_margin_pct, i.costing_method,
+                       i.preferred_supplier_id,
+                       i.weight, i.volume,
+                       i.external_ids,
                        i.image_attachment_id, i.image_alt,
                        COALESCE(bc.cnt, 0) AS barcode_count
                 FROM items i
@@ -362,6 +385,28 @@ def update_uom(code: str, data: UomUpdateIn, company_id: str = Depends(get_compa
                 )
                 return {"ok": True}
 
+@router.get("/barcodes", dependencies=[Depends(require_permission("items:read"))])
+def list_all_barcodes(company_id: str = Depends(get_company_id)):
+    """
+    Convenience endpoint for UIs that need barcode/factor mappings for many items.
+
+    Important: this must be defined before `/{item_id}` to avoid Starlette routing
+    treating "barcodes" as an item_id.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, item_id, barcode, qty_factor, uom_code, label, is_primary, created_at, updated_at
+                FROM item_barcodes
+                WHERE company_id = %s
+                ORDER BY item_id, is_primary DESC, created_at ASC
+                """,
+                (company_id,),
+            )
+            return {"barcodes": cur.fetchall()}
+
 @router.get("/{item_id}", dependencies=[Depends(require_permission("items:read"))])
 def get_item(item_id: str, company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
@@ -371,10 +416,17 @@ def get_item(item_id: str, company_id: str = Depends(get_company_id)):
                 """
                 SELECT i.id, i.sku, i.barcode, i.name, i.item_type, i.tags,
                        i.unit_of_measure, i.tax_code_id, i.reorder_point, i.reorder_qty,
+                       i.purchase_uom_code, i.sales_uom_code,
+                       i.tax_category, i.is_excise,
                        i.is_active, i.category_id, i.brand, i.short_name, i.description,
                        i.track_batches, i.track_expiry,
                        i.default_shelf_life_days, i.min_shelf_life_days_for_sale, i.expiry_warning_days,
                        i.allow_negative_stock,
+                       i.case_pack_qty, i.inner_pack_qty,
+                       i.standard_cost_usd, i.standard_cost_lbp, i.min_margin_pct, i.costing_method,
+                       i.preferred_supplier_id,
+                       i.weight, i.volume,
+                       i.external_ids,
                        i.image_attachment_id, i.image_alt,
                        COALESCE(
                          (
@@ -395,6 +447,131 @@ def get_item(item_id: str, company_id: str = Depends(get_company_id)):
             return {"item": row}
 
 
+class ItemWarehousePolicyIn(BaseModel):
+    warehouse_id: str
+    min_stock: Decimal = Decimal("0")
+    max_stock: Decimal = Decimal("0")
+    preferred_supplier_id: Optional[str] = None
+    replenishment_lead_time_days: Optional[int] = None
+    notes: Optional[str] = None
+
+
+@router.get("/{item_id}/warehouse-policies", dependencies=[Depends(require_permission("items:read"))])
+def list_item_warehouse_policies(item_id: str, company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM items WHERE company_id=%s AND id=%s", (company_id, item_id))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="item not found")
+            cur.execute(
+                """
+                SELECT p.id, p.item_id, p.warehouse_id, w.name AS warehouse_name,
+                       p.min_stock, p.max_stock, p.preferred_supplier_id,
+                       s.name AS preferred_supplier_name,
+                       p.replenishment_lead_time_days, p.notes, p.updated_at
+                FROM item_warehouse_policies p
+                JOIN warehouses w ON w.id = p.warehouse_id
+                LEFT JOIN suppliers s ON s.id = p.preferred_supplier_id
+                WHERE p.company_id=%s AND p.item_id=%s
+                ORDER BY w.name ASC
+                """,
+                (company_id, item_id),
+            )
+            return {"policies": cur.fetchall()}
+
+
+@router.post("/{item_id}/warehouse-policies", dependencies=[Depends(require_permission("items:write"))])
+def upsert_item_warehouse_policy(
+    item_id: str,
+    data: ItemWarehousePolicyIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    if data.replenishment_lead_time_days is not None and data.replenishment_lead_time_days < 0:
+        raise HTTPException(status_code=400, detail="replenishment_lead_time_days must be >= 0")
+    if data.min_stock < 0 or data.max_stock < 0:
+        raise HTTPException(status_code=400, detail="min/max stock must be >= 0")
+    notes = (data.notes or "").strip() or None
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM items WHERE company_id=%s AND id=%s", (company_id, item_id))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="item not found")
+                cur.execute("SELECT 1 FROM warehouses WHERE company_id=%s AND id=%s", (company_id, data.warehouse_id))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=400, detail="invalid warehouse_id")
+
+                cur.execute(
+                    """
+                    INSERT INTO item_warehouse_policies
+                      (id, company_id, item_id, warehouse_id, min_stock, max_stock, preferred_supplier_id, replenishment_lead_time_days, notes)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (company_id, item_id, warehouse_id) DO UPDATE
+                      SET min_stock = EXCLUDED.min_stock,
+                          max_stock = EXCLUDED.max_stock,
+                          preferred_supplier_id = EXCLUDED.preferred_supplier_id,
+                          replenishment_lead_time_days = EXCLUDED.replenishment_lead_time_days,
+                          notes = EXCLUDED.notes,
+                          updated_at = now()
+                    RETURNING id
+                    """,
+                    (
+                        company_id,
+                        item_id,
+                        data.warehouse_id,
+                        data.min_stock or 0,
+                        data.max_stock or 0,
+                        data.preferred_supplier_id,
+                        data.replenishment_lead_time_days,
+                        notes,
+                    ),
+                )
+                pid = cur.fetchone()["id"]
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_warehouse_policy_upsert', 'item_warehouse_policy', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], pid, json.dumps({"item_id": item_id, **data.model_dump()}, default=str)),
+                )
+                return {"id": pid}
+
+
+@router.delete("/warehouse-policies/{policy_id}", dependencies=[Depends(require_permission("items:write"))])
+def delete_item_warehouse_policy(
+    policy_id: str,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM item_warehouse_policies
+                    WHERE company_id=%s AND id=%s
+                    RETURNING id
+                    """,
+                    (company_id, policy_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="policy not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_warehouse_policy_delete', 'item_warehouse_policy', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], policy_id, json.dumps({})),
+                )
+                return {"ok": True}
+
+
 @router.post("", dependencies=[Depends(require_permission("items:write"))])
 def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     with get_conn() as conn:
@@ -405,19 +582,41 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                 tags = [t.strip() for t in (data.tags or []) if (t or "").strip()] or None
                 uom = _norm_uom(data.unit_of_measure)
                 _ensure_uom_exists(cur, company_id, uom)
+                purchase_uom = _norm_uom(data.purchase_uom_code) if data.purchase_uom_code else None
+                sales_uom = _norm_uom(data.sales_uom_code) if data.sales_uom_code else None
+                if purchase_uom:
+                    _ensure_uom_exists(cur, company_id, purchase_uom)
+                if sales_uom:
+                    _ensure_uom_exists(cur, company_id, sales_uom)
+                ext_ids = json.dumps(data.external_ids) if data.external_ids is not None else None
                 cur.execute(
                     """
                     INSERT INTO items
-                      (id, company_id, sku, barcode, name, item_type, tags, unit_of_measure, tax_code_id, reorder_point, reorder_qty,
+                      (id, company_id, sku, barcode, name, item_type, tags, unit_of_measure, purchase_uom_code, sales_uom_code,
+                       tax_code_id, tax_category, is_excise,
+                       reorder_point, reorder_qty,
                        is_active, category_id, brand, short_name, description,
                        track_batches, track_expiry, default_shelf_life_days, min_shelf_life_days_for_sale, expiry_warning_days,
                        allow_negative_stock,
+                       case_pack_qty, inner_pack_qty,
+                       standard_cost_usd, standard_cost_lbp, min_margin_pct, costing_method,
+                       preferred_supplier_id,
+                       weight, volume,
+                       external_ids,
                        image_attachment_id, image_alt)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                       %s, %s, %s,
+                       %s, %s,
                        %s, %s, %s, %s, %s,
                        %s, %s, %s, %s, %s,
-                       %s, %s, %s)
+                       %s,
+                       %s, %s,
+                       %s, %s, %s, %s,
+                       %s,
+                       %s, %s,
+                       %s::jsonb,
+                       %s, %s)
                     RETURNING id
                     """,
                     (
@@ -428,7 +627,11 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                         data.item_type,
                         tags,
                         uom,
+                        purchase_uom,
+                        sales_uom,
                         data.tax_code_id,
+                        data.tax_category,
+                        bool(data.is_excise),
                         data.reorder_point or 0,
                         data.reorder_qty or 0,
                         bool(data.is_active),
@@ -442,6 +645,16 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                         data.min_shelf_life_days_for_sale,
                         data.expiry_warning_days,
                         data.allow_negative_stock,
+                        data.case_pack_qty,
+                        data.inner_pack_qty,
+                        data.standard_cost_usd,
+                        data.standard_cost_lbp,
+                        data.min_margin_pct,
+                        data.costing_method,
+                        data.preferred_supplier_id,
+                        data.weight,
+                        data.volume,
+                        ext_ids,
                         data.image_attachment_id,
                         (data.image_alt or "").strip() or None,
                     ),
@@ -567,8 +780,12 @@ class ItemUpdate(BaseModel):
     item_type: Optional[ItemType] = None
     tags: Optional[List[str]] = None
     unit_of_measure: Optional[str] = None
+    purchase_uom_code: Optional[str] = None
+    sales_uom_code: Optional[str] = None
     barcode: Optional[str] = None
     tax_code_id: Optional[str] = None
+    tax_category: Optional[TaxCategory] = None
+    is_excise: Optional[bool] = None
     reorder_point: Optional[Decimal] = None
     reorder_qty: Optional[Decimal] = None
     is_active: Optional[bool] = None
@@ -582,6 +799,16 @@ class ItemUpdate(BaseModel):
     min_shelf_life_days_for_sale: Optional[int] = None
     expiry_warning_days: Optional[int] = None
     allow_negative_stock: Optional[bool] = None
+    case_pack_qty: Optional[Decimal] = None
+    inner_pack_qty: Optional[Decimal] = None
+    standard_cost_usd: Optional[Decimal] = None
+    standard_cost_lbp: Optional[Decimal] = None
+    min_margin_pct: Optional[Decimal] = None
+    costing_method: Optional[CostingMethod] = None
+    preferred_supplier_id: Optional[str] = None
+    weight: Optional[Decimal] = None
+    volume: Optional[Decimal] = None
+    external_ids: Optional[Dict[str, Any]] = None
     image_attachment_id: Optional[str] = None
     image_alt: Optional[str] = None
 
@@ -593,20 +820,33 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
     if "unit_of_measure" in patch:
         uom_to_ensure = _norm_uom(patch.get("unit_of_measure"))
         patch["unit_of_measure"] = uom_to_ensure
+    if "purchase_uom_code" in patch and patch.get("purchase_uom_code") is not None:
+        patch["purchase_uom_code"] = _norm_uom(patch.get("purchase_uom_code"))
+    if "sales_uom_code" in patch and patch.get("sales_uom_code") is not None:
+        patch["sales_uom_code"] = _norm_uom(patch.get("sales_uom_code"))
 
     fields = []
     params = []
     # Use exclude_unset so clients can explicitly clear nullable fields (e.g. tax_code_id).
     for k, v in patch.items():
-        fields.append(f"{k} = %s")
         if k == "barcode" and isinstance(v, str):
+            fields.append("barcode = %s")
             params.append(v.strip() or None)
         elif k == "tags" and isinstance(v, list):
+            fields.append("tags = %s")
             norm = [str(t).strip() for t in v if str(t or "").strip()]
             params.append(norm or None)
         elif k in {"brand", "short_name", "description", "image_alt"} and isinstance(v, str):
+            fields.append(f"{k} = %s")
             params.append(v.strip() or None)
+        elif k in {"purchase_uom_code", "sales_uom_code"} and isinstance(v, str):
+            fields.append(f"{k} = %s")
+            params.append(v.strip() or None)
+        elif k == "external_ids":
+            fields.append("external_ids = %s::jsonb")
+            params.append(json.dumps(v) if v is not None else None)
         else:
+            fields.append(f"{k} = %s")
             params.append(v)
     if not fields:
         return {"ok": True}
@@ -679,6 +919,14 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
                             raise HTTPException(status_code=409, detail="cannot change base UOM after stock transfers exist")
 
                     _ensure_uom_exists(cur, company_id, uom_to_ensure)
+
+                # Secondary/default UOMs are optional; ensure the master codes exist if set.
+                pu = patch.get("purchase_uom_code")
+                su = patch.get("sales_uom_code")
+                if isinstance(pu, str) and pu.strip():
+                    _ensure_uom_exists(cur, company_id, pu.strip())
+                if isinstance(su, str) and su.strip():
+                    _ensure_uom_exists(cur, company_id, su.strip())
                 cur.execute(
                     f"""
                     UPDATE items
@@ -945,26 +1193,6 @@ def list_item_barcodes(item_id: str, company_id: str = Depends(get_company_id)):
                     (company_id, item_id),
                 )
                 return {"barcodes": cur.fetchall()}
-
-
-@router.get("/barcodes", dependencies=[Depends(require_permission("items:read"))])
-def list_all_barcodes(company_id: str = Depends(get_company_id)):
-    """
-    Convenience endpoint for UIs that need barcode/factor mappings for many items.
-    """
-    with get_conn() as conn:
-        set_company_context(conn, company_id)
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, item_id, barcode, qty_factor, uom_code, label, is_primary, created_at, updated_at
-                FROM item_barcodes
-                WHERE company_id = %s
-                ORDER BY item_id, is_primary DESC, created_at ASC
-                """,
-                (company_id,),
-            )
-            return {"barcodes": cur.fetchall()}
 
 
 @router.post("/{item_id}/barcodes", dependencies=[Depends(require_permission("items:write"))])
