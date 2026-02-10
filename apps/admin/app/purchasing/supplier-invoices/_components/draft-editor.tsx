@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost, apiPostForm, apiUrl } from "@/lib/api";
+import { getFxRateUsdToLbp } from "@/lib/fx";
 import { parseNumberInput } from "@/lib/numbers";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -153,8 +154,12 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     setLoading(true);
     setStatus("Loading...");
     try {
-      const tc = await apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes");
+      const [tc, fx] = await Promise.all([
+        apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes"),
+        getFxRateUsdToLbp(),
+      ]);
       setTaxCodes(tc.tax_codes || []);
+      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 90000;
 
       if (props.mode === "edit") {
         const id = props.invoiceId || "";
@@ -171,7 +176,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setSupplierRef(String((det.invoice as any).supplier_ref || ""));
         setInvoiceDate(String(det.invoice.invoice_date || todayIso()).slice(0, 10));
         setDueDate(String(det.invoice.due_date || "").slice(0, 10));
-        setExchangeRate(String(det.invoice.exchange_rate || 0));
+        const ex = Number(det.invoice.exchange_rate || 0);
+        setExchangeRate(String(ex > 0 ? ex : defaultEx));
         setTaxCodeId(String(det.invoice.tax_code_id || ""));
         setGoodsReceiptId(String(det.invoice.goods_receipt_id || ""));
         setLines(
@@ -216,7 +222,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setSupplierRef("");
         setInvoiceDate(todayIso());
         setDueDate("");
-        setExchangeRate("90000");
+        setExchangeRate(String(defaultEx));
         setTaxCodeId("");
         setGoodsReceiptId("");
         setLines([]);

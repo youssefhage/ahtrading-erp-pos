@@ -504,15 +504,24 @@ def apply_extracted_purchase_invoice_to_draft(
                 (company_id, supplier_id, item_id, supplier_item_code, supplier_item_name, ncode, nname),
             )
 
+        # Imported invoices are assumed to be entered in the item base UOM unless the UI provides
+        # explicit UOM metadata later. Persist the "entered" fields so history never changes.
+        cur.execute("SELECT unit_of_measure FROM items WHERE company_id=%s AND id=%s", (company_id, item_id))
+        base_uom = (cur.fetchone() or {}).get("unit_of_measure") or "EA"
+
         cur.execute(
             """
             INSERT INTO supplier_invoice_lines
-              (id, company_id, supplier_invoice_id, item_id, qty,
-               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+              (id, company_id, supplier_invoice_id, item_id,
+               qty, uom, qty_factor, qty_entered,
+               unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+               line_total_usd, line_total_lbp,
                supplier_item_code, supplier_item_name)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s,
+              (gen_random_uuid(), %s, %s, %s,
+               %s, %s, 1, %s,
                %s, %s, %s, %s,
+               %s, %s,
                %s, %s)
             """,
             (
@@ -520,6 +529,10 @@ def apply_extracted_purchase_invoice_to_draft(
                 invoice_id,
                 item_id,
                 qty,
+                (base_uom or "EA"),
+                qty,
+                unit_usd,
+                unit_lbp,
                 unit_usd,
                 unit_lbp,
                 line_total_usd,

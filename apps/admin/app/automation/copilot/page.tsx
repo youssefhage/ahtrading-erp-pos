@@ -10,6 +10,7 @@ import { Page } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 type CopilotQueryResp = {
   query: string;
@@ -30,6 +31,34 @@ function summarizeRecJson(v: unknown): string {
   const o = v as Record<string, any>;
   const candidates = [o.kind, o.type, o.title, o.reason, o.message, o.summary].filter((x) => typeof x === "string" && x.trim());
   return String(candidates[0] || "").trim();
+}
+
+function MessageBubble(props: { role: Message["role"]; content: string; createdAt?: string }) {
+  const isUser = props.role === "user";
+  return (
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-lg border p-3",
+        isUser
+          ? "border-border bg-bg-elevated"
+          : "border-success/20 bg-gradient-to-b from-success/10 to-bg-elevated/60"
+      )}
+      data-role={props.role}
+    >
+      <div className={cn("absolute left-0 top-0 h-full w-1", isUser ? "bg-border-strong" : "bg-success")} />
+
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-fg-subtle">
+          {isUser ? "You" : "Copilot"}
+        </div>
+        {props.createdAt ? (
+          <div className="text-[11px] tabular-nums text-fg-subtle">{safeIso(props.createdAt)}</div>
+        ) : null}
+      </div>
+
+      <div className="mt-1 whitespace-pre-wrap text-sm text-foreground">{props.content}</div>
+    </div>
+  );
 }
 
 export default function CopilotChatPage() {
@@ -128,19 +157,7 @@ export default function CopilotChatPage() {
             ) : (
               <div className="space-y-2">
                 {messages.map((m, idx) => (
-                  <div
-                    key={idx}
-                    className={
-                      m.role === "user"
-                        ? "rounded-lg border border-border bg-bg-elevated p-3"
-                        : "rounded-lg border border-success/30 bg-success/10 p-3"
-                    }
-                  >
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-fg-subtle">
-                      {m.role === "user" ? "You" : "Copilot"}
-                    </div>
-                    <div className="mt-1 whitespace-pre-wrap text-sm text-foreground">{m.content}</div>
-                  </div>
+                  <MessageBubble key={idx} role={m.role} content={m.content} createdAt={m.createdAt} />
                 ))}
               </div>
             )}

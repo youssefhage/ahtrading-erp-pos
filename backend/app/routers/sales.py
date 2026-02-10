@@ -370,7 +370,10 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
             cur.execute(
                 """
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
-                       i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
+                       i.total_usd, i.total_lbp,
+                       i.subtotal_usd, i.subtotal_lbp,
+                       i.discount_total_usd, i.discount_total_lbp,
+                       i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
                        i.reserve_stock,
                        i.pricing_currency, i.settlement_currency,
                        i.branch_id,
@@ -391,10 +394,15 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
 
             cur.execute(
                 """
-                SELECT l.id, l.item_id, it.sku AS item_sku, it.name AS item_name, l.qty,
-                       unit_price_usd, unit_price_lbp,
-                       line_total_usd, line_total_lbp
-                FROM sales_invoice_lines l
+	                SELECT l.id, l.item_id, it.sku AS item_sku, it.name AS item_name,
+	                       l.qty, l.uom, l.qty_factor, l.qty_entered,
+	                       l.unit_price_usd, l.unit_price_lbp,
+	                       l.unit_price_entered_usd, l.unit_price_entered_lbp,
+	                       l.pre_discount_unit_price_usd, l.pre_discount_unit_price_lbp,
+	                       l.discount_pct, l.discount_amount_usd, l.discount_amount_lbp,
+	                       l.applied_promotion_id, l.applied_promotion_item_id, l.applied_price_list_id,
+	                       l.line_total_usd, l.line_total_lbp
+	                FROM sales_invoice_lines l
                 LEFT JOIN items it
                   ON it.company_id = %s AND it.id = l.item_id
                 WHERE l.invoice_id = %s
@@ -430,9 +438,23 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
 
 class SalesInvoiceDraftLineIn(BaseModel):
     item_id: str
+    # Backward compatible: if qty_entered is not provided, qty is treated as base qty.
     qty: Decimal
+    uom: Optional[str] = None
+    qty_factor: Optional[Decimal] = None
+    qty_entered: Optional[Decimal] = None
     unit_price_usd: Decimal = Decimal("0")
     unit_price_lbp: Decimal = Decimal("0")
+    unit_price_entered_usd: Optional[Decimal] = None
+    unit_price_entered_lbp: Optional[Decimal] = None
+    # Commercial metadata (optional; backward compatible).
+    pre_discount_unit_price_usd: Decimal = Decimal("0")
+    pre_discount_unit_price_lbp: Decimal = Decimal("0")
+    # Stored as fraction: 0.10 == 10%.
+    discount_pct: Decimal = Decimal("0")
+    # Optional explicit discount amounts (for fixed discounts).
+    discount_amount_usd: Decimal = Decimal("0")
+    discount_amount_lbp: Decimal = Decimal("0")
 
 class SalesInvoiceDraftIn(BaseModel):
     customer_id: Optional[str] = None
@@ -544,39 +566,17 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
         raise HTTPException(status_code=400, detail="due_date cannot be before invoice_date")
     # Drafts are allowed even if the period is locked; posting will enforce the lock.
 
-    base_usd = Decimal("0")
-    base_lbp = Decimal("0")
-    lines_norm: list[dict] = []
-    for l in (data.lines or []):
-        if l.qty <= 0:
-            raise HTTPException(status_code=400, detail="qty must be > 0")
-        unit_usd = Decimal(str(l.unit_price_usd or 0))
-        unit_lbp = Decimal(str(l.unit_price_lbp or 0))
-        if unit_usd == 0 and unit_lbp == 0:
-            raise HTTPException(status_code=400, detail="unit_price_usd or unit_price_lbp must be set")
-        line_usd = unit_usd * l.qty
-        line_lbp = unit_lbp * l.qty
-        if line_lbp == 0 and data.exchange_rate:
-            line_lbp = line_usd * data.exchange_rate
-        if line_usd == 0 and data.exchange_rate:
-            line_usd = line_lbp / data.exchange_rate
-        base_usd += line_usd
-        base_lbp += line_lbp
-        lines_norm.append(
-            {
-                "item_id": l.item_id,
-                "qty": l.qty,
-                "unit_price_usd": unit_usd,
-                "unit_price_lbp": unit_lbp,
-                "line_total_usd": line_usd,
-                "line_total_lbp": line_lbp,
-            }
-        )
+    def _norm_uom_code(v: Optional[str]) -> Optional[str]:
+        c = (v or "").strip().upper()
+        if not c:
+            return None
+        return c[:32] if len(c) > 32 else c
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                # Auto due_date from customer terms if not explicitly provided.
                 if not data.due_date and data.customer_id:
                     cur.execute(
                         """
@@ -590,14 +590,147 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                     terms = int(row["payment_terms_days"] or 0) if row else 0
                     due_date = inv_date + timedelta(days=max(0, terms))
 
+                item_ids = sorted({str(l.item_id) for l in (data.lines or []) if getattr(l, "item_id", None)})
+                item_base_uom: dict[str, str] = {}
+                if item_ids:
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, item_ids),
+                    )
+                    item_base_uom = {str(r["id"]): str(r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
+
+                ex = Decimal(str(data.exchange_rate or 0))
+                base_usd = Decimal("0")
+                base_lbp = Decimal("0")
+                discount_total_usd = Decimal("0")
+                discount_total_lbp = Decimal("0")
+                lines_norm: list[dict] = []
+
+                for l in (data.lines or []):
+                    base_uom = _norm_uom_code(item_base_uom.get(str(l.item_id)) or "EA") or "EA"
+                    uom = _norm_uom_code(getattr(l, "uom", None)) or base_uom
+
+                    qty_factor_in = getattr(l, "qty_factor", None)
+                    qty_factor = Decimal(str(qty_factor_in or 0)) if qty_factor_in is not None else None
+                    if qty_factor is None:
+                        if uom == base_uom:
+                            qty_factor = Decimal("1")
+                        else:
+                            cur.execute(
+                                """
+                                SELECT to_base_factor
+                                FROM item_uom_conversions
+                                WHERE company_id=%s AND item_id=%s AND uom_code=%s AND is_active=true
+                                """,
+                                (company_id, l.item_id, uom),
+                            )
+                            crow = cur.fetchone()
+                            if not crow:
+                                raise HTTPException(status_code=400, detail=f"missing UOM conversion for item_id={l.item_id} uom={uom}")
+                            qty_factor = Decimal(str(crow["to_base_factor"] or 0))
+                    if qty_factor <= 0:
+                        raise HTTPException(status_code=400, detail="qty_factor must be > 0")
+                    if uom == base_uom and qty_factor != 1:
+                        raise HTTPException(status_code=400, detail="qty_factor must be 1 when uom is the item base UOM")
+
+                    qty_entered_in = getattr(l, "qty_entered", None)
+                    if qty_entered_in is not None:
+                        qty_entered = Decimal(str(qty_entered_in or 0))
+                        qty_base = qty_entered * qty_factor
+                    else:
+                        qty_base = Decimal(str(l.qty or 0))
+                        qty_entered = (qty_base / qty_factor) if qty_factor else qty_base
+                    if qty_base <= 0:
+                        raise HTTPException(status_code=400, detail="qty must be > 0")
+
+                    unit_usd = Decimal(str(l.unit_price_usd or 0))
+                    unit_lbp = Decimal(str(l.unit_price_lbp or 0))
+                    pre_unit_usd = Decimal(str(l.pre_discount_unit_price_usd or 0))
+                    pre_unit_lbp = Decimal(str(l.pre_discount_unit_price_lbp or 0))
+
+                    unit_ent_usd = getattr(l, "unit_price_entered_usd", None)
+                    unit_ent_lbp = getattr(l, "unit_price_entered_lbp", None)
+                    if (unit_usd == 0 and unit_lbp == 0) and (unit_ent_usd is not None or unit_ent_lbp is not None):
+                        if unit_ent_usd is not None:
+                            unit_usd = Decimal(str(unit_ent_usd or 0)) / qty_factor
+                        if unit_ent_lbp is not None:
+                            unit_lbp = Decimal(str(unit_ent_lbp or 0)) / qty_factor
+
+                    if unit_usd == 0 and unit_lbp == 0 and pre_unit_usd == 0 and pre_unit_lbp == 0:
+                        raise HTTPException(status_code=400, detail="unit_price_usd/unit_price_lbp (or pre_discount_unit_price_*) must be set")
+
+                    if ex and unit_usd == 0 and unit_lbp != 0:
+                        unit_usd = unit_lbp / ex
+                    if ex and unit_lbp == 0 and unit_usd != 0:
+                        unit_lbp = unit_usd * ex
+                    if ex and pre_unit_usd == 0 and pre_unit_lbp != 0:
+                        pre_unit_usd = pre_unit_lbp / ex
+                    if ex and pre_unit_lbp == 0 and pre_unit_usd != 0:
+                        pre_unit_lbp = pre_unit_usd * ex
+
+                    line_usd = unit_usd * qty_base
+                    line_lbp = unit_lbp * qty_base
+                    if line_lbp == 0 and ex:
+                        line_lbp = line_usd * ex
+                    if line_usd == 0 and ex:
+                        line_usd = line_lbp / ex
+
+                    disc_pct = Decimal(str(l.discount_pct or 0))
+                    disc_usd = Decimal(str(l.discount_amount_usd or 0))
+                    disc_lbp = Decimal(str(l.discount_amount_lbp or 0))
+                    if disc_usd == 0 and disc_lbp == 0:
+                        if pre_unit_usd or pre_unit_lbp:
+                            disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * qty_base)
+                            disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty_base)
+                        elif disc_pct:
+                            disc_usd = max(Decimal("0"), (unit_usd * qty_base) * disc_pct)
+                            disc_lbp = max(Decimal("0"), (unit_lbp * qty_base) * disc_pct)
+                    if ex and disc_usd == 0 and disc_lbp != 0:
+                        disc_usd = disc_lbp / ex
+                    if ex and disc_lbp == 0 and disc_usd != 0:
+                        disc_lbp = disc_usd * ex
+
+                    base_usd += line_usd
+                    base_lbp += line_lbp
+                    discount_total_usd += disc_usd
+                    discount_total_lbp += disc_lbp
+
+                    lines_norm.append(
+                        {
+                            "item_id": l.item_id,
+                            "qty": qty_base,
+                            "uom": uom,
+                            "qty_factor": qty_factor,
+                            "qty_entered": qty_entered,
+                            "unit_price_usd": unit_usd,
+                            "unit_price_lbp": unit_lbp,
+                            "unit_price_entered_usd": unit_usd * qty_factor,
+                            "unit_price_entered_lbp": unit_lbp * qty_factor,
+                            "pre_discount_unit_price_usd": pre_unit_usd,
+                            "pre_discount_unit_price_lbp": pre_unit_lbp,
+                            "discount_pct": disc_pct,
+                            "discount_amount_usd": disc_usd,
+                            "discount_amount_lbp": disc_lbp,
+                            "line_total_usd": line_usd,
+                            "line_total_lbp": line_lbp,
+                        }
+                    )
+
                 invoice_no = (data.invoice_no or "").strip() or _next_doc_no(cur, company_id, "SI")
                 cur.execute(
                     """
                     INSERT INTO sales_invoices
-                      (id, company_id, invoice_no, customer_id, status, total_usd, total_lbp,
+                      (id, company_id, invoice_no, customer_id, status,
+                       total_usd, total_lbp, subtotal_usd, subtotal_lbp, discount_total_usd, discount_total_lbp,
                        warehouse_id, reserve_stock, exchange_rate, pricing_currency, settlement_currency, invoice_date, due_date)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, 'draft',
+                       %s, %s, %s, %s, %s, %s,
+                       %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -606,6 +739,10 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                         data.customer_id,
                         base_usd,
                         base_lbp,
+                        base_usd,
+                        base_lbp,
+                        discount_total_usd,
+                        discount_total_lbp,
                         data.warehouse_id,
                         bool(data.reserve_stock),
                         data.exchange_rate,
@@ -617,22 +754,42 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                 )
                 invoice_id = cur.fetchone()["id"]
 
-                for l in lines_norm:
+                for ln in lines_norm:
                     cur.execute(
                         """
                         INSERT INTO sales_invoice_lines
-                          (id, invoice_id, item_id, qty, unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp)
+                          (id, invoice_id, item_id,
+                           qty, uom, qty_factor, qty_entered,
+                           unit_price_usd, unit_price_lbp, unit_price_entered_usd, unit_price_entered_lbp,
+                           pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
+                           discount_pct, discount_amount_usd, discount_amount_lbp,
+                           line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s,
+                           %s, %s, %s, %s,
+                           %s, %s, %s, %s,
+                           %s, %s,
+                           %s, %s, %s,
+                           %s, %s)
                         """,
                         (
                             invoice_id,
-                            l["item_id"],
-                            l["qty"],
-                            l["unit_price_usd"],
-                            l["unit_price_lbp"],
-                            l["line_total_usd"],
-                            l["line_total_lbp"],
+                            ln["item_id"],
+                            ln["qty"],
+                            ln["uom"],
+                            ln["qty_factor"],
+                            ln["qty_entered"],
+                            ln["unit_price_usd"],
+                            ln["unit_price_lbp"],
+                            ln["unit_price_entered_usd"],
+                            ln["unit_price_entered_lbp"],
+                            ln["pre_discount_unit_price_usd"],
+                            ln["pre_discount_unit_price_lbp"],
+                            ln["discount_pct"],
+                            ln["discount_amount_usd"],
+                            ln["discount_amount_lbp"],
+                            ln["line_total_usd"],
+                            ln["line_total_lbp"],
                         ),
                     )
 
@@ -641,12 +798,7 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                     VALUES (gen_random_uuid(), %s, %s, 'sales_invoice_draft_create', 'sales_invoice', %s, %s::jsonb)
                     """,
-                    (
-                        company_id,
-                        user["user_id"],
-                        invoice_id,
-                        json.dumps({"invoice_no": invoice_no, "lines": len(lines_norm)}, default=str),
-                    ),
+                    (company_id, user["user_id"], invoice_id, json.dumps({"invoice_no": invoice_no, "lines": len(lines_norm)}, default=str)),
                 )
                 return {"id": invoice_id, "invoice_no": invoice_no}
 
@@ -654,6 +806,13 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
 @router.patch("/invoices/{invoice_id}", dependencies=[Depends(require_permission("sales:write"))])
 def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     patch = data.model_dump(exclude_none=True)
+
+    def _norm_uom_code(v: Optional[str]) -> Optional[str]:
+        c = (v or "").strip().upper()
+        if not c:
+            return None
+        return c[:32] if len(c) > 32 else c
+
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
@@ -672,8 +831,7 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                 if inv["status"] != "draft":
                     raise HTTPException(status_code=400, detail="only draft invoices can be edited")
 
-                # If customer_id/invoice_date changes and due_date isn't explicitly set, keep the draft consistent by
-                # recomputing due_date from payment terms. This avoids stale due dates.
+                # If customer_id/invoice_date changes and due_date isn't explicitly set, recompute from terms.
                 if ("customer_id" in patch or "invoice_date" in patch) and ("due_date" not in patch):
                     next_inv_date = patch.get("invoice_date") or inv["invoice_date"] or date.today()
                     next_customer_id = patch.get("customer_id") if "customer_id" in patch else inv["customer_id"]
@@ -692,7 +850,6 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                         next_due = next_inv_date + timedelta(days=max(0, terms))
                     patch["due_date"] = next_due
 
-                # Validate due_date if provided.
                 if "due_date" in patch:
                     next_inv_date = patch.get("invoice_date") or inv["invoice_date"] or date.today()
                     if patch["due_date"] and patch["due_date"] < next_inv_date:
@@ -700,39 +857,160 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
 
                 if "lines" in patch:
                     lines_in = data.lines or []
-                    # Replace lines.
                     cur.execute("DELETE FROM sales_invoice_lines WHERE invoice_id = %s", (invoice_id,))
 
+                    item_ids = sorted({str(l.item_id) for l in (lines_in or []) if getattr(l, "item_id", None)})
+                    item_base_uom: dict[str, str] = {}
+                    if item_ids:
+                        cur.execute(
+                            """
+                            SELECT id, unit_of_measure
+                            FROM items
+                            WHERE company_id=%s AND id = ANY(%s::uuid[])
+                            """,
+                            (company_id, item_ids),
+                        )
+                        item_base_uom = {str(r["id"]): str(r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
+
+                    exchange_rate = Decimal(str(patch.get("exchange_rate") or inv["exchange_rate"] or 0))
                     base_usd = Decimal("0")
                     base_lbp = Decimal("0")
-                    exchange_rate = Decimal(str(patch.get("exchange_rate") or inv["exchange_rate"] or 0))
+                    discount_total_usd = Decimal("0")
+                    discount_total_lbp = Decimal("0")
+
                     for l in (lines_in or []):
-                        if l.qty <= 0:
+                        base_uom = _norm_uom_code(item_base_uom.get(str(l.item_id)) or "EA") or "EA"
+                        uom = _norm_uom_code(getattr(l, "uom", None)) or base_uom
+
+                        qty_factor_in = getattr(l, "qty_factor", None)
+                        qty_factor = Decimal(str(qty_factor_in or 0)) if qty_factor_in is not None else None
+                        if qty_factor is None:
+                            if uom == base_uom:
+                                qty_factor = Decimal("1")
+                            else:
+                                cur.execute(
+                                    """
+                                    SELECT to_base_factor
+                                    FROM item_uom_conversions
+                                    WHERE company_id=%s AND item_id=%s AND uom_code=%s AND is_active=true
+                                    """,
+                                    (company_id, l.item_id, uom),
+                                )
+                                crow = cur.fetchone()
+                                if not crow:
+                                    raise HTTPException(status_code=400, detail=f"missing UOM conversion for item_id={l.item_id} uom={uom}")
+                                qty_factor = Decimal(str(crow["to_base_factor"] or 0))
+                        if qty_factor <= 0:
+                            raise HTTPException(status_code=400, detail="qty_factor must be > 0")
+                        if uom == base_uom and qty_factor != 1:
+                            raise HTTPException(status_code=400, detail="qty_factor must be 1 when uom is the item base UOM")
+
+                        qty_entered_in = getattr(l, "qty_entered", None)
+                        if qty_entered_in is not None:
+                            qty_entered = Decimal(str(qty_entered_in or 0))
+                            qty_base = qty_entered * qty_factor
+                        else:
+                            qty_base = Decimal(str(l.qty or 0))
+                            qty_entered = (qty_base / qty_factor) if qty_factor else qty_base
+                        if qty_base <= 0:
                             raise HTTPException(status_code=400, detail="qty must be > 0")
+
                         unit_usd = Decimal(str(l.unit_price_usd or 0))
                         unit_lbp = Decimal(str(l.unit_price_lbp or 0))
-                        if unit_usd == 0 and unit_lbp == 0:
-                            raise HTTPException(status_code=400, detail="unit_price_usd or unit_price_lbp must be set")
-                        line_usd = unit_usd * l.qty
-                        line_lbp = unit_lbp * l.qty
+                        pre_unit_usd = Decimal(str(l.pre_discount_unit_price_usd or 0))
+                        pre_unit_lbp = Decimal(str(l.pre_discount_unit_price_lbp or 0))
+
+                        unit_ent_usd = getattr(l, "unit_price_entered_usd", None)
+                        unit_ent_lbp = getattr(l, "unit_price_entered_lbp", None)
+                        if (unit_usd == 0 and unit_lbp == 0) and (unit_ent_usd is not None or unit_ent_lbp is not None):
+                            if unit_ent_usd is not None:
+                                unit_usd = Decimal(str(unit_ent_usd or 0)) / qty_factor
+                            if unit_ent_lbp is not None:
+                                unit_lbp = Decimal(str(unit_ent_lbp or 0)) / qty_factor
+
+                        if unit_usd == 0 and unit_lbp == 0 and pre_unit_usd == 0 and pre_unit_lbp == 0:
+                            raise HTTPException(status_code=400, detail="unit_price_usd/unit_price_lbp (or pre_discount_unit_price_*) must be set")
+
+                        if exchange_rate and unit_usd == 0 and unit_lbp != 0:
+                            unit_usd = unit_lbp / exchange_rate
+                        if exchange_rate and unit_lbp == 0 and unit_usd != 0:
+                            unit_lbp = unit_usd * exchange_rate
+                        if exchange_rate and pre_unit_usd == 0 and pre_unit_lbp != 0:
+                            pre_unit_usd = pre_unit_lbp / exchange_rate
+                        if exchange_rate and pre_unit_lbp == 0 and pre_unit_usd != 0:
+                            pre_unit_lbp = pre_unit_usd * exchange_rate
+
+                        line_usd = unit_usd * qty_base
+                        line_lbp = unit_lbp * qty_base
                         if line_lbp == 0 and exchange_rate:
                             line_lbp = line_usd * exchange_rate
                         if line_usd == 0 and exchange_rate:
                             line_usd = line_lbp / exchange_rate
+
+                        disc_pct = Decimal(str(l.discount_pct or 0))
+                        disc_usd = Decimal(str(l.discount_amount_usd or 0))
+                        disc_lbp = Decimal(str(l.discount_amount_lbp or 0))
+                        if disc_usd == 0 and disc_lbp == 0:
+                            if pre_unit_usd or pre_unit_lbp:
+                                disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * qty_base)
+                                disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty_base)
+                            elif disc_pct:
+                                disc_usd = max(Decimal("0"), (unit_usd * qty_base) * disc_pct)
+                                disc_lbp = max(Decimal("0"), (unit_lbp * qty_base) * disc_pct)
+                        if exchange_rate and disc_usd == 0 and disc_lbp != 0:
+                            disc_usd = disc_lbp / exchange_rate
+                        if exchange_rate and disc_lbp == 0 and disc_usd != 0:
+                            disc_lbp = disc_usd * exchange_rate
+
                         base_usd += line_usd
                         base_lbp += line_lbp
+                        discount_total_usd += disc_usd
+                        discount_total_lbp += disc_lbp
+
                         cur.execute(
                             """
                             INSERT INTO sales_invoice_lines
-                              (id, invoice_id, item_id, qty, unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp)
+                              (id, invoice_id, item_id,
+                               qty, uom, qty_factor, qty_entered,
+                               unit_price_usd, unit_price_lbp, unit_price_entered_usd, unit_price_entered_lbp,
+                               pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
+                               discount_pct, discount_amount_usd, discount_amount_lbp,
+                               line_total_usd, line_total_lbp)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s,
+                               %s, %s, %s, %s,
+                               %s, %s, %s, %s,
+                               %s, %s,
+                               %s, %s, %s,
+                               %s, %s)
                             """,
-                            (invoice_id, l.item_id, l.qty, unit_usd, unit_lbp, line_usd, line_lbp),
+                            (
+                                invoice_id,
+                                l.item_id,
+                                qty_base,
+                                uom,
+                                qty_factor,
+                                qty_entered,
+                                unit_usd,
+                                unit_lbp,
+                                unit_usd * qty_factor,
+                                unit_lbp * qty_factor,
+                                pre_unit_usd,
+                                pre_unit_lbp,
+                                disc_pct,
+                                disc_usd,
+                                disc_lbp,
+                                line_usd,
+                                line_lbp,
+                            ),
                         )
-                    # Update totals alongside other fields.
+
                     patch["total_usd"] = base_usd
                     patch["total_lbp"] = base_lbp
+                    patch["subtotal_usd"] = base_usd
+                    patch["subtotal_lbp"] = base_lbp
+                    patch["discount_total_usd"] = discount_total_usd
+                    patch["discount_total_lbp"] = discount_total_lbp
 
                 if "invoice_no" in patch:
                     patch["invoice_no"] = (patch["invoice_no"] or "").strip() or None
@@ -817,22 +1095,51 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     raise HTTPException(status_code=400, detail="invoice already has payments")
 
                 # Load lines.
-                cur.execute(
-                    """
-                    SELECT item_id, qty, unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp
-                    FROM sales_invoice_lines
-                    WHERE invoice_id = %s
-                    ORDER BY id
-                    """,
-                    (invoice_id,),
-                )
+                    cur.execute(
+                        """
+                        SELECT item_id, qty,
+                               unit_price_usd, unit_price_lbp,
+                               pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
+                               discount_pct, discount_amount_usd, discount_amount_lbp,
+                               line_total_usd, line_total_lbp
+                        FROM sales_invoice_lines
+                        WHERE invoice_id = %s
+                        ORDER BY id
+                        """,
+                        (invoice_id,),
+                    )
                 lines = cur.fetchall()
                 if not lines:
                     raise HTTPException(status_code=400, detail="invoice has no lines")
 
-                exchange_rate = Decimal(str(inv["exchange_rate"] or 0))
-                base_usd = sum([Decimal(str(l["line_total_usd"] or 0)) for l in lines])
-                base_lbp = sum([Decimal(str(l["line_total_lbp"] or 0)) for l in lines])
+                    exchange_rate = Decimal(str(inv["exchange_rate"] or 0))
+                    base_usd = sum([Decimal(str(l["line_total_usd"] or 0)) for l in lines])
+                    base_lbp = sum([Decimal(str(l["line_total_lbp"] or 0)) for l in lines])
+                    discount_total_usd = Decimal("0")
+                    discount_total_lbp = Decimal("0")
+                    for l in lines:
+                        disc_usd = Decimal(str(l.get("discount_amount_usd", 0) or 0))
+                        disc_lbp = Decimal(str(l.get("discount_amount_lbp", 0) or 0))
+                        if disc_usd == 0 and disc_lbp == 0:
+                            pre_unit_usd = Decimal(str(l.get("pre_discount_unit_price_usd", 0) or 0))
+                            pre_unit_lbp = Decimal(str(l.get("pre_discount_unit_price_lbp", 0) or 0))
+                            unit_usd = Decimal(str(l.get("unit_price_usd", 0) or 0))
+                            unit_lbp = Decimal(str(l.get("unit_price_lbp", 0) or 0))
+                            qty = Decimal(str(l.get("qty", 0) or 0))
+                            if pre_unit_usd or pre_unit_lbp:
+                                disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * qty)
+                                disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty)
+                            else:
+                                disc_pct = Decimal(str(l.get("discount_pct", 0) or 0))
+                                if disc_pct:
+                                    disc_usd = max(Decimal("0"), (unit_usd * qty) * disc_pct)
+                                    disc_lbp = max(Decimal("0"), (unit_lbp * qty) * disc_pct)
+                        if exchange_rate and disc_usd == 0 and disc_lbp != 0:
+                            disc_usd = disc_lbp / exchange_rate
+                        if exchange_rate and disc_lbp == 0 and disc_usd != 0:
+                            disc_lbp = disc_usd * exchange_rate
+                        discount_total_usd += disc_usd
+                        discount_total_lbp += disc_lbp
 
                 tax_code_id = None
                 vat_rate = Decimal("0")
@@ -1151,14 +1458,18 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     pts = (total_usd * p_usd) + (total_lbp * p_lbp)
                     pos_processor.apply_loyalty_points(cur, company_id, str(customer_id), "sales_invoice", str(invoice_id), pts)
 
-                cur.execute(
-                    """
-                    UPDATE sales_invoices
-                    SET status='posted', total_usd=%s, total_lbp=%s, due_date=%s
-                    WHERE company_id=%s AND id=%s
-                    """,
-                    (total_usd, total_lbp, due_date, company_id, invoice_id),
-                )
+                    cur.execute(
+                        """
+                        UPDATE sales_invoices
+                        SET status='posted',
+                            total_usd=%s, total_lbp=%s,
+                            subtotal_usd=%s, subtotal_lbp=%s,
+                            discount_total_usd=%s, discount_total_lbp=%s,
+                            due_date=%s
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (total_usd, total_lbp, base_usd, base_lbp, discount_total_usd, discount_total_lbp, due_date, company_id, invoice_id),
+                    )
 
                 # Ensure journal is balanced (handles tiny rounding drift).
                 try:

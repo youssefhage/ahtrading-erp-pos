@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Terminal, Command, ArrowRight } from "lucide-react";
 
 import { apiPost, getCompanyId, setSession, type LoginResponse } from "@/lib/api";
+import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -130,15 +131,30 @@ export default function LoginPage() {
             </div>
 
             {status && (
-              <div
-                className={`rounded-md border px-3 py-2 text-xs ${
+              <Banner
+                size="sm"
+                variant={
                   status === "Success"
-                    ? "border-success/30 bg-success/10 text-success"
-                    : "border-danger/30 bg-danger/10 text-danger"
-                }`}
-              >
-                {status}
-              </div>
+                    ? "success"
+                    : /\.\.\.$/.test(status) || /^authenticating\b/i.test(status)
+                      ? "progress"
+                      : "danger"
+                }
+                title={
+                  status === "Success"
+                    ? "Signed in"
+                    : /\.\.\.$/.test(status) || /^authenticating\b/i.test(status)
+                      ? "Signing in"
+                      : "Sign-in failed"
+                }
+                description={
+                  status === "Success"
+                    ? "Redirecting to dashboard..."
+                    : /\.\.\.$/.test(status) || /^authenticating\b/i.test(status)
+                      ? status
+                      : status
+                }
+              />
             )}
 
             <Button

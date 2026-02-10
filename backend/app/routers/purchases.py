@@ -994,6 +994,25 @@ def apply_supplier_invoice_import_lines(
                 base_lbp = Decimal("0")
 
                 supplier_id = inv.get("supplier_id")
+                # Base UOM defaults for backward-compatible lines (imports currently have no UOM selection).
+                resolved_item_ids = sorted(
+                    {
+                        str((l.get("resolved_item_id") or l.get("suggested_item_id") or "")).strip()
+                        for l in (lines or [])
+                        if str((l.get("resolved_item_id") or l.get("suggested_item_id") or "")).strip()
+                    }
+                )
+                item_uom = {}
+                if resolved_item_ids:
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, resolved_item_ids),
+                    )
+                    item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
                 for l in lines:
                     if str(l.get("status") or "").lower() == "skipped":
                         continue
@@ -1013,12 +1032,16 @@ def apply_supplier_invoice_import_lines(
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
-                          (id, company_id, supplier_invoice_id, item_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                          (id, company_id, supplier_invoice_id, item_id,
+                           qty, uom, qty_factor, qty_entered,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           line_total_usd, line_total_lbp,
                            supplier_item_code, supplier_item_name)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s,
+                          (gen_random_uuid(), %s, %s, %s,
+                           %s, %s, 1, %s,
                            %s, %s, %s, %s,
+                           %s, %s,
                            %s, %s)
                         """,
                         (
@@ -1026,6 +1049,10 @@ def apply_supplier_invoice_import_lines(
                             invoice_id,
                             item_id,
                             qty,
+                            (item_uom.get(str(item_id)) or "EA").strip().upper(),
+                            qty,
+                            unit_usd,
+                            unit_lbp,
                             unit_usd,
                             unit_lbp,
                             line_total_usd,
@@ -1621,19 +1648,43 @@ def create_purchase_order(data: PurchaseOrderIn, company_id: str = Depends(get_c
                 )
                 po_id = cur.fetchone()["id"]
 
+                item_ids = sorted({str(l.item_id) for l in (data.lines or []) if getattr(l, "item_id", None)})
+                item_uom = {}
+                if item_ids:
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, item_ids),
+                    )
+                    item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
+
                 for l in data.lines:
+                    uom = (item_uom.get(str(l.item_id)) or "EA").strip().upper()
                     cur.execute(
                         """
                         INSERT INTO purchase_order_lines
-                          (id, company_id, purchase_order_id, item_id, qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                          (id, company_id, purchase_order_id, item_id,
+                           qty, uom, qty_factor, qty_entered,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s,
+                           %s, %s, 1, %s,
+                           %s, %s, %s, %s,
+                           %s, %s)
                         """,
                         (
                             company_id,
                             po_id,
                             l.item_id,
                             l.qty,
+                            uom,
+                            l.qty,
+                            l.unit_cost_usd,
+                            l.unit_cost_lbp,
                             l.unit_cost_usd,
                             l.unit_cost_lbp,
                             l.line_total_usd,
@@ -1720,19 +1771,43 @@ def create_purchase_order_draft(data: PurchaseOrderDraftIn, company_id: str = De
                 )
                 order_id = cur.fetchone()["id"]
 
+                item_ids = sorted({str(ln.get("item_id")) for ln in (normalized or []) if ln.get("item_id")})
+                item_uom = {}
+                if item_ids:
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, item_ids),
+                    )
+                    item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
+
                 for ln in (normalized or []):
+                    uom = (item_uom.get(str(ln["item_id"])) or "EA").strip().upper()
                     cur.execute(
                         """
                         INSERT INTO purchase_order_lines
-                          (id, company_id, purchase_order_id, item_id, qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                          (id, company_id, purchase_order_id, item_id,
+                           qty, uom, qty_factor, qty_entered,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s,
+                           %s, %s, 1, %s,
+                           %s, %s, %s, %s,
+                           %s, %s)
                         """,
                         (
                             company_id,
                             order_id,
                             ln["item_id"],
                             ln["qty"],
+                            uom,
+                            ln["qty"],
+                            ln["unit_cost_usd"],
+                            ln["unit_cost_lbp"],
                             ln["unit_cost_usd"],
                             ln["unit_cost_lbp"],
                             ln["line_total_usd"],
@@ -1792,19 +1867,42 @@ def update_purchase_order_draft(order_id: str, data: PurchaseOrderDraftUpdateIn,
                         """DELETE FROM purchase_order_lines WHERE company_id = %s AND purchase_order_id = %s""",
                         (company_id, order_id),
                     )
+                    item_ids = sorted({str(ln.get("item_id")) for ln in (normalized or []) if ln.get("item_id")})
+                    item_uom = {}
+                    if item_ids:
+                        cur.execute(
+                            """
+                            SELECT id, unit_of_measure
+                            FROM items
+                            WHERE company_id=%s AND id = ANY(%s::uuid[])
+                            """,
+                            (company_id, item_ids),
+                        )
+                        item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
                     for ln in (normalized or []):
+                        uom = (item_uom.get(str(ln["item_id"])) or "EA").strip().upper()
                         cur.execute(
                             """
                             INSERT INTO purchase_order_lines
-                              (id, company_id, purchase_order_id, item_id, qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                              (id, company_id, purchase_order_id, item_id,
+                               qty, uom, qty_factor, qty_entered,
+                               unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                               line_total_usd, line_total_lbp)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s,
+                               %s, %s, 1, %s,
+                               %s, %s, %s, %s,
+                               %s, %s)
                             """,
                             (
                                 company_id,
                                 order_id,
                                 ln["item_id"],
                                 ln["qty"],
+                                uom,
+                                ln["qty"],
+                                ln["unit_cost_usd"],
+                                ln["unit_cost_lbp"],
                                 ln["unit_cost_usd"],
                                 ln["unit_cost_lbp"],
                                 ln["line_total_usd"],
@@ -2073,15 +2171,35 @@ def create_goods_receipt_draft_from_order(
                 )
                 receipt_id = cur.fetchone()["id"]
 
+                item_ids = sorted({str(ln.get("item_id")) for ln in (receipt_lines or []) if ln.get("item_id")})
+                item_uom = {}
+                if item_ids:
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, item_ids),
+                    )
+                    item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
+
                 for ln in receipt_lines:
+                    uom = (item_uom.get(str(ln["item_id"])) or "EA").strip().upper()
                     cur.execute(
                         """
                         INSERT INTO goods_receipt_lines
-                          (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                          (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id,
+                           qty, uom, qty_factor, qty_entered,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           line_total_usd, line_total_lbp,
                            location_id, landed_cost_total_usd, landed_cost_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s, NULL, 0, 0)
+                          (gen_random_uuid(), %s, %s, %s, %s, NULL,
+                           %s, %s, 1, %s,
+                           %s, %s, %s, %s,
+                           %s, %s,
+                           NULL, 0, 0)
                         """,
                         (
                             company_id,
@@ -2089,6 +2207,10 @@ def create_goods_receipt_draft_from_order(
                             ln["purchase_order_line_id"],
                             ln["item_id"],
                             ln["qty"],
+                            uom,
+                            ln["qty"],
+                            ln["unit_cost_usd"],
+                            ln["unit_cost_lbp"],
                             ln["unit_cost_usd"],
                             ln["unit_cost_lbp"],
                             ln["line_total_usd"],
@@ -2174,6 +2296,19 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                 )
                 receipt_id = cur.fetchone()["id"]
 
+                item_ids = sorted({str(l.item_id) for l in (data.lines or []) if getattr(l, "item_id", None)})
+                item_uom = {}
+                if item_ids:
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, item_ids),
+                    )
+                    item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
+
                 for idx, l in enumerate(data.lines):
                     exp = _enforce_item_tracking(cur, company_id, l.item_id, l.batch_no, l.expiry_date, f"line {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, exp)
@@ -2184,14 +2319,21 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                     if l.landed_cost_total_lbp < 0:
                         raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_lbp must be >= 0")
                     loc_id = _validate_location_for_warehouse(cur, company_id, data.warehouse_id, l.location_id, f"line {idx+1}")
+                    uom = (item_uom.get(str(l.item_id)) or "EA").strip().upper()
                     cur.execute(
                         """
                         INSERT INTO goods_receipt_lines
-                          (id, company_id, goods_receipt_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                          (id, company_id, goods_receipt_id, item_id, batch_id,
+                           qty, uom, qty_factor, qty_entered,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           line_total_usd, line_total_lbp,
                            location_id, landed_cost_total_usd, landed_cost_total_lbp)
                         VALUES
-                          (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                          (%s, %s, %s, %s, %s,
+                           %s, %s, 1, %s,
+                           %s, %s, %s, %s,
+                           %s, %s,
+                           %s, %s, %s)
                         """,
                         (
                             line_id,
@@ -2200,6 +2342,10 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                             l.item_id,
                             batch_id,
                             l.qty,
+                            uom,
+                            l.qty,
+                            l.unit_cost_usd,
+                            l.unit_cost_lbp,
                             l.unit_cost_usd,
                             l.unit_cost_lbp,
                             l.line_total_usd,
@@ -2351,6 +2497,19 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                 )
                 receipt_id = cur.fetchone()["id"]
 
+                item_ids = sorted({str(ln.get("item_id")) for ln in (normalized or []) if ln.get("item_id")})
+                item_uom = {}
+                if item_ids:
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, item_ids),
+                    )
+                    item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
+
                 for idx, ln in enumerate(normalized or []):
                     if Decimal(str(ln.get("landed_cost_total_usd") or 0)) < 0:
                         raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_usd must be >= 0")
@@ -2359,14 +2518,21 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                     loc_id = _validate_location_for_warehouse(cur, company_id, data.warehouse_id, ln.get("location_id"), f"line {idx+1}")
                     exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
+                    uom = (item_uom.get(str(ln["item_id"])) or "EA").strip().upper()
                     cur.execute(
                         """
 	                        INSERT INTO goods_receipt_lines
-	                          (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
-	                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+	                          (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id,
+	                           qty, uom, qty_factor, qty_entered,
+	                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+	                           line_total_usd, line_total_lbp,
 	                           location_id, landed_cost_total_usd, landed_cost_total_lbp)
 	                        VALUES
-	                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+	                          (gen_random_uuid(), %s, %s, %s, %s, %s,
+	                           %s, %s, 1, %s,
+	                           %s, %s, %s, %s,
+	                           %s, %s,
+	                           %s, %s, %s)
 	                        """,
                         (
                             company_id,
@@ -2375,6 +2541,10 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                             ln["item_id"],
                             batch_id,
                             ln["qty"],
+                            uom,
+                            ln["qty"],
+                            ln["unit_cost_usd"],
+                            ln["unit_cost_lbp"],
                             ln["unit_cost_usd"],
                             ln["unit_cost_lbp"],
                             ln["line_total_usd"],
@@ -2435,6 +2605,18 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                         "DELETE FROM goods_receipt_lines WHERE company_id = %s AND goods_receipt_id = %s",
                         (company_id, receipt_id),
                     )
+                    item_ids = sorted({str(ln.get("item_id")) for ln in (normalized or []) if ln.get("item_id")})
+                    item_uom = {}
+                    if item_ids:
+                        cur.execute(
+                            """
+                            SELECT id, unit_of_measure
+                            FROM items
+                            WHERE company_id=%s AND id = ANY(%s::uuid[])
+                            """,
+                            (company_id, item_ids),
+                        )
+                        item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
                     for idx, ln in enumerate(normalized):
                         if Decimal(str(ln.get("landed_cost_total_usd") or 0)) < 0:
                             raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_usd must be >= 0")
@@ -2443,14 +2625,21 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                         loc_id = _validate_location_for_warehouse(cur, company_id, warehouse_id, ln.get("location_id"), f"line {idx+1}")
                         exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
                         batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
+                        uom = (item_uom.get(str(ln["item_id"])) or "EA").strip().upper()
                         cur.execute(
                             """
                             INSERT INTO goods_receipt_lines
-                              (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id, qty,
-                               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                              (id, company_id, goods_receipt_id, purchase_order_line_id, item_id, batch_id,
+                               qty, uom, qty_factor, qty_entered,
+                               unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                               line_total_usd, line_total_lbp,
                                location_id, landed_cost_total_usd, landed_cost_total_lbp)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s,
+                               %s, %s, 1, %s,
+                               %s, %s, %s, %s,
+                               %s, %s,
+                               %s, %s, %s)
                             """,
                             (
                                 company_id,
@@ -2459,6 +2648,10 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                                 ln["item_id"],
                                 batch_id,
                                 ln["qty"],
+                                uom,
+                                ln["qty"],
+                                ln["unit_cost_usd"],
+                                ln["unit_cost_lbp"],
                                 ln["unit_cost_usd"],
                                 ln["unit_cost_lbp"],
                                 ln["line_total_usd"],
@@ -3078,14 +3271,33 @@ def create_supplier_invoice_draft_from_receipt(
                 )
                 invoice_id = cur.fetchone()["id"]
 
+                item_ids = sorted({str(ln.get("item_id")) for ln in (inv_lines or []) if ln.get("item_id")})
+                item_uom = {}
+                if item_ids:
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, item_ids),
+                    )
+                    item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
+
                 for ln in inv_lines:
+                    uom = (item_uom.get(str(ln["item_id"])) or "EA").strip().upper()
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
-                          (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                          (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id,
+                           qty, uom, qty_factor, qty_entered,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s,
+                           %s, %s, 1, %s,
+                           %s, %s, %s, %s,
+                           %s, %s)
                         """,
                         (
                             company_id,
@@ -3094,6 +3306,10 @@ def create_supplier_invoice_draft_from_receipt(
                             ln["item_id"],
                             ln["batch_id"],
                             ln["qty"],
+                            uom,
+                            ln["qty"],
+                            ln["unit_cost_usd"],
+                            ln["unit_cost_lbp"],
                             ln["unit_cost_usd"],
                             ln["unit_cost_lbp"],
                             ln["line_total_usd"],
@@ -3190,18 +3406,38 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                 )
                 invoice_id = cur.fetchone()["id"]
 
+                item_ids = sorted({str(ln.get("item_id")) for ln in (normalized or []) if ln.get("item_id")})
+                item_uom = {}
+                if item_ids:
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, item_ids),
+                    )
+                    item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
+
                 for idx, ln in enumerate(normalized or []):
                     exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
                     _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(data.supplier_id))
+                    uom = (item_uom.get(str(ln["item_id"])) or "EA").strip().upper()
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
-                          (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                          (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id,
+                           qty, uom, qty_factor, qty_entered,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           line_total_usd, line_total_lbp,
                            supplier_item_code, supplier_item_name)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s,
+                           %s, %s, 1, %s,
+                           %s, %s, %s, %s,
+                           %s, %s,
+                           %s, %s)
                         """,
                         (
                             company_id,
@@ -3210,6 +3446,10 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                             ln["item_id"],
                             batch_id,
                             ln["qty"],
+                            uom,
+                            ln["qty"],
+                            ln["unit_cost_usd"],
+                            ln["unit_cost_lbp"],
                             ln["unit_cost_usd"],
                             ln["unit_cost_lbp"],
                             ln["line_total_usd"],
@@ -3274,18 +3514,37 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                 if 'lines' in patch:
                     normalized, base_usd, base_lbp = _compute_costed_lines(data.lines or [], exchange_rate)
                     cur.execute('DELETE FROM supplier_invoice_lines WHERE company_id=%s AND supplier_invoice_id=%s', (company_id, invoice_id))
+                    item_ids = sorted({str(ln.get("item_id")) for ln in (normalized or []) if ln.get("item_id")})
+                    item_uom = {}
+                    if item_ids:
+                        cur.execute(
+                            """
+                            SELECT id, unit_of_measure
+                            FROM items
+                            WHERE company_id=%s AND id = ANY(%s::uuid[])
+                            """,
+                            (company_id, item_ids),
+                        )
+                        item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
                     for idx, ln in enumerate(normalized or []):
                         exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
                         batch_id = _get_or_create_batch(cur, company_id, ln['item_id'], ln.get('batch_no'), exp)
                         _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(supplier_id or "") or None)
+                        uom = (item_uom.get(str(ln["item_id"])) or "EA").strip().upper()
                         cur.execute(
                             """
                             INSERT INTO supplier_invoice_lines
-                              (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
-                               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+                              (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id,
+                               qty, uom, qty_factor, qty_entered,
+                               unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                               line_total_usd, line_total_lbp,
                                supplier_item_code, supplier_item_name)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s,
+                               %s, %s, 1, %s,
+                               %s, %s, %s, %s,
+                               %s, %s,
+                               %s, %s)
                             """,
                             (
                                 company_id,
@@ -3294,6 +3553,10 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                                 ln['item_id'],
                                 batch_id,
                                 ln['qty'],
+                                uom,
+                                ln["qty"],
+                                ln['unit_cost_usd'],
+                                ln['unit_cost_lbp'],
                                 ln['unit_cost_usd'],
                                 ln['unit_cost_lbp'],
                                 ln['line_total_usd'],
@@ -4291,17 +4554,36 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                 )
                 invoice_id = cur.fetchone()["id"]
 
+                item_ids = sorted({str(l.item_id) for l in (data.lines or []) if getattr(l, "item_id", None)})
+                item_uom = {}
+                if item_ids:
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, item_ids),
+                    )
+                    item_uom = {str(r["id"]): (r.get("unit_of_measure") or "EA") for r in cur.fetchall()}
+
                 for idx, l in enumerate(data.lines):
                     exp = _enforce_item_tracking(cur, company_id, l.item_id, l.batch_no, l.expiry_date, f"line {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, exp)
                     _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(data.supplier_id))
+                    uom = (item_uom.get(str(l.item_id)) or "EA").strip().upper()
                     cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
-                          (id, company_id, supplier_invoice_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                          (id, company_id, supplier_invoice_id, item_id, batch_id,
+                           qty, uom, qty_factor, qty_entered,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s,
+                           %s, %s, 1, %s,
+                           %s, %s, %s, %s,
+                           %s, %s)
                         """,
                         (
                             company_id,
@@ -4309,6 +4591,10 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                             l.item_id,
                             batch_id,
                             l.qty,
+                            uom,
+                            l.qty,
+                            l.unit_cost_usd,
+                            l.unit_cost_lbp,
                             l.unit_cost_usd,
                             l.unit_cost_lbp,
                             l.line_total_usd,

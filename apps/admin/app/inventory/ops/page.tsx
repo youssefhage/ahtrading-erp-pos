@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
 import { SearchableSelect } from "@/components/searchable-select";
+import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -576,40 +577,55 @@ export default function InventoryOpsPage() {
                         </div>
 
                         {openingErrors ? (
-                          <div className="rounded-md border border-danger/30 bg-danger/10 p-3">
-                            <p className="text-xs font-semibold text-danger">CSV errors</p>
-                            <pre className="mt-2 whitespace-pre-wrap text-xs text-danger">{openingErrors}</pre>
-                          </div>
+                          <Banner
+                            variant="danger"
+                            size="sm"
+                            title="CSV errors"
+                            description="Fix the issues below and try again."
+                          >
+                            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-danger/20 bg-danger/5 p-2 text-[11px] leading-4 text-danger">
+                              {openingErrors}
+                            </pre>
+                          </Banner>
                         ) : null}
 
                         {openingResult ? (
-                          <div className="rounded-md border border-success/30 bg-success/10 p-3">
-                            <p className="text-xs font-semibold text-success">Import result</p>
-                            <div className="mt-2 space-y-1 text-xs text-success">
-                              <div>
-                                Import ID: <span className="font-mono">{openingResult.import_id}</span>
+                          <Banner
+                            variant={openingResult.already_applied ? "info" : "success"}
+                            size="sm"
+                            title="Import result"
+                            description={openingResult.already_applied ? "This import ID was already applied." : "Import applied successfully."}
+                          >
+                            <dl className="grid grid-cols-1 gap-1 text-xs text-fg-muted">
+                              <div className="flex items-center justify-between gap-2">
+                                <dt>Import ID</dt>
+                                <dd className="font-mono text-foreground">{openingResult.import_id}</dd>
                               </div>
-                              <div>
-                                Status:{" "}
-                                <span className="font-medium">{openingResult.already_applied ? "Already applied" : "Applied"}</span>
+                              <div className="flex items-center justify-between gap-2">
+                                <dt>Status</dt>
+                                <dd className="font-medium text-foreground">
+                                  {openingResult.already_applied ? "Already applied" : "Applied"}
+                                </dd>
                               </div>
                               {openingResult.journal_id ? (
-                                <div>
-                                  Journal: <span className="font-mono">{openingResult.journal_id}</span>
+                                <div className="flex items-center justify-between gap-2">
+                                  <dt>Journal</dt>
+                                  <dd className="font-mono text-foreground">{openingResult.journal_id}</dd>
                                 </div>
                               ) : null}
-                              {openingResult.warnings?.length ? (
-                                <div className="mt-2">
-                                  <p className="text-xs font-semibold">Warnings</p>
-                                  <ul className="mt-1 list-disc pl-5 text-xs">
-                                    {openingResult.warnings.map((w, i) => (
-                                      <li key={i}>{w}</li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              ) : null}
-                            </div>
-                          </div>
+                            </dl>
+
+                            {openingResult.warnings?.length ? (
+                              <div className="mt-2">
+                                <div className="text-xs font-semibold text-foreground">Warnings</div>
+                                <ul className="mt-1 list-disc pl-5 text-xs text-fg-muted">
+                                  {openingResult.warnings.map((w, i) => (
+                                    <li key={i}>{w}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
+                          </Banner>
                         ) : null}
                       </div>
                     </div>

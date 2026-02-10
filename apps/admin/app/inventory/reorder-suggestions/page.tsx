@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { getFxRateUsdToLbp } from "@/lib/fx";
 import { cn } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
@@ -78,13 +79,10 @@ export default function ReorderSuggestionsPage() {
 
   const primeExchangeRate = useCallback(async () => {
     try {
-      const res = await apiGet<{ rates: RateRow[] }>("/config/exchange-rates");
-      const rates = res.rates || [];
       const today = new Date().toISOString().slice(0, 10);
-      const exact = rates.find((r) => r.rate_type === "market" && r.rate_date === today);
-      const latest = rates.find((r) => r.rate_type === "market");
-      const rate = exact?.usd_to_lbp ?? latest?.usd_to_lbp ?? 0;
-      if (rate && rate > 0) setExchangeRate(String(rate));
+      const r = await getFxRateUsdToLbp({ rateDate: today, rateType: "market" });
+      const rate = Number(r?.usd_to_lbp || 0);
+      if (Number.isFinite(rate) && rate > 0) setExchangeRate(String(rate));
     } catch {
       // ignore
     }
@@ -347,4 +345,3 @@ export default function ReorderSuggestionsPage() {
     </div>
   );
 }
-

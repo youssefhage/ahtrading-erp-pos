@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { getFxRateUsdToLbp } from "@/lib/fx";
 import { parseNumberInput } from "@/lib/numbers";
 import { fmtUsd } from "@/lib/money";
 
@@ -63,6 +64,20 @@ function Inner() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function prime() {
+      const r = await getFxRateUsdToLbp();
+      if (cancelled) return;
+      const n = Number(r?.usd_to_lbp || 0);
+      if (Number.isFinite(n) && n > 0) setExchangeRate(String(n));
+    }
+    prime().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function updateLine(i: number, patch: Partial<Line>) {
     setLines((prev) => prev.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));

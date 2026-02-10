@@ -20,14 +20,14 @@ function setStatus(msg) {
 
 function load() {
   const saved = localStorage.getItem(KEY) || "";
-  el("serverUrl").value = saved;
+  el("serverUrl").value = saved || "https://app.melqard.com";
   setStatus("");
 }
 
 function reset() {
   localStorage.removeItem(KEY);
   el("serverUrl").value = "";
-  setStatus("Cleared. Enter the edge Admin URL (ex: http://192.168.1.50:3000).");
+  setStatus("Cleared. Enter the Portal URL (cloud: https://app.melqard.com, or later the Edge portal URL on LAN).");
 }
 
 async function openAdmin() {

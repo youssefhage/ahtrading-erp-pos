@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { getFxRateUsdToLbp } from "@/lib/fx";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
@@ -100,12 +101,9 @@ export default function JournalTemplateDetailPage() {
 
   const primeExchangeRate = useCallback(async (nextDate: string, nextRateType: string) => {
     try {
-      const res = await apiGet<{ rates: RateRow[] }>("/config/exchange-rates");
-      const rates = res.rates || [];
-      const exact = rates.find((r) => r.rate_type === nextRateType && r.rate_date === nextDate);
-      const latestSameType = rates.find((r) => r.rate_type === nextRateType);
-      const rate = exact?.usd_to_lbp ?? latestSameType?.usd_to_lbp ?? 0;
-      setExchangeRate(String(rate));
+      const r = await getFxRateUsdToLbp({ rateDate: nextDate, rateType: nextRateType });
+      const rate = Number(r?.usd_to_lbp || 0);
+      if (Number.isFinite(rate) && rate > 0) setExchangeRate(String(rate));
     } catch {
       // ignore
     }
@@ -288,4 +286,3 @@ export default function JournalTemplateDetailPage() {
     </div>
   );
 }
-

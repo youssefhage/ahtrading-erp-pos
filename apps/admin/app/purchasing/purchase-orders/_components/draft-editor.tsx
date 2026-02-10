@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
+import { getFxRateUsdToLbp } from "@/lib/fx";
 import { parseNumberInput } from "@/lib/numbers";
 import { getDefaultWarehouseId } from "@/lib/op-context";
 import { ErrorBanner } from "@/components/error-banner";
@@ -85,9 +86,13 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
     setLoading(true);
     setErr(null);
     try {
-      const w = await apiGet<{ warehouses: Warehouse[] }>("/warehouses");
+      const [w, fx] = await Promise.all([
+        apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
+        getFxRateUsdToLbp(),
+      ]);
       const whs = w.warehouses || [];
       setWarehouses(whs);
+      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 90000;
       const preferredWarehouseId = (() => {
         const cid = getCompanyId();
         const pref = getDefaultWarehouseId(cid);
@@ -101,7 +106,8 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
         if (det.order.status !== "draft") throw new Error("Only draft purchase orders can be edited.");
         setSupplierId(det.order.supplier_id || "");
         setWarehouseId((det.order as any).warehouse_id || preferredWarehouseId || whs?.[0]?.id || "");
-        setExchangeRate(String(det.order.exchange_rate || 0));
+        const ex = Number(det.order.exchange_rate || 0);
+        setExchangeRate(String(ex > 0 ? ex : defaultEx));
         setSupplierRef(String((det.order as any).supplier_ref || ""));
         setExpectedDeliveryDate(String((det.order as any).expected_delivery_date || ""));
 
@@ -139,7 +145,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
         setSupplierId("");
         setSupplierLabel("");
         setWarehouseId(preferredWarehouseId || whs?.[0]?.id || "");
-        setExchangeRate("90000");
+        setExchangeRate(String(defaultEx));
         setSupplierRef("");
         setExpectedDeliveryDate("");
         setLines([]);

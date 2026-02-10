@@ -3,8 +3,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { X } from "lucide-react";
 
+import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 type ToastKind = "success" | "error" | "info";
 
@@ -74,41 +74,32 @@ export function ToastProvider(props: { children: React.ReactNode }) {
       {props.children}
       <div className="pointer-events-none fixed right-4 top-4 z-[100] w-[360px] max-w-[calc(100vw-2rem)] space-y-2">
         {toasts.map((t) => {
-          const tone =
-            t.kind === "success"
-              ? "border-success/25 bg-success/10"
-              : t.kind === "error"
-                ? "border-danger/25 bg-danger/10"
-                : "border-border bg-bg-elevated";
+          const variant =
+            t.kind === "success" ? "success" : t.kind === "error" ? "danger" : "info";
           return (
             <div
               key={t.id}
-              role="status"
-              aria-live="polite"
-              className={cn(
-                "pointer-events-auto overflow-hidden rounded-lg border shadow-sm backdrop-blur-sm",
-                "animate-in fade-in slide-in-from-top-1 duration-200",
-                tone
-              )}
             >
-              <div className="flex items-start justify-between gap-3 p-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-foreground">{t.title}</div>
-                  {t.message ? (
-                    <div className="mt-0.5 text-xs text-fg-muted">{t.message}</div>
-                  ) : null}
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0 text-fg-subtle hover:text-foreground"
-                  onClick={() => remove(t.id)}
-                  title="Dismiss"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+              <Banner
+                role="status"
+                size="sm"
+                variant={variant}
+                title={t.title}
+                description={t.message}
+                className="pointer-events-auto backdrop-blur-sm animate-in fade-in slide-in-from-top-1 duration-200"
+                actions={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0 text-fg-subtle hover:text-foreground"
+                    onClick={() => remove(t.id)}
+                    title="Dismiss"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                }
+              />
             </div>
           );
         })}
@@ -130,4 +121,3 @@ export function useToast(): ToastApi {
   }
   return ctx;
 }
-

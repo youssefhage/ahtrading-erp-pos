@@ -305,6 +305,12 @@ def init_db():
         for col, ddl in item_wanted.items():
             if col not in item_cols:
                 cur.execute(f"ALTER TABLE local_items_cache ADD COLUMN {col} {ddl}")
+
+        # Barcodes cache: persist barcode UOM code for pack/alt-UOM scans.
+        cur.execute("PRAGMA table_info(local_item_barcodes_cache)")
+        bc_cols = {r[1] for r in cur.fetchall()}
+        if "uom_code" not in bc_cols:
+            cur.execute("ALTER TABLE local_item_barcodes_cache ADD COLUMN uom_code TEXT")
         conn.commit()
 
 
@@ -580,7 +586,7 @@ def get_barcodes():
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, item_id, barcode, qty_factor, label, is_primary
+            SELECT id, item_id, barcode, uom_code, qty_factor, label, is_primary
             FROM local_item_barcodes_cache
             ORDER BY is_primary DESC, updated_at DESC
             """
@@ -1146,11 +1152,12 @@ def upsert_catalog(items):
             for b in (it.get("barcodes") or []):
                 cur.execute(
                     """
-                    INSERT INTO local_item_barcodes_cache (id, item_id, barcode, qty_factor, label, is_primary, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO local_item_barcodes_cache (id, item_id, barcode, uom_code, qty_factor, label, is_primary, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                       item_id=excluded.item_id,
                       barcode=excluded.barcode,
+                      uom_code=excluded.uom_code,
                       qty_factor=excluded.qty_factor,
                       label=excluded.label,
                       is_primary=excluded.is_primary,
@@ -1160,6 +1167,7 @@ def upsert_catalog(items):
                         b.get("id") or f"bc-{it.get('id')}-{b.get('barcode')}",
                         it.get("id"),
                         b.get("barcode"),
+                        (b.get("uom_code") or b.get("uom") or None),
                         float(b.get("qty_factor") or 1),
                         b.get("label"),
                         1 if b.get("is_primary") else 0,
@@ -1262,7 +1270,22 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
     base_usd = 0
     base_lbp = 0
     for item in cart:
-        qty = item['qty']
+        # UOM-aware payload:
+        # - qty is base qty (what inventory moves use)
+        # - qty_entered + uom + qty_factor preserve what the cashier entered/scanned
+        qty_factor = float(item.get("qty_factor") or 1) or 1.0
+        if qty_factor <= 0:
+            qty_factor = 1.0
+        qty = float(item.get("qty_base") or item.get("qty") or 0)  # base qty (legacy)
+        qty_entered = item.get("qty_entered")
+        if qty_entered is None:
+            qty_entered = (qty / qty_factor) if qty_factor else qty
+        qty_entered = float(qty_entered or 0)
+        if qty <= 0:
+            # Newer POS UI may only send qty_entered + qty_factor.
+            qty = qty_entered * qty_factor
+        uom = (item.get("uom") or item.get("uom_code") or item.get("unit_of_measure") or None)
+
         unit_price_usd = item.get('price_usd', 0)
         unit_price_lbp = item.get('price_lbp', 0)
         line_total_usd = unit_price_usd * qty
@@ -1276,14 +1299,28 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
         lines.append({
             'item_id': item['id'],
             'qty': qty,
+            'uom': uom,
+            'qty_factor': qty_factor,
+            'qty_entered': qty_entered,
             'unit_price_usd': unit_price_usd,
             'unit_price_lbp': unit_price_lbp,
+            'unit_price_entered_usd': unit_price_usd * qty_factor,
+            'unit_price_entered_lbp': unit_price_lbp * qty_factor,
             'line_total_usd': line_total_usd,
             'line_total_lbp': line_total_lbp,
             'unit_cost_usd': 0,
             'unit_cost_lbp': 0,
             'batch_no': item.get('batch_no') or None,
-            'expiry_date': item.get('expiry_date') or None
+            'expiry_date': item.get('expiry_date') or None,
+            # Commercial metadata (optional; worker is backward compatible).
+            'pre_discount_unit_price_usd': float(item.get('pre_discount_unit_price_usd') or item.get('base_price_usd') or 0),
+            'pre_discount_unit_price_lbp': float(item.get('pre_discount_unit_price_lbp') or item.get('base_price_lbp') or 0),
+            'discount_pct': float(item.get('discount_pct') or 0),
+            'discount_amount_usd': float(item.get('discount_amount_usd') or 0),
+            'discount_amount_lbp': float(item.get('discount_amount_lbp') or 0),
+            'applied_promotion_id': item.get('applied_promotion_id') or None,
+            'applied_promotion_item_id': item.get('applied_promotion_item_id') or None,
+            'applied_price_list_id': item.get('applied_price_list_id') or config.get("default_price_list_id") or None,
         })
 
     tax_block = None
@@ -1335,7 +1372,18 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
     base_usd = 0
     base_lbp = 0
     for item in cart:
-        qty = item['qty']
+        qty_factor = float(item.get("qty_factor") or 1) or 1.0
+        if qty_factor <= 0:
+            qty_factor = 1.0
+        qty = float(item.get("qty_base") or item.get("qty") or 0)  # base qty (legacy)
+        qty_entered = item.get("qty_entered")
+        if qty_entered is None:
+            qty_entered = (qty / qty_factor) if qty_factor else qty
+        qty_entered = float(qty_entered or 0)
+        if qty <= 0:
+            qty = qty_entered * qty_factor
+        uom = (item.get("uom") or item.get("uom_code") or item.get("unit_of_measure") or None)
+
         unit_price_usd = item.get('price_usd', 0)
         unit_price_lbp = item.get('price_lbp', 0)
         line_total_usd = unit_price_usd * qty
@@ -1349,8 +1397,13 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
         lines.append({
             'item_id': item['id'],
             'qty': qty,
+            'uom': uom,
+            'qty_factor': qty_factor,
+            'qty_entered': qty_entered,
             'unit_price_usd': unit_price_usd,
             'unit_price_lbp': unit_price_lbp,
+            'unit_price_entered_usd': unit_price_usd * qty_factor,
+            'unit_price_entered_lbp': unit_price_lbp * qty_factor,
             'line_total_usd': line_total_usd,
             'line_total_lbp': line_total_lbp,
             'unit_cost_usd': 0,
@@ -1906,6 +1959,8 @@ class Handler(BaseHTTPRequestHandler):
                 pos_cfg = fetch_json(f"{base}/pos/config", headers=headers)
                 if pos_cfg.get('default_warehouse_id'):
                     cfg['warehouse_id'] = pos_cfg['default_warehouse_id']
+                if pos_cfg.get("default_price_list_id"):
+                    cfg["default_price_list_id"] = pos_cfg.get("default_price_list_id")
                 if isinstance(pos_cfg.get("inventory_policy"), dict):
                     cfg["inventory_policy"] = pos_cfg.get("inventory_policy") or {}
                 vat = pos_cfg.get('vat') or {}

@@ -369,16 +369,17 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
                     LIMIT 1
                 ) p ON true
                 LEFT JOIN LATERAL (
-                    SELECT jsonb_agg(
-                        jsonb_build_object(
-                          'id', b.id,
-                          'barcode', b.barcode,
-                          'qty_factor', b.qty_factor,
-                          'label', b.label,
-                          'is_primary', b.is_primary
-                        )
-                        ORDER BY b.is_primary DESC, b.created_at ASC
-                    ) AS barcodes
+	                    SELECT jsonb_agg(
+	                        jsonb_build_object(
+	                          'id', b.id,
+	                          'barcode', b.barcode,
+	                          'qty_factor', b.qty_factor,
+	                          'uom_code', b.uom_code,
+	                          'label', b.label,
+	                          'is_primary', b.is_primary
+	                        )
+	                        ORDER BY b.is_primary DESC, b.created_at ASC
+	                    ) AS barcodes
                     FROM item_barcodes b
                     WHERE b.company_id = i.company_id AND b.item_id = i.id
                 ) bc ON true
@@ -474,16 +475,17 @@ def catalog_delta(
                       WHERE b.company_id = i.company_id AND b.item_id = i.id
                   ) bm ON true
                   LEFT JOIN LATERAL (
-                      SELECT jsonb_agg(
-                          jsonb_build_object(
-                            'id', b.id,
-                            'barcode', b.barcode,
-                            'qty_factor', b.qty_factor,
-                            'label', b.label,
-                            'is_primary', b.is_primary
-                          )
-                          ORDER BY b.is_primary DESC, b.created_at ASC
-                      ) AS barcodes
+	                      SELECT jsonb_agg(
+	                          jsonb_build_object(
+	                            'id', b.id,
+	                            'barcode', b.barcode,
+	                            'qty_factor', b.qty_factor,
+	                            'uom_code', b.uom_code,
+	                            'label', b.label,
+	                            'is_primary', b.is_primary
+	                          )
+	                          ORDER BY b.is_primary DESC, b.created_at ASC
+	                      ) AS barcodes
                       FROM item_barcodes b
                       WHERE b.company_id = i.company_id AND b.item_id = i.id
                   ) bc ON true
