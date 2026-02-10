@@ -11,7 +11,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Pilot reset: use a fresh volume so we start from an empty DB.
+      - pgdata_pilot_20260210:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
       interval: 5s
@@ -141,7 +142,7 @@ services:
       - dokploy
 
 volumes:
-  pgdata:
+  pgdata_pilot_20260210:
   downloads_updates:
 
 networks:
