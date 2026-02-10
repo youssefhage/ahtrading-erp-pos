@@ -59,12 +59,17 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
     init.body = req.body;
   }
 
-  const upstream = await fetch(upstreamUrl, init);
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers: copyHeaders(upstream),
-  });
+  try {
+    const upstream = await fetch(upstreamUrl, init);
+    return new Response(upstream.body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: copyHeaders(upstream),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return Response.json({ ok: false, error: msg, upstream_url: upstreamUrl }, { status: 502 });
+  }
 }
 
 export const GET = proxy;
