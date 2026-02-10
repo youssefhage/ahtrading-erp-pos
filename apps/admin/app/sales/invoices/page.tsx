@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { DataTableTabs } from "@/components/data-table-tabs";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { StatusChip } from "@/components/ui/status-chip";
 
 type InvoiceRow = {
@@ -40,7 +41,7 @@ function SalesInvoicesListInner() {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
 
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(0);
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
@@ -85,30 +86,89 @@ function SalesInvoicesListInner() {
   const canPrev = page > 0;
   const canNext = total == null ? invoices.length === pageSize : offset + invoices.length < total;
 
+  const columns = useMemo((): Array<DataTableColumn<InvoiceRow>> => {
+    return [
+      {
+        id: "invoice",
+        header: "Invoice",
+        globalSearch: true,
+        cell: (inv) => (
+          <div>
+            <div className="data-mono text-xs text-foreground">
+              <ShortcutLink href={`/sales/invoices/${encodeURIComponent(inv.id)}`} title="Open invoice">
+                {inv.invoice_no || "(draft)"}
+              </ShortcutLink>
+            </div>
+            <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
+          </div>
+        ),
+      },
+      {
+        id: "customer",
+        header: "Customer",
+        accessor: (inv) => inv.customer_name || inv.customer_id || "",
+        cell: (inv) =>
+          inv.customer_id ? (
+            <ShortcutLink href={`/partners/customers/${encodeURIComponent(inv.customer_id)}`} title="Open customer">
+              {inv.customer_name || inv.customer_id}
+            </ShortcutLink>
+          ) : (
+            "Walk-in"
+          ),
+      },
+      {
+        id: "warehouse",
+        header: "Warehouse",
+        accessor: (inv) => inv.warehouse_name || inv.warehouse_id || "",
+        cell: (inv) => inv.warehouse_name || inv.warehouse_id || "-",
+      },
+      {
+        id: "status",
+        header: "Status",
+        accessor: (inv) => inv.status,
+        cell: (inv) => <StatusChip value={inv.status} />,
+      },
+      {
+        id: "dates",
+        header: "Dates",
+        accessor: (inv) => `${inv.invoice_date || ""} ${inv.due_date || ""}`,
+        cell: (inv) => (
+          <div className="text-xs text-fg-muted">
+            <div>
+              Inv: <span className="data-mono">{fmtIso(inv.invoice_date)}</span>
+            </div>
+            <div className="text-fg-subtle">
+              Due: <span className="data-mono">{fmtIso(inv.due_date)}</span>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "total_usd",
+        header: "Total USD",
+        accessor: (inv) => inv.total_usd,
+        sortable: true,
+        align: "right",
+        mono: true,
+        cellClassName: "ui-tone-usd text-xs",
+        cell: (inv) => fmtUsd(inv.total_usd),
+      },
+      {
+        id: "total_lbp",
+        header: "Total LL",
+        accessor: (inv) => inv.total_lbp,
+        sortable: true,
+        align: "right",
+        mono: true,
+        cellClassName: "ui-tone-lbp text-xs",
+        cell: (inv) => fmtLbp(inv.total_lbp),
+      },
+    ];
+  }, []);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
-
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="w-full md:w-96">
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search invoice / customer / warehouse..." />
-          </div>
-          <select className="ui-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="">All statuses</option>
-            <option value="draft">Draft</option>
-            <option value="posted">Posted</option>
-            <option value="canceled">Canceled</option>
-          </select>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" onClick={load} disabled={loading}>
-            {loading ? "..." : "Refresh"}
-          </Button>
-          <Button onClick={() => router.push("/sales/invoices/new")}>New Draft</Button>
-        </div>
-      </div>
 
       <Card>
         <CardHeader>
@@ -119,101 +179,46 @@ function SalesInvoicesListInner() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Invoice</th>
-                  <th className="px-3 py-2">Customer</th>
-                  <th className="px-3 py-2">Warehouse</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Dates</th>
-                  <th className="px-3 py-2 text-right">Total USD</th>
-                  <th className="px-3 py-2 text-right">Total LL</th>
-                </tr>
-              </thead>
-              <tbody className={loading ? "opacity-70" : ""}>
-                {invoices.map((inv) => (
-                  <tr
-                    key={inv.id}
-                    className="ui-tr ui-tr-hover cursor-pointer"
-                    onClick={() => router.push(`/sales/invoices/${inv.id}`)}
-                  >
-                    <td className="px-3 py-2">
-                      <div className="data-mono text-xs text-foreground">
-                        <ShortcutLink href={`/sales/invoices/${encodeURIComponent(inv.id)}`} title="Open invoice">
-                          {inv.invoice_no || "(draft)"}
-                        </ShortcutLink>
-                      </div>
-                      <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
-                    </td>
-                    <td className="px-3 py-2">
-                      {inv.customer_id ? (
-                        <ShortcutLink href={`/partners/customers/${encodeURIComponent(inv.customer_id)}`} title="Open customer">
-                          {inv.customer_name || inv.customer_id}
-                        </ShortcutLink>
-                      ) : (
-                        "Walk-in"
-                      )}
-                    </td>
-                    <td className="px-3 py-2">{inv.warehouse_name || inv.warehouse_id || "-"}</td>
-                    <td className="px-3 py-2">
-                      <StatusChip value={inv.status} />
-                    </td>
-                    <td className="px-3 py-2 text-xs text-fg-muted">
-                      <div>
-                        Inv: <span className="data-mono">{fmtIso(inv.invoice_date)}</span>
-                      </div>
-                      <div className="text-fg-subtle">
-                        Due: <span className="data-mono">{fmtIso(inv.due_date)}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs ui-tone-usd">
-                      {fmtUsd(inv.total_usd)}
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs ui-tone-lbp">
-                      {fmtLbp(inv.total_lbp)}
-                    </td>
-                  </tr>
-                ))}
-                {invoices.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-8 text-center text-fg-subtle" colSpan={7}>
-                      No invoices.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-xs text-fg-muted">
-              Page <span className="data-mono">{page + 1}</span>
-              {total != null ? (
-                <>
-                  {" "}
-                  · Showing{" "}
-                  <span className="data-mono">
-                    {Math.min(total, offset + 1).toLocaleString("en-US")}–{Math.min(total, offset + invoices.length).toLocaleString("en-US")}
-                  </span>
-                </>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <select className="ui-select" value={String(pageSize)} onChange={(e) => setPageSize(Number(e.target.value || 50))}>
-                <option value="25">25 / page</option>
-                <option value="50">50 / page</option>
-                <option value="100">100 / page</option>
-              </select>
-              <Button variant="outline" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={!canPrev || loading}>
-                Prev
-              </Button>
-              <Button variant="outline" onClick={() => setPage((p) => p + 1)} disabled={!canNext || loading}>
-                Next
-              </Button>
-            </div>
-          </div>
+          <DataTable
+            tableId="sales.invoices"
+            rows={invoices}
+            columns={columns}
+            onRowClick={(inv) => router.push(`/sales/invoices/${inv.id}`)}
+            emptyText="No invoices."
+            isLoading={loading}
+            headerSlot={
+              <DataTableTabs
+                value={statusFilter || "all"}
+                onChange={(v) => setStatusFilter(v === "all" ? "" : v)}
+                tabs={[
+                  { value: "all", label: "All" },
+                  { value: "draft", label: "Draft" },
+                  { value: "posted", label: "Posted" },
+                  { value: "canceled", label: "Canceled" },
+                ]}
+              />
+            }
+            globalFilterPlaceholder="Search invoice / customer / warehouse..."
+            globalFilterValue={q}
+            onGlobalFilterValueChange={setQ}
+            serverPagination={{
+              page,
+              pageSize,
+              total,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+            }}
+            actions={
+              <>
+                <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+                  {loading ? "..." : "Refresh"}
+                </Button>
+                <Button size="sm" onClick={() => router.push("/sales/invoices/new")}>
+                  New Draft
+                </Button>
+              </>
+            }
+          />
         </CardContent>
       </Card>
     </div>

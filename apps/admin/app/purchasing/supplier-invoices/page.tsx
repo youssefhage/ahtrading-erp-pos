@@ -6,11 +6,12 @@ import { Paperclip } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { DataTableTabs } from "@/components/data-table-tabs";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { StatusChip } from "@/components/ui/status-chip";
 
 type InvoiceRow = {
@@ -55,7 +56,7 @@ function SupplierInvoicesListInner() {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
 
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(0);
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
@@ -109,6 +110,180 @@ function SupplierInvoicesListInner() {
   const aiHold = aiApGuard.filter((r) => (r as any)?.recommendation_json?.kind === "supplier_invoice_hold");
   const aiDue = aiApGuard.filter((r) => (r as any)?.recommendation_json?.kind === "supplier_invoice_due_soon");
 
+  const aiRows = useMemo(() => aiApGuard.slice(0, 8), [aiApGuard]);
+
+  const aiCols = useMemo((): Array<DataTableColumn<AiRecRow>> => {
+    return [
+      {
+        id: "type",
+        header: "Type",
+        accessor: (r) => String((r as any)?.recommendation_json?.kind || ""),
+        cell: (r) => <span className="font-mono text-xs text-fg-muted">{String((r as any)?.recommendation_json?.kind || "-")}</span>,
+        mono: true,
+      },
+      {
+        id: "invoice",
+        header: "Invoice",
+        accessor: (r) => String((r as any)?.recommendation_json?.invoice_no || ""),
+        cell: (r) => {
+          const j = (r as any).recommendation_json || {};
+          return (
+            <div>
+              <div className="data-mono text-xs text-foreground">{j.invoice_no || "(draft)"}</div>
+              {j.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {j.supplier_ref}</div> : null}
+            </div>
+          );
+        },
+      },
+      {
+        id: "supplier",
+        header: "Supplier",
+        accessor: (r) => String((r as any)?.recommendation_json?.supplier_name || (r as any)?.recommendation_json?.supplier_id || ""),
+        cell: (r) => {
+          const j = (r as any).recommendation_json || {};
+          return <span className="text-xs">{j.supplier_name || j.supplier_id || "-"}</span>;
+        },
+      },
+      {
+        id: "detail",
+        header: "Detail",
+        accessor: (r) => JSON.stringify((r as any)?.recommendation_json || {}),
+        cell: (r) => {
+          const j = (r as any).recommendation_json || {};
+          const kind = String(j.kind || "");
+          return (
+            <div className="text-xs text-fg-muted">
+              {kind === "supplier_invoice_hold" ? (
+                <span>{j.hold_reason || "On hold"}</span>
+              ) : kind === "supplier_invoice_due_soon" ? (
+                <span>
+                  Due: <span className="data-mono text-xs">{fmtIso(j.due_date)}</span> · Outstanding USD{" "}
+                  <span className="data-mono text-xs">{String(j.outstanding_usd || "0")}</span>
+                </span>
+              ) : (
+                <span className="data-mono text-xs">{j.key || "-"}</span>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        id: "created",
+        header: "Created",
+        accessor: (r) => r.created_at,
+        cell: (r) => <span className="font-mono text-xs text-fg-muted">{String(r.created_at || "").slice(0, 19)}</span>,
+        mono: true,
+      },
+    ];
+  }, []);
+
+  const cols = useMemo((): Array<DataTableColumn<InvoiceRow>> => {
+    return [
+      {
+        id: "invoice",
+        header: "Invoice",
+        accessor: (inv) => inv.invoice_no || "",
+        cell: (inv) => (
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="data-mono text-xs text-foreground">
+                <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(inv.id)}`} title="Open supplier invoice">
+                  {inv.invoice_no || "(draft)"}
+                </ShortcutLink>
+              </div>
+              {Number(inv.attachment_count || 0) > 0 ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-muted px-2 py-0.5 text-[10px] text-fg-muted">
+                  <Paperclip className="h-3 w-3" />
+                  {Number(inv.attachment_count || 0)}
+                </span>
+              ) : null}
+            </div>
+            {inv.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {inv.supplier_ref}</div> : null}
+            <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
+          </div>
+        ),
+      },
+      {
+        id: "supplier",
+        header: "Supplier",
+        accessor: (inv) => inv.supplier_name || inv.supplier_id || "",
+        cell: (inv) =>
+          inv.supplier_id ? (
+            <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(inv.supplier_id)}`} title="Open supplier">
+              {inv.supplier_name || inv.supplier_id}
+            </ShortcutLink>
+          ) : (
+            "-"
+          ),
+      },
+      {
+        id: "gr",
+        header: "GR",
+        accessor: (inv) => inv.goods_receipt_no || inv.goods_receipt_id || "",
+        cell: (inv) =>
+          inv.goods_receipt_id ? (
+            <ShortcutLink href={`/purchasing/goods-receipts/${encodeURIComponent(inv.goods_receipt_id)}`} title="Open goods receipt" className="font-mono text-xs">
+              {inv.goods_receipt_no || inv.goods_receipt_id.slice(0, 8)}
+            </ShortcutLink>
+          ) : (
+            <span className="text-xs text-fg-muted">{inv.goods_receipt_no || "-"}</span>
+          ),
+      },
+      {
+        id: "status",
+        header: "Status",
+        accessor: (inv) => inv.status,
+        cell: (inv) => (
+          <div>
+            <StatusChip value={inv.status} />
+            {inv.is_on_hold ? (
+              <div className="mt-1">
+                <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
+                  HOLD{inv.hold_reason ? `: ${inv.hold_reason}` : ""}
+                </span>
+              </div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: "dates",
+        header: "Dates",
+        accessor: (inv) => `${inv.invoice_date || ""} ${inv.due_date || ""}`,
+        cell: (inv) => (
+          <div className="text-xs text-fg-muted">
+            <div>
+              Inv: <span className="data-mono">{fmtIso(inv.invoice_date)}</span>
+            </div>
+            <div className="text-fg-subtle">
+              Due: <span className="data-mono">{fmtIso(inv.due_date)}</span>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "total_usd",
+        header: "Total USD",
+        accessor: (inv) => inv.total_usd,
+        sortable: true,
+        align: "right",
+        mono: true,
+        cellClassName: "ui-tone-usd text-xs",
+        cell: (inv) => fmtUsd(inv.total_usd),
+      },
+      {
+        id: "total_lbp",
+        header: "Total LL",
+        accessor: (inv) => inv.total_lbp,
+        sortable: true,
+        align: "right",
+        mono: true,
+        cellClassName: "ui-tone-lbp text-xs",
+        cell: (inv) => fmtLbp(inv.total_lbp),
+      },
+    ];
+  }, []);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
@@ -122,48 +297,14 @@ function SupplierInvoicesListInner() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Type</th>
-                    <th className="px-3 py-2">Invoice</th>
-                    <th className="px-3 py-2">Supplier</th>
-                    <th className="px-3 py-2">Detail</th>
-                    <th className="px-3 py-2">Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {aiApGuard.slice(0, 8).map((r) => {
-                    const j = (r as any).recommendation_json || {};
-                    const kind = String(j.kind || "");
-                    return (
-                      <tr key={r.id} className="border-t border-border-subtle align-top">
-                        <td className="px-3 py-2 font-mono text-xs text-fg-muted">{kind || "-"}</td>
-                        <td className="px-3 py-2">
-                          <div className="data-mono text-xs text-foreground">{j.invoice_no || "(draft)"}</div>
-                          {j.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {j.supplier_ref}</div> : null}
-                        </td>
-                        <td className="px-3 py-2 text-xs">{j.supplier_name || j.supplier_id || "-"}</td>
-                        <td className="px-3 py-2 text-xs text-fg-muted">
-                          {kind === "supplier_invoice_hold" ? (
-                            <span>{j.hold_reason || "On hold"}</span>
-                          ) : kind === "supplier_invoice_due_soon" ? (
-                            <span>
-                              Due: <span className="font-mono text-xs">{fmtIso(j.due_date)}</span> · Outstanding USD{" "}
-                              <span className="font-mono text-xs">{String(j.outstanding_usd || "0")}</span>
-                            </span>
-                          ) : (
-                            <span className="font-mono text-xs">{j.key || "-"}</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 font-mono text-xs text-fg-muted">{r.created_at}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              tableId="purchasing.supplierInvoices.aiApGuard"
+              rows={aiRows}
+              columns={aiCols}
+              enableGlobalFilter={false}
+              enablePagination={false}
+              emptyText="No AI recommendations."
+            />
             <div className="flex justify-end">
               <Button asChild variant="outline" size="sm">
                 <a href="/automation/ai-hub">Open AI Hub</a>
@@ -172,27 +313,6 @@ function SupplierInvoicesListInner() {
           </CardContent>
         </Card>
       ) : null}
-
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="w-full md:w-96">
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search doc no / supplier ref / supplier / GR..." />
-          </div>
-          <select className="ui-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="">All statuses</option>
-            <option value="draft">Draft</option>
-            <option value="posted">Posted</option>
-            <option value="canceled">Canceled</option>
-          </select>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" onClick={load} disabled={loading}>
-            {loading ? "..." : "Refresh"}
-          </Button>
-          <Button onClick={() => router.push("/purchasing/supplier-invoices/new")}>New Draft</Button>
-        </div>
-      </div>
 
       <Card>
         <CardHeader>
@@ -203,125 +323,46 @@ function SupplierInvoicesListInner() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Invoice</th>
-                  <th className="px-3 py-2">Supplier</th>
-                  <th className="px-3 py-2">GR</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Dates</th>
-                  <th className="px-3 py-2 text-right">Total USD</th>
-                  <th className="px-3 py-2 text-right">Total LL</th>
-                </tr>
-              </thead>
-              <tbody className={loading ? "opacity-70" : ""}>
-                {invoices.map((inv) => (
-                  <tr
-                    key={inv.id}
-                    className="ui-tr ui-tr-hover cursor-pointer"
-                    onClick={() => router.push(`/purchasing/supplier-invoices/${inv.id}`)}
-                  >
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <div className="data-mono text-xs text-foreground">
-                          <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(inv.id)}`} title="Open supplier invoice">
-                            {inv.invoice_no || "(draft)"}
-                          </ShortcutLink>
-                        </div>
-                        {Number(inv.attachment_count || 0) > 0 ? (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-muted px-2 py-0.5 text-[10px] text-fg-muted">
-                            <Paperclip className="h-3 w-3" />
-                            {Number(inv.attachment_count || 0)}
-                          </span>
-                        ) : null}
-                      </div>
-                      {inv.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {inv.supplier_ref}</div> : null}
-                      <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
-                    </td>
-                    <td className="px-3 py-2">
-                      {inv.supplier_id ? (
-                        <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(inv.supplier_id)}`} title="Open supplier">
-                          {inv.supplier_name || inv.supplier_id}
-                        </ShortcutLink>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td className="px-3 py-2 data-mono text-xs">
-                      {inv.goods_receipt_id ? (
-                        <ShortcutLink
-                          href={`/purchasing/goods-receipts/${encodeURIComponent(inv.goods_receipt_id)}`}
-                          title="Open goods receipt"
-                          className="font-mono text-xs"
-                        >
-                          {inv.goods_receipt_no || inv.goods_receipt_id.slice(0, 8)}
-                        </ShortcutLink>
-                      ) : (
-                        inv.goods_receipt_no || "-"
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusChip value={inv.status} />
-                      {inv.is_on_hold ? (
-                        <div className="mt-1">
-                          <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
-                            HOLD{inv.hold_reason ? `: ${inv.hold_reason}` : ""}
-                          </span>
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2 text-xs text-fg-muted">
-                      <div>
-                        Inv: <span className="data-mono">{fmtIso(inv.invoice_date)}</span>
-                      </div>
-                      <div className="text-fg-subtle">
-                        Due: <span className="data-mono">{fmtIso(inv.due_date)}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-right data-mono text-xs ui-tone-usd">{fmtUsd(inv.total_usd)}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs ui-tone-lbp">{fmtLbp(inv.total_lbp)}</td>
-                  </tr>
-                ))}
-                {invoices.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-8 text-center text-fg-subtle" colSpan={7}>
-                      No invoices.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-xs text-fg-muted">
-              Page <span className="data-mono">{page + 1}</span>
-              {total != null ? (
-                <>
-                  {" "}
-                  · Showing{" "}
-                  <span className="data-mono">
-                    {Math.min(total, offset + 1).toLocaleString("en-US")}–{Math.min(total, offset + invoices.length).toLocaleString("en-US")}
-                  </span>
-                </>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <select className="ui-select" value={String(pageSize)} onChange={(e) => setPageSize(Number(e.target.value || 50))}>
-                <option value="25">25 / page</option>
-                <option value="50">50 / page</option>
-                <option value="100">100 / page</option>
-              </select>
-              <Button variant="outline" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={!canPrev || loading}>
-                Prev
-              </Button>
-              <Button variant="outline" onClick={() => setPage((p) => p + 1)} disabled={!canNext || loading}>
-                Next
-              </Button>
-            </div>
-          </div>
+          <DataTable
+            tableId="purchasing.supplierInvoices"
+            rows={invoices}
+            columns={cols}
+            onRowClick={(inv) => router.push(`/purchasing/supplier-invoices/${inv.id}`)}
+            emptyText="No invoices."
+            isLoading={loading}
+            headerSlot={
+              <DataTableTabs
+                value={statusFilter || "all"}
+                onChange={(v) => setStatusFilter(v === "all" ? "" : v)}
+                tabs={[
+                  { value: "all", label: "All" },
+                  { value: "draft", label: "Draft" },
+                  { value: "posted", label: "Posted" },
+                  { value: "canceled", label: "Canceled" },
+                ]}
+              />
+            }
+            globalFilterPlaceholder="Search doc no / supplier ref / supplier / GR..."
+            globalFilterValue={q}
+            onGlobalFilterValueChange={setQ}
+            serverPagination={{
+              page,
+              pageSize,
+              total,
+              onPageChange: setPage,
+              onPageSizeChange: setPageSize,
+            }}
+            actions={
+              <>
+                <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+                  {loading ? "..." : "Refresh"}
+                </Button>
+                <Button size="sm" onClick={() => router.push("/purchasing/supplier-invoices/new")}>
+                  New Draft
+                </Button>
+              </>
+            }
+          />
         </CardContent>
       </Card>
     </div>

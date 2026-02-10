@@ -37,6 +37,10 @@ export type DataTableProps<T> = {
   emptyText?: string;
   className?: string;
   initialSort?: { columnId: string; dir: SortDir } | null;
+  isLoading?: boolean;
+
+  // Optional header slot (commonly used for tabs)
+  headerSlot?: ReactNode;
 
   // Toolbar
   enableGlobalFilter?: boolean;
@@ -44,10 +48,23 @@ export type DataTableProps<T> = {
   toolbarLeft?: ReactNode; // rendered next to the global filter
   actions?: ReactNode; // rendered on the right
 
+  // Controlled global filter (useful for server-side search)
+  globalFilterValue?: string;
+  onGlobalFilterValueChange?: (value: string) => void;
+
   // Pagination (client-side)
   enablePagination?: boolean; // default: true
   pageSizeOptions?: number[]; // default: [25, 50, 100, 200]
   defaultPageSize?: number; // default: 25
+
+  // Server pagination (when provided, DataTable will NOT slice rows client-side)
+  serverPagination?: {
+    page: number; // 0-based
+    pageSize: number;
+    total?: number | null; // optional: if missing, "Next" uses rows.length === pageSize
+    onPageChange: (page: number) => void;
+    onPageSizeChange: (pageSize: number) => void;
+  };
 };
 
 function safeJsonParse<T>(raw: string | null): T | null {
@@ -96,14 +113,21 @@ export function DataTable<T>(props: DataTableProps<T>) {
     emptyText = "No rows.",
     className,
     initialSort = null,
+    isLoading = false,
+    headerSlot,
     enableGlobalFilter = true,
     globalFilterPlaceholder = "Search...",
     toolbarLeft,
     actions,
+    globalFilterValue,
+    onGlobalFilterValueChange,
     enablePagination = true,
     pageSizeOptions = [25, 50, 100, 200],
     defaultPageSize = 25,
+    serverPagination,
   } = props;
+
+  const isServer = Boolean(serverPagination);
 
   // v4: default page size changed from 50 -> 25. We migrate old prefs so we don't wipe
   // column visibility / filters, but we treat legacy pageSize=50 as "old default".
@@ -121,6 +145,11 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const [sort, setSort] = useState<{ columnId: string; dir: SortDir } | null>(initialSort);
   const [pageSize, setPageSize] = useState<number>(defaultPageSize);
   const [page, setPage] = useState<number>(0);
+
+  const effectiveGlobalFilter = globalFilterValue ?? globalFilter;
+  const effectivePageSize = isServer ? serverPagination!.pageSize : pageSize;
+  const effectivePage = isServer ? serverPagination!.page : page;
+  const serverTotal = isServer ? (typeof serverPagination!.total === "number" ? serverPagination!.total : null) : null;
 
   // Load persisted prefs once.
   useEffect(() => {
@@ -191,7 +220,10 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
   const filteredRows = useMemo(() => {
     if (!enableGlobalFilter) return rows;
-    const needle = globalFilter.trim();
+    // Server-mode filtering is done by the caller (API). We do not filter client-side.
+    if (isServer && onGlobalFilterValueChange) return rows;
+
+    const needle = effectiveGlobalFilter.trim();
     if (!needle) return rows;
 
     const searchCols = columns.filter((c) => c.globalSearch !== false);
@@ -201,10 +233,12 @@ export function DataTable<T>(props: DataTableProps<T>) {
       if (scoreFuzzyQuery(needle, hay) != null) out.push(r);
     }
     return out;
-  }, [rows, columns, globalFilter, enableGlobalFilter]);
+  }, [rows, columns, effectiveGlobalFilter, enableGlobalFilter, isServer, onGlobalFilterValueChange]);
 
   const sortedRows = useMemo(() => {
-    const needle = enableGlobalFilter ? globalFilter.trim() : "";
+    // Only use fuzzy-scoring to reorder results when we're doing client-side filtering.
+    const allowFuzzy = enableGlobalFilter && !(isServer && onGlobalFilterValueChange);
+    const needle = allowFuzzy ? effectiveGlobalFilter.trim() : "";
     const searchCols = columns.filter((c) => c.globalSearch !== false);
 
     const col = sort ? columns.find((c) => c.id === sort.columnId) : null;
@@ -230,29 +264,37 @@ export function DataTable<T>(props: DataTableProps<T>) {
     });
 
     return scored.map((x) => x.row);
-  }, [filteredRows, sort, columns, enableGlobalFilter, globalFilter]);
+  }, [filteredRows, sort, columns, enableGlobalFilter, effectiveGlobalFilter, isServer, onGlobalFilterValueChange]);
 
   // Reset to the first page whenever the view changes.
   useEffect(() => {
+    if (isServer) return;
     setPage(0);
-  }, [globalFilter, sort, pageSize, enableGlobalFilter]);
+  }, [globalFilter, sort, pageSize, enableGlobalFilter, isServer]);
 
   // Clamp current page if data shrinks.
   useEffect(() => {
+    if (isServer) return;
     const maxPage = Math.max(0, Math.ceil(sortedRows.length / Math.max(1, pageSize)) - 1);
     setPage((p) => Math.min(p, maxPage));
-  }, [sortedRows.length, pageSize]);
+  }, [sortedRows.length, pageSize, isServer]);
 
   const pageCount = useMemo(() => {
     if (!enablePagination) return 1;
+    if (isServer) {
+      if (serverTotal == null) return Math.max(1, effectivePage + 1); // unknown
+      return Math.max(1, Math.ceil(serverTotal / Math.max(1, effectivePageSize)));
+    }
     return Math.max(1, Math.ceil(sortedRows.length / Math.max(1, pageSize)));
-  }, [sortedRows.length, pageSize, enablePagination]);
+  }, [sortedRows.length, pageSize, enablePagination, isServer, serverTotal, effectivePage, effectivePageSize]);
 
   const pageRows = useMemo(() => {
     if (!enablePagination) return sortedRows;
+    // Server pagination is done by the caller (API). Do not slice.
+    if (isServer) return sortedRows;
     const start = page * pageSize;
     return sortedRows.slice(start, start + pageSize);
-  }, [sortedRows, enablePagination, page, pageSize]);
+  }, [sortedRows, enablePagination, isServer, page, pageSize]);
 
   const sortIcon = (columnId: string) => {
     if (!sort || sort.columnId !== columnId) return <ArrowUpDown className="h-3.5 w-3.5 opacity-60" />;
@@ -270,16 +312,41 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
   const visibleCount = Object.values(columnVisibility).filter(Boolean).length;
 
-  const startRow = enablePagination && sortedRows.length ? page * pageSize + 1 : sortedRows.length ? 1 : 0;
-  const endRow = enablePagination ? Math.min(sortedRows.length, page * pageSize + pageRows.length) : sortedRows.length;
+  const startRow =
+    enablePagination && sortedRows.length
+      ? isServer
+        ? effectivePage * effectivePageSize + 1
+        : page * pageSize + 1
+      : sortedRows.length
+        ? 1
+        : 0;
+  const endRow = enablePagination ? (isServer ? effectivePage * effectivePageSize + pageRows.length : Math.min(sortedRows.length, page * pageSize + pageRows.length)) : sortedRows.length;
+
+  const canPrev = isServer ? effectivePage > 0 : page > 0;
+  const canNext = useMemo(() => {
+    if (!enablePagination) return false;
+    if (!isServer) return page < pageCount - 1;
+    if (serverTotal != null) return endRow < serverTotal;
+    return pageRows.length === effectivePageSize;
+  }, [enablePagination, isServer, page, pageCount, serverTotal, endRow, pageRows.length, effectivePageSize]);
+
+  const handleGlobalFilterChange = (value: string) => {
+    if (onGlobalFilterValueChange) {
+      onGlobalFilterValueChange(value);
+      return;
+    }
+    setGlobalFilter(value);
+  };
 
   return (
     <div className={cn("space-y-3", className)}>
+      {headerSlot ? <div>{headerSlot}</div> : null}
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         {enableGlobalFilter ? (
           <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
             <div className="w-full md:w-96">
-              <Input value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} placeholder={globalFilterPlaceholder} />
+              <Input value={effectiveGlobalFilter} onChange={(e) => handleGlobalFilterChange(e.target.value)} placeholder={globalFilterPlaceholder} />
             </div>
             {toolbarLeft}
           </div>
@@ -373,7 +440,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
               ))}
             </tr>
           </thead>
-          <tbody>
+          <tbody className={isLoading ? "opacity-70" : undefined}>
             {pageRows.map((r, idx) => {
               const key = getRowId ? getRowId(r, idx) : String(idx);
               return (
@@ -426,33 +493,69 @@ export function DataTable<T>(props: DataTableProps<T>) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-xs text-fg-muted">
             {sortedRows.length ? (
-              <>
-                Showing <span className="data-mono">{startRow.toLocaleString("en-US")}</span>–<span className="data-mono">{endRow.toLocaleString("en-US")}</span>{" "}
-                of <span className="data-mono">{sortedRows.length.toLocaleString("en-US")}</span>
-                <span className="text-fg-subtle"> · </span>
-                Page <span className="data-mono">{page + 1}</span>/<span className="data-mono">{pageCount}</span>
-              </>
+              isServer ? (
+                <>
+                  Showing <span className="data-mono">{startRow.toLocaleString("en-US")}</span>–<span className="data-mono">{endRow.toLocaleString("en-US")}</span>
+                  {serverTotal != null ? (
+                    <>
+                      {" "}
+                      of <span className="data-mono">{serverTotal.toLocaleString("en-US")}</span>
+                    </>
+                  ) : null}
+                  <span className="text-fg-subtle"> · </span>
+                  Page <span className="data-mono">{effectivePage + 1}</span>
+                  {serverTotal != null ? (
+                    <>
+                      /<span className="data-mono">{pageCount}</span>
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  Showing <span className="data-mono">{startRow.toLocaleString("en-US")}</span>–<span className="data-mono">{endRow.toLocaleString("en-US")}</span>{" "}
+                  of <span className="data-mono">{sortedRows.length.toLocaleString("en-US")}</span>
+                  <span className="text-fg-subtle"> · </span>
+                  Page <span className="data-mono">{page + 1}</span>/<span className="data-mono">{pageCount}</span>
+                </>
+              )
             ) : (
               <span>No results.</span>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            <select className="ui-select h-9 text-xs" value={String(pageSize)} onChange={(e) => setPageSize(Number(e.target.value || defaultPageSize))}>
+            <select
+              className="ui-select h-9 text-xs"
+              value={String(isServer ? effectivePageSize : pageSize)}
+              onChange={(e) => {
+                const next = Number(e.target.value || defaultPageSize);
+                if (isServer) {
+                  serverPagination!.onPageSizeChange(next);
+                  serverPagination!.onPageChange(0);
+                } else {
+                  setPageSize(next);
+                }
+              }}
+            >
               {pageSizeOptions.map((n) => (
                 <option key={n} value={String(n)}>
                   {n} / page
                 </option>
               ))}
             </select>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page <= 0}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => (isServer ? serverPagination!.onPageChange(Math.max(0, effectivePage - 1)) : setPage((p) => Math.max(0, p - 1)))}
+              disabled={!canPrev || isLoading}
+            >
               Prev
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-              disabled={page >= pageCount - 1}
+              onClick={() => (isServer ? serverPagination!.onPageChange(effectivePage + 1) : setPage((p) => Math.min(pageCount - 1, p + 1)))}
+              disabled={!canNext || isLoading}
             >
               Next
             </Button>
