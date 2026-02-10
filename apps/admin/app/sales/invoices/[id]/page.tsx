@@ -28,6 +28,9 @@ type InvoiceRow = {
   subtotal_lbp?: string | number;
   discount_total_usd?: string | number;
   discount_total_lbp?: string | number;
+  invoice_discount_pct?: string | number | null;
+  invoice_discount_usd?: string | number | null;
+  invoice_discount_lbp?: string | number | null;
   total_usd: string | number;
   total_lbp: string | number;
   exchange_rate: string | number;
@@ -37,6 +40,14 @@ type InvoiceRow = {
   settlement_currency: string;
   invoice_date?: string;
   due_date?: string | null;
+  salesperson_user_id?: string | null;
+  sales_channel?: string | null;
+  delivery_address?: string | null;
+  delivery_phone?: string | null;
+  shipping_method?: string | null;
+  tracking_no?: string | null;
+  shipping_notes?: string | null;
+  delivered_at?: string | null;
   created_at: string;
 };
 
@@ -391,12 +402,37 @@ function SalesInvoiceShowInner() {
                   <p className="text-sm data-mono text-foreground">Due {fmtIso(detail.invoice.due_date)}</p>
                 </div>
                 <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                  <p className="text-xs text-fg-muted">Sales</p>
+                  <p className="text-sm text-foreground">Channel: {detail.invoice.sales_channel || "-"}</p>
+                  <p className="text-sm text-foreground">Salesperson: {detail.invoice.salesperson_user_id || "-"}</p>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                  <p className="text-xs text-fg-muted">Delivery</p>
+                  <p className="text-sm text-foreground">
+                    {detail.invoice.delivery_address ? detail.invoice.delivery_address : "-"}
+                    {detail.invoice.delivery_phone ? ` (${detail.invoice.delivery_phone})` : ""}
+                  </p>
+                  <p className="text-sm text-foreground">
+                    {detail.invoice.shipping_method ? detail.invoice.shipping_method : "-"}
+                    {detail.invoice.tracking_no ? ` · ${detail.invoice.tracking_no}` : ""}
+                  </p>
+                  <p className="text-sm text-foreground">Delivered: {fmtIso(detail.invoice.delivered_at)}</p>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                   <p className="text-xs text-fg-muted">Totals</p>
                   <p className="text-sm data-mono text-foreground">
                     Subtotal: {fmtUsd(detail.invoice.subtotal_usd || 0)} / {fmtLbp(detail.invoice.subtotal_lbp || 0)}
                   </p>
                   <p className="text-sm data-mono text-foreground">
-                    Discount: {fmtUsd(detail.invoice.discount_total_usd || 0)} / {fmtLbp(detail.invoice.discount_total_lbp || 0)}
+                    Line Discount: {fmtUsd(detail.invoice.discount_total_usd || 0)} / {fmtLbp(detail.invoice.discount_total_lbp || 0)}
+                  </p>
+                  <p className="text-sm data-mono text-foreground">
+                    Invoice Discount: {fmtUsd(detail.invoice.invoice_discount_usd || 0)} / {fmtLbp(detail.invoice.invoice_discount_lbp || 0)}
+                  </p>
+                  <p className="text-sm data-mono text-foreground">
+                    Total Discount:{" "}
+                    {fmtUsd(Number(detail.invoice.discount_total_usd || 0) + Number(detail.invoice.invoice_discount_usd || 0))} /{" "}
+                    {fmtLbp(Number(detail.invoice.discount_total_lbp || 0) + Number(detail.invoice.invoice_discount_lbp || 0))}
                   </p>
                   <p className="text-sm data-mono text-foreground">
                     Tax:{" "}

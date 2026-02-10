@@ -23,8 +23,12 @@ type Item = {
   item_type?: "stocked" | "service" | "bundle";
   tags?: string[] | null;
   unit_of_measure: string;
+  purchase_uom_code?: string | null;
+  sales_uom_code?: string | null;
   barcode: string | null;
   tax_code_id: string | null;
+  tax_category?: "standard" | "zero" | "exempt" | null;
+  is_excise?: boolean;
   reorder_point: string | number | null;
   reorder_qty: string | number | null;
   is_active?: boolean;
@@ -38,6 +42,16 @@ type Item = {
   min_shelf_life_days_for_sale?: number | null;
   expiry_warning_days?: number | null;
   allow_negative_stock?: boolean | null;
+  case_pack_qty?: string | number | null;
+  inner_pack_qty?: string | number | null;
+  standard_cost_usd?: string | number | null;
+  standard_cost_lbp?: string | number | null;
+  min_margin_pct?: string | number | null;
+  costing_method?: "avg" | "fifo" | "standard" | null;
+  preferred_supplier_id?: string | null;
+  weight?: string | number | null;
+  volume?: string | number | null;
+  external_ids?: any;
   image_attachment_id?: string | null;
   image_alt?: string | null;
 };
@@ -88,6 +102,21 @@ type PriceSuggest = {
   last_cost_change?: any;
 };
 
+type WarehouseRow = { id: string; name: string };
+
+type ItemWarehousePolicyRow = {
+  id: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  min_stock: string | number;
+  max_stock: string | number;
+  preferred_supplier_id: string | null;
+  preferred_supplier_name: string | null;
+  replenishment_lead_time_days: number | null;
+  notes: string | null;
+  updated_at: string;
+};
+
 function toNum(v: string) {
   const r = parseNumberInput(v);
   return r.ok ? r.value : 0;
@@ -124,6 +153,16 @@ export default function ItemEditPage() {
 
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
   const [itemLinks, setItemLinks] = useState<ItemSupplierLinkRow[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
+  const [whPolicies, setWhPolicies] = useState<ItemWarehousePolicyRow[]>([]);
+
+  const [policyWarehouseId, setPolicyWarehouseId] = useState("");
+  const [policyMinStock, setPolicyMinStock] = useState("0");
+  const [policyMaxStock, setPolicyMaxStock] = useState("0");
+  const [policyPreferredSupplierId, setPolicyPreferredSupplierId] = useState("");
+  const [policyLeadTimeDays, setPolicyLeadTimeDays] = useState("");
+  const [policyNotes, setPolicyNotes] = useState("");
+  const [policyBusy, setPolicyBusy] = useState(false);
   const [addSupplierId, setAddSupplierId] = useState("");
   const [addIsPrimary, setAddIsPrimary] = useState(false);
   const [addLeadTimeDays, setAddLeadTimeDays] = useState("0");
@@ -142,13 +181,27 @@ export default function ItemEditPage() {
   const [editType, setEditType] = useState<"stocked" | "service" | "bundle">("stocked");
   const [editTags, setEditTags] = useState("");
   const [editUom, setEditUom] = useState("");
+  const [editPurchaseUom, setEditPurchaseUom] = useState("");
+  const [editSalesUom, setEditSalesUom] = useState("");
   const [editTaxCodeId, setEditTaxCodeId] = useState("");
+  const [editTaxCategory, setEditTaxCategory] = useState<"" | "standard" | "zero" | "exempt">("");
+  const [editIsExcise, setEditIsExcise] = useState(false);
   const [editCategoryId, setEditCategoryId] = useState("");
   const [editBrand, setEditBrand] = useState("");
   const [editShortName, setEditShortName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editReorderPoint, setEditReorderPoint] = useState("");
   const [editReorderQty, setEditReorderQty] = useState("");
+  const [editCasePackQty, setEditCasePackQty] = useState("");
+  const [editInnerPackQty, setEditInnerPackQty] = useState("");
+  const [editStandardCostUsd, setEditStandardCostUsd] = useState("");
+  const [editStandardCostLbp, setEditStandardCostLbp] = useState("");
+  const [editMinMarginPct, setEditMinMarginPct] = useState("");
+  const [editCostingMethod, setEditCostingMethod] = useState<"" | "avg" | "fifo" | "standard">("");
+  const [editPreferredSupplierId, setEditPreferredSupplierId] = useState("");
+  const [editWeight, setEditWeight] = useState("");
+  const [editVolume, setEditVolume] = useState("");
+  const [editExternalIds, setEditExternalIds] = useState("");
   const [editTrackBatches, setEditTrackBatches] = useState(false);
   const [editTrackExpiry, setEditTrackExpiry] = useState(false);
   const [editDefaultShelfLifeDays, setEditDefaultShelfLifeDays] = useState("");
@@ -164,7 +217,7 @@ export default function ItemEditPage() {
     setLoading(true);
     setErr(null);
     try {
-      const [it, tc, cats, uo, bc, sup, links] = await Promise.all([
+      const [it, tc, cats, uo, bc, sup, links, wh, pol] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
         apiGet<{ categories: Category[] }>("/item-categories").catch(() => ({ categories: [] as Category[] })),
@@ -172,6 +225,8 @@ export default function ItemEditPage() {
         apiGet<{ barcodes: ItemBarcode[] }>(`/items/${encodeURIComponent(id)}/barcodes`).catch(() => ({ barcodes: [] as ItemBarcode[] })),
         apiGet<{ suppliers: SupplierRow[] }>("/suppliers").catch(() => ({ suppliers: [] as SupplierRow[] })),
         apiGet<{ suppliers: ItemSupplierLinkRow[] }>(`/suppliers/items/${encodeURIComponent(id)}`).catch(() => ({ suppliers: [] as ItemSupplierLinkRow[] })),
+        apiGet<{ warehouses: WarehouseRow[] }>("/warehouses").catch(() => ({ warehouses: [] as WarehouseRow[] })),
+        apiGet<{ policies: ItemWarehousePolicyRow[] }>(`/items/${encodeURIComponent(id)}/warehouse-policies`).catch(() => ({ policies: [] as ItemWarehousePolicyRow[] })),
       ]);
       const row = it.item || null;
       setItem(row);
@@ -181,6 +236,8 @@ export default function ItemEditPage() {
       setBarcodes(bc.barcodes || []);
       setSuppliers(sup.suppliers || []);
       setItemLinks(links.suppliers || []);
+      setWarehouses(wh.warehouses || []);
+      setWhPolicies(pol.policies || []);
 
       if (row) {
         setEditSku(row.sku || "");
@@ -188,13 +245,31 @@ export default function ItemEditPage() {
         setEditType((row.item_type as any) || "stocked");
         setEditTags(Array.isArray(row.tags) ? row.tags.join(", ") : "");
         setEditUom(row.unit_of_measure || "");
+        setEditPurchaseUom(String((row as any).purchase_uom_code || ""));
+        setEditSalesUom(String((row as any).sales_uom_code || ""));
         setEditTaxCodeId(row.tax_code_id || "");
+        setEditTaxCategory(String((row as any).tax_category || "") as any);
+        setEditIsExcise(Boolean((row as any).is_excise));
         setEditCategoryId((row.category_id as any) || "");
         setEditBrand((row.brand as any) || "");
         setEditShortName((row.short_name as any) || "");
         setEditDescription((row.description as any) || "");
         setEditReorderPoint(String(row.reorder_point ?? ""));
         setEditReorderQty(String(row.reorder_qty ?? ""));
+        setEditCasePackQty(String((row as any).case_pack_qty ?? ""));
+        setEditInnerPackQty(String((row as any).inner_pack_qty ?? ""));
+        setEditStandardCostUsd(String((row as any).standard_cost_usd ?? ""));
+        setEditStandardCostLbp(String((row as any).standard_cost_lbp ?? ""));
+        setEditMinMarginPct(
+          (row as any).min_margin_pct == null || (row as any).min_margin_pct === ""
+            ? ""
+            : String(Number((row as any).min_margin_pct) * 100)
+        );
+        setEditCostingMethod(String((row as any).costing_method || "") as any);
+        setEditPreferredSupplierId(String((row as any).preferred_supplier_id || ""));
+        setEditWeight(String((row as any).weight ?? ""));
+        setEditVolume(String((row as any).volume ?? ""));
+        setEditExternalIds((row as any).external_ids ? JSON.stringify((row as any).external_ids, null, 2) : "");
         setEditTrackBatches(Boolean(row.track_batches));
         setEditTrackExpiry(Boolean(row.track_expiry));
         setEditDefaultShelfLifeDays(String(row.default_shelf_life_days ?? ""));
@@ -257,6 +332,24 @@ export default function ItemEditPage() {
     if (!editName.trim()) return setStatus("Name is required.");
     if (!editUom.trim()) return setStatus("UOM is required.");
 
+    const numOrNull = (raw: string, label: string) => {
+      const t = String(raw || "").trim();
+      if (!t) return null;
+      const r = parseNumberInput(t);
+      if (!r.ok) throw new Error(`Invalid ${label}.`);
+      return r.value;
+    };
+
+    let externalIdsObj: any = null;
+    const extRaw = (editExternalIds || "").trim();
+    if (extRaw) {
+      try {
+        externalIdsObj = JSON.parse(extRaw);
+      } catch {
+        return setStatus("External IDs must be valid JSON (or leave blank).");
+      }
+    }
+
     setSaving(true);
     setStatus("Saving...");
     try {
@@ -266,13 +359,27 @@ export default function ItemEditPage() {
         item_type: editType,
         tags: parseTags(editTags),
         unit_of_measure: editUom.trim(),
+        purchase_uom_code: editPurchaseUom.trim() || null,
+        sales_uom_code: editSalesUom.trim() || null,
         tax_code_id: editTaxCodeId ? editTaxCodeId : null,
+        tax_category: editTaxCategory ? editTaxCategory : null,
+        is_excise: Boolean(editIsExcise),
         category_id: editCategoryId ? editCategoryId : null,
         brand: editBrand.trim() || null,
         short_name: editShortName.trim() || null,
         description: editDescription.trim() || null,
         reorder_point: toNum(editReorderPoint),
         reorder_qty: toNum(editReorderQty),
+        case_pack_qty: numOrNull(editCasePackQty, "case pack qty"),
+        inner_pack_qty: numOrNull(editInnerPackQty, "inner pack qty"),
+        standard_cost_usd: numOrNull(editStandardCostUsd, "standard cost USD"),
+        standard_cost_lbp: numOrNull(editStandardCostLbp, "standard cost LBP"),
+        min_margin_pct: editMinMarginPct.trim() ? Number(numOrNull(editMinMarginPct, "min margin %") || 0) / 100 : null,
+        costing_method: editCostingMethod ? editCostingMethod : null,
+        preferred_supplier_id: editPreferredSupplierId ? editPreferredSupplierId : null,
+        weight: numOrNull(editWeight, "weight"),
+        volume: numOrNull(editVolume, "volume"),
+        external_ids: externalIdsObj,
         track_batches: Boolean(editTrackBatches),
         track_expiry: Boolean(editTrackExpiry),
         default_shelf_life_days: editDefaultShelfLifeDays.trim() ? Number(editDefaultShelfLifeDays) : null,
@@ -467,6 +574,68 @@ export default function ItemEditPage() {
     }
   }
 
+  function loadPolicyToForm(p: ItemWarehousePolicyRow) {
+    setPolicyWarehouseId(p.warehouse_id);
+    setPolicyMinStock(String(p.min_stock ?? 0));
+    setPolicyMaxStock(String(p.max_stock ?? 0));
+    setPolicyPreferredSupplierId(p.preferred_supplier_id || "");
+    setPolicyLeadTimeDays(p.replenishment_lead_time_days == null ? "" : String(p.replenishment_lead_time_days));
+    setPolicyNotes(p.notes || "");
+  }
+
+  async function upsertPolicy(e: React.FormEvent) {
+    e.preventDefault();
+    if (!item) return;
+    if (!policyWarehouseId) return setStatus("Pick a warehouse.");
+    const minRes = parseNumberInput(policyMinStock);
+    const maxRes = parseNumberInput(policyMaxStock);
+    if (!minRes.ok) return setStatus("Invalid min stock.");
+    if (!maxRes.ok) return setStatus("Invalid max stock.");
+    const ltRaw = (policyLeadTimeDays || "").trim();
+    const lt = ltRaw ? Number(ltRaw) : null;
+    if (ltRaw && (!Number.isFinite(lt) || lt! < 0)) return setStatus("Invalid lead time days.");
+
+    setPolicyBusy(true);
+    setStatus("Saving warehouse policy...");
+    try {
+      await apiPost(`/items/${encodeURIComponent(item.id)}/warehouse-policies`, {
+        warehouse_id: policyWarehouseId,
+        min_stock: minRes.value,
+        max_stock: maxRes.value,
+        preferred_supplier_id: policyPreferredSupplierId || null,
+        replenishment_lead_time_days: ltRaw ? Math.floor(lt as number) : null,
+        notes: policyNotes.trim() || null,
+      });
+      setPolicyWarehouseId("");
+      setPolicyMinStock("0");
+      setPolicyMaxStock("0");
+      setPolicyPreferredSupplierId("");
+      setPolicyLeadTimeDays("");
+      setPolicyNotes("");
+      await load();
+      setStatus("");
+    } catch (e2) {
+      setStatus(e2 instanceof Error ? e2.message : String(e2));
+    } finally {
+      setPolicyBusy(false);
+    }
+  }
+
+  async function deletePolicy(policyId: string) {
+    if (!policyId) return;
+    setPolicyBusy(true);
+    setStatus("Deleting warehouse policy...");
+    try {
+      await apiDelete(`/items/warehouse-policies/${encodeURIComponent(policyId)}`);
+      await load();
+      setStatus("");
+    } catch (e2) {
+      setStatus(e2 instanceof Error ? e2.message : String(e2));
+    } finally {
+      setPolicyBusy(false);
+    }
+  }
+
   if (err) {
     return (
       <div className="mx-auto max-w-6xl space-y-6">
@@ -617,6 +786,38 @@ export default function ItemEditPage() {
                   <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="comma-separated" disabled={saving} />
                 </div>
 
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-medium text-fg-muted">Purchase UOM (optional)</label>
+                  <SearchableSelect
+                    value={editPurchaseUom}
+                    onChange={setEditPurchaseUom}
+                    disabled={saving}
+                    placeholder="(none)"
+                    searchPlaceholder="Search UOMs..."
+                    options={[{ value: "", label: "(none)" }, ...uomOptions]}
+                  />
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-medium text-fg-muted">Sales UOM (optional)</label>
+                  <SearchableSelect
+                    value={editSalesUom}
+                    onChange={setEditSalesUom}
+                    disabled={saving}
+                    placeholder="(none)"
+                    searchPlaceholder="Search UOMs..."
+                    options={[{ value: "", label: "(none)" }, ...uomOptions]}
+                  />
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-medium text-fg-muted">Costing Method (optional)</label>
+                  <select className="ui-select" value={editCostingMethod} onChange={(e) => setEditCostingMethod(e.target.value as any)} disabled={saving}>
+                    <option value="">(default)</option>
+                    <option value="avg">avg</option>
+                    <option value="fifo">fifo</option>
+                    <option value="standard">standard</option>
+                  </select>
+                </div>
+
                 <div className="space-y-1 md:col-span-3">
                   <label className="text-xs font-medium text-fg-muted">Tax Code</label>
                   <SearchableSelect
@@ -630,6 +831,19 @@ export default function ItemEditPage() {
                     ]}
                   />
                 </div>
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-medium text-fg-muted">Tax Category (optional)</label>
+                  <select className="ui-select" value={editTaxCategory} onChange={(e) => setEditTaxCategory(e.target.value as any)} disabled={saving}>
+                    <option value="">(none)</option>
+                    <option value="standard">standard</option>
+                    <option value="zero">zero</option>
+                    <option value="exempt">exempt</option>
+                  </select>
+                </div>
+                <label className="md:col-span-1 flex items-center gap-2 text-xs text-fg-muted">
+                  <input type="checkbox" checked={editIsExcise} onChange={(e) => setEditIsExcise(e.target.checked)} disabled={saving} />
+                  Excise
+                </label>
                 <div className="space-y-1 md:col-span-3">
                   <label className="text-xs font-medium text-fg-muted">Category</label>
                   <SearchableSelect
@@ -642,6 +856,15 @@ export default function ItemEditPage() {
                       ...categories.map((c) => ({ value: c.id, label: c.name })),
                     ]}
                   />
+                </div>
+
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Case Pack Qty (optional)</label>
+                  <Input value={editCasePackQty} onChange={(e) => setEditCasePackQty(e.target.value)} disabled={saving} inputMode="decimal" placeholder="e.g. 12" />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Inner Pack Qty (optional)</label>
+                  <Input value={editInnerPackQty} onChange={(e) => setEditInnerPackQty(e.target.value)} disabled={saving} inputMode="decimal" placeholder="e.g. 6" />
                 </div>
 
                 <div className="space-y-1 md:col-span-3">
@@ -659,12 +882,54 @@ export default function ItemEditPage() {
                 </div>
 
                 <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Standard Cost (USD, optional)</label>
+                  <Input value={editStandardCostUsd} onChange={(e) => setEditStandardCostUsd(e.target.value)} disabled={saving} inputMode="decimal" />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Standard Cost (LBP, optional)</label>
+                  <Input value={editStandardCostLbp} onChange={(e) => setEditStandardCostLbp(e.target.value)} disabled={saving} inputMode="decimal" />
+                </div>
+
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-medium text-fg-muted">Min Margin % (optional)</label>
+                  <Input value={editMinMarginPct} onChange={(e) => setEditMinMarginPct(e.target.value)} disabled={saving} inputMode="decimal" placeholder="e.g. 15" />
+                </div>
+                <div className="space-y-1 md:col-span-4">
+                  <label className="text-xs font-medium text-fg-muted">Preferred Supplier (optional)</label>
+                  <SearchableSelect
+                    value={editPreferredSupplierId}
+                    onChange={setEditPreferredSupplierId}
+                    disabled={saving}
+                    placeholder="(none)"
+                    searchPlaceholder="Search suppliers..."
+                    options={[
+                      { value: "", label: "(none)" },
+                      ...(suppliers || []).map((s) => ({ value: s.id, label: s.name, keywords: `${s.email || ""} ${s.phone || ""}`.trim() })),
+                    ]}
+                  />
+                </div>
+
+                <div className="space-y-1 md:col-span-3">
                   <label className="text-xs font-medium text-fg-muted">Reorder Point</label>
                   <Input value={editReorderPoint} onChange={(e) => setEditReorderPoint(e.target.value)} disabled={saving} inputMode="decimal" />
                 </div>
                 <div className="space-y-1 md:col-span-3">
                   <label className="text-xs font-medium text-fg-muted">Reorder Qty</label>
                   <Input value={editReorderQty} onChange={(e) => setEditReorderQty(e.target.value)} disabled={saving} inputMode="decimal" />
+                </div>
+
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Weight (optional)</label>
+                  <Input value={editWeight} onChange={(e) => setEditWeight(e.target.value)} disabled={saving} inputMode="decimal" />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Volume (optional)</label>
+                  <Input value={editVolume} onChange={(e) => setEditVolume(e.target.value)} disabled={saving} inputMode="decimal" />
+                </div>
+
+                <div className="space-y-1 md:col-span-6">
+                  <label className="text-xs font-medium text-fg-muted">External IDs (JSON, optional)</label>
+                  <textarea className="ui-textarea" value={editExternalIds} onChange={(e) => setEditExternalIds(e.target.value)} rows={4} disabled={saving} placeholder='{"supplier_sku":"ABC-123"}' />
                 </div>
 
                 <label className="md:col-span-3 flex items-center gap-2 text-xs text-fg-muted">
@@ -911,6 +1176,105 @@ export default function ItemEditPage() {
                       <tr>
                         <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
                           No suppliers linked.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Warehouse Policies</CardTitle>
+              <CardDescription>Optional per-warehouse planning defaults (min/max stock, lead time, preferred supplier).</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <form onSubmit={upsertPolicy} className="grid grid-cols-1 gap-2 md:grid-cols-12">
+                <div className="md:col-span-4">
+                  <SearchableSelect
+                    value={policyWarehouseId}
+                    onChange={setPolicyWarehouseId}
+                    disabled={policyBusy}
+                    placeholder="Select warehouse..."
+                    searchPlaceholder="Search warehouses..."
+                    options={[
+                      { value: "", label: "Select warehouse..." },
+                      ...(warehouses || []).map((w) => ({ value: w.id, label: w.name })),
+                    ]}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Input value={policyMinStock} onChange={(e) => setPolicyMinStock(e.target.value)} placeholder="min" inputMode="decimal" disabled={policyBusy} />
+                </div>
+                <div className="md:col-span-2">
+                  <Input value={policyMaxStock} onChange={(e) => setPolicyMaxStock(e.target.value)} placeholder="max" inputMode="decimal" disabled={policyBusy} />
+                </div>
+                <div className="md:col-span-4">
+                  <SearchableSelect
+                    value={policyPreferredSupplierId}
+                    onChange={setPolicyPreferredSupplierId}
+                    disabled={policyBusy}
+                    placeholder="Preferred supplier (optional)"
+                    searchPlaceholder="Search suppliers..."
+                    options={[
+                      { value: "", label: "(none)" },
+                      ...(suppliers || []).map((s) => ({ value: s.id, label: s.name })),
+                    ]}
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Input value={policyLeadTimeDays} onChange={(e) => setPolicyLeadTimeDays(e.target.value)} placeholder="lead days" inputMode="numeric" disabled={policyBusy} />
+                </div>
+                <div className="md:col-span-10">
+                  <Input value={policyNotes} onChange={(e) => setPolicyNotes(e.target.value)} placeholder="notes (optional)" disabled={policyBusy} />
+                </div>
+                <div className="md:col-span-12 flex justify-end">
+                  <Button type="submit" variant="outline" disabled={policyBusy}>
+                    {policyBusy ? "..." : "Save Policy"}
+                  </Button>
+                </div>
+              </form>
+
+              <div className="ui-table-wrap">
+                <table className="ui-table">
+                  <thead className="ui-thead">
+                    <tr>
+                      <th className="px-3 py-2">Warehouse</th>
+                      <th className="px-3 py-2 text-right">Min</th>
+                      <th className="px-3 py-2 text-right">Max</th>
+                      <th className="px-3 py-2">Supplier</th>
+                      <th className="px-3 py-2 text-right">Lead</th>
+                      <th className="px-3 py-2">Notes</th>
+                      <th className="px-3 py-2 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {whPolicies.map((p) => (
+                      <tr key={p.id} className="ui-tr-hover">
+                        <td className="px-3 py-2 text-sm">{p.warehouse_name}</td>
+                        <td className="px-3 py-2 text-right font-mono text-xs">{String(p.min_stock || 0)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-xs">{String(p.max_stock || 0)}</td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">{p.preferred_supplier_name || "-"}</td>
+                        <td className="px-3 py-2 text-right font-mono text-xs">{p.replenishment_lead_time_days == null ? "-" : String(p.replenishment_lead_time_days)}</td>
+                        <td className="px-3 py-2 text-xs text-fg-muted">{p.notes || "-"}</td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="inline-flex items-center gap-2">
+                            <Button type="button" size="sm" variant="outline" onClick={() => loadPolicyToForm(p)} disabled={policyBusy}>
+                              Edit
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => deletePolicy(p.id)} disabled={policyBusy}>
+                              Delete
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {whPolicies.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
+                          No warehouse policies.
                         </td>
                       </tr>
                     ) : null}

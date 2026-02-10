@@ -44,17 +44,30 @@ def list_suppliers(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes,
-                       bank_name, bank_account_no, bank_iban, bank_swift, payment_instructions,
-                       is_active
-                FROM suppliers
-                WHERE company_id = %s
-                ORDER BY name
-                """,
-                (company_id,),
-            )
+            try:
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes,
+                           bank_name, bank_account_no, bank_iban, bank_swift, payment_instructions,
+                           is_active
+                    FROM suppliers
+                    WHERE company_id = %s AND merged_into_id IS NULL
+                    ORDER BY name
+                    """,
+                    (company_id,),
+                )
+            except pg_errors.UndefinedColumn:
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes,
+                           bank_name, bank_account_no, bank_iban, bank_swift, payment_instructions,
+                           is_active
+                    FROM suppliers
+                    WHERE company_id = %s
+                    ORDER BY name
+                    """,
+                    (company_id,),
+                )
             return {"suppliers": cur.fetchall()}
 
 @router.get("/typeahead", dependencies=[Depends(require_permission("suppliers:read"))])
@@ -71,26 +84,49 @@ def typeahead_suppliers(
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, code, name, phone, email, is_active
-                FROM suppliers
-                WHERE company_id = %s
-                  AND (%s = true OR is_active = true)
-                  AND (
-                    %s = ''
-                    OR (code IS NOT NULL AND code ILIKE %s)
-                    OR name ILIKE %s
-                    OR (phone IS NOT NULL AND phone ILIKE %s)
-                    OR (email IS NOT NULL AND email ILIKE %s)
-                    OR (vat_no IS NOT NULL AND vat_no ILIKE %s)
-                    OR (tax_id IS NOT NULL AND tax_id ILIKE %s)
-                  )
-                ORDER BY name
-                LIMIT %s
-                """,
-                (company_id, include_inactive, qq, like, like, like, like, like, like, limit),
-            )
+            try:
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, is_active
+                    FROM suppliers
+                    WHERE company_id = %s
+                      AND merged_into_id IS NULL
+                      AND (%s = true OR is_active = true)
+                      AND (
+                        %s = ''
+                        OR (code IS NOT NULL AND code ILIKE %s)
+                        OR name ILIKE %s
+                        OR (phone IS NOT NULL AND phone ILIKE %s)
+                        OR (email IS NOT NULL AND email ILIKE %s)
+                        OR (vat_no IS NOT NULL AND vat_no ILIKE %s)
+                        OR (tax_id IS NOT NULL AND tax_id ILIKE %s)
+                      )
+                    ORDER BY name
+                    LIMIT %s
+                    """,
+                    (company_id, include_inactive, qq, like, like, like, like, like, like, limit),
+                )
+            except pg_errors.UndefinedColumn:
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, is_active
+                    FROM suppliers
+                    WHERE company_id = %s
+                      AND (%s = true OR is_active = true)
+                      AND (
+                        %s = ''
+                        OR (code IS NOT NULL AND code ILIKE %s)
+                        OR name ILIKE %s
+                        OR (phone IS NOT NULL AND phone ILIKE %s)
+                        OR (email IS NOT NULL AND email ILIKE %s)
+                        OR (vat_no IS NOT NULL AND vat_no ILIKE %s)
+                        OR (tax_id IS NOT NULL AND tax_id ILIKE %s)
+                      )
+                    ORDER BY name
+                    LIMIT %s
+                    """,
+                    (company_id, include_inactive, qq, like, like, like, like, like, like, limit),
+                )
             return {"suppliers": cur.fetchall()}
 
 
@@ -211,6 +247,19 @@ def update_supplier(supplier_id: str, data: SupplierUpdate, company_id: str = De
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "SELECT merged_into_id FROM suppliers WHERE company_id=%s AND id=%s",
+                    (company_id, supplier_id),
+                )
+                r = cur.fetchone()
+            except pg_errors.UndefinedColumn:
+                cur.execute("SELECT 1 AS ok FROM suppliers WHERE company_id=%s AND id=%s", (company_id, supplier_id))
+                r = cur.fetchone()
+            if not r:
+                raise HTTPException(status_code=404, detail="supplier not found")
+            if r.get("merged_into_id"):
+                raise HTTPException(status_code=409, detail="Cannot edit a merged supplier")
             cur.execute(
                 f"""
                 UPDATE suppliers
@@ -220,6 +269,276 @@ def update_supplier(supplier_id: str, data: SupplierUpdate, company_id: str = De
                 params,
             )
             return {"ok": True}
+
+
+class SupplierMergePreviewIn(BaseModel):
+    source_supplier_id: str
+    target_supplier_id: str
+
+
+@router.post("/merge/preview", dependencies=[Depends(require_permission("suppliers:write"))])
+def preview_merge_supplier(data: SupplierMergePreviewIn, company_id: str = Depends(get_company_id)):
+    if data.source_supplier_id == data.target_supplier_id:
+        raise HTTPException(status_code=400, detail="source_supplier_id and target_supplier_id must differ")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, code, name, phone, email, vat_no, tax_id,
+                       bank_name, bank_iban,
+                       merged_into_id
+                FROM suppliers
+                WHERE company_id=%s AND id=ANY(%s)
+                """,
+                (company_id, [data.source_supplier_id, data.target_supplier_id]),
+            )
+            rows = {str(r["id"]): r for r in cur.fetchall()}
+            src = rows.get(data.source_supplier_id)
+            tgt = rows.get(data.target_supplier_id)
+            if not src or not tgt:
+                raise HTTPException(status_code=404, detail="supplier not found")
+            if src.get("merged_into_id") or tgt.get("merged_into_id"):
+                raise HTTPException(status_code=409, detail="cannot merge suppliers that are already merged")
+
+            def _count(sql: str) -> int:
+                cur.execute(sql, (company_id, data.source_supplier_id))
+                return int(cur.fetchone()["n"])
+
+            counts = {
+                "purchase_orders": _count("SELECT COUNT(*)::int AS n FROM purchase_orders WHERE company_id=%s AND supplier_id=%s"),
+                "goods_receipts": _count("SELECT COUNT(*)::int AS n FROM goods_receipts WHERE company_id=%s AND supplier_id=%s"),
+                "supplier_invoices": _count("SELECT COUNT(*)::int AS n FROM supplier_invoices WHERE company_id=%s AND supplier_id=%s"),
+                "supplier_credit_notes": _count("SELECT COUNT(*)::int AS n FROM supplier_credit_notes WHERE company_id=%s AND supplier_id=%s"),
+                "item_suppliers": _count("SELECT COUNT(*)::int AS n FROM item_suppliers WHERE company_id=%s AND supplier_id=%s"),
+                "supplier_item_aliases": _count("SELECT COUNT(*)::int AS n FROM supplier_item_aliases WHERE company_id=%s AND supplier_id=%s"),
+                "batches_received": _count("SELECT COUNT(*)::int AS n FROM batches WHERE company_id=%s AND received_supplier_id=%s"),
+                "party_contacts": _count("SELECT COUNT(*)::int AS n FROM party_contacts WHERE company_id=%s AND party_kind='supplier' AND party_id=%s"),
+                "party_addresses": _count("SELECT COUNT(*)::int AS n FROM party_addresses WHERE company_id=%s AND party_kind='supplier' AND party_id=%s"),
+                "attachments": _count("SELECT COUNT(*)::int AS n FROM document_attachments WHERE company_id=%s AND entity_type='supplier' AND entity_id=%s"),
+            }
+
+            conflicts = []
+            if src.get("code") and tgt.get("code") and src["code"] != tgt["code"]:
+                conflicts.append("code")
+            if src.get("email") and tgt.get("email") and str(src["email"]).lower() != str(tgt["email"]).lower():
+                conflicts.append("email")
+            return {"source": src, "target": tgt, "counts": counts, "conflicts": conflicts}
+
+
+class SupplierMergeExecuteIn(BaseModel):
+    source_supplier_id: str
+    target_supplier_id: str
+    reason: Optional[str] = None
+
+
+@router.post("/merge", dependencies=[Depends(require_permission("suppliers:write"))])
+def merge_supplier(data: SupplierMergeExecuteIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    if data.source_supplier_id == data.target_supplier_id:
+        raise HTTPException(status_code=400, detail="source_supplier_id and target_supplier_id must differ")
+    reason = (data.reason or "").strip() or None
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM suppliers
+                    WHERE company_id=%s AND id=ANY(%s)
+                    FOR UPDATE
+                    """,
+                    (company_id, [data.source_supplier_id, data.target_supplier_id]),
+                )
+                rows = {str(r["id"]): r for r in cur.fetchall()}
+                src = rows.get(data.source_supplier_id)
+                tgt = rows.get(data.target_supplier_id)
+                if not src or not tgt:
+                    raise HTTPException(status_code=404, detail="supplier not found")
+                if src.get("merged_into_id") or tgt.get("merged_into_id"):
+                    raise HTTPException(status_code=409, detail="cannot merge suppliers that are already merged")
+
+                patch = {}
+                for k in [
+                    "code",
+                    "phone",
+                    "email",
+                    "party_type",
+                    "legal_name",
+                    "tax_id",
+                    "vat_no",
+                    "notes",
+                    "payment_terms_days",
+                    "bank_name",
+                    "bank_account_no",
+                    "bank_iban",
+                    "bank_swift",
+                    "payment_instructions",
+                ]:
+                    if tgt.get(k) in (None, "", 0) and src.get(k) not in (None, "", 0):
+                        patch[k] = src.get(k)
+
+                clear_src = {}
+                if src.get("code") and tgt.get("code") and src["code"] != tgt["code"]:
+                    clear_src["code"] = None
+
+                if patch:
+                    sets = []
+                    params = []
+                    for k, v in patch.items():
+                        sets.append(f"{k}=%s")
+                        params.append(v)
+                    params.extend([company_id, data.target_supplier_id])
+                    cur.execute(
+                        f"""
+                        UPDATE suppliers
+                        SET {', '.join(sets)}
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        params,
+                    )
+
+                # Resolve unique conflicts in (company_id,item_id,supplier_id) before re-pointing.
+                cur.execute(
+                    """
+                    DELETE FROM item_suppliers s
+                    USING item_suppliers t
+                    WHERE s.company_id=%s
+                      AND t.company_id=s.company_id
+                      AND s.item_id=t.item_id
+                      AND s.supplier_id=%s
+                      AND t.supplier_id=%s
+                    """,
+                    (company_id, data.source_supplier_id, data.target_supplier_id),
+                )
+                cur.execute("UPDATE item_suppliers SET supplier_id=%s WHERE company_id=%s AND supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+
+                # supplier_item_aliases has uniqueness on normalized_code/name; delete conflicts first.
+                cur.execute(
+                    """
+                    DELETE FROM supplier_item_aliases a
+                    USING supplier_item_aliases b
+                    WHERE a.company_id=%s
+                      AND b.company_id=a.company_id
+                      AND a.supplier_id=%s
+                      AND b.supplier_id=%s
+                      AND (
+                        (a.normalized_code IS NOT NULL AND a.normalized_code = b.normalized_code)
+                        OR (a.normalized_name IS NOT NULL AND a.normalized_name = b.normalized_name)
+                      )
+                    """,
+                    (company_id, data.source_supplier_id, data.target_supplier_id),
+                )
+                cur.execute("UPDATE supplier_item_aliases SET supplier_id=%s WHERE company_id=%s AND supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+
+                # Re-point core docs + metadata.
+                cur.execute("UPDATE purchase_orders SET supplier_id=%s WHERE company_id=%s AND supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                cur.execute("UPDATE goods_receipts SET supplier_id=%s WHERE company_id=%s AND supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                cur.execute("UPDATE supplier_invoices SET supplier_id=%s WHERE company_id=%s AND supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                cur.execute("UPDATE supplier_credit_notes SET supplier_id=%s WHERE company_id=%s AND supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                cur.execute("UPDATE batches SET received_supplier_id=%s WHERE company_id=%s AND received_supplier_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                cur.execute("UPDATE party_contacts SET party_id=%s WHERE company_id=%s AND party_kind='supplier' AND party_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                cur.execute("UPDATE party_addresses SET party_id=%s WHERE company_id=%s AND party_kind='supplier' AND party_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+                cur.execute("UPDATE document_attachments SET entity_id=%s WHERE company_id=%s AND entity_type='supplier' AND entity_id=%s", (data.target_supplier_id, company_id, data.source_supplier_id))
+
+                cur.execute(
+                    """
+                    UPDATE suppliers
+                    SET is_active = false,
+                        merged_into_id = %s,
+                        merged_at = now(),
+                        merged_reason = %s
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (data.target_supplier_id, reason, company_id, data.source_supplier_id),
+                )
+                if clear_src:
+                    sets = []
+                    params = []
+                    for k, v in clear_src.items():
+                        sets.append(f"{k}=%s")
+                        params.append(v)
+                    params.extend([company_id, data.source_supplier_id])
+                    cur.execute(
+                        f"UPDATE suppliers SET {', '.join(sets)} WHERE company_id=%s AND id=%s",
+                        params,
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'suppliers.merge', 'supplier', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        data.target_supplier_id,
+                        json.dumps({"source_supplier_id": data.source_supplier_id, "target_supplier_id": data.target_supplier_id, "reason": reason}),
+                    ),
+                )
+                return {"ok": True, "source_supplier_id": data.source_supplier_id, "target_supplier_id": data.target_supplier_id}
+
+
+@router.get("/duplicates", dependencies=[Depends(require_permission("suppliers:read"))])
+def supplier_duplicates(company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    WITH by_email AS (
+                      SELECT lower(btrim(email)) AS key,
+                             COUNT(*)::int AS n,
+                             json_agg(json_build_object('id', id, 'code', code, 'name', name, 'email', email, 'phone', phone, 'is_active', is_active) ORDER BY name) AS rows
+                      FROM suppliers
+                      WHERE company_id=%s
+                        AND merged_into_id IS NULL
+                        AND email IS NOT NULL
+                        AND btrim(email) <> ''
+                      GROUP BY lower(btrim(email))
+                      HAVING COUNT(*) > 1
+                    ),
+                    by_phone AS (
+                      SELECT regexp_replace(COALESCE(phone,''), '\\\\D', '', 'g') AS key,
+                             COUNT(*)::int AS n,
+                             json_agg(json_build_object('id', id, 'code', code, 'name', name, 'email', email, 'phone', phone, 'is_active', is_active) ORDER BY name) AS rows
+                      FROM suppliers
+                      WHERE company_id=%s
+                        AND merged_into_id IS NULL
+                        AND phone IS NOT NULL
+                        AND btrim(phone) <> ''
+                        AND regexp_replace(COALESCE(phone,''), '\\\\D', '', 'g') <> ''
+                      GROUP BY regexp_replace(COALESCE(phone,''), '\\\\D', '', 'g')
+                      HAVING COUNT(*) > 1
+                    )
+                    SELECT
+                      (SELECT COALESCE(json_agg(json_build_object('key', key, 'n', n, 'suppliers', rows) ORDER BY n DESC), '[]'::json) FROM by_email) AS by_email,
+                      (SELECT COALESCE(json_agg(json_build_object('key', key, 'n', n, 'suppliers', rows) ORDER BY n DESC), '[]'::json) FROM by_phone) AS by_phone
+                    """,
+                    (company_id, company_id),
+                )
+                row = cur.fetchone() or {}
+                return {"by_email": row.get("by_email") or [], "by_phone": row.get("by_phone") or []}
+            except pg_errors.UndefinedColumn:
+                cur.execute(
+                    """
+                    WITH by_email AS (
+                      SELECT lower(btrim(email)) AS key,
+                             COUNT(*)::int AS n,
+                             json_agg(json_build_object('id', id, 'code', code, 'name', name, 'email', email, 'phone', phone, 'is_active', is_active) ORDER BY name) AS rows
+                      FROM suppliers
+                      WHERE company_id=%s AND email IS NOT NULL AND btrim(email) <> ''
+                      GROUP BY lower(btrim(email))
+                      HAVING COUNT(*) > 1
+                    )
+                    SELECT COALESCE(json_agg(json_build_object('key', key, 'n', n, 'suppliers', rows) ORDER BY n DESC), '[]'::json) AS by_email
+                    FROM by_email
+                    """,
+                    (company_id,),
+                )
+                r = cur.fetchone() or {}
+                return {"by_email": r.get("by_email") or [], "by_phone": []}
 
 
 class BulkSupplierIn(BaseModel):

@@ -17,6 +17,7 @@ import { Page, PageHeader } from "@/components/page";
 import { ShortcutLink } from "@/components/shortcut-link";
 
 type Warehouse = { id: string; name: string };
+type UserRow = { id: string; email: string; full_name?: string | null };
 
 type InvoiceLineDraft = {
   item_id: string;
@@ -40,6 +41,17 @@ type InvoiceDetail = {
     due_date?: string | null;
     reserve_stock?: boolean;
     exchange_rate: string | number;
+    invoice_discount_pct?: string | number | null;
+    invoice_discount_usd?: string | number | null;
+    invoice_discount_lbp?: string | number | null;
+    salesperson_user_id?: string | null;
+    sales_channel?: string | null;
+    delivery_address?: string | null;
+    delivery_phone?: string | null;
+    shipping_method?: string | null;
+    tracking_no?: string | null;
+    shipping_notes?: string | null;
+    delivered_at?: string | null;
   };
   lines: Array<{
     item_id: string;
@@ -93,6 +105,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [saving, setSaving] = useState(false);
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [users, setUsers] = useState<UserRow[]>([]);
 
   const [customerId, setCustomerId] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerTypeaheadCustomer | null>(null);
@@ -103,6 +116,19 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [reserveStock, setReserveStock] = useState(false);
   const [exchangeRate, setExchangeRate] = useState("0");
 
+  const [invoiceDiscPct, setInvoiceDiscPct] = useState("0");
+  const [invoiceDiscUsd, setInvoiceDiscUsd] = useState("0");
+  const [invoiceDiscLbp, setInvoiceDiscLbp] = useState("0");
+
+  const [salespersonUserId, setSalespersonUserId] = useState("");
+  const [salesChannel, setSalesChannel] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [deliveryPhone, setDeliveryPhone] = useState("");
+  const [shippingMethod, setShippingMethod] = useState("");
+  const [trackingNo, setTrackingNo] = useState("");
+  const [shippingNotes, setShippingNotes] = useState("");
+  const [deliveredAt, setDeliveredAt] = useState("");
+
   const [lines, setLines] = useState<InvoiceLineDraft[]>([]);
 
   const [addItem, setAddItem] = useState<ItemTypeaheadItem | null>(null);
@@ -111,7 +137,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [addLbp, setAddLbp] = useState("");
   const [addDisc, setAddDisc] = useState("0");
 
-  const [bulkDisc, setBulkDisc] = useState("");
+  const [bulkLineDisc, setBulkLineDisc] = useState("");
 
   const addQtyRef = useRef<HTMLInputElement | null>(null);
 
@@ -119,8 +145,12 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     setLoading(true);
     setStatus("Loading...");
     try {
-      const [wh] = await Promise.all([apiGet<{ warehouses: Warehouse[] }>("/warehouses")]);
+      const [wh, usr] = await Promise.all([
+        apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
+        apiGet<{ users: UserRow[] }>("/users").catch(() => ({ users: [] as UserRow[] }))
+      ]);
       setWarehouses(wh.warehouses || []);
+      setUsers(usr.users || []);
 
       const firstWhId = (wh.warehouses || [])[0]?.id || "";
       const preferredWhId = (() => {
@@ -163,6 +193,24 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         setDueDate(String(det.invoice.due_date || det.invoice.invoice_date || todayIso()).slice(0, 10));
         setReserveStock(Boolean(det.invoice.reserve_stock));
         setExchangeRate(String(det.invoice.exchange_rate || 0));
+        const pct01 = Number(det.invoice.invoice_discount_pct || 0);
+        setInvoiceDiscPct(String(Math.round(pct01 * 10000) / 100));
+        // If pct is set, treat the discount as percent-based even if the backend also stores derived amounts.
+        if (pct01 > 0) {
+          setInvoiceDiscUsd("0");
+          setInvoiceDiscLbp("0");
+        } else {
+          setInvoiceDiscUsd(String(det.invoice.invoice_discount_usd || 0));
+          setInvoiceDiscLbp(String(det.invoice.invoice_discount_lbp || 0));
+        }
+        setSalespersonUserId(String(det.invoice.salesperson_user_id || ""));
+        setSalesChannel(String(det.invoice.sales_channel || ""));
+        setDeliveryAddress(String(det.invoice.delivery_address || ""));
+        setDeliveryPhone(String(det.invoice.delivery_phone || ""));
+        setShippingMethod(String(det.invoice.shipping_method || ""));
+        setTrackingNo(String(det.invoice.tracking_no || ""));
+        setShippingNotes(String(det.invoice.shipping_notes || ""));
+        setDeliveredAt(String(det.invoice.delivered_at || "").slice(0, 10));
         setLines(
           (det.lines || []).map((l) => ({
             item_id: l.item_id,
@@ -183,6 +231,17 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         setDueDate(todayIso());
         setReserveStock(false);
         setExchangeRate("0");
+        setInvoiceDiscPct("0");
+        setInvoiceDiscUsd("0");
+        setInvoiceDiscLbp("0");
+        setSalespersonUserId("");
+        setSalesChannel("");
+        setDeliveryAddress("");
+        setDeliveryPhone("");
+        setShippingMethod("");
+        setTrackingNo("");
+        setShippingNotes("");
+        setDeliveredAt("");
         setLines([]);
       }
 
@@ -262,6 +321,16 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     if (!exRes.ok && exRes.reason === "invalid") return setStatus("Invalid exchange rate.");
     const ex = exRes.ok ? exRes.value : 0;
 
+    const invDiscPctRes = parseNumberInput(invoiceDiscPct);
+    const invDiscUsdRes = parseNumberInput(invoiceDiscUsd);
+    const invDiscLbpRes = parseNumberInput(invoiceDiscLbp);
+    if (!invDiscPctRes.ok && invDiscPctRes.reason === "invalid") return setStatus("Invalid invoice discount %.");
+    if (!invDiscUsdRes.ok && invDiscUsdRes.reason === "invalid") return setStatus("Invalid invoice discount USD.");
+    if (!invDiscLbpRes.ok && invDiscLbpRes.reason === "invalid") return setStatus("Invalid invoice discount LL.");
+    const invPct = parsePct100(String(invDiscPctRes.ok ? invDiscPctRes.value : 0));
+    const invAmtUsd = invDiscUsdRes.ok ? invDiscUsdRes.value : 0;
+    const invAmtLbp = invDiscLbpRes.ok ? invDiscLbpRes.value : 0;
+
     const linesOut: Array<{
       item_id: string;
       qty: number;
@@ -319,6 +388,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     setSaving(true);
     setStatus(props.mode === "edit" ? "Saving draft..." : "Creating draft...");
     try {
+      // Canonical UI semantics:
+      // - If invoice discount % > 0, treat it as percent-based (even if amount fields have values).
+      // - Else treat amounts as a fixed discount.
+      const usingAmt = (invAmtUsd > 0 || invAmtLbp > 0) && invPct.pct01 === 0;
       const payload = {
         customer_id: customerId || null,
         warehouse_id: warehouseId,
@@ -328,6 +401,17 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         exchange_rate: ex,
         pricing_currency: "USD",
         settlement_currency: "USD",
+        invoice_discount_pct: usingAmt ? 0 : invPct.pct01,
+        invoice_discount_usd: usingAmt ? invAmtUsd : 0,
+        invoice_discount_lbp: usingAmt ? invAmtLbp : 0,
+        salesperson_user_id: salespersonUserId || null,
+        sales_channel: salesChannel || null,
+        delivery_address: deliveryAddress || null,
+        delivery_phone: deliveryPhone || null,
+        shipping_method: shippingMethod || null,
+        tracking_no: trackingNo || null,
+        shipping_notes: shippingNotes || null,
+        delivered_at: deliveredAt ? `${deliveredAt}T00:00:00Z` : null,
         lines: linesOut
       };
 
@@ -450,6 +534,75 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
               </div>
             </div>
 
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Salesperson (optional)</label>
+                <SearchableSelect
+                  value={salespersonUserId}
+                  onChange={setSalespersonUserId}
+                  disabled={loading}
+                  placeholder="Select salesperson..."
+                  searchPlaceholder="Search users..."
+                  options={[
+                    { value: "", label: "None" },
+                    ...users.map((u) => ({
+                      value: u.id,
+                      label: (u.full_name || u.email || u.id).trim()
+                    }))
+                  ]}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Sales Channel (optional)</label>
+                <Input value={salesChannel} onChange={(e) => setSalesChannel(e.target.value)} disabled={loading} placeholder="online / wholesale / ..." />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Delivered At (optional)</label>
+                <Input type="date" value={deliveredAt} onChange={(e) => setDeliveredAt(e.target.value)} disabled={loading} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-xs font-medium text-fg-muted">Delivery Address (optional)</label>
+                <Input value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} disabled={loading} placeholder="Address / area / notes..." />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Delivery Phone (optional)</label>
+                <Input value={deliveryPhone} onChange={(e) => setDeliveryPhone(e.target.value)} disabled={loading} placeholder="+961..." />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Shipping Method (optional)</label>
+                <Input value={shippingMethod} onChange={(e) => setShippingMethod(e.target.value)} disabled={loading} placeholder="DHL / driver / pickup..." />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Tracking No (optional)</label>
+                <Input value={trackingNo} onChange={(e) => setTrackingNo(e.target.value)} disabled={loading} placeholder="..." />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Shipping Notes (optional)</label>
+                <Input value={shippingNotes} onChange={(e) => setShippingNotes(e.target.value)} disabled={loading} placeholder="..." />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Invoice Discount % (optional)</label>
+                <Input value={invoiceDiscPct} onChange={(e) => setInvoiceDiscPct(e.target.value)} disabled={loading} placeholder="0" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Invoice Discount USD (optional)</label>
+                <Input value={invoiceDiscUsd} onChange={(e) => setInvoiceDiscUsd(e.target.value)} disabled={loading} placeholder="0.00" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Invoice Discount LL (optional)</label>
+                <Input value={invoiceDiscLbp} onChange={(e) => setInvoiceDiscLbp(e.target.value)} disabled={loading} placeholder="0" />
+              </div>
+            </div>
+
             <Card>
               <CardHeader>
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -525,14 +678,37 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                           discUsd += qty * preUsd * d.pct01;
                           discLbp += qty * preLbp * d.pct01;
                         }
-                        const totalUsd = subtotalUsd - discUsd;
-                        const totalLbp = subtotalLbp - discLbp;
+                        const netUsd = subtotalUsd - discUsd;
+                        const netLbp = subtotalLbp - discLbp;
+
+                        const invPct = parsePct100(String(invoiceDiscPct || "0")).pct01;
+                        let invDiscUsd = toNum(String(invoiceDiscUsd || 0));
+                        let invDiscLbp = toNum(String(invoiceDiscLbp || 0));
+                        const ex = toNum(String(exchangeRate || 0));
+                        if (ex > 0) {
+                          if (invDiscUsd === 0 && invDiscLbp > 0) invDiscUsd = invDiscLbp / ex;
+                          if (invDiscLbp === 0 && invDiscUsd > 0) invDiscLbp = invDiscUsd * ex;
+                        }
+                        if (invPct > 0) {
+                          invDiscUsd = netUsd * invPct;
+                          invDiscLbp = netLbp * invPct;
+                        } else if (invDiscUsd === 0 && invDiscLbp === 0) {
+                          invDiscUsd = 0;
+                          invDiscLbp = 0;
+                        }
+                        invDiscUsd = Math.min(invDiscUsd, netUsd);
+                        invDiscLbp = Math.min(invDiscLbp, netLbp);
+
+                        const totalUsd = netUsd - invDiscUsd;
+                        const totalLbp = netLbp - invDiscLbp;
                         return (
                           <>
                             Subtotal {subtotalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} USD ·{" "}
                             {subtotalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL{" "}
                             <span className="px-1">·</span> Discount {discUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} USD ·{" "}
                             {discLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL{" "}
+                            <span className="px-1">·</span> Invoice Discount {invDiscUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} USD ·{" "}
+                            {invDiscLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL{" "}
                             <span className="px-1">·</span> Total {totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} USD ·{" "}
                             {totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL
                           </>
@@ -541,14 +717,14 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                     </div>
                     <div className="flex items-end gap-2">
                       <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Invoice Disc%</label>
-                        <Input value={bulkDisc} onChange={(e) => setBulkDisc(e.target.value)} placeholder="0" className="w-24" />
+                        <label className="text-xs font-medium text-fg-muted">Bulk Line Disc%</label>
+                        <Input value={bulkLineDisc} onChange={(e) => setBulkLineDisc(e.target.value)} placeholder="0" className="w-24" />
                       </div>
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => {
-                          const d = parsePct100(bulkDisc);
+                          const d = parsePct100(bulkLineDisc);
                           setLines((prev) => prev.map((x) => ({ ...x, discount_pct: String(d.pct100 || 0) })));
                         }}
                         disabled={loading || saving || lines.length === 0}

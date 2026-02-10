@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import uuid
 import secrets
+from psycopg import errors as pg_errors
 from ..config import settings
 from ..db import get_admin_conn, get_conn, set_company_context
 from ..deps import get_session, SESSION_COOKIE_NAME
@@ -25,15 +26,30 @@ def login(data: LoginIn):
     # Use the admin connection for auth because we need to query memberships across companies.
     with get_admin_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, email, hashed_password, is_active, mfa_enabled, mfa_secret_enc
-                FROM users
-                WHERE email = %s
-                """,
-                (data.email,),
-            )
-            user = cur.fetchone()
+            try:
+                cur.execute(
+                    """
+                    SELECT id, email, hashed_password, is_active, mfa_enabled, mfa_secret_enc
+                    FROM users
+                    WHERE email = %s
+                    """,
+                    (data.email,),
+                )
+                user = cur.fetchone()
+            except pg_errors.UndefinedColumn:
+                # Backwards-compatible fallback if DB migrations haven't been applied yet.
+                cur.execute(
+                    """
+                    SELECT id, email, hashed_password, is_active
+                    FROM users
+                    WHERE email = %s
+                    """,
+                    (data.email,),
+                )
+                user = cur.fetchone()
+                if user:
+                    user["mfa_enabled"] = False
+                    user["mfa_secret_enc"] = None
             if not user or not user["is_active"]:
                 raise HTTPException(status_code=401, detail="invalid credentials")
             if not verify_password(data.password, user["hashed_password"]):
@@ -405,15 +421,18 @@ def mfa_disable(data: MfaDisableIn, session=Depends(get_session)):
 def me(session=Depends(get_session)):
     with get_admin_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT full_name, phone, mfa_enabled
-                FROM users
-                WHERE id = %s
-                """,
-                (session["user_id"],),
-            )
-            u = cur.fetchone() or {}
+            try:
+                cur.execute(
+                    """
+                    SELECT full_name, phone, mfa_enabled
+                    FROM users
+                    WHERE id = %s
+                    """,
+                    (session["user_id"],),
+                )
+                u = cur.fetchone() or {}
+            except pg_errors.UndefinedColumn:
+                u = {}
 
             cur.execute(
                 """

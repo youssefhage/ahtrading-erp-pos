@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from decimal import Decimal
+from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
@@ -340,7 +341,23 @@ def list_sales_invoices(
                 """
                 params.append(bool(flagged_for_adjustment))
 
+            extra_cols = """
+                       i.salesperson_user_id, i.sales_channel,
+                       i.delivery_address, i.delivery_phone,
+                       i.shipping_method, i.tracking_no, i.delivered_at
+            """
             select_sql = f"""
+                SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name,
+                       i.status, i.total_usd, i.total_lbp, i.warehouse_id, w.name AS warehouse_name,
+                       i.reserve_stock,
+                       i.branch_id,
+                       i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at,
+                       i.invoice_date, i.due_date, i.created_at,
+                {extra_cols}
+                {base_sql}
+                ORDER BY {sort_sql} {dir_sql}
+            """
+            select_sql_legacy = f"""
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name,
                        i.status, i.total_usd, i.total_lbp, i.warehouse_id, w.name AS warehouse_name,
                        i.reserve_stock,
@@ -353,13 +370,19 @@ def list_sales_invoices(
 
             # Backwards compatibility: if no pagination params are provided, return the full legacy list.
             if limit is None:
-                cur.execute(select_sql, params)
+                try:
+                    cur.execute(select_sql, params)
+                except pg_errors.UndefinedColumn:
+                    cur.execute(select_sql_legacy, params)
                 return {"invoices": cur.fetchall()}
 
             cur.execute(f"SELECT COUNT(*)::int AS total {base_sql}", params)
             total = cur.fetchone()["total"]
 
-            cur.execute(select_sql + " LIMIT %s OFFSET %s", params + [limit, offset])
+            try:
+                cur.execute(select_sql + " LIMIT %s OFFSET %s", params + [limit, offset])
+            except pg_errors.UndefinedColumn:
+                cur.execute(select_sql_legacy + " LIMIT %s OFFSET %s", params + [limit, offset])
             return {"invoices": cur.fetchall(), "total": total, "limit": limit, "offset": offset}
 
 @router.get("/invoices/{invoice_id}", dependencies=[Depends(require_permission("sales:read"))])
@@ -367,25 +390,72 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
-                       i.subtotal_usd, i.subtotal_lbp, i.discount_total_usd, i.discount_total_lbp,
-                       i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
-                       i.reserve_stock,
-                       i.pricing_currency, i.settlement_currency,
-                       i.branch_id,
-                       i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at, i.receipt_meta,
-                       i.invoice_date, i.due_date, i.created_at
-                FROM sales_invoices i
-                LEFT JOIN customers c
-                  ON c.company_id = i.company_id AND c.id = i.customer_id
-                LEFT JOIN warehouses w
-                  ON w.company_id = i.company_id AND w.id = i.warehouse_id
-                WHERE i.company_id = %s AND i.id = %s
-                """,
-                (company_id, invoice_id),
-            )
+            try:
+                cur.execute(
+                    """
+                    SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
+                           i.subtotal_usd, i.subtotal_lbp, i.discount_total_usd, i.discount_total_lbp,
+                           i.invoice_discount_pct, i.invoice_discount_usd, i.invoice_discount_lbp,
+                           i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
+                           i.reserve_stock,
+                           i.pricing_currency, i.settlement_currency,
+                           i.branch_id,
+                           i.salesperson_user_id, i.sales_channel,
+                           i.delivery_address, i.delivery_phone,
+                           i.shipping_method, i.tracking_no, i.shipping_notes, i.delivered_at,
+                           i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at, i.receipt_meta,
+                           i.invoice_date, i.due_date, i.created_at
+                    FROM sales_invoices i
+                    LEFT JOIN customers c
+                      ON c.company_id = i.company_id AND c.id = i.customer_id
+                    LEFT JOIN warehouses w
+                      ON w.company_id = i.company_id AND w.id = i.warehouse_id
+                    WHERE i.company_id = %s AND i.id = %s
+                    """,
+                    (company_id, invoice_id),
+                )
+            except pg_errors.UndefinedColumn:
+                try:
+                    cur.execute(
+                        """
+                        SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
+                               i.subtotal_usd, i.subtotal_lbp, i.discount_total_usd, i.discount_total_lbp,
+                               i.invoice_discount_pct, i.invoice_discount_usd, i.invoice_discount_lbp,
+                               i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
+                               i.reserve_stock,
+                               i.pricing_currency, i.settlement_currency,
+                               i.branch_id,
+                               i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at, i.receipt_meta,
+                               i.invoice_date, i.due_date, i.created_at
+                        FROM sales_invoices i
+                        LEFT JOIN customers c
+                          ON c.company_id = i.company_id AND c.id = i.customer_id
+                        LEFT JOIN warehouses w
+                          ON w.company_id = i.company_id AND w.id = i.warehouse_id
+                        WHERE i.company_id = %s AND i.id = %s
+                        """,
+                        (company_id, invoice_id),
+                    )
+                except pg_errors.UndefinedColumn:
+                    cur.execute(
+                        """
+                        SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
+                               i.subtotal_usd, i.subtotal_lbp, i.discount_total_usd, i.discount_total_lbp,
+                               i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
+                               i.reserve_stock,
+                               i.pricing_currency, i.settlement_currency,
+                               i.branch_id,
+                               i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at, i.receipt_meta,
+                               i.invoice_date, i.due_date, i.created_at
+                        FROM sales_invoices i
+                        LEFT JOIN customers c
+                          ON c.company_id = i.company_id AND c.id = i.customer_id
+                        LEFT JOIN warehouses w
+                          ON w.company_id = i.company_id AND w.id = i.warehouse_id
+                        WHERE i.company_id = %s AND i.id = %s
+                        """,
+                        (company_id, invoice_id),
+                    )
             inv = cur.fetchone()
             if not inv:
                 raise HTTPException(status_code=404, detail="invoice not found")
@@ -448,19 +518,14 @@ class SalesInvoiceDraftLineIn(BaseModel):
     # Commercial metadata (optional; defaults handled server-side).
     pre_discount_unit_price_usd: Optional[Decimal] = None
     pre_discount_unit_price_lbp: Optional[Decimal] = None
-    discount_pct: Optional[Decimal] = None
+    # Discount percent as a fraction (0..1). Backward compatible: accept 0..100 and normalize.
+    discount_pct: Decimal = Decimal("0")
+    # Discount amounts are per-line totals.
     discount_amount_usd: Optional[Decimal] = None
     discount_amount_lbp: Optional[Decimal] = None
     applied_promotion_id: Optional[str] = None
     applied_promotion_item_id: Optional[str] = None
     applied_price_list_id: Optional[str] = None
-    # Optional commercial metadata (discounts). Amounts are per-line totals.
-    pre_discount_unit_price_usd: Optional[Decimal] = None
-    pre_discount_unit_price_lbp: Optional[Decimal] = None
-    # Discount percent as a fraction (0..1). Backward compatible: accept 0..100 and normalize.
-    discount_pct: Decimal = Decimal("0")
-    discount_amount_usd: Optional[Decimal] = None
-    discount_amount_lbp: Optional[Decimal] = None
 
 class SalesInvoiceDraftIn(BaseModel):
     customer_id: Optional[str] = None
@@ -468,6 +533,19 @@ class SalesInvoiceDraftIn(BaseModel):
     invoice_no: Optional[str] = None
     invoice_date: Optional[date] = None
     due_date: Optional[date] = None
+    # Header (invoice-level) discount. Applies on top of line discounts.
+    # pct is 0..1 (also accepts 0..100 for convenience).
+    invoice_discount_pct: Optional[Decimal] = None
+    invoice_discount_usd: Optional[Decimal] = None
+    invoice_discount_lbp: Optional[Decimal] = None
+    salesperson_user_id: Optional[str] = None
+    sales_channel: Optional[str] = None
+    delivery_address: Optional[str] = None
+    delivery_phone: Optional[str] = None
+    shipping_method: Optional[str] = None
+    tracking_no: Optional[str] = None
+    shipping_notes: Optional[str] = None
+    delivered_at: Optional[datetime] = None
     reserve_stock: bool = False
     exchange_rate: Decimal = Decimal("0")
     pricing_currency: CurrencyCode = "USD"
@@ -481,6 +559,17 @@ class SalesInvoiceDraftUpdateIn(BaseModel):
     invoice_no: Optional[str] = None
     invoice_date: Optional[date] = None
     due_date: Optional[date] = None
+    invoice_discount_pct: Optional[Decimal] = None
+    invoice_discount_usd: Optional[Decimal] = None
+    invoice_discount_lbp: Optional[Decimal] = None
+    salesperson_user_id: Optional[str] = None
+    sales_channel: Optional[str] = None
+    delivery_address: Optional[str] = None
+    delivery_phone: Optional[str] = None
+    shipping_method: Optional[str] = None
+    tracking_no: Optional[str] = None
+    shipping_notes: Optional[str] = None
+    delivered_at: Optional[datetime] = None
     reserve_stock: Optional[bool] = None
     exchange_rate: Optional[Decimal] = None
     pricing_currency: Optional[CurrencyCode] = None
@@ -501,14 +590,25 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, status, exchange_rate, warehouse_id
-                FROM sales_invoices
-                WHERE company_id = %s AND id = %s
-                """,
-                (company_id, invoice_id),
-            )
+            try:
+                cur.execute(
+                    """
+                    SELECT id, status, exchange_rate, warehouse_id,
+                           invoice_discount_pct, invoice_discount_usd, invoice_discount_lbp
+                    FROM sales_invoices
+                    WHERE company_id = %s AND id = %s
+                    """,
+                    (company_id, invoice_id),
+                )
+            except pg_errors.UndefinedColumn:
+                cur.execute(
+                    """
+                    SELECT id, status, exchange_rate, warehouse_id
+                    FROM sales_invoices
+                    WHERE company_id = %s AND id = %s
+                    """,
+                    (company_id, invoice_id),
+                )
             inv = cur.fetchone()
             if not inv:
                 raise HTTPException(status_code=404, detail="invoice not found")
@@ -525,6 +625,28 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
             base_lbp = sum([Decimal(str(l["line_total_lbp"] or 0)) for l in lines])
 
             exchange_rate = Decimal(str(inv["exchange_rate"] or 0))
+            inv_disc_pct = Decimal(str(inv.get("invoice_discount_pct") or 0)) if hasattr(inv, "get") else Decimal("0")
+            if inv_disc_pct > 1 and inv_disc_pct <= 100:
+                inv_disc_pct = inv_disc_pct / Decimal("100")
+            if inv_disc_pct < 0:
+                inv_disc_pct = Decimal("0")
+            if inv_disc_pct > 1:
+                inv_disc_pct = Decimal("1")
+            # Canonical semantics:
+            # - If pct > 0, pct wins and amounts are derived from the current base.
+            # - Else, amounts are treated as a fixed discount.
+            if inv_disc_pct > 0:
+                inv_disc_usd = base_usd * inv_disc_pct
+                inv_disc_lbp = base_lbp * inv_disc_pct
+            else:
+                inv_disc_usd = Decimal(str(inv.get("invoice_discount_usd") or 0)) if hasattr(inv, "get") else Decimal("0")
+                inv_disc_lbp = Decimal(str(inv.get("invoice_discount_lbp") or 0)) if hasattr(inv, "get") else Decimal("0")
+            inv_disc_usd, inv_disc_lbp = _normalize_dual_amounts(inv_disc_usd, inv_disc_lbp, exchange_rate)
+            inv_disc_usd = min(inv_disc_usd, base_usd) if base_usd > 0 else Decimal("0")
+            inv_disc_lbp = min(inv_disc_lbp, base_lbp) if base_lbp > 0 else Decimal("0")
+            base_after_disc_usd = base_usd - inv_disc_usd
+            base_after_disc_lbp = base_lbp - inv_disc_lbp
+            alloc_factor = (base_after_disc_lbp / base_lbp) if base_lbp else (base_after_disc_usd / base_usd if base_usd else Decimal("0"))
             tax_code_id = None  # default VAT code id (if any)
             tax_usd = Decimal("0")
             tax_lbp = Decimal("0")
@@ -570,6 +692,11 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
                     base_by_tax[tcid]["lbp"] += Decimal(str(l.get("line_total_lbp") or 0))
 
                 if base_by_tax:
+                    # Allocate header discount proportionally across VAT bases.
+                    if alloc_factor and alloc_factor != 1:
+                        for _tcid, b in base_by_tax.items():
+                            b["usd"] = b["usd"] * alloc_factor
+                            b["lbp"] = b["lbp"] * alloc_factor
                     tcids = list(base_by_tax.keys())
                     cur.execute(
                         """
@@ -590,11 +717,11 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
                         tax_usd += tusd
                         tax_lbp += tlbp
 
-            total_usd = base_usd + tax_usd
-            total_lbp = base_lbp + tax_lbp
+            total_usd = base_after_disc_usd + tax_usd
+            total_lbp = base_after_disc_lbp + tax_lbp
             return {
-                "base_usd": base_usd,
-                "base_lbp": base_lbp,
+                "base_usd": base_after_disc_usd,
+                "base_lbp": base_after_disc_lbp,
                 "tax_code_id": tax_code_id,
                 "tax_usd": tax_usd,
                 "tax_lbp": tax_lbp,
@@ -737,37 +864,111 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                     terms = int(row["payment_terms_days"] or 0) if row else 0
                     due_date = inv_date + timedelta(days=max(0, terms))
 
+                # Header discount applies on top of net line totals.
+                inv_disc_pct = Decimal(str(data.invoice_discount_pct or 0))
+                if inv_disc_pct > 1 and inv_disc_pct <= 100:
+                    inv_disc_pct = inv_disc_pct / Decimal("100")
+                if inv_disc_pct < 0:
+                    inv_disc_pct = Decimal("0")
+                if inv_disc_pct > 1:
+                    inv_disc_pct = Decimal("1")
+                if inv_disc_pct > 0:
+                    inv_disc_usd = base_usd * inv_disc_pct
+                    inv_disc_lbp = base_lbp * inv_disc_pct
+                else:
+                    inv_disc_usd = Decimal(str(data.invoice_discount_usd or 0))
+                    inv_disc_lbp = Decimal(str(data.invoice_discount_lbp or 0))
+                inv_disc_usd, inv_disc_lbp = _normalize_dual_amounts(inv_disc_usd, inv_disc_lbp, Decimal(str(data.exchange_rate or 0)))
+                inv_disc_usd = min(inv_disc_usd, base_usd) if base_usd > 0 else Decimal("0")
+                inv_disc_lbp = min(inv_disc_lbp, base_lbp) if base_lbp > 0 else Decimal("0")
+                total_usd = base_usd - inv_disc_usd
+                total_lbp = base_lbp - inv_disc_lbp
+
                 invoice_no = (data.invoice_no or "").strip() or _next_doc_no(cur, company_id, "SI")
-                cur.execute(
-                    """
-                    INSERT INTO sales_invoices
-                      (id, company_id, invoice_no, customer_id, status,
-                       subtotal_usd, subtotal_lbp, discount_total_usd, discount_total_lbp,
-                       total_usd, total_lbp,
-                       warehouse_id, reserve_stock, exchange_rate, pricing_currency, settlement_currency, invoice_date, due_date)
-                    VALUES
-                      (gen_random_uuid(), %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id
-                    """,
-                    (
-                        company_id,
-                        invoice_no,
-                        data.customer_id,
-                        subtotal_usd,
-                        subtotal_lbp,
-                        discount_total_usd,
-                        discount_total_lbp,
-                        base_usd,
-                        base_lbp,
-                        data.warehouse_id,
-                        bool(data.reserve_stock),
-                        data.exchange_rate,
-                        data.pricing_currency,
-                        data.settlement_currency,
-                        inv_date,
-                        due_date,
-                    ),
-                )
+                try:
+                    cur.execute(
+                        """
+	                        INSERT INTO sales_invoices
+	                          (id, company_id, invoice_no, customer_id, status,
+	                           subtotal_usd, subtotal_lbp, discount_total_usd, discount_total_lbp,
+	                           invoice_discount_pct, invoice_discount_usd, invoice_discount_lbp,
+	                           total_usd, total_lbp,
+	                           warehouse_id, reserve_stock, exchange_rate, pricing_currency, settlement_currency, invoice_date, due_date,
+	                           salesperson_user_id, sales_channel, delivery_address, delivery_phone, shipping_method, tracking_no, shipping_notes, delivered_at)
+	                        VALUES
+	                          (gen_random_uuid(), %s, %s, %s, 'draft',
+	                           %s, %s, %s, %s,
+	                           %s, %s, %s,
+	                           %s, %s,
+	                           %s, %s, %s, %s, %s, %s, %s, %s,
+	                           %s, %s, %s, %s, %s, %s, %s, %s)
+	                        RETURNING id
+	                        """,
+                        (
+                            company_id,
+                            invoice_no,
+                            data.customer_id,
+                            subtotal_usd,
+                            subtotal_lbp,
+                            discount_total_usd,
+                            discount_total_lbp,
+                            inv_disc_pct,
+                            inv_disc_usd,
+                            inv_disc_lbp,
+                            total_usd,
+                            total_lbp,
+                            data.warehouse_id,
+                            bool(data.reserve_stock),
+                            data.exchange_rate,
+                            data.pricing_currency,
+                            data.settlement_currency,
+                            inv_date,
+                            due_date,
+                            data.salesperson_user_id,
+                            (data.sales_channel or "").strip() or None,
+                            (data.delivery_address or "").strip() or None,
+                            (data.delivery_phone or "").strip() or None,
+	                            (data.shipping_method or "").strip() or None,
+	                            (data.tracking_no or "").strip() or None,
+	                            (data.shipping_notes or "").strip() or None,
+	                            data.delivered_at,
+	                        ),
+	                    )
+                except pg_errors.UndefinedColumn:
+                    # Best-effort compatibility with older schemas (ops metadata / header discount columns missing).
+                    cur.execute(
+                        """
+                        INSERT INTO sales_invoices
+                          (id, company_id, invoice_no, customer_id, status,
+                           subtotal_usd, subtotal_lbp, discount_total_usd, discount_total_lbp,
+                           total_usd, total_lbp,
+                           warehouse_id, reserve_stock, exchange_rate, pricing_currency, settlement_currency, invoice_date, due_date)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, %s, 'draft',
+                           %s, %s, %s, %s,
+                           %s, %s,
+                           %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (
+                            company_id,
+                            invoice_no,
+                            data.customer_id,
+                            subtotal_usd,
+                            subtotal_lbp,
+                            discount_total_usd,
+                            discount_total_lbp,
+                            base_usd,
+                            base_lbp,
+                            data.warehouse_id,
+                            bool(data.reserve_stock),
+                            data.exchange_rate,
+                            data.pricing_currency,
+                            data.settlement_currency,
+                            inv_date,
+                            due_date,
+                        ),
+                    )
                 invoice_id = cur.fetchone()["id"]
 
                 for l in lines_norm:
@@ -826,19 +1027,42 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
 
 @router.patch("/invoices/{invoice_id}", dependencies=[Depends(require_permission("sales:write"))])
 def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    patch = data.model_dump(exclude_none=True)
+    # Use fields_set so clients can explicitly clear nullable fields.
+    patch = {k: getattr(data, k) for k in getattr(data, "model_fields_set", set())}
+    # Protect NOT NULL columns from being set to NULL by clients sending explicit null.
+    for k in ["reserve_stock", "exchange_rate", "pricing_currency", "settlement_currency"]:
+        if k in patch and patch.get(k) is None:
+            patch.pop(k, None)
+    # Treat explicit null on discount fields as 0 (columns are NOT NULL with defaults).
+    for k in ["invoice_discount_pct", "invoice_discount_usd", "invoice_discount_lbp"]:
+        if k in patch and patch.get(k) is None:
+            patch[k] = Decimal("0")
+    for k in ["sales_channel", "delivery_address", "delivery_phone", "shipping_method", "tracking_no", "shipping_notes"]:
+        if k in patch and isinstance(patch.get(k), str):
+            patch[k] = (patch.get(k) or "").strip() or None
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT id, status, exchange_rate, invoice_date, due_date, customer_id
-                    FROM sales_invoices
-                    WHERE company_id = %s AND id = %s
-                    """,
-                    (company_id, invoice_id),
-                )
+                try:
+                    cur.execute(
+                        """
+                        SELECT id, status, exchange_rate, invoice_date, due_date, customer_id,
+                               invoice_discount_pct, invoice_discount_usd, invoice_discount_lbp
+                        FROM sales_invoices
+                        WHERE company_id = %s AND id = %s
+                        """,
+                        (company_id, invoice_id),
+                    )
+                except pg_errors.UndefinedColumn:
+                    cur.execute(
+                        """
+                        SELECT id, status, exchange_rate, invoice_date, due_date, customer_id
+                        FROM sales_invoices
+                        WHERE company_id = %s AND id = %s
+                        """,
+                        (company_id, invoice_id),
+                    )
                 inv = cur.fetchone()
                 if not inv:
                     raise HTTPException(status_code=404, detail="invoice not found")
@@ -871,7 +1095,8 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                     if patch["due_date"] and patch["due_date"] < next_inv_date:
                         raise HTTPException(status_code=400, detail="due_date cannot be before invoice_date")
 
-                if "lines" in patch:
+                replace_lines = ("lines" in patch) and (data.lines is not None)
+                if replace_lines:
                     lines_in = data.lines or []
                     # Replace lines.
                     cur.execute("DELETE FROM sales_invoice_lines WHERE invoice_id = %s", (invoice_id,))
@@ -997,10 +1222,68 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                     patch["total_usd"] = base_usd
                     patch["total_lbp"] = base_lbp
 
+                # Header discount updates: recompute net totals even if lines didn't change.
+                if replace_lines or any(k in patch for k in ["invoice_discount_pct", "invoice_discount_usd", "invoice_discount_lbp"]):
+                    # Base is the net sum of lines (after line discounts).
+                    if replace_lines:
+                        base_usd = Decimal(str(patch.get("total_usd") or 0))
+                        base_lbp = Decimal(str(patch.get("total_lbp") or 0))
+                    else:
+                        cur.execute(
+                            """
+                            SELECT COALESCE(SUM(line_total_usd),0) AS base_usd,
+                                   COALESCE(SUM(line_total_lbp),0) AS base_lbp
+                            FROM sales_invoice_lines
+                            WHERE invoice_id=%s
+                            """,
+                            (invoice_id,),
+                        )
+                        s = cur.fetchone() or {}
+                        base_usd = Decimal(str(s.get("base_usd") or 0))
+                        base_lbp = Decimal(str(s.get("base_lbp") or 0))
+
+                    exchange_rate = Decimal(str(patch.get("exchange_rate") or inv.get("exchange_rate") or 0))
+                    inv_disc_pct = Decimal(str((patch.get("invoice_discount_pct") if "invoice_discount_pct" in patch else (inv.get("invoice_discount_pct") if hasattr(inv, "get") else 0)) or 0))
+                    if inv_disc_pct > 1 and inv_disc_pct <= 100:
+                        inv_disc_pct = inv_disc_pct / Decimal("100")
+                    if inv_disc_pct < 0:
+                        inv_disc_pct = Decimal("0")
+                    if inv_disc_pct > 1:
+                        inv_disc_pct = Decimal("1")
+
+                    if inv_disc_pct > 0:
+                        inv_disc_usd = base_usd * inv_disc_pct
+                        inv_disc_lbp = base_lbp * inv_disc_pct
+                    else:
+                        inv_disc_usd = Decimal(str((patch.get("invoice_discount_usd") if "invoice_discount_usd" in patch else (inv.get("invoice_discount_usd") if hasattr(inv, "get") else 0)) or 0))
+                        inv_disc_lbp = Decimal(str((patch.get("invoice_discount_lbp") if "invoice_discount_lbp" in patch else (inv.get("invoice_discount_lbp") if hasattr(inv, "get") else 0)) or 0))
+
+                    inv_disc_usd, inv_disc_lbp = _normalize_dual_amounts(inv_disc_usd, inv_disc_lbp, exchange_rate)
+                    inv_disc_usd = min(inv_disc_usd, base_usd) if base_usd > 0 else Decimal("0")
+                    inv_disc_lbp = min(inv_disc_lbp, base_lbp) if base_lbp > 0 else Decimal("0")
+
+                    patch["invoice_discount_pct"] = inv_disc_pct
+                    patch["invoice_discount_usd"] = inv_disc_usd
+                    patch["invoice_discount_lbp"] = inv_disc_lbp
+                    patch["total_usd"] = base_usd - inv_disc_usd
+                    patch["total_lbp"] = base_lbp - inv_disc_lbp
+
                 if "invoice_no" in patch:
                     patch["invoice_no"] = (patch["invoice_no"] or "").strip() or None
                     if not patch["invoice_no"]:
                         patch.pop("invoice_no", None)
+                if "sales_channel" in patch and isinstance(patch.get("sales_channel"), str):
+                    patch["sales_channel"] = (patch["sales_channel"] or "").strip() or None
+                if "delivery_address" in patch and isinstance(patch.get("delivery_address"), str):
+                    patch["delivery_address"] = (patch["delivery_address"] or "").strip() or None
+                if "delivery_phone" in patch and isinstance(patch.get("delivery_phone"), str):
+                    patch["delivery_phone"] = (patch["delivery_phone"] or "").strip() or None
+                if "shipping_method" in patch and isinstance(patch.get("shipping_method"), str):
+                    patch["shipping_method"] = (patch["shipping_method"] or "").strip() or None
+                if "tracking_no" in patch and isinstance(patch.get("tracking_no"), str):
+                    patch["tracking_no"] = (patch["tracking_no"] or "").strip() or None
+                if "shipping_notes" in patch and isinstance(patch.get("shipping_notes"), str):
+                    patch["shipping_notes"] = (patch["shipping_notes"] or "").strip() or None
 
                 fields = []
                 params = []
@@ -1010,15 +1293,45 @@ def update_sales_invoice_draft(invoice_id: str, data: SalesInvoiceDraftUpdateIn,
                     fields.append(f"{k} = %s")
                     params.append(v)
                 if fields:
-                    params.extend([company_id, invoice_id])
-                    cur.execute(
-                        f"""
-                        UPDATE sales_invoices
-                        SET {', '.join(fields)}
-                        WHERE company_id = %s AND id = %s
-                        """,
-                        params,
-                    )
+                    def _do_update(patch_obj: dict) -> None:
+                        f2 = []
+                        p2 = []
+                        for kk, vv in patch_obj.items():
+                            if kk == "lines":
+                                continue
+                            f2.append(f"{kk} = %s")
+                            p2.append(vv)
+                        if not f2:
+                            return
+                        p2.extend([company_id, invoice_id])
+                        cur.execute(
+                            f"""
+                            UPDATE sales_invoices
+                            SET {', '.join(f2)}
+                            WHERE company_id = %s AND id = %s
+                            """,
+                            p2,
+                        )
+
+                    try:
+                        _do_update(patch)
+                    except pg_errors.UndefinedColumn:
+                        # Backwards compatibility: deployments that haven't applied ops/discount migrations yet.
+                        drop_discount = {"invoice_discount_pct", "invoice_discount_usd", "invoice_discount_lbp"}
+                        drop_ops = {
+                            "salesperson_user_id",
+                            "sales_channel",
+                            "delivery_address",
+                            "delivery_phone",
+                            "shipping_method",
+                            "tracking_no",
+                            "shipping_notes",
+                            "delivered_at",
+                        }
+                        try:
+                            _do_update({k: v for k, v in patch.items() if k not in drop_discount})
+                        except pg_errors.UndefinedColumn:
+                            _do_update({k: v for k, v in patch.items() if k not in (drop_discount | drop_ops)})
 
                 cur.execute(
                     """
@@ -1042,17 +1355,31 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT id, invoice_no, customer_id, status, warehouse_id,
-                           exchange_rate, pricing_currency, settlement_currency,
-                           invoice_date, due_date, COALESCE(doc_subtype,'standard') AS doc_subtype
-                    FROM sales_invoices
-                    WHERE company_id = %s AND id = %s
-                    FOR UPDATE
-                    """,
-                    (company_id, invoice_id),
-                )
+                try:
+                    cur.execute(
+                        """
+                        SELECT id, invoice_no, customer_id, status, warehouse_id,
+                               exchange_rate, pricing_currency, settlement_currency,
+                               invoice_date, due_date, COALESCE(doc_subtype,'standard') AS doc_subtype,
+                               invoice_discount_pct, invoice_discount_usd, invoice_discount_lbp
+                        FROM sales_invoices
+                        WHERE company_id = %s AND id = %s
+                        FOR UPDATE
+                        """,
+                        (company_id, invoice_id),
+                    )
+                except pg_errors.UndefinedColumn:
+                    cur.execute(
+                        """
+                        SELECT id, invoice_no, customer_id, status, warehouse_id,
+                               exchange_rate, pricing_currency, settlement_currency,
+                               invoice_date, due_date, COALESCE(doc_subtype,'standard') AS doc_subtype
+                        FROM sales_invoices
+                        WHERE company_id = %s AND id = %s
+                        FOR UPDATE
+                        """,
+                        (company_id, invoice_id),
+                    )
                 inv = cur.fetchone()
                 if not inv:
                     raise HTTPException(status_code=404, detail="invoice not found")
@@ -1096,6 +1423,28 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                 exchange_rate = Decimal(str(inv["exchange_rate"] or 0))
                 base_usd = sum([Decimal(str(l["line_total_usd"] or 0)) for l in lines])
                 base_lbp = sum([Decimal(str(l["line_total_lbp"] or 0)) for l in lines])
+
+                # Header (invoice-level) discount applies on top of net line totals.
+                inv_disc_pct = Decimal(str(inv.get("invoice_discount_pct") or 0)) if hasattr(inv, "get") else Decimal("0")
+                if inv_disc_pct > 1 and inv_disc_pct <= 100:
+                    inv_disc_pct = inv_disc_pct / Decimal("100")
+                if inv_disc_pct < 0:
+                    inv_disc_pct = Decimal("0")
+                if inv_disc_pct > 1:
+                    inv_disc_pct = Decimal("1")
+                if inv_disc_pct > 0:
+                    inv_disc_usd = base_usd * inv_disc_pct
+                    inv_disc_lbp = base_lbp * inv_disc_pct
+                else:
+                    inv_disc_usd = Decimal(str(inv.get("invoice_discount_usd") or 0)) if hasattr(inv, "get") else Decimal("0")
+                    inv_disc_lbp = Decimal(str(inv.get("invoice_discount_lbp") or 0)) if hasattr(inv, "get") else Decimal("0")
+                inv_disc_usd, inv_disc_lbp = _normalize_dual_amounts(inv_disc_usd, inv_disc_lbp, exchange_rate)
+                inv_disc_usd = min(inv_disc_usd, base_usd) if base_usd > 0 else Decimal("0")
+                inv_disc_lbp = min(inv_disc_lbp, base_lbp) if base_lbp > 0 else Decimal("0")
+                base_after_disc_usd = base_usd - inv_disc_usd
+                base_after_disc_lbp = base_lbp - inv_disc_lbp
+                # Proportional allocation of header discount across lines for VAT computation.
+                alloc_factor = (base_after_disc_lbp / base_lbp) if base_lbp else (base_after_disc_usd / base_usd if base_usd else Decimal("0"))
 
                 # VAT breakdown: group base/tax by the effective VAT tax_code_id.
                 # - Per-item items.tax_code_id overrides the default VAT code.
@@ -1147,6 +1496,10 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                         base_by_tax[tcid]["lbp"] += Decimal(str(l.get("line_total_lbp") or 0))
 
                     if base_by_tax:
+                        if alloc_factor and alloc_factor != 1:
+                            for _tcid, b in base_by_tax.items():
+                                b["usd"] = b["usd"] * alloc_factor
+                                b["lbp"] = b["lbp"] * alloc_factor
                         tcids = list(base_by_tax.keys())
                         cur.execute(
                             """
@@ -1177,8 +1530,8 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                                 }
                             )
 
-                total_usd = base_usd + tax_usd
-                total_lbp = base_lbp + tax_lbp
+                total_usd = base_after_disc_usd + tax_usd
+                total_lbp = base_after_disc_lbp + tax_lbp
 
                 # Normalize payments; if no payments => credit sale.
                 payments = []
@@ -1418,7 +1771,7 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
                         VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Opening balance offset', %s)
                         """,
-                        (journal_id, opening_bal, base_usd, base_lbp, inv.get("warehouse_id")),
+                        (journal_id, opening_bal, base_after_disc_usd, base_after_disc_lbp, inv.get("warehouse_id")),
                     )
                 else:
                     cur.execute(
@@ -1426,7 +1779,7 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
                         VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Sales revenue', %s)
                         """,
-                        (journal_id, sales, base_usd, base_lbp, inv.get("warehouse_id")),
+                        (journal_id, sales, base_after_disc_usd, base_after_disc_lbp, inv.get("warehouse_id")),
                     )
 
                 if (tax_usd != 0 or tax_lbp != 0):

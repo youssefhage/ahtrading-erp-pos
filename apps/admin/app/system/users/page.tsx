@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
-type UserRow = { id: string; email: string; is_active: boolean };
+type UserRow = { id: string; email: string; full_name?: string | null; phone?: string | null; is_active: boolean; mfa_enabled?: boolean };
 type RoleRow = { id: string; name: string };
 
 export default function UsersPage() {
@@ -90,6 +90,46 @@ export default function UsersPage() {
       setStatus(message);
     } finally {
       setAssigning(false);
+    }
+  }
+
+  async function resetMfa(userId: string) {
+    if (!userId) return;
+    setStatus("Resetting MFA...");
+    try {
+      await apiPost(`/users/${encodeURIComponent(userId)}/mfa/reset`, {});
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }
+
+  async function deactivateUser(userId: string) {
+    if (!userId) return;
+    const reason = window.prompt("Deactivation reason (optional):") || "";
+    setStatus("Deactivating user...");
+    try {
+      await apiPost(`/users/${encodeURIComponent(userId)}/deactivate`, { reason: reason.trim() || null });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }
+
+  async function activateUser(userId: string) {
+    if (!userId) return;
+    setStatus("Activating user...");
+    try {
+      await apiPost(`/users/${encodeURIComponent(userId)}/activate`, {});
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
     }
   }
 
@@ -195,21 +235,43 @@ export default function UsersPage() {
                 <thead className="ui-thead">
                   <tr>
                     <th className="px-3 py-2">Email</th>
+                    <th className="px-3 py-2">Name</th>
+                    <th className="px-3 py-2">Phone</th>
                     <th className="px-3 py-2">User ID</th>
                     <th className="px-3 py-2">Active</th>
+                    <th className="px-3 py-2">MFA</th>
+                    <th className="px-3 py-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {users.map((u) => (
                     <tr key={u.id} className="ui-tr-hover">
                       <td className="px-3 py-2">{u.email}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{u.full_name || "-"}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{u.phone || "-"}</td>
                       <td className="px-3 py-2 font-mono text-xs">{u.id}</td>
                       <td className="px-3 py-2">{u.is_active ? "yes" : "no"}</td>
+                      <td className="px-3 py-2 text-xs text-fg-muted">{u.mfa_enabled ? "enabled" : "off"}</td>
+                      <td className="px-3 py-2 text-right">
+                        <Button variant="outline" size="sm" onClick={() => resetMfa(u.id)}>
+                          Reset MFA
+                        </Button>
+                        <span className="inline-block w-2" />
+                        {u.is_active ? (
+                          <Button variant="outline" size="sm" onClick={() => deactivateUser(u.id)}>
+                            Deactivate
+                          </Button>
+                        ) : (
+                          <Button variant="outline" size="sm" onClick={() => activateUser(u.id)}>
+                            Activate
+                          </Button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                   {users.length === 0 ? (
                     <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
+                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
                         No users.
                       </td>
                     </tr>

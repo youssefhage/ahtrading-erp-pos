@@ -19,6 +19,9 @@ type InvoiceRow = {
   subtotal_lbp?: string | number;
   discount_total_usd?: string | number;
   discount_total_lbp?: string | number;
+  invoice_discount_pct?: string | number | null;
+  invoice_discount_usd?: string | number | null;
+  invoice_discount_lbp?: string | number | null;
   total_usd: string | number;
   total_lbp: string | number;
   exchange_rate: string | number;
@@ -28,6 +31,14 @@ type InvoiceRow = {
   settlement_currency: string;
   invoice_date?: string;
   due_date?: string | null;
+  salesperson_user_id?: string | null;
+  sales_channel?: string | null;
+  delivery_address?: string | null;
+  delivery_phone?: string | null;
+  shipping_method?: string | null;
+  tracking_no?: string | null;
+  shipping_notes?: string | null;
+  delivered_at?: string | null;
   created_at: string;
 };
 
@@ -190,6 +201,23 @@ export default function SalesInvoicePrintPage() {
                   Settlement: <span className="font-mono">{detail.invoice.settlement_currency}</span>
                 </p>
               </div>
+              <div className="rounded-md border border-black/15 p-3">
+                <p className="text-[11px] uppercase tracking-wider text-black/60">Sales</p>
+                <p className="mt-1 text-sm font-medium">Channel: {detail.invoice.sales_channel || "-"}</p>
+                <p className="text-sm font-medium">Salesperson: {detail.invoice.salesperson_user_id || "-"}</p>
+              </div>
+              <div className="rounded-md border border-black/15 p-3 md:col-span-2">
+                <p className="text-[11px] uppercase tracking-wider text-black/60">Delivery</p>
+                <p className="mt-1 text-sm font-medium">
+                  {detail.invoice.delivery_address ? detail.invoice.delivery_address : "-"}
+                  {detail.invoice.delivery_phone ? ` (${detail.invoice.delivery_phone})` : ""}
+                </p>
+                <p className="text-sm font-medium">
+                  {detail.invoice.shipping_method ? detail.invoice.shipping_method : "-"}
+                  {detail.invoice.tracking_no ? ` · ${detail.invoice.tracking_no}` : ""}
+                </p>
+                <p className="text-sm font-medium">Delivered: {fmtIso(detail.invoice.delivered_at)}</p>
+              </div>
             </section>
 
             <section className="rounded-md border border-black/15">
@@ -262,9 +290,22 @@ export default function SalesInvoicePrintPage() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span>Discount</span>
+                    <span>Line Discount</span>
                     <span className="font-mono">
                       {fmtUsd(detail.invoice.discount_total_usd || 0)} / {fmtLbp(detail.invoice.discount_total_lbp || 0)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Invoice Discount</span>
+                    <span className="font-mono">
+                      {fmtUsd(detail.invoice.invoice_discount_usd || 0)} / {fmtLbp(detail.invoice.invoice_discount_lbp || 0)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Total Discount</span>
+                    <span className="font-mono">
+                      {fmtUsd(Number(detail.invoice.discount_total_usd || 0) + Number(detail.invoice.invoice_discount_usd || 0))} /{" "}
+                      {fmtLbp(Number(detail.invoice.discount_total_lbp || 0) + Number(detail.invoice.invoice_discount_lbp || 0))}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Literal, List
 from datetime import date
+from decimal import Decimal
 from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
@@ -41,24 +42,46 @@ def list_customers(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
-                       legal_name, tax_id, vat_no, notes,
-                       membership_no, is_member, membership_expires_at,
-                       payment_terms_days,
-                       credit_limit_usd, credit_limit_lbp,
-                       credit_balance_usd, credit_balance_lbp,
-                       loyalty_points,
-                       price_list_id,
-                       is_active,
-                       updated_at
-                FROM customers
-                WHERE company_id = %s
-                ORDER BY name
-                """,
-                (company_id,),
-            )
+            try:
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                           legal_name, tax_id, vat_no, notes,
+                           membership_no, is_member, membership_expires_at,
+                           payment_terms_days,
+                           credit_limit_usd, credit_limit_lbp,
+                           credit_balance_usd, credit_balance_lbp,
+                           loyalty_points,
+                           price_list_id,
+                           is_active,
+                           merged_into_id, merged_at,
+                           updated_at
+                    FROM customers
+                    WHERE company_id = %s AND merged_into_id IS NULL
+                    ORDER BY name
+                    """,
+                    (company_id,),
+                )
+            except pg_errors.UndefinedColumn:
+                # DB not migrated yet; fall back to legacy schema.
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                           legal_name, tax_id, vat_no, notes,
+                           membership_no, is_member, membership_expires_at,
+                           payment_terms_days,
+                           credit_limit_usd, credit_limit_lbp,
+                           credit_balance_usd, credit_balance_lbp,
+                           loyalty_points,
+                           price_list_id,
+                           is_active,
+                           updated_at
+                    FROM customers
+                    WHERE company_id = %s
+                    ORDER BY name
+                    """,
+                    (company_id,),
+                )
             return {"customers": cur.fetchall()}
 
 
@@ -82,35 +105,67 @@ def customers_typeahead(
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
             like = f"%{q}%"
-            cur.execute(
-                """
-                SELECT id, code, name, phone, email, membership_no, payment_terms_days, price_list_id, is_active, updated_at
-                FROM customers
-                WHERE company_id=%s
-                  AND (%s OR is_active=true)
-                  AND (
-                    %s = ''
-                    OR name ILIKE %s
-                    OR code ILIKE %s
-                    OR phone ILIKE %s
-                    OR email ILIKE %s
-                    OR membership_no ILIKE %s
-                  )
-                ORDER BY is_active DESC, name ASC
-                LIMIT %s
-                """,
-                (
-                    company_id,
-                    bool(include_inactive),
-                    q,
-                    like,
-                    like,
-                    like,
-                    like,
-                    like,
-                    limit,
-                ),
-            )
+            try:
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, membership_no, payment_terms_days, price_list_id, is_active, updated_at
+                    FROM customers
+                    WHERE company_id=%s
+                      AND merged_into_id IS NULL
+                      AND (%s OR is_active=true)
+                      AND (
+                        %s = ''
+                        OR name ILIKE %s
+                        OR code ILIKE %s
+                        OR phone ILIKE %s
+                        OR email ILIKE %s
+                        OR membership_no ILIKE %s
+                      )
+                    ORDER BY is_active DESC, name ASC
+                    LIMIT %s
+                    """,
+                    (
+                        company_id,
+                        bool(include_inactive),
+                        q,
+                        like,
+                        like,
+                        like,
+                        like,
+                        like,
+                        limit,
+                    ),
+                )
+            except pg_errors.UndefinedColumn:
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, membership_no, payment_terms_days, price_list_id, is_active, updated_at
+                    FROM customers
+                    WHERE company_id=%s
+                      AND (%s OR is_active=true)
+                      AND (
+                        %s = ''
+                        OR name ILIKE %s
+                        OR code ILIKE %s
+                        OR phone ILIKE %s
+                        OR email ILIKE %s
+                        OR membership_no ILIKE %s
+                      )
+                    ORDER BY is_active DESC, name ASC
+                    LIMIT %s
+                    """,
+                    (
+                        company_id,
+                        bool(include_inactive),
+                        q,
+                        like,
+                        like,
+                        like,
+                        like,
+                        like,
+                        limit,
+                    ),
+                )
             return {"customers": cur.fetchall()}
 
 
@@ -119,23 +174,43 @@ def get_customer(customer_id: str, company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
-                       legal_name, tax_id, vat_no, notes,
-                       membership_no, is_member, membership_expires_at,
-                       payment_terms_days,
-                       credit_limit_usd, credit_limit_lbp,
-                       credit_balance_usd, credit_balance_lbp,
-                       loyalty_points,
-                       price_list_id,
-                       is_active,
-                       updated_at
-                FROM customers
-                WHERE company_id=%s AND id=%s
-                """,
-                (company_id, customer_id),
-            )
+            try:
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                           legal_name, tax_id, vat_no, notes,
+                           membership_no, is_member, membership_expires_at,
+                           payment_terms_days,
+                           credit_limit_usd, credit_limit_lbp,
+                           credit_balance_usd, credit_balance_lbp,
+                           loyalty_points,
+                           price_list_id,
+                           is_active,
+                           merged_into_id, merged_at, merged_reason,
+                           updated_at
+                    FROM customers
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (company_id, customer_id),
+                )
+            except pg_errors.UndefinedColumn:
+                cur.execute(
+                    """
+                    SELECT id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                           legal_name, tax_id, vat_no, notes,
+                           membership_no, is_member, membership_expires_at,
+                           payment_terms_days,
+                           credit_limit_usd, credit_limit_lbp,
+                           credit_balance_usd, credit_balance_lbp,
+                           loyalty_points,
+                           price_list_id,
+                           is_active,
+                           updated_at
+                    FROM customers
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (company_id, customer_id),
+                )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Customer not found")
@@ -236,6 +311,19 @@ def update_customer(customer_id: str, data: CustomerUpdate, company_id: str = De
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "SELECT merged_into_id FROM customers WHERE company_id=%s AND id=%s",
+                    (company_id, customer_id),
+                )
+                r = cur.fetchone()
+            except pg_errors.UndefinedColumn:
+                cur.execute("SELECT 1 AS ok FROM customers WHERE company_id=%s AND id=%s", (company_id, customer_id))
+                r = cur.fetchone()
+            if not r:
+                raise HTTPException(status_code=404, detail="Customer not found")
+            if r.get("merged_into_id"):
+                raise HTTPException(status_code=409, detail="Cannot edit a merged customer")
             cur.execute(
                 f"""
                 UPDATE customers
@@ -245,6 +333,269 @@ def update_customer(customer_id: str, data: CustomerUpdate, company_id: str = De
                 params,
             )
             return {"ok": True}
+
+
+class MergePreviewIn(BaseModel):
+    source_customer_id: str
+    target_customer_id: str
+
+
+@router.post("/merge/preview", dependencies=[Depends(require_permission("customers:write"))])
+def preview_merge_customer(data: MergePreviewIn, company_id: str = Depends(get_company_id)):
+    if data.source_customer_id == data.target_customer_id:
+        raise HTTPException(status_code=400, detail="source_customer_id and target_customer_id must differ")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, code, name, phone, email, membership_no, price_list_id,
+                       credit_balance_usd, credit_balance_lbp, loyalty_points,
+                       merged_into_id
+                FROM customers
+                WHERE company_id=%s AND id=ANY(%s)
+                """,
+                (company_id, [data.source_customer_id, data.target_customer_id]),
+            )
+            rows = {str(r["id"]): r for r in cur.fetchall()}
+            src = rows.get(data.source_customer_id)
+            tgt = rows.get(data.target_customer_id)
+            if not src or not tgt:
+                raise HTTPException(status_code=404, detail="customer not found")
+            if src.get("merged_into_id") or tgt.get("merged_into_id"):
+                raise HTTPException(status_code=409, detail="cannot merge customers that are already merged")
+
+            def _count(sql: str) -> int:
+                cur.execute(sql, (company_id, data.source_customer_id))
+                return int(cur.fetchone()["n"])
+
+            counts = {
+                "sales_orders": _count("SELECT COUNT(*)::int AS n FROM sales_orders WHERE company_id=%s AND customer_id=%s"),
+                "sales_invoices": _count("SELECT COUNT(*)::int AS n FROM sales_invoices WHERE company_id=%s AND customer_id=%s"),
+                "credit_movements": _count("SELECT COUNT(*)::int AS n FROM customer_credit_movements WHERE company_id=%s AND customer_id=%s"),
+                "party_contacts": _count("SELECT COUNT(*)::int AS n FROM party_contacts WHERE company_id=%s AND party_kind='customer' AND party_id=%s"),
+                "party_addresses": _count("SELECT COUNT(*)::int AS n FROM party_addresses WHERE company_id=%s AND party_kind='customer' AND party_id=%s"),
+                "attachments": _count("SELECT COUNT(*)::int AS n FROM document_attachments WHERE company_id=%s AND entity_type='customer' AND entity_id=%s"),
+            }
+
+            conflicts = []
+            if src.get("membership_no") and tgt.get("membership_no") and src["membership_no"] != tgt["membership_no"]:
+                conflicts.append("membership_no")
+            if src.get("code") and tgt.get("code") and src["code"] != tgt["code"]:
+                conflicts.append("code")
+            if src.get("email") and tgt.get("email") and str(src["email"]).lower() != str(tgt["email"]).lower():
+                conflicts.append("email")
+
+            return {"source": src, "target": tgt, "counts": counts, "conflicts": conflicts}
+
+
+class MergeExecuteIn(BaseModel):
+    source_customer_id: str
+    target_customer_id: str
+    reason: Optional[str] = None
+
+
+@router.post("/merge", dependencies=[Depends(require_permission("customers:write"))])
+def merge_customer(data: MergeExecuteIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    if data.source_customer_id == data.target_customer_id:
+        raise HTTPException(status_code=400, detail="source_customer_id and target_customer_id must differ")
+    reason = (data.reason or "").strip() or None
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                # Lock both rows to prevent concurrent merges/edits.
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM customers
+                    WHERE company_id=%s AND id=ANY(%s)
+                    FOR UPDATE
+                    """,
+                    (company_id, [data.source_customer_id, data.target_customer_id]),
+                )
+                rows = {str(r["id"]): r for r in cur.fetchall()}
+                src = rows.get(data.source_customer_id)
+                tgt = rows.get(data.target_customer_id)
+                if not src or not tgt:
+                    raise HTTPException(status_code=404, detail="customer not found")
+                if src.get("merged_into_id") or tgt.get("merged_into_id"):
+                    raise HTTPException(status_code=409, detail="cannot merge customers that are already merged")
+
+                # Move over missing fields to make the target "better" without clobbering user edits.
+                patch = {}
+                for k in [
+                    "code",
+                    "phone",
+                    "email",
+                    "party_type",
+                    "customer_type",
+                    "assigned_salesperson_user_id",
+                    "legal_name",
+                    "tax_id",
+                    "vat_no",
+                    "notes",
+                    "membership_no",
+                    "is_member",
+                    "membership_expires_at",
+                    "payment_terms_days",
+                    "credit_limit_usd",
+                    "credit_limit_lbp",
+                    "price_list_id",
+                ]:
+                    if tgt.get(k) in (None, "", 0) and src.get(k) not in (None, "", 0):
+                        patch[k] = src.get(k)
+
+                # Merge boolean in a safe direction.
+                if src.get("marketing_opt_in") and not tgt.get("marketing_opt_in"):
+                    patch["marketing_opt_in"] = True
+
+                # Merge balances/points. (We also re-point the underlying movements/docs.)
+                patch["credit_balance_usd"] = Decimal(str(tgt.get("credit_balance_usd") or 0)) + Decimal(str(src.get("credit_balance_usd") or 0))
+                patch["credit_balance_lbp"] = Decimal(str(tgt.get("credit_balance_lbp") or 0)) + Decimal(str(src.get("credit_balance_lbp") or 0))
+                patch["loyalty_points"] = int(tgt.get("loyalty_points") or 0) + int(src.get("loyalty_points") or 0)
+
+                # Avoid uniqueness conflicts on code/membership_no by keeping target's value.
+                # If the source has a conflicting value, clear it.
+                clear_src = {}
+                if src.get("code") and tgt.get("code") and src["code"] != tgt["code"]:
+                    clear_src["code"] = None
+                if src.get("membership_no") and tgt.get("membership_no") and src["membership_no"] != tgt["membership_no"]:
+                    clear_src["membership_no"] = None
+
+                # Apply patch to target.
+                if patch:
+                    sets = []
+                    params = []
+                    for k, v in patch.items():
+                        sets.append(f"{k}=%s")
+                        params.append(v)
+                    params.extend([company_id, data.target_customer_id])
+                    cur.execute(
+                        f"""
+                        UPDATE customers
+                        SET {', '.join(sets)}, updated_at = now()
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        params,
+                    )
+
+                # Re-point references.
+                cur.execute("UPDATE sales_orders SET customer_id=%s WHERE company_id=%s AND customer_id=%s", (data.target_customer_id, company_id, data.source_customer_id))
+                cur.execute("UPDATE sales_invoices SET customer_id=%s WHERE company_id=%s AND customer_id=%s", (data.target_customer_id, company_id, data.source_customer_id))
+                cur.execute("UPDATE customer_credit_movements SET customer_id=%s WHERE company_id=%s AND customer_id=%s", (data.target_customer_id, company_id, data.source_customer_id))
+                cur.execute("UPDATE party_contacts SET party_id=%s WHERE company_id=%s AND party_kind='customer' AND party_id=%s", (data.target_customer_id, company_id, data.source_customer_id))
+                cur.execute("UPDATE party_addresses SET party_id=%s WHERE company_id=%s AND party_kind='customer' AND party_id=%s", (data.target_customer_id, company_id, data.source_customer_id))
+                cur.execute("UPDATE document_attachments SET entity_id=%s WHERE company_id=%s AND entity_type='customer' AND entity_id=%s", (data.target_customer_id, company_id, data.source_customer_id))
+
+                # Mark the source as merged and deactivate it.
+                cur.execute(
+                    """
+                    UPDATE customers
+                    SET is_active = false,
+                        merged_into_id = %s,
+                        merged_at = now(),
+                        merged_reason = %s,
+                        updated_at = now()
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (data.target_customer_id, reason, company_id, data.source_customer_id),
+                )
+                if clear_src:
+                    sets = []
+                    params = []
+                    for k, v in clear_src.items():
+                        sets.append(f"{k}=%s")
+                        params.append(v)
+                    params.extend([company_id, data.source_customer_id])
+                    cur.execute(
+                        f"""
+                        UPDATE customers
+                        SET {', '.join(sets)}
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        params,
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'customers.merge', 'customer', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        data.target_customer_id,
+                        json.dumps({"source_customer_id": data.source_customer_id, "target_customer_id": data.target_customer_id, "reason": reason}),
+                    ),
+                )
+                return {"ok": True, "source_customer_id": data.source_customer_id, "target_customer_id": data.target_customer_id}
+
+
+@router.get("/duplicates", dependencies=[Depends(require_permission("customers:read"))])
+def customer_duplicates(company_id: str = Depends(get_company_id)):
+    """
+    Find obvious duplicates by email or phone (normalized digits).
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    WITH by_email AS (
+                      SELECT lower(btrim(email)) AS key,
+                             COUNT(*)::int AS n,
+                             json_agg(json_build_object('id', id, 'code', code, 'name', name, 'email', email, 'phone', phone, 'is_active', is_active) ORDER BY name) AS rows
+                      FROM customers
+                      WHERE company_id=%s
+                        AND merged_into_id IS NULL
+                        AND email IS NOT NULL
+                        AND btrim(email) <> ''
+                      GROUP BY lower(btrim(email))
+                      HAVING COUNT(*) > 1
+                    ),
+                    by_phone AS (
+                      SELECT regexp_replace(COALESCE(phone,''), '\\\\D', '', 'g') AS key,
+                             COUNT(*)::int AS n,
+                             json_agg(json_build_object('id', id, 'code', code, 'name', name, 'email', email, 'phone', phone, 'is_active', is_active) ORDER BY name) AS rows
+                      FROM customers
+                      WHERE company_id=%s
+                        AND merged_into_id IS NULL
+                        AND phone IS NOT NULL
+                        AND btrim(phone) <> ''
+                        AND regexp_replace(COALESCE(phone,''), '\\\\D', '', 'g') <> ''
+                      GROUP BY regexp_replace(COALESCE(phone,''), '\\\\D', '', 'g')
+                      HAVING COUNT(*) > 1
+                    )
+                    SELECT
+                      (SELECT COALESCE(json_agg(json_build_object('key', key, 'n', n, 'customers', rows) ORDER BY n DESC), '[]'::json) FROM by_email) AS by_email,
+                      (SELECT COALESCE(json_agg(json_build_object('key', key, 'n', n, 'customers', rows) ORDER BY n DESC), '[]'::json) FROM by_phone) AS by_phone
+                    """,
+                    (company_id, company_id),
+                )
+                row = cur.fetchone() or {}
+                return {"by_email": row.get("by_email") or [], "by_phone": row.get("by_phone") or []}
+            except pg_errors.UndefinedColumn:
+                # If merge columns are not deployed yet, fall back to a simpler query.
+                cur.execute(
+                    """
+                    WITH by_email AS (
+                      SELECT lower(btrim(email)) AS key,
+                             COUNT(*)::int AS n,
+                             json_agg(json_build_object('id', id, 'code', code, 'name', name, 'email', email, 'phone', phone, 'is_active', is_active) ORDER BY name) AS rows
+                      FROM customers
+                      WHERE company_id=%s AND email IS NOT NULL AND btrim(email) <> ''
+                      GROUP BY lower(btrim(email))
+                      HAVING COUNT(*) > 1
+                    )
+                    SELECT COALESCE(json_agg(json_build_object('key', key, 'n', n, 'customers', rows) ORDER BY n DESC), '[]'::json) AS by_email
+                    FROM by_email
+                    """,
+                    (company_id,),
+                )
+                r = cur.fetchone() or {}
+                return {"by_email": r.get("by_email") or [], "by_phone": []}
 
 
 class BulkCustomerIn(BaseModel):
