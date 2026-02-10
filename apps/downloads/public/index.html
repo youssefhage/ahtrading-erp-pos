@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AH Trading Downloads</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="hdr">
+        <div class="logo">AH</div>
+        <div>
+          <h1>AH Trading Apps</h1>
+          <p class="muted">Desktop downloads and update endpoints.</p>
+        </div>
+      </header>
+
+      <section class="card">
+        <h2>Desktop Apps</h2>
+        <p class="muted">
+          These are Tauri desktop apps (fast, low-latency). They keep working on LAN even if the internet is down,
+          as long as the Edge server is reachable.
+        </p>
+
+        <div class="grid">
+          <div class="tile">
+            <div class="tileTitle">POS Desktop</div>
+            <div class="tileDesc">Cashiers (unified POS for both companies).</div>
+            <div class="tileLinks">
+              <a class="btn" href="/updates/pos/">Downloads</a>
+              <a class="btn ghost" href="/updates/pos/latest.json">Update manifest</a>
+            </div>
+          </div>
+          <div class="tile">
+            <div class="tileTitle">Portal Desktop</div>
+            <div class="tileDesc">Accountants, managers, back-office.</div>
+            <div class="tileLinks">
+              <a class="btn" href="/updates/portal/">Downloads</a>
+              <a class="btn ghost" href="/updates/portal/latest.json">Update manifest</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Publishing New Versions</h2>
+        <ol class="steps">
+          <li>Build installers (Windows + macOS) and updater artifacts.</li>
+          <li>Upload artifacts into <code>/updates/pos/</code> and <code>/updates/portal/</code>.</li>
+          <li>Update <code>latest.json</code> for each app.</li>
+        </ol>
+        <p class="muted">
+          For now, this page is just a safe place to host artifacts. The auto-updater wiring lives in each desktop app.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
+

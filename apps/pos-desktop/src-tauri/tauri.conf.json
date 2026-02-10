@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AH Trading Admin Desktop",
+  "productName": "AH Trading POS Desktop",
   "version": "0.0.1",
-  "identifier": "com.ahtrading.admin.desktop",
+  "identifier": "com.ahtrading.pos.desktop",
   "build": {
     "beforeDevCommand": "",
     "devUrl": "http://localhost",
@@ -12,9 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "AH Trading Admin Desktop",
-        "width": 1200,
-        "height": 760,
+        "title": "AH Trading POS Desktop",
+        "width": 1280,
+        "height": 820,
         "resizable": true,
         "fullscreen": false
       }
@@ -26,7 +26,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://downloads.46.224.34.69.nip.io/updates/portal/latest.json"
+        "https://downloads.46.224.34.69.nip.io/updates/pos/latest.json"
       ],
       "pubkey": "REPLACE_WITH_TAURI_UPDATER_PUBKEY"
     }

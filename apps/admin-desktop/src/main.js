@@ -1,3 +1,5 @@
+import { check } from "@tauri-apps/plugin-updater";
+
 const KEY = "ahtrading.adminDesktop.serverUrl";
 
 function el(id) {
@@ -42,7 +44,23 @@ async function openAdmin() {
   window.location.href = url;
 }
 
+async function checkUpdates() {
+  setStatus("Checking for updates...");
+  try {
+    const update = await check();
+    if (!update) {
+      setStatus("You are up to date.");
+      return;
+    }
+    setStatus(`Update available: ${update.version}. Downloading...`);
+    await update.downloadAndInstall();
+    setStatus("Update installed. Please restart the app.");
+  } catch (e) {
+    setStatus(`Update check failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 el("openBtn").addEventListener("click", openAdmin);
 el("resetBtn").addEventListener("click", reset);
+el("updateBtn").addEventListener("click", checkUpdates);
 load();
-

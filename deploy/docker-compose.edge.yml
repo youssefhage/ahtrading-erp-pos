@@ -169,6 +169,30 @@ services:
     ports:
       - "${ADMIN_PORT:-3000}:3000"
 
+  # One-off tools container (disabled by default) to run imports against the edge DB
+  # while mounting local data directories from the repo.
+  #
+  # Usage (from repo root):
+  #   docker compose -f deploy/docker-compose.edge.yml --profile tools run --rm tools \
+  #     python3 backend/scripts/import_erpnext_ah_trading.py --apply --data-dir /data/ah
+  tools:
+    profiles: ["tools"]
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: "no"
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ahtrading}:${POSTGRES_PASSWORD:-ahtrading}@db:5432/${POSTGRES_DB:-ahtrading}
+      APP_DB_USER: ${APP_DB_USER:-ahapp}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-ahapp}
+      APP_DATABASE_URL: postgresql://${APP_DB_USER:-ahapp}:${APP_DB_PASSWORD:-ahapp}@db:5432/${POSTGRES_DB:-ahtrading}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - "../Data AH Trading:/data/ah:ro"
+
 volumes:
   pgdata:
   minio_data:

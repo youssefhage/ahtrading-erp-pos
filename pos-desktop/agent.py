@@ -4,6 +4,7 @@ import html
 import json
 import os
 import sqlite3
+import sys
 import uuid
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -19,9 +20,18 @@ import bcrypt
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(ROOT, 'pos.sqlite')  # can be overridden via CLI/env (see main())
-SCHEMA_PATH = os.path.join(os.path.dirname(ROOT), 'pos', 'sqlite_schema.sql')
 CONFIG_PATH = os.path.join(ROOT, 'config.json')  # can be overridden via CLI/env (see main())
-UI_PATH = os.path.join(ROOT, 'ui')
+
+# When packaged as a single binary (PyInstaller), data files are extracted under
+# sys._MEIPASS. Keep runtime paths working in both dev + packaged modes.
+_MEIPASS = getattr(sys, "_MEIPASS", None)
+if _MEIPASS:
+    UI_PATH = os.path.join(_MEIPASS, "ui")
+    # Bundled directly at root of the extracted dir for simplicity.
+    SCHEMA_PATH = os.path.join(_MEIPASS, "sqlite_schema.sql")
+else:
+    UI_PATH = os.path.join(ROOT, "ui")
+    SCHEMA_PATH = os.path.join(os.path.dirname(ROOT), "pos", "sqlite_schema.sql")
 
 DEFAULT_CONFIG = {
     'api_base_url': 'http://localhost:8001',

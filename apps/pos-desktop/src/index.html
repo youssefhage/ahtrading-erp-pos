@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AH Trading POS Desktop</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="hdr">
+        <div class="logo">AH</div>
+        <div>
+          <h1>AH Trading POS Desktop</h1>
+          <p>Runs offline on LAN with Edge server</p>
+        </div>
+      </header>
+
+      <section class="card">
+        <h2>Setup</h2>
+        <p class="muted">
+          Enter the Edge API URL (LAN). Example: <code>http://192.168.1.50:8001</code>
+        </p>
+
+        <label class="field">
+          <span>Edge API URL</span>
+          <input id="edgeUrl" placeholder="http://192.168.1.50:8001" />
+        </label>
+
+        <details class="advanced">
+          <summary>Advanced (optional)</summary>
+          <div class="grid2">
+            <label class="field">
+              <span>Official Agent Port</span>
+              <input id="portOfficial" type="number" value="7070" />
+            </label>
+            <label class="field">
+              <span>Unofficial Agent Port</span>
+              <input id="portUnofficial" type="number" value="7072" />
+            </label>
+          </div>
+          <p class="muted">
+            Device tokens and company IDs are configured in the agent config files. For pilot,
+            we can set them from the Edge admin and paste them later if needed.
+          </p>
+        </details>
+
+        <div class="row">
+          <button id="startBtn" class="primary">Start POS</button>
+          <button id="openBtn" class="ghost">Open POS (if already running)</button>
+          <button id="updateBtn" class="ghost">Check Updates</button>
+        </div>
+        <div id="status" class="status"></div>
+      </section>
+
+      <section class="card small">
+        <h2>Notes</h2>
+        <ul>
+          <li>This app starts 2 local agents: Official + Unofficial.</li>
+          <li>Unified POS opens at <code>http://127.0.0.1:7070/unified.html</code>.</li>
+          <li>Sales are queued locally if Edge is unreachable; they sync when back online.</li>
+        </ul>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

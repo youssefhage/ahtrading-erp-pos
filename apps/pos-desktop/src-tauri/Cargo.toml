@@ -1,7 +1,7 @@
 [package]
-name = "ahtrading-admin-desktop"
+name = "ahtrading-pos-desktop"
 version = "0.0.1"
-description = "AH Trading Admin Desktop (Tauri)"
+description = "AH Trading POS Desktop (Tauri)"
 authors = ["AH Trading"]
 edition = "2021"
 

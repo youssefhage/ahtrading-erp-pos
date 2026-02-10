@@ -116,8 +116,19 @@ services:
         condition: service_healthy
     # Intentionally do not set networks here. Dokploy rewrites routed services.
 
+  # Static downloads/update host for desktop apps (Tauri installers + updater manifests).
+  downloads:
+    build:
+      context: ..
+      dockerfile: apps/downloads/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - downloads_updates:/updates
+    # Intentionally do not set networks here. Dokploy rewrites routed services.
+
 volumes:
   pgdata:
+  downloads_updates:
 
 networks:
   # Default per-compose network (still used by worker/db for isolation).
