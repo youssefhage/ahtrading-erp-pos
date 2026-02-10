@@ -1040,7 +1040,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                     </button>
                   </div>
                   <div className="space-y-0.5">
-                    {recents.slice(0, 6).map((r) => (
+                    {recents.slice(0, 3).map((r) => (
                       <NavItemComponent
                         key={`recent:${r.href}`}
                         item={{ href: r.href, label: r.label, icon: iconForHref(r.href) }}
