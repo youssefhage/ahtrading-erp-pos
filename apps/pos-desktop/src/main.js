@@ -27,7 +27,8 @@ function setStatus(msg) {
 }
 
 function load() {
-  el("edgeUrl").value = localStorage.getItem(KEY_EDGE) || "https://app.melqard.com/mapi";
+  // Cloud pilot default: POS subdomain routes /api to the same backend.
+  el("edgeUrl").value = localStorage.getItem(KEY_EDGE) || "https://pos.melqard.com/api";
   el("portOfficial").value = localStorage.getItem(KEY_PORT_OFFICIAL) || "7070";
   el("portUnofficial").value = localStorage.getItem(KEY_PORT_UNOFFICIAL) || "7072";
   el("companyOfficial").value = localStorage.getItem(KEY_CO_OFFICIAL) || "00000000-0000-0000-0000-000000000001";

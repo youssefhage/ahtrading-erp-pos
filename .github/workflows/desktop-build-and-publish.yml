@@ -93,6 +93,6 @@ jobs:
           UPDATES_PUBLISH_KEY: ${{ secrets.UPDATES_PUBLISH_KEY }}
         run: |
           python3 scripts/publish_desktop_release.py \
-            --api-base "https://app.melqard.com/mapi/" \
+            --api-base "https://app.melqard.com/api/" \
             --download-base "https://download.melqard.com" \
             --dist-dir dist

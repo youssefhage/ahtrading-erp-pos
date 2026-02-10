@@ -135,7 +135,7 @@ services:
       dockerfile: apps/admin/Dockerfile
       args:
         # Cloud pilot: use a same-origin proxy prefix to avoid path/host collisions.
-        NEXT_PUBLIC_API_BASE_URL: /mapi
+        NEXT_PUBLIC_API_BASE_URL: /api
         API_PROXY_TARGET: http://api_melqard:8000
     restart: unless-stopped
     environment:
