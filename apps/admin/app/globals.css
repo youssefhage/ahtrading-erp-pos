@@ -196,6 +196,31 @@
     @apply data-mono text-sm text-foreground;
   }
 
+  /* Key-value rows for dense summaries (invoice totals, document meta, etc.) */
+  .ui-kv {
+    @apply flex items-center justify-between gap-3 text-sm;
+  }
+
+  .ui-kv-label {
+    @apply text-fg-subtle;
+  }
+
+  .ui-kv-value {
+    @apply data-mono text-foreground;
+  }
+
+  .ui-kv-strong .ui-kv-label {
+    @apply text-foreground font-medium;
+  }
+
+  .ui-kv-strong .ui-kv-value {
+    @apply text-foreground font-semibold;
+  }
+
+  .ui-kv-sub {
+    @apply text-xs text-fg-muted;
+  }
+
   /* Navigation rail item */
   .nav-rail-item {
     @apply relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200;

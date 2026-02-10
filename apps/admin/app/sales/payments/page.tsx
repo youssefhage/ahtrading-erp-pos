@@ -208,6 +208,27 @@ function SalesPaymentsPageInner() {
   const appliedUsdPreview = selectedRate ? tenderUsdN + tenderLbpN / selectedRate : tenderUsdN;
   const appliedLbpPreview = selectedRate ? appliedUsdPreview * selectedRate : tenderLbpN;
 
+  const totals = useMemo(() => {
+    const out = {
+      rows: payments.length,
+      applied_usd: 0,
+      applied_lbp: 0,
+      tender_usd: 0,
+      tender_lbp: 0,
+      has_tender: false
+    };
+    for (const p of payments) {
+      out.applied_usd += n(p.amount_usd);
+      out.applied_lbp += n(p.amount_lbp);
+      if (hasTender(p)) {
+        out.has_tender = true;
+        out.tender_usd += n(p.tender_usd);
+        out.tender_lbp += n(p.tender_lbp);
+      }
+    }
+    return out;
+  }, [payments]);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
         {status ? <ErrorBanner error={status} onRetry={loadPayments} /> : null}
@@ -380,8 +401,49 @@ function SalesPaymentsPageInner() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Payments</CardTitle>
-            <CardDescription>{payments.length} rows</CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <CardTitle>Payments</CardTitle>
+                <CardDescription>
+                  {payments.length} rows
+                  {totals.rows ? (
+                    <>
+                      {" "}
+                      · Applied: <span className="data-mono ui-tone-usd">{Number(totals.applied_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>{" "}
+                      <span className="text-fg-subtle">/</span>{" "}
+                      <span className="data-mono ui-tone-lbp">{Number(totals.applied_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
+                      {totals.has_tender ? (
+                        <>
+                          {" "}
+                          · Tender: <span className="data-mono ui-tone-usd">{Number(totals.tender_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>{" "}
+                          <span className="text-fg-subtle">/</span>{" "}
+                          <span className="data-mono ui-tone-lbp">{Number(totals.tender_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+                </CardDescription>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="ui-panel px-3 py-2">
+                  <div className="ui-panel-title">Rows</div>
+                  <div className="data-mono text-sm">{totals.rows.toLocaleString("en-US")}</div>
+                </div>
+                <div className="ui-panel px-3 py-2">
+                  <div className="ui-panel-title">Applied</div>
+                  <div className="data-mono text-sm ui-tone-usd">{Number(totals.applied_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                  <div className="data-mono text-[11px] text-fg-muted ui-tone-lbp">{Number(totals.applied_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                </div>
+                {totals.has_tender ? (
+                  <div className="ui-panel px-3 py-2">
+                    <div className="ui-panel-title">Tender</div>
+                    <div className="data-mono text-sm ui-tone-usd">{Number(totals.tender_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                    <div className="data-mono text-[11px] text-fg-muted ui-tone-lbp">{Number(totals.tender_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="ui-table-wrap">

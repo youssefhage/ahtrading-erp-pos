@@ -423,6 +423,8 @@ function SalesInvoiceShowInner() {
                 const tenderUsd = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_usd) : 0), 0);
                 const tenderLbp = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_lbp) : 0), 0);
                 const hasAnyTender = (detail.payments || []).some((p) => hasTender(p));
+                const vatUsd = (detail.tax_lines || []).reduce((a, t) => a + n((t as any).tax_usd), 0);
+                const vatLbp = (detail.tax_lines || []).reduce((a, t) => a + n((t as any).tax_lbp), 0);
                 const totalUsd = Number(detail.invoice.total_usd || 0);
                 const totalLbp = Number(detail.invoice.total_lbp || 0);
                 const settle = String(detail.invoice.settlement_currency || "USD").toUpperCase();
@@ -432,49 +434,85 @@ function SalesInvoiceShowInner() {
                 const subLbp = Number(detail.invoice.subtotal_lbp ?? detail.invoice.total_lbp ?? 0);
                 const discUsd = Number(detail.invoice.discount_total_usd ?? 0);
                 const discLbp = Number(detail.invoice.discount_total_lbp ?? 0);
+                const rate = Number(detail.invoice.exchange_rate || 0);
+
+                const primaryTotal = settle === "LBP" ? totalLbp : totalUsd;
+                const primaryPaid = settle === "LBP" ? paidLbp : paidUsd;
+                const primaryBal = settle === "LBP" ? balLbp : balUsd;
+                const secondaryTotal = settle === "LBP" ? totalUsd : totalLbp;
+                const secondaryPaid = settle === "LBP" ? paidUsd : paidLbp;
+                const secondaryBal = settle === "LBP" ? balUsd : balLbp;
+                const primaryFmt = settle === "LBP" ? fmtLbp : fmtUsd;
+                const secondaryFmt = settle === "LBP" ? fmtUsd : fmtLbp;
+                const primaryTone = settle === "LBP" ? "ui-tone-lbp" : "ui-tone-usd";
 
                 return (
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                    <div className="grid grid-cols-1 gap-3 md:col-span-8 md:grid-cols-2">
-                      <div className="ui-panel p-4">
-                        <p className="ui-panel-title">Customer</p>
-                        <p className="ui-panel-value mt-1">
-                          {detail.invoice.customer_id ? (
-                            <ShortcutLink
-                              href={`/partners/customers/${encodeURIComponent(detail.invoice.customer_id)}`}
-                              title="Open customer"
-                            >
-                              {detail.invoice.customer_name || detail.invoice.customer_id}
-                            </ShortcutLink>
-                          ) : (
-                            "Walk-in"
-                          )}
-                        </p>
-                      </div>
-
-                      <div className="ui-panel p-4">
-                        <p className="ui-panel-title">Warehouse</p>
-                        <p className="ui-panel-value mt-1">{detail.invoice.warehouse_name || detail.invoice.warehouse_id || "-"}</p>
-                      </div>
-
-                      <div className="ui-panel p-4">
-                        <p className="ui-panel-title">Dates</p>
-                        <div className="mt-1 space-y-0.5">
-                          <p className="ui-panel-value-mono">Inv {fmtIso(detail.invoice.invoice_date)}</p>
-                          <p className="ui-panel-value-mono text-fg-muted">Due {fmtIso(detail.invoice.due_date)}</p>
-                        </div>
-                      </div>
-
-                      <div className="ui-panel p-4">
-                        <p className="ui-panel-title">Document</p>
-                        <div className="mt-1 space-y-0.5 text-sm text-fg-muted">
-                          <div className="flex items-center justify-between gap-2">
-                            <span>Invoice No</span>
-                            <span className="data-mono text-foreground">{detail.invoice.invoice_no || "(draft)"}</span>
+                    <div className="space-y-3 md:col-span-8">
+                      <div className="ui-panel p-5">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-[220px]">
+                            <p className="ui-panel-title">Customer</p>
+                            <p className="mt-1 text-lg font-semibold text-foreground leading-tight">
+                              {detail.invoice.customer_id ? (
+                                <ShortcutLink
+                                  href={`/partners/customers/${encodeURIComponent(detail.invoice.customer_id)}`}
+                                  title="Open customer"
+                                >
+                                  {detail.invoice.customer_name || detail.invoice.customer_id}
+                                </ShortcutLink>
+                              ) : (
+                                "Walk-in"
+                              )}
+                            </p>
+                            <p className="mt-1 text-xs text-fg-muted">
+                              Created <span className="data-mono">{String(detail.invoice.created_at || "").slice(0, 19).replace("T", " ") || "-"}</span>
+                            </p>
                           </div>
-                          <div className="flex items-center justify-between gap-2">
-                            <span>Receipt</span>
-                            <span className="data-mono text-foreground">{detail.invoice.receipt_no || "-"}</span>
+
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <span className="ui-chip ui-chip-default">
+                              <span className="text-fg-subtle">Warehouse</span>
+                              <span className="data-mono text-foreground">{detail.invoice.warehouse_name || detail.invoice.warehouse_id || "-"}</span>
+                            </span>
+                            <span className="ui-chip ui-chip-default">
+                              <span className="text-fg-subtle">Settle</span>
+                              <span className="data-mono text-foreground">{settle}</span>
+                            </span>
+                            <span className="ui-chip ui-chip-default">
+                              <span className="text-fg-subtle">Rate</span>
+                              <span className="data-mono text-foreground">{rate ? rate.toLocaleString("en-US") : "-"}</span>
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                          <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                            <p className="ui-panel-title">Dates</p>
+                            <div className="mt-2 space-y-1">
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Invoice</span>
+                                <span className="ui-kv-value">{fmtIso(detail.invoice.invoice_date)}</span>
+                              </div>
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Due</span>
+                                <span className="ui-kv-value">{fmtIso(detail.invoice.due_date)}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                            <p className="ui-panel-title">Document</p>
+                            <div className="mt-2 space-y-1">
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Invoice No</span>
+                                <span className="ui-kv-value">{detail.invoice.invoice_no || "(draft)"}</span>
+                              </div>
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Receipt</span>
+                                <span className="ui-kv-value">{detail.invoice.receipt_no || "-"}</span>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -484,58 +522,85 @@ function SalesInvoiceShowInner() {
                       <p className="ui-panel-title">Totals</p>
 
                       <div className="mt-3">
-                        {settle === "LBP" ? (
-                          <>
-                            <div className="data-mono text-2xl font-semibold leading-none text-foreground">{fmtLbp(totalLbp)}</div>
-                            <div className="data-mono mt-1 text-base text-fg-muted">{fmtUsd(totalUsd)}</div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="data-mono text-2xl font-semibold leading-none text-foreground">{fmtUsd(totalUsd)}</div>
-                            <div className="data-mono mt-1 text-base text-fg-muted">{fmtLbp(totalLbp)}</div>
-                          </>
-                        )}
-                        <div className="mt-2 text-xs text-fg-muted">
-                          <span className="data-mono">Settle {settle}</span>
-                          <span className="text-fg-subtle"> · </span>
-                          <span className="data-mono">Rate {Number(detail.invoice.exchange_rate || 0).toLocaleString("en-US")}</span>
-                        </div>
+                        <div className="text-xs text-fg-muted">Balance</div>
+                        <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${primaryTone}`}>{primaryFmt(primaryBal)}</div>
+                        <div className="data-mono mt-1 text-sm text-fg-muted">{secondaryFmt(secondaryBal)}</div>
                       </div>
 
-                      <div className="mt-4 space-y-2 text-sm text-fg-muted">
-                        <div className="flex items-center justify-between gap-2">
-                          <span>Subtotal</span>
-                          <span className="data-mono text-foreground">
-                            {fmtUsd(subUsd)} / {fmtLbp(subLbp)}
-                          </span>
+                      <div className="mt-4 space-y-2">
+                        <div className="ui-kv ui-kv-strong">
+                          <span className="ui-kv-label">Total</span>
+                          <span className="ui-kv-value">{primaryFmt(primaryTotal)}</span>
                         </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span>Discount</span>
-                          <span className="data-mono text-foreground">
-                            {fmtUsd(discUsd)} / {fmtLbp(discLbp)}
-                          </span>
+                        <div className="ui-kv ui-kv-sub">
+                          <span className="ui-kv-label">Total (other)</span>
+                          <span className="ui-kv-value">{secondaryFmt(secondaryTotal)}</span>
                         </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span>Applied (settles invoice)</span>
-                          <span className="data-mono text-foreground">
-                            {fmtUsd(paidUsd)} / {fmtLbp(paidLbp)}
-                          </span>
-                        </div>
-                        {hasAnyTender ? (
-                          <div className="flex items-center justify-between gap-2">
-                            <span>Tender received</span>
-                            <span className="data-mono text-foreground">
-                              {fmtUsd(tenderUsd)} / {fmtLbp(tenderLbp)}
-                            </span>
-                          </div>
-                        ) : null}
+
                         <div className="section-divider my-3" />
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium text-foreground">Balance</span>
-                          <span className="data-mono text-foreground">
-                            {fmtUsd(balUsd)} / {fmtLbp(balLbp)}
-                          </span>
+
+                        <div className="ui-kv">
+                          <span className="ui-kv-label">Applied (settles invoice)</span>
+                          <span className="ui-kv-value">{primaryFmt(primaryPaid)}</span>
                         </div>
+                        <div className="ui-kv ui-kv-sub">
+                          <span className="ui-kv-label">Applied (other)</span>
+                          <span className="ui-kv-value">{secondaryFmt(secondaryPaid)}</span>
+                        </div>
+
+                        {hasAnyTender ? (
+                          <>
+                            <div className="section-divider my-3" />
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Tender received</span>
+                              <span className="ui-kv-value">
+                                {fmtUsd(tenderUsd)} / {fmtLbp(tenderLbp)}
+                              </span>
+                            </div>
+                          </>
+                        ) : null}
+
+                        {(vatUsd !== 0 || vatLbp !== 0) ? (
+                          <>
+                            <div className="section-divider my-3" />
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">VAT</span>
+                              <span className="ui-kv-value">
+                                {fmtUsd(vatUsd)} / {fmtLbp(vatLbp)}
+                              </span>
+                            </div>
+                          </>
+                        ) : null}
+
+                        <div className="section-divider my-3" />
+                        <div className="ui-kv ui-kv-strong">
+                          <span className="ui-kv-label">Balance</span>
+                          <span className="ui-kv-value">{primaryFmt(primaryBal)}</span>
+                        </div>
+                        <div className="ui-kv ui-kv-sub">
+                          <span className="ui-kv-label">Balance (other)</span>
+                          <span className="ui-kv-value">{secondaryFmt(secondaryBal)}</span>
+                        </div>
+
+                        <details className="mt-3 rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                          <summary className="cursor-pointer text-xs font-medium text-fg-muted">
+                            Breakdown
+                          </summary>
+                          <div className="mt-2 space-y-2">
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Subtotal</span>
+                              <span className="ui-kv-value">
+                                {fmtUsd(subUsd)} / {fmtLbp(subLbp)}
+                              </span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Discount</span>
+                              <span className="ui-kv-value">
+                                {fmtUsd(discUsd)} / {fmtLbp(discLbp)}
+                              </span>
+                            </div>
+                          </div>
+                        </details>
                       </div>
                     </div>
                   </div>

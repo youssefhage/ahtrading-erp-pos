@@ -148,6 +148,13 @@ export default function SalesReturnsPage() {
     return { usd: totUsd - feeUsd, lbp: totLbp - feeLbp };
   }, [detail]);
 
+  const returnVat = useMemo(() => {
+    if (!detail) return { usd: 0, lbp: 0 };
+    const usd = (detail.tax_lines || []).reduce((a, t) => a + (Number(t.tax_usd || 0) || 0), 0);
+    const lbp = (detail.tax_lines || []).reduce((a, t) => a + (Number(t.tax_lbp || 0) || 0), 0);
+    return { usd, lbp };
+  }, [detail]);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
         {status ? <ErrorBanner error={status} onRetry={load} /> : null}
@@ -241,64 +248,94 @@ export default function SalesReturnsPage() {
                   <CardContent className="space-y-3">
                     {detail ? (
                       <>
-                        <div className="space-y-1 text-sm">
-                          <div>
-                            <span className="text-fg-subtle">Return:</span> {detail.return.return_no || detail.return.id}
-                          </div>
-                          <div>
-                            <span className="text-fg-subtle">Invoice:</span>{" "}
-                            {detail.return.invoice_id ? (
-                              <ShortcutLink
-                                href={`/sales/invoices/${encodeURIComponent(detail.return.invoice_id)}`}
-                                title="Open sales invoice"
-                                className="font-mono text-xs"
-                              >
-                                {invoiceById.get(detail.return.invoice_id)?.invoice_no || detail.return.invoice_id.slice(0, 8)}
-                              </ShortcutLink>
-                            ) : (
-                              "-"
-                            )}
-                          </div>
-                          <div>
-                            <span className="text-fg-subtle">Warehouse:</span>{" "}
-                            {detail.return.warehouse_id ? whById.get(detail.return.warehouse_id)?.name || detail.return.warehouse_id : "-"}
-                          </div>
-                          <div>
-                            <span className="text-fg-subtle">Refund:</span> {detail.return.refund_method || "-"}
-                          </div>
-                          <div>
-                            <span className="text-fg-subtle">Totals:</span>{" "}
-                            <span className="data-mono">
-                              {fmtUsd(detail.return.total_usd)} / {fmtLbp(detail.return.total_lbp)}
-                            </span>
-                          </div>
-                          {(Number((detail.return as any).restocking_fee_usd || 0) || Number((detail.return as any).restocking_fee_lbp || 0)) ? (
+                        <div className="ui-panel p-4">
+                          <div className="flex items-start justify-between gap-2">
                             <div>
-                              <span className="text-fg-subtle">Restocking fee:</span>{" "}
-                              <span className="data-mono">
-                                {fmtUsd((detail.return as any).restocking_fee_usd || 0)} / {fmtLbp((detail.return as any).restocking_fee_lbp || 0)}
-                              </span>
-                              {(detail.return as any).restocking_fee_reason ? (
-                                <span className="ml-2 text-xs text-fg-muted">({String((detail.return as any).restocking_fee_reason)})</span>
-                              ) : null}
+                              <p className="ui-panel-title">Sales Return</p>
+                              <p className="mt-1 text-sm font-semibold text-foreground">
+                                <span className="data-mono">{detail.return.return_no || detail.return.id}</span>
+                              </p>
                             </div>
-                          ) : null}
-                          <div>
-                            <span className="text-fg-subtle">Net refund:</span>{" "}
-                            <span className="data-mono">
-                              {fmtUsd(netRefund.usd)} / {fmtLbp(netRefund.lbp)}
-                            </span>
+                            <StatusChip value={detail.return.status} />
+                          </div>
+
+                          <div className="mt-3">
+                            <div className="text-xs text-fg-muted">Net refund</div>
+                            <div className="mt-1 data-mono text-xl font-semibold ui-tone-usd">{fmtUsd(netRefund.usd)}</div>
+                            <div className="data-mono text-sm text-fg-muted ui-tone-lbp">{fmtLbp(netRefund.lbp)}</div>
+                          </div>
+
+                          <div className="section-divider my-3" />
+
+                          <div className="space-y-1">
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Invoice</span>
+                              <span className="ui-kv-value">
+                                {detail.return.invoice_id ? (
+                                  <ShortcutLink
+                                    href={`/sales/invoices/${encodeURIComponent(detail.return.invoice_id)}`}
+                                    title="Open sales invoice"
+                                    className="font-mono text-xs"
+                                  >
+                                    {invoiceById.get(detail.return.invoice_id)?.invoice_no || detail.return.invoice_id.slice(0, 8)}
+                                  </ShortcutLink>
+                                ) : (
+                                  "-"
+                                )}
+                              </span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Warehouse</span>
+                              <span className="ui-kv-value">
+                                {detail.return.warehouse_id ? whById.get(detail.return.warehouse_id)?.name || detail.return.warehouse_id : "-"}
+                              </span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Refund method</span>
+                              <span className="ui-kv-value">{detail.return.refund_method || "-"}</span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Exchange rate</span>
+                              <span className="ui-kv-value">{Number((detail.return as any).exchange_rate || 0).toLocaleString("en-US")}</span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Total</span>
+                              <span className="ui-kv-value">
+                                {fmtUsd(detail.return.total_usd)} / {fmtLbp(detail.return.total_lbp)}
+                              </span>
+                            </div>
+                            {(Number((detail.return as any).restocking_fee_usd || 0) || Number((detail.return as any).restocking_fee_lbp || 0)) ? (
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Restocking fee</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsd((detail.return as any).restocking_fee_usd || 0)} / {fmtLbp((detail.return as any).restocking_fee_lbp || 0)}
+                                </span>
+                              </div>
+                            ) : null}
+                            {(returnVat.usd !== 0 || returnVat.lbp !== 0) ? (
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">VAT</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsd(returnVat.usd)} / {fmtLbp(returnVat.lbp)}
+                                </span>
+                              </div>
+                            ) : null}
+                            {(detail.return as any).restocking_fee_reason ? (
+                              <p className="ui-kv-sub">
+                                Fee reason: {String((detail.return as any).restocking_fee_reason)}
+                              </p>
+                            ) : null}
                           </div>
                         </div>
 
                         {(detail.refunds || []).length ? (
-                          <div className="rounded-md border border-border/60 bg-bg-sunken/30 p-3">
-                            <div className="text-xs font-medium text-fg-muted">Refund Transactions</div>
-                            <div className="mt-2 space-y-1 text-sm">
+                          <div className="ui-panel p-3">
+                            <div className="ui-panel-title">Refund Transactions</div>
+                            <div className="mt-2 space-y-1 text-sm text-fg-muted">
                               {(detail.refunds || []).map((r) => (
                                 <div key={r.id} className="flex items-center justify-between gap-2">
-                                  <div className="font-mono text-xs text-fg-muted">{r.method}</div>
-                                  <div className="data-mono text-xs">
+                                  <div className="data-mono text-xs">{r.method}</div>
+                                  <div className="data-mono text-xs text-foreground">
                                     {fmtUsd(r.amount_usd)} / {fmtLbp(r.amount_lbp)}
                                   </div>
                                 </div>
