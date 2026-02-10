@@ -139,8 +139,8 @@ services:
       context: ..
       dockerfile: apps/admin/Dockerfile
       args:
-        # Cloud pilot: avoid /api host-level collisions by using /xapi (Next.js rewrite).
-        NEXT_PUBLIC_API_BASE_URL: /xapi
+        # Cloud pilot: avoid /api and /xapi host-level collisions by using /backend (Next route proxy).
+        NEXT_PUBLIC_API_BASE_URL: /backend
         API_PROXY_TARGET: http://api:8000
     restart: unless-stopped
     environment:

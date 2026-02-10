@@ -47,6 +47,9 @@ DEFAULT_CONFIG = {
     'pricing_currency': 'USD',
     'vat_rate': 0.11,
     'tax_code_id': None,
+    # Optional VAT tax code map (id -> rate) pulled from backend /pos/config.
+    # When present, allows item-level VAT (exempt/zero-rated/standard) in the POS.
+    'vat_codes': {},
     'loyalty_rate': 0,
     # Optional local admin PIN to protect the POS agent when bound to LAN.
     # Stored as bcrypt hash string (same family as backend cashier pins).
@@ -305,6 +308,11 @@ def init_db():
         for col, ddl in item_wanted.items():
             if col not in item_cols:
                 cur.execute(f"ALTER TABLE local_items_cache ADD COLUMN {col} {ddl}")
+
+        cur.execute("PRAGMA table_info(local_item_barcodes_cache)")
+        bc_cols = {r[1] for r in cur.fetchall()}
+        if "uom_code" not in bc_cols:
+            cur.execute("ALTER TABLE local_item_barcodes_cache ADD COLUMN uom_code TEXT")
         conn.commit()
 
 
@@ -580,7 +588,7 @@ def get_barcodes():
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, item_id, barcode, qty_factor, label, is_primary
+            SELECT id, item_id, barcode, qty_factor, uom_code, label, is_primary
             FROM local_item_barcodes_cache
             ORDER BY is_primary DESC, updated_at DESC
             """
@@ -1007,13 +1015,37 @@ def _receipt_html(receipt_row):
 </html>"""
 
 
-def _compute_totals(lines, vat_rate: float, exchange_rate: float):
+def _compute_totals(
+    lines,
+    vat_rate: float,
+    exchange_rate: float,
+    default_tax_code_id: Optional[str] = None,
+    vat_codes: Optional[dict] = None,
+):
     base_usd = 0.0
     base_lbp = 0.0
+    tax_lbp = 0.0
+
+    has_vat_codes = isinstance(vat_codes, dict) and len(vat_codes) > 0
     for ln in lines or []:
-        base_usd += float(ln.get("line_total_usd") or 0)
-        base_lbp += float(ln.get("line_total_lbp") or 0)
-    tax_lbp = base_lbp * float(vat_rate or 0)
+        line_usd = float(ln.get("line_total_usd") or 0)
+        line_lbp = float(ln.get("line_total_lbp") or 0)
+        if line_lbp == 0 and exchange_rate:
+            line_lbp = line_usd * exchange_rate
+        base_usd += line_usd
+        base_lbp += line_lbp
+
+        if has_vat_codes:
+            tcid = (ln.get("tax_code_id") or default_tax_code_id or None)
+            rate = float(vat_codes.get(str(tcid), 0) or 0) if tcid else 0.0
+            # Legacy fallback: if the default VAT code exists but isn't in the map, keep single-rate behavior.
+            if rate == 0.0 and vat_rate and tcid and default_tax_code_id and str(tcid) == str(default_tax_code_id):
+                rate = float(vat_rate or 0)
+            tax_lbp += line_lbp * rate
+
+    if not has_vat_codes:
+        tax_lbp = base_lbp * float(vat_rate or 0)
+
     tax_usd = (tax_lbp / exchange_rate) if exchange_rate else 0.0
     return {
         "base_usd": base_usd,
@@ -1146,12 +1178,13 @@ def upsert_catalog(items):
             for b in (it.get("barcodes") or []):
                 cur.execute(
                     """
-                    INSERT INTO local_item_barcodes_cache (id, item_id, barcode, qty_factor, label, is_primary, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO local_item_barcodes_cache (id, item_id, barcode, qty_factor, uom_code, label, is_primary, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                       item_id=excluded.item_id,
                       barcode=excluded.barcode,
                       qty_factor=excluded.qty_factor,
+                      uom_code=excluded.uom_code,
                       label=excluded.label,
                       is_primary=excluded.is_primary,
                       updated_at=excluded.updated_at
@@ -1161,6 +1194,7 @@ def upsert_catalog(items):
                         it.get("id"),
                         b.get("barcode"),
                         float(b.get("qty_factor") or 1),
+                        b.get("uom_code"),
                         b.get("label"),
                         1 if b.get("is_primary") else 0,
                         datetime.utcnow().isoformat(),
@@ -1262,9 +1296,29 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
     base_usd = 0
     base_lbp = 0
     for item in cart:
-        qty = item['qty']
-        unit_price_usd = item.get('price_usd', 0)
-        unit_price_lbp = item.get('price_lbp', 0)
+        # Robust UOM-aware payload:
+        # - qty is base qty (used for inventory/costing)
+        # - qty_entered/uom/qty_factor persist the cashier's scan/entry
+        qty = float(item.get("qty") or 0)
+        qty_factor = float(item.get("qty_factor") or 1) or 1.0
+        if qty_factor <= 0:
+            qty_factor = 1.0
+        qty_entered = item.get("qty_entered")
+        qty_entered = float(qty_entered) if qty_entered is not None else ((qty / qty_factor) if qty_factor else qty)
+        uom = (item.get("uom") or item.get("uom_code") or item.get("unit_of_measure") or None)
+
+        unit_price_usd = float(item.get('price_usd', 0) or 0)
+        unit_price_lbp = float(item.get('price_lbp', 0) or 0)
+
+        # Optional commercial metadata (promos/discounts). Preserve best-effort.
+        pre_usd = float(item.get("pre_discount_unit_price_usd") or 0)
+        pre_lbp = float(item.get("pre_discount_unit_price_lbp") or 0)
+        disc_pct = float(item.get("discount_pct") or 0)
+        disc_usd = float(item.get("discount_amount_usd") or 0)
+        disc_lbp = float(item.get("discount_amount_lbp") or 0)
+        applied_promotion_id = item.get("applied_promotion_id") or None
+        applied_promotion_item_id = item.get("applied_promotion_item_id") or None
+
         line_total_usd = unit_price_usd * qty
         line_total_lbp = unit_price_lbp * qty
         if line_total_lbp == 0 and exchange_rate:
@@ -1275,9 +1329,22 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
         base_lbp += line_total_lbp
         lines.append({
             'item_id': item['id'],
+            'tax_code_id': (item.get('tax_code_id') or None),
             'qty': qty,
+            'uom': uom,
+            'qty_factor': qty_factor,
+            'qty_entered': qty_entered,
             'unit_price_usd': unit_price_usd,
             'unit_price_lbp': unit_price_lbp,
+            'unit_price_entered_usd': unit_price_usd * qty_factor,
+            'unit_price_entered_lbp': unit_price_lbp * qty_factor,
+            'pre_discount_unit_price_usd': pre_usd,
+            'pre_discount_unit_price_lbp': pre_lbp,
+            'discount_pct': disc_pct,
+            'discount_amount_usd': disc_usd,
+            'discount_amount_lbp': disc_lbp,
+            'applied_promotion_id': applied_promotion_id,
+            'applied_promotion_item_id': applied_promotion_item_id,
             'line_total_usd': line_total_usd,
             'line_total_lbp': line_total_lbp,
             'unit_cost_usd': 0,
@@ -1287,14 +1354,48 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
         })
 
     tax_block = None
-    tax_usd = 0
-    tax_lbp = 0
-    if config.get('tax_code_id') and config.get('vat_rate'):
-        tax_lbp = base_lbp * float(config.get('vat_rate'))
-        if exchange_rate:
-            tax_usd = tax_lbp / exchange_rate
+    tax_breakdown = []
+    tax_usd = 0.0
+    tax_lbp = 0.0
+    default_tax_code_id = (config.get('tax_code_id') or None)
+    vat_rate = float(config.get('vat_rate') or 0)
+    vat_codes = config.get('vat_codes') if isinstance(config.get('vat_codes'), dict) else {}
+    has_vat_codes = isinstance(vat_codes, dict) and len(vat_codes) > 0
+    if default_tax_code_id and (vat_rate or has_vat_codes):
+        base_by = {}
+        for ln in lines:
+            tcid = (ln.get("tax_code_id") or default_tax_code_id or None)
+            if not tcid:
+                continue
+            # If we have a VAT-code map, treat codes not in it as non-VAT (0%).
+            if has_vat_codes and str(tcid) not in vat_codes and str(tcid) != str(default_tax_code_id):
+                continue
+            if str(tcid) not in base_by:
+                base_by[str(tcid)] = {"base_usd": 0.0, "base_lbp": 0.0}
+            base_by[str(tcid)]["base_usd"] += float(ln.get("line_total_usd") or 0)
+            base_by[str(tcid)]["base_lbp"] += float(ln.get("line_total_lbp") or 0)
+
+        for tcid, b in base_by.items():
+            rate = float(vat_codes.get(str(tcid), 0) or 0) if has_vat_codes else vat_rate
+            if rate == 0.0 and vat_rate and str(tcid) == str(default_tax_code_id):
+                rate = vat_rate
+            t_lbp = float(b["base_lbp"] or 0) * rate
+            t_usd = (t_lbp / exchange_rate) if exchange_rate else 0.0
+            tax_breakdown.append(
+                {
+                    "tax_code_id": tcid,
+                    "base_usd": float(b["base_usd"] or 0),
+                    "base_lbp": float(b["base_lbp"] or 0),
+                    "tax_usd": float(t_usd or 0),
+                    "tax_lbp": float(t_lbp or 0),
+                    "tax_date": datetime.utcnow().date().isoformat(),
+                }
+            )
+            tax_usd += t_usd
+            tax_lbp += t_lbp
+
         tax_block = {
-            'tax_code_id': config.get('tax_code_id'),
+            'tax_code_id': default_tax_code_id,
             'base_usd': base_usd,
             'base_lbp': base_lbp,
             'tax_usd': tax_usd,
@@ -1326,6 +1427,7 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
         'cashier_id': cashier_id,
         'lines': lines,
         'tax': tax_block,
+        'tax_breakdown': tax_breakdown,
         'payments': payments,
         'loyalty_points': loyalty_points
     }
@@ -1335,9 +1437,25 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
     base_usd = 0
     base_lbp = 0
     for item in cart:
-        qty = item['qty']
-        unit_price_usd = item.get('price_usd', 0)
-        unit_price_lbp = item.get('price_lbp', 0)
+        qty = float(item.get("qty") or 0)
+        qty_factor = float(item.get("qty_factor") or 1) or 1.0
+        if qty_factor <= 0:
+            qty_factor = 1.0
+        qty_entered = item.get("qty_entered")
+        qty_entered = float(qty_entered) if qty_entered is not None else ((qty / qty_factor) if qty_factor else qty)
+        uom = (item.get("uom") or item.get("uom_code") or item.get("unit_of_measure") or None)
+
+        unit_price_usd = float(item.get('price_usd', 0) or 0)
+        unit_price_lbp = float(item.get('price_lbp', 0) or 0)
+
+        pre_usd = float(item.get("pre_discount_unit_price_usd") or 0)
+        pre_lbp = float(item.get("pre_discount_unit_price_lbp") or 0)
+        disc_pct = float(item.get("discount_pct") or 0)
+        disc_usd = float(item.get("discount_amount_usd") or 0)
+        disc_lbp = float(item.get("discount_amount_lbp") or 0)
+        applied_promotion_id = item.get("applied_promotion_id") or None
+        applied_promotion_item_id = item.get("applied_promotion_item_id") or None
+
         line_total_usd = unit_price_usd * qty
         line_total_lbp = unit_price_lbp * qty
         if line_total_lbp == 0 and exchange_rate:
@@ -1348,9 +1466,22 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
         base_lbp += line_total_lbp
         lines.append({
             'item_id': item['id'],
+            'tax_code_id': (item.get('tax_code_id') or None),
             'qty': qty,
+            'uom': uom,
+            'qty_factor': qty_factor,
+            'qty_entered': qty_entered,
             'unit_price_usd': unit_price_usd,
             'unit_price_lbp': unit_price_lbp,
+            'unit_price_entered_usd': unit_price_usd * qty_factor,
+            'unit_price_entered_lbp': unit_price_lbp * qty_factor,
+            'pre_discount_unit_price_usd': pre_usd,
+            'pre_discount_unit_price_lbp': pre_lbp,
+            'discount_pct': disc_pct,
+            'discount_amount_usd': disc_usd,
+            'discount_amount_lbp': disc_lbp,
+            'applied_promotion_id': applied_promotion_id,
+            'applied_promotion_item_id': applied_promotion_item_id,
             'line_total_usd': line_total_usd,
             'line_total_lbp': line_total_lbp,
             'unit_cost_usd': 0,
@@ -1360,14 +1491,47 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
         })
 
     tax_block = None
-    tax_usd = 0
-    tax_lbp = 0
-    if config.get('tax_code_id') and config.get('vat_rate'):
-        tax_lbp = base_lbp * float(config.get('vat_rate'))
-        if exchange_rate:
-            tax_usd = tax_lbp / exchange_rate
+    tax_breakdown = []
+    tax_usd = 0.0
+    tax_lbp = 0.0
+    default_tax_code_id = (config.get('tax_code_id') or None)
+    vat_rate = float(config.get('vat_rate') or 0)
+    vat_codes = config.get('vat_codes') if isinstance(config.get('vat_codes'), dict) else {}
+    has_vat_codes = isinstance(vat_codes, dict) and len(vat_codes) > 0
+    if default_tax_code_id and (vat_rate or has_vat_codes):
+        base_by = {}
+        for ln in lines:
+            tcid = (ln.get("tax_code_id") or default_tax_code_id or None)
+            if not tcid:
+                continue
+            if has_vat_codes and str(tcid) not in vat_codes and str(tcid) != str(default_tax_code_id):
+                continue
+            if str(tcid) not in base_by:
+                base_by[str(tcid)] = {"base_usd": 0.0, "base_lbp": 0.0}
+            base_by[str(tcid)]["base_usd"] += float(ln.get("line_total_usd") or 0)
+            base_by[str(tcid)]["base_lbp"] += float(ln.get("line_total_lbp") or 0)
+
+        for tcid, b in base_by.items():
+            rate = float(vat_codes.get(str(tcid), 0) or 0) if has_vat_codes else vat_rate
+            if rate == 0.0 and vat_rate and str(tcid) == str(default_tax_code_id):
+                rate = vat_rate
+            t_lbp = float(b["base_lbp"] or 0) * rate
+            t_usd = (t_lbp / exchange_rate) if exchange_rate else 0.0
+            tax_breakdown.append(
+                {
+                    "tax_code_id": tcid,
+                    "base_usd": float(b["base_usd"] or 0),
+                    "base_lbp": float(b["base_lbp"] or 0),
+                    "tax_usd": float(t_usd or 0),
+                    "tax_lbp": float(t_lbp or 0),
+                    "tax_date": datetime.utcnow().date().isoformat(),
+                }
+            )
+            tax_usd += t_usd
+            tax_lbp += t_lbp
+
         tax_block = {
-            'tax_code_id': config.get('tax_code_id'),
+            'tax_code_id': default_tax_code_id,
             'base_usd': base_usd,
             'base_lbp': base_lbp,
             'tax_usd': tax_usd,
@@ -1386,7 +1550,8 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
         'cashier_id': cashier_id,
         'refund_method': refund_method or 'cash',
         'lines': lines,
-        'tax': tax_block
+        'tax': tax_block,
+        'tax_breakdown': tax_breakdown,
     }
 
 
@@ -1678,6 +1843,7 @@ class Handler(BaseHTTPRequestHandler):
                         "item_id": ln.get("item_id"),
                         "sku": info.get("sku"),
                         "name": info.get("name"),
+                        "tax_code_id": info.get("tax_code_id"),
                         "qty": ln.get("qty"),
                         "unit_price_usd": ln.get("unit_price_usd"),
                         "unit_price_lbp": ln.get("unit_price_lbp"),
@@ -1698,7 +1864,13 @@ class Handler(BaseHTTPRequestHandler):
                 "exchange_rate": float(exchange_rate or 0),
                 "vat_rate": float(cfg.get("vat_rate") or 0),
                 "lines": receipt_lines,
-                "totals": _compute_totals(receipt_lines, float(cfg.get("vat_rate") or 0), float(exchange_rate or 0)),
+                "totals": _compute_totals(
+                    receipt_lines,
+                    float(cfg.get("vat_rate") or 0),
+                    float(exchange_rate or 0),
+                    default_tax_code_id=(cfg.get("tax_code_id") or None),
+                    vat_codes=(cfg.get("vat_codes") if isinstance(cfg.get("vat_codes"), dict) else None),
+                ),
             }
             save_receipt("sale", receipt)
             json_response(self, {'event_id': event_id, "edge_accepted": True if pm == "credit" else None})
@@ -1767,6 +1939,7 @@ class Handler(BaseHTTPRequestHandler):
                         "item_id": ln.get("item_id"),
                         "sku": info.get("sku"),
                         "name": info.get("name"),
+                        "tax_code_id": info.get("tax_code_id"),
                         "qty": ln.get("qty"),
                         "unit_price_usd": ln.get("unit_price_usd"),
                         "unit_price_lbp": ln.get("unit_price_lbp"),
@@ -1787,7 +1960,13 @@ class Handler(BaseHTTPRequestHandler):
                 "exchange_rate": float(exchange_rate or 0),
                 "vat_rate": float(cfg.get("vat_rate") or 0),
                 "lines": receipt_lines,
-                "totals": _compute_totals(receipt_lines, float(cfg.get("vat_rate") or 0), float(exchange_rate or 0)),
+                "totals": _compute_totals(
+                    receipt_lines,
+                    float(cfg.get("vat_rate") or 0),
+                    float(exchange_rate or 0),
+                    default_tax_code_id=(cfg.get("tax_code_id") or None),
+                    vat_codes=(cfg.get("vat_codes") if isinstance(cfg.get("vat_codes"), dict) else None),
+                ),
                 "invoice_id": invoice_id,
             }
             save_receipt("return", receipt)
@@ -1913,6 +2092,19 @@ class Handler(BaseHTTPRequestHandler):
                     cfg['tax_code_id'] = vat['id']
                 if vat.get('rate') is not None:
                     cfg['vat_rate'] = float(vat['rate'])
+                # Optional: all VAT tax codes (id -> rate) for item-level VAT handling.
+                vat_codes = pos_cfg.get("vat_codes")
+                if isinstance(vat_codes, list):
+                    vc = {}
+                    for r in vat_codes:
+                        try:
+                            tid = (r.get("id") if isinstance(r, dict) else None)
+                            if not tid:
+                                continue
+                            vc[str(tid)] = float((r.get("rate") if isinstance(r, dict) else 0) or 0)
+                        except Exception:
+                            continue
+                    cfg["vat_codes"] = vc
                 rate = fetch_json(f"{base}/pos/exchange-rate", headers=headers)
                 if rate.get('rate'):
                     cfg['exchange_rate'] = rate['rate']['usd_to_lbp']

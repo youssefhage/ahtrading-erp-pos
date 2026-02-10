@@ -204,15 +204,29 @@ def create_transfer_draft(data: TransferDraftIn, company_id: str = Depends(get_c
                     ),
                 )
                 tid = cur.fetchone()["id"]
+                cur.execute(
+                    """
+                    SELECT id, unit_of_measure
+                    FROM items
+                    WHERE company_id=%s AND id = ANY(%s::uuid[])
+                    """,
+                    (company_id, sorted({str(ln.item_id) for ln in (data.lines or []) if ln.item_id})),
+                )
+                uom_by_item = {str(r["id"]): (r.get("unit_of_measure") or "") for r in cur.fetchall()}
                 for idx, ln in enumerate(data.lines, start=1):
+                    base_uom = (uom_by_item.get(str(ln.item_id)) or "").strip() or None
                     cur.execute(
                         """
                         INSERT INTO stock_transfer_lines
-                          (id, company_id, stock_transfer_id, line_no, item_id, qty, picked_qty, notes)
+                          (id, company_id, stock_transfer_id, line_no, item_id, qty,
+                           uom, qty_factor, qty_entered,
+                           picked_qty, notes)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, 0, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s,
+                           %s, 1, %s,
+                           0, %s)
                         """,
-                        (company_id, tid, idx, ln.item_id, ln.qty, (ln.notes or "").strip() or None),
+                        (company_id, tid, idx, ln.item_id, ln.qty, base_uom, ln.qty, (ln.notes or "").strip() or None),
                     )
                 cur.execute(
                     """
@@ -285,13 +299,29 @@ def update_transfer_draft(transfer_id: str, data: TransferDraftUpdateIn, company
                         if Decimal(str(ln.get("qty") or 0)) <= 0:
                             raise HTTPException(status_code=400, detail="line qty must be > 0")
                     cur.execute("DELETE FROM stock_transfer_lines WHERE company_id=%s AND stock_transfer_id=%s", (company_id, transfer_id))
+                    cur.execute(
+                        """
+                        SELECT id, unit_of_measure
+                        FROM items
+                        WHERE company_id=%s AND id = ANY(%s::uuid[])
+                        """,
+                        (company_id, sorted({str(ln.get("item_id")) for ln in (lines or []) if ln.get("item_id")})),
+                    )
+                    uom_by_item = {str(r["id"]): (r.get("unit_of_measure") or "") for r in cur.fetchall()}
                     for idx, ln in enumerate(lines, start=1):
+                        base_uom = (uom_by_item.get(str(ln.get("item_id"))) or "").strip() or None
                         cur.execute(
                             """
-                            INSERT INTO stock_transfer_lines (id, company_id, stock_transfer_id, line_no, item_id, qty, picked_qty, notes)
-                            VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, 0, %s)
+                            INSERT INTO stock_transfer_lines
+                              (id, company_id, stock_transfer_id, line_no, item_id, qty,
+                               uom, qty_factor, qty_entered,
+                               picked_qty, notes)
+                            VALUES
+                              (gen_random_uuid(), %s, %s, %s, %s, %s,
+                               %s, 1, %s,
+                               0, %s)
                             """,
-                            (company_id, transfer_id, idx, ln["item_id"], ln["qty"], (ln.get("notes") or "").strip() or None),
+                            (company_id, transfer_id, idx, ln["item_id"], ln["qty"], base_uom, ln["qty"], (ln.get("notes") or "").strip() or None),
                         )
 
                 cur.execute(
@@ -878,18 +908,32 @@ def create_reverse_draft(
                 )
                 new_id = cur.fetchone()["id"]
 
+                cur.execute(
+                    """
+                    SELECT id, unit_of_measure
+                    FROM items
+                    WHERE company_id=%s AND id = ANY(%s::uuid[])
+                    """,
+                    (company_id, sorted({str(ln.get("item_id")) for ln in (lines or []) if ln.get("item_id")})),
+                )
+                uom_by_item = {str(r["id"]): (r.get("unit_of_measure") or "") for r in cur.fetchall()}
                 for idx, ln in enumerate(lines, start=1):
                     q = Decimal(str(ln.get("picked_qty") or 0)) or Decimal(str(ln.get("qty") or 0))
                     if q <= 0:
                         continue
+                    base_uom = (uom_by_item.get(str(ln.get("item_id"))) or "").strip() or None
                     cur.execute(
                         """
                         INSERT INTO stock_transfer_lines
-                          (id, company_id, stock_transfer_id, line_no, item_id, qty, picked_qty, notes)
+                          (id, company_id, stock_transfer_id, line_no, item_id, qty,
+                           uom, qty_factor, qty_entered,
+                           picked_qty, notes)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, 0, %s)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s,
+                           %s, 1, %s,
+                           0, %s)
                         """,
-                        (company_id, new_id, idx, ln["item_id"], q, (ln.get("notes") or "").strip() or None),
+                        (company_id, new_id, idx, ln["item_id"], q, base_uom, q, (ln.get("notes") or "").strip() or None),
                     )
 
                 cur.execute(

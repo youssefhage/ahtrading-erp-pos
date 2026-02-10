@@ -131,18 +131,49 @@ def import_sales_invoice_bundle(
 
                 # Lines
                 for l in data.lines or []:
+                    try:
+                        factor = float(l.get("qty_factor") or 1)
+                    except Exception:
+                        factor = 1.0
+                    if factor <= 0:
+                        factor = 1.0
+                    try:
+                        qty = float(l.get("qty") or 0)
+                    except Exception:
+                        qty = 0.0
+                    qty_entered = l.get("qty_entered")
+                    try:
+                        qty_entered = float(qty_entered) if qty_entered is not None else (qty / factor if factor else qty)
+                    except Exception:
+                        qty_entered = qty / factor if factor else qty
+
+                    unit_price_entered_usd = l.get("unit_price_entered_usd")
+                    unit_price_entered_lbp = l.get("unit_price_entered_lbp")
+                    if unit_price_entered_usd is None:
+                        try:
+                            unit_price_entered_usd = float(l.get("unit_price_usd") or 0) * factor
+                        except Exception:
+                            unit_price_entered_usd = 0.0
+                    if unit_price_entered_lbp is None:
+                        try:
+                            unit_price_entered_lbp = float(l.get("unit_price_lbp") or 0) * factor
+                        except Exception:
+                            unit_price_entered_lbp = 0.0
+
                     cur.execute(
                         """
                         INSERT INTO sales_invoice_lines
                           (id, invoice_id, item_id, qty,
                            unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp,
-                           uom, qty_factor,
+                           uom, qty_factor, qty_entered,
+                           unit_price_entered_usd, unit_price_entered_lbp,
                            pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
                            discount_pct, discount_amount_usd, discount_amount_lbp,
                            applied_promotion_id, applied_promotion_item_id, applied_price_list_id)
                         VALUES
                           (%s::uuid, %s::uuid, %s::uuid, %s,
                            %s, %s, %s, %s,
+                           %s, %s, %s,
                            %s, %s,
                            %s, %s,
                            %s, %s, %s,
@@ -153,13 +184,16 @@ def import_sales_invoice_bundle(
                             l.get("id"),
                             inv_id,
                             l.get("item_id"),
-                            l.get("qty") or 0,
+                            qty,
                             l.get("unit_price_usd") or 0,
                             l.get("unit_price_lbp") or 0,
                             l.get("line_total_usd") or 0,
                             l.get("line_total_lbp") or 0,
                             l.get("uom"),
-                            l.get("qty_factor") or 1,
+                            factor,
+                            qty_entered,
+                            unit_price_entered_usd,
+                            unit_price_entered_lbp,
                             l.get("pre_discount_unit_price_usd") or 0,
                             l.get("pre_discount_unit_price_lbp") or 0,
                             l.get("discount_pct") or 0,
@@ -353,4 +387,3 @@ def import_sales_invoice_bundle(
                         )
 
     return {"ok": True, "invoice_id": inv_id}
-

@@ -1449,13 +1449,25 @@ def import_opening_ar(
 
                     # One placeholder line for reporting/UI.
                     cur.execute(
+                        "SELECT unit_of_measure FROM items WHERE company_id=%s AND id=%s",
+                        (company_id, opening_item_id),
+                    )
+                    urow = cur.fetchone() or {}
+                    opening_uom = (urow.get("unit_of_measure") or "EA")
+                    cur.execute(
                         """
                         INSERT INTO sales_invoice_lines
-                          (id, invoice_id, item_id, qty, unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp)
+                          (id, invoice_id, item_id, qty,
+                           uom, qty_factor, qty_entered,
+                           unit_price_usd, unit_price_lbp, unit_price_entered_usd, unit_price_entered_lbp,
+                           line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, 1, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, 1,
+                           %s, 1, 1,
+                           %s, %s, %s, %s,
+                           %s, %s)
                         """,
-                        (invoice_id, opening_item_id, amount_usd, amount_lbp, amount_usd, amount_lbp),
+                        (invoice_id, opening_item_id, opening_uom, amount_usd, amount_lbp, amount_usd, amount_lbp, amount_usd, amount_lbp),
                     )
 
                     # Idempotency: only post GL if missing.
@@ -1645,14 +1657,26 @@ def import_opening_ap(
                         invoice_id = cur.fetchone()["id"]
 
                     cur.execute(
+                        "SELECT unit_of_measure FROM items WHERE company_id=%s AND id=%s",
+                        (company_id, opening_item_id),
+                    )
+                    urow = cur.fetchone() or {}
+                    opening_uom = (urow.get("unit_of_measure") or "EA")
+
+                    cur.execute(
                         """
                         INSERT INTO supplier_invoice_lines
                           (id, company_id, supplier_invoice_id, goods_receipt_line_id, item_id, batch_id, qty,
-                           unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+                           uom, qty_factor, qty_entered,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           line_total_usd, line_total_lbp)
                         VALUES
-                          (gen_random_uuid(), %s, %s, NULL, %s, NULL, 1, %s, %s, %s, %s)
+                          (gen_random_uuid(), %s, %s, NULL, %s, NULL, 1,
+                           %s, 1, 1,
+                           %s, %s, %s, %s,
+                           %s, %s)
                         """,
-                        (company_id, invoice_id, opening_item_id, amount_usd, amount_lbp, amount_usd, amount_lbp),
+                        (company_id, invoice_id, opening_item_id, opening_uom, amount_usd, amount_lbp, amount_usd, amount_lbp, amount_usd, amount_lbp),
                     )
 
                     cur.execute(

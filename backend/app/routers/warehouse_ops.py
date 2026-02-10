@@ -305,15 +305,29 @@ def create_replenishment_transfer_draft(
                 )
                 tid = cur.fetchone()["id"]
 
+                cur.execute(
+                    """
+                    SELECT id, unit_of_measure
+                    FROM items
+                    WHERE company_id=%s AND id = ANY(%s::uuid[])
+                    """,
+                    (company_id, sorted({str(ln.item_id) for ln in (data.lines or []) if ln.item_id})),
+                )
+                uom_by_item = {str(r["id"]): (r.get("unit_of_measure") or "") for r in cur.fetchall()}
                 for idx, ln in enumerate(data.lines, start=1):
+                    base_uom = (uom_by_item.get(str(ln.item_id)) or "").strip() or None
                     cur.execute(
                         """
                         INSERT INTO stock_transfer_lines
-                          (id, company_id, stock_transfer_id, line_no, item_id, qty, picked_qty, notes)
+                          (id, company_id, stock_transfer_id, line_no, item_id, qty,
+                           uom, qty_factor, qty_entered,
+                           picked_qty, notes)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, 0, NULL)
+                          (gen_random_uuid(), %s, %s, %s, %s, %s,
+                           %s, 1, %s,
+                           0, NULL)
                         """,
-                        (company_id, tid, idx, ln.item_id, ln.qty),
+                        (company_id, tid, idx, ln.item_id, ln.qty, base_uom, ln.qty),
                     )
 
                 cur.execute(
@@ -725,4 +739,3 @@ def post_cycle_count_task(task_id: str, company_id: str = Depends(get_company_id
                     (company_id, user["user_id"], task_id, json.dumps({"adjusted_items": moved})),
                 )
                 return {"ok": True, "adjusted_items": moved}
-

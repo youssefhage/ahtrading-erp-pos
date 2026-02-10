@@ -374,6 +374,7 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
                           'id', b.id,
                           'barcode', b.barcode,
                           'qty_factor', b.qty_factor,
+                          'uom_code', b.uom_code,
                           'label', b.label,
                           'is_primary', b.is_primary
                         )
@@ -479,6 +480,7 @@ def catalog_delta(
                             'id', b.id,
                             'barcode', b.barcode,
                             'qty_factor', b.qty_factor,
+                            'uom_code', b.uom_code,
                             'label', b.label,
                             'is_primary', b.is_primary
                           )
@@ -699,17 +701,18 @@ def pos_config(device=Depends(require_device)):
             )
             company = cur.fetchone()
 
+            # VAT codes: return the full set so POS can do item-level VAT (exempt/zero-rated/standard).
             cur.execute(
                 """
-                SELECT id, rate
+                SELECT id, rate, name
                 FROM tax_codes
                 WHERE company_id = %s AND tax_type = 'vat'
                 ORDER BY name
-                LIMIT 1
                 """,
                 (device["company_id"],),
             )
-            vat = cur.fetchone()
+            vat_codes = cur.fetchall() or []
+            vat = vat_codes[0] if vat_codes else None
 
             cur.execute(
                 """
@@ -768,6 +771,7 @@ def pos_config(device=Depends(require_device)):
         "company": company,
         "default_warehouse_id": (wh["id"] if wh else None),
         "vat": vat,
+        "vat_codes": vat_codes,
         "payment_methods": pay_methods,
         "default_price_list_id": default_pl_id,
         "inventory_policy": inventory_policy,

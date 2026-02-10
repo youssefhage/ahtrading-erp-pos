@@ -150,10 +150,12 @@ function isTrackedForLot(item) {
   return Number.isFinite(minDays) && minDays > 0;
 }
 
-function cartKey(itemId, batchNo, expiryDate) {
+function cartKey(itemId, batchNo, expiryDate, uom, qtyFactor) {
   const bn = (batchNo || "").trim();
   const ex = (expiryDate || "").trim();
-  return `${String(itemId || "")}|${bn}|${ex}`;
+  const u = (uom || "").trim().toUpperCase();
+  const f = Number(qtyFactor || 1);
+  return `${String(itemId || "")}|${bn}|${ex}|${u}|${Number.isFinite(f) ? f : 1}`;
 }
 
 function escapeHtml(s) {
@@ -175,20 +177,36 @@ function formatCustomerLabel(c) {
 }
 
 function computeTotals() {
-  const rate = getRate();
-  let base_usd = 0,
-    base_lbp = 0;
+  const fxRate = getRate();
+  let base_usd = 0;
+  let base_lbp = 0;
+  let tax_lbp = 0;
+
+  const defaultTaxCodeId = state.config?.tax_code_id || null;
+  const vatCodes = state.config?.vat_codes && typeof state.config.vat_codes === "object" ? state.config.vat_codes : null;
+  const hasVatCodes = vatCodes && Object.keys(vatCodes).length > 0;
+  const legacyVatRate = Number(state.config?.vat_rate || 0);
+
   for (const i of state.cart) {
-    const qty = Number(i.qty || 0);
-    const lineUsd = Number(i.price_usd || 0) * qty;
-    let lineLbp = Number(i.price_lbp || 0) * qty;
-    if (!lineLbp && rate) lineLbp = lineUsd * rate;
+    const qtyBase = Number(i.qty || 0);
+    const lineUsd = Number(i.price_usd || 0) * qtyBase;
+    let lineLbp = Number(i.price_lbp || 0) * qtyBase;
+    if (!lineLbp && fxRate) lineLbp = lineUsd * fxRate;
     base_usd += lineUsd;
     base_lbp += lineLbp;
+
+    let vatRate = legacyVatRate;
+    if (hasVatCodes) {
+      const tcid = i.tax_code_id || defaultTaxCodeId;
+      vatRate = tcid ? Number(vatCodes[String(tcid)] || 0) : 0;
+      if (!vatRate && legacyVatRate && tcid && defaultTaxCodeId && String(tcid) === String(defaultTaxCodeId)) {
+        vatRate = legacyVatRate;
+      }
+    }
+    if (vatRate) tax_lbp += lineLbp * vatRate;
   }
-  const vatRate = Number(state.config?.vat_rate || 0);
-  const tax_lbp = vatRate ? base_lbp * vatRate : 0;
-  const tax_usd = rate ? tax_lbp / rate : 0;
+
+  const tax_usd = fxRate ? tax_lbp / fxRate : 0;
   return {
     base_usd,
     base_lbp,
@@ -352,7 +370,17 @@ function computeUnitPricesWithPromo(line) {
 
   const picked = bestPromoRule(line.id, qty);
   if (!picked) {
-    return { price_usd: baseUsd, price_lbp: baseLbp, promo_code: "", promo_name: "" };
+    return {
+      price_usd: baseUsd,
+      price_lbp: baseLbp,
+      promo_code: "",
+      promo_name: "",
+      applied_promotion_id: null,
+      applied_promotion_item_id: null,
+      pre_discount_unit_price_usd: baseUsd,
+      pre_discount_unit_price_lbp: baseLbp,
+      discount_pct: 0
+    };
   }
 
   const promo = picked.promo;
@@ -377,7 +405,12 @@ function computeUnitPricesWithPromo(line) {
     price_usd: usd,
     price_lbp: lbp,
     promo_code: promo.code || "",
-    promo_name: promo.name || ""
+    promo_name: promo.name || "",
+    applied_promotion_id: promo.id || null,
+    applied_promotion_item_id: rule.id || null,
+    pre_discount_unit_price_usd: baseUsd,
+    pre_discount_unit_price_lbp: baseLbp,
+    discount_pct: disc > 0 ? disc : 0
   };
 }
 
@@ -388,6 +421,14 @@ function repriceCart() {
     line.price_lbp = p.price_lbp;
     line.promo_code = p.promo_code;
     line.promo_name = p.promo_name;
+    line.applied_promotion_id = p.applied_promotion_id;
+    line.applied_promotion_item_id = p.applied_promotion_item_id;
+    line.pre_discount_unit_price_usd = p.pre_discount_unit_price_usd;
+    line.pre_discount_unit_price_lbp = p.pre_discount_unit_price_lbp;
+    line.discount_pct = p.discount_pct;
+    // Let the backend resolve discount amounts consistently (keep as explicit zeros).
+    line.discount_amount_usd = 0;
+    line.discount_amount_lbp = 0;
   }
 }
 
@@ -473,23 +514,40 @@ function renderCart() {
     const row = document.createElement("div");
     row.className = "cart-item";
     const promo = item.promo_code ? `<div class="meta">Promo: ${escapeHtml(item.promo_code)}</div>` : "";
+    const uomLabel = (item.uom || item.unit_of_measure || "").trim();
+    const qtyEntered = toNum(item.qty_entered ?? item.qty ?? 0);
+    const qtyFactor = toNum(item.qty_factor ?? 1) || 1;
+    const enteredUsd = (item.price_usd || 0) * qtyFactor;
+    const enteredLbp = (item.price_lbp || 0) * qtyFactor;
     row.innerHTML = `
       <div>
         <div>${item.name}</div>
         <div class="meta">${fmtUsd(item.price_usd || 0)} USD · ${fmtLbp(item.price_lbp || 0)} LBP</div>
+        ${qtyFactor !== 1 && uomLabel ? `<div class="meta">Per ${escapeHtml(uomLabel)}: ${fmtUsd(enteredUsd)} USD · ${fmtLbp(enteredLbp)} LBP</div>` : ""}
+        <div class="meta">${qtyEntered}${uomLabel ? ` ${escapeHtml(uomLabel)}` : ""}${qtyFactor !== 1 ? ` (x${qtyFactor})` : ""}</div>
         ${promo}
       </div>
       <div class="qty">
         <button data-id="${item.id}" data-action="dec">-</button>
-        <span>${item.qty}</span>
+        <span>${qtyEntered}</span>
         <button data-id="${item.id}" data-action="inc">+</button>
       </div>
     `;
     row.querySelectorAll("button").forEach((btn) => {
       btn.addEventListener("click", () => {
         const action = btn.dataset.action;
-        if (action === "inc") item.qty += 1;
-        if (action === "dec") item.qty = Math.max(1, item.qty - 1);
+        const stepEntered = 1;
+        const factor = toNum(item.qty_factor ?? 1) || 1;
+        if (action === "inc") {
+          item.qty_entered = toNum(item.qty_entered ?? item.qty ?? 0) + stepEntered;
+          item.qty = toNum(item.qty ?? 0) + factor * stepEntered;
+        }
+        if (action === "dec") {
+          const nextEntered = Math.max(stepEntered, toNum(item.qty_entered ?? item.qty ?? 0) - stepEntered);
+          const deltaEntered = nextEntered - toNum(item.qty_entered ?? item.qty ?? 0);
+          item.qty_entered = nextEntered;
+          item.qty = Math.max(factor * stepEntered, toNum(item.qty ?? 0) + factor * deltaEntered);
+        }
         repriceCart();
         renderCart();
         updateTotals();
@@ -501,42 +559,59 @@ function renderCart() {
 
 function updateTotals() {
   repriceCart();
-  const totalUsd = state.cart.reduce((sum, i) => sum + (i.price_usd || 0) * i.qty, 0);
-  const rate = getRate();
-  const totalLbp = state.cart.reduce((sum, i) => {
-    const line = (i.price_lbp || 0) * i.qty;
-    if (line === 0 && rate) return sum + (i.price_usd || 0) * i.qty * rate;
-    return sum + line;
-  }, 0);
-  setText("totalUsd", fmtUsd(totalUsd));
-  setText("totalLbp", fmtLbp(totalLbp));
+  const totals = computeTotals();
+  setText("totalUsd", fmtUsd(totals.total_usd || 0));
+  setText("totalLbp", fmtLbp(totals.total_lbp || 0));
   const loyaltyRate = toNum(state.config?.loyalty_rate || 0);
-  setText("loyaltyPoints", loyaltyRate ? fmtUsd(totalUsd * loyaltyRate) : "0");
+  setText("loyaltyPoints", loyaltyRate ? fmtUsd((totals.base_usd || 0) * loyaltyRate) : "0");
 }
 
 function addToCart(item, qty) {
   const inc = Number.isFinite(qty) && qty > 0 ? qty : 1;
   const needsLot = isTrackedForLot(item) && (item.track_batches || item.track_expiry || requireManualLotSelection());
   if (needsLot) {
-    openLotModal(item, inc);
+    openLotModal(item, inc, (item.unit_of_measure || "").trim() || null, 1);
     return;
   }
-  addCartLine(item, inc, null, null);
+  addCartLine(item, inc, null, null, (item.unit_of_measure || "").trim() || null, 1);
   repriceCart();
   renderCart();
   updateTotals();
 }
 
-function addCartLine(item, inc, batchNo, expiryDate) {
-  const key = cartKey(item.id, batchNo, expiryDate);
-  const existing = state.cart.find((i) => cartKey(i.id, i.batch_no, i.expiry_date) === key);
+function addToCartWithUom(item, qtyEntered, uom, qtyFactor) {
+  const entered = Number.isFinite(qtyEntered) && qtyEntered > 0 ? qtyEntered : 1;
+  const factor = toNum(qtyFactor ?? 1) || 1;
+  const needsLot = isTrackedForLot(item) && (item.track_batches || item.track_expiry || requireManualLotSelection());
+  if (needsLot) {
+    openLotModal(item, entered, uom, factor);
+    return;
+  }
+  addCartLine(item, entered, null, null, uom, factor);
+  repriceCart();
+  renderCart();
+  updateTotals();
+}
+
+function addCartLine(item, incEntered, batchNo, expiryDate, uom, qtyFactor) {
+  const factor = toNum(qtyFactor ?? 1) || 1;
+  const entered = Number.isFinite(incEntered) && incEntered > 0 ? incEntered : 1;
+  const u = (uom || item.unit_of_measure || "").trim() || null;
+  const key = cartKey(item.id, batchNo, expiryDate, u, factor);
+  const existing = state.cart.find(
+    (i) => cartKey(i.id, i.batch_no, i.expiry_date, i.uom, i.qty_factor) === key
+  );
   if (existing) {
-    existing.qty += inc;
+    existing.qty_entered = toNum(existing.qty_entered ?? existing.qty ?? 0) + entered;
+    existing.qty = toNum(existing.qty ?? 0) + entered * factor;
     return;
   }
   state.cart.push({
     ...item,
-    qty: inc,
+    uom: u,
+    qty_factor: factor,
+    qty_entered: entered,
+    qty: entered * factor, // base qty
     base_price_usd: toNum(item.price_usd || 0),
     base_price_lbp: toNum(item.price_lbp || 0),
     promo_code: "",
@@ -553,10 +628,10 @@ function validateIsoDate(s) {
   return /^\d{4}-\d{2}-\d{2}$/.test(v);
 }
 
-function openLotModal(item, qty) {
-  state.lotContext = { item, qty };
+function openLotModal(item, qtyEntered, uom, qtyFactor) {
+  state.lotContext = { item, qtyEntered, uom, qtyFactor };
   state.lotBatches = [];
-  setText("lotSubtitle", `${item.name} · Qty ${qty}`);
+  setText("lotSubtitle", `${item.name} · Qty ${qtyEntered}`);
   el("lotBatchNo").value = "";
   el("lotExpiryDate").value = "";
   el("lotBatches").innerHTML = "";
@@ -621,7 +696,9 @@ function confirmLotAdd() {
   const ctx = state.lotContext;
   if (!ctx?.item) return;
   const item = ctx.item;
-  const qty = Number(ctx.qty || 1) || 1;
+  const qtyEntered = Number(ctx.qtyEntered || 1) || 1;
+  const uom = (ctx.uom || item.unit_of_measure || "").trim() || null;
+  const qtyFactor = toNum(ctx.qtyFactor ?? 1) || 1;
 
   const batchNo = (el("lotBatchNo").value || "").trim();
   const expiryDate = (el("lotExpiryDate").value || "").trim();
@@ -647,7 +724,7 @@ function confirmLotAdd() {
 
   hideModal("lotModal");
   state.lotContext = null;
-  addCartLine(item, qty, batchNo || null, expiryDate || null);
+  addCartLine(item, qtyEntered, batchNo || null, expiryDate || null, uom, qtyFactor);
   repriceCart();
   renderCart();
   updateTotals();
@@ -953,9 +1030,19 @@ async function confirmPay() {
   const payload = {
     cart: state.cart.map((i) => ({
       id: i.id,
-      qty: i.qty,
+      qty: i.qty, // base qty (inventory)
+      qty_entered: i.qty_entered ?? i.qty,
+      uom: i.uom || i.unit_of_measure || null,
+      qty_factor: i.qty_factor ?? 1,
       price_usd: i.price_usd || 0,
       price_lbp: i.price_lbp || 0,
+      pre_discount_unit_price_usd: i.pre_discount_unit_price_usd || 0,
+      pre_discount_unit_price_lbp: i.pre_discount_unit_price_lbp || 0,
+      discount_pct: i.discount_pct || 0,
+      discount_amount_usd: i.discount_amount_usd || 0,
+      discount_amount_lbp: i.discount_amount_lbp || 0,
+      applied_promotion_id: i.applied_promotion_id || null,
+      applied_promotion_item_id: i.applied_promotion_item_id || null,
       batch_no: i.batch_no || null,
       expiry_date: i.expiry_date || null
     })),
@@ -1000,9 +1087,19 @@ async function confirmReturn() {
   const payload = {
     cart: state.cart.map((i) => ({
       id: i.id,
-      qty: i.qty,
+      qty: i.qty, // base qty
+      qty_entered: i.qty_entered ?? i.qty,
+      uom: i.uom || i.unit_of_measure || null,
+      qty_factor: i.qty_factor ?? 1,
       price_usd: i.price_usd || 0,
       price_lbp: i.price_lbp || 0,
+      pre_discount_unit_price_usd: i.pre_discount_unit_price_usd || 0,
+      pre_discount_unit_price_lbp: i.pre_discount_unit_price_lbp || 0,
+      discount_pct: i.discount_pct || 0,
+      discount_amount_usd: i.discount_amount_usd || 0,
+      discount_amount_lbp: i.discount_amount_lbp || 0,
+      applied_promotion_id: i.applied_promotion_id || null,
+      applied_promotion_item_id: i.applied_promotion_item_id || null,
       batch_no: i.batch_no || null,
       expiry_date: i.expiry_date || null
     })),
@@ -1202,7 +1299,7 @@ function bind() {
           (i.sku || "").toLowerCase() === needle
       );
       if (direct) {
-        addToCart(direct, 1);
+        addToCartWithUom(direct, 1, (direct.unit_of_measure || "").trim() || null, 1);
         return;
       }
 
@@ -1211,9 +1308,9 @@ function bind() {
         const it = state.items.find((i) => i.id === bc.item_id);
         if (!it) return;
         const factor = toNum(bc.qty_factor || 1);
-        const inc = factor > 0 ? factor : 1;
-        const steps = Math.max(1, Math.round(inc));
-        addToCart(it, steps);
+        const qtyFactor = factor > 0 ? factor : 1;
+        const uom = (bc.uom_code || it.unit_of_measure || "").trim() || null;
+        addToCartWithUom(it, 1, uom, qtyFactor);
       }
       return;
     }

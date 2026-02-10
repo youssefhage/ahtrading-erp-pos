@@ -15,6 +15,10 @@ type InvoiceRow = {
   customer_id: string | null;
   customer_name?: string | null;
   status: string;
+  subtotal_usd?: string | number;
+  subtotal_lbp?: string | number;
+  discount_total_usd?: string | number;
+  discount_total_lbp?: string | number;
   total_usd: string | number;
   total_lbp: string | number;
   exchange_rate: string | number;
@@ -251,6 +255,25 @@ export default function SalesInvoicePrintPage() {
               <div className="rounded-md border border-black/15 p-3">
                 <h2 className="text-sm font-semibold">Totals</h2>
                 <div className="mt-2 space-y-1 text-xs text-black/70">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Subtotal</span>
+                    <span className="font-mono">
+                      {fmtUsd(detail.invoice.subtotal_usd || 0)} / {fmtLbp(detail.invoice.subtotal_lbp || 0)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Discount</span>
+                    <span className="font-mono">
+                      {fmtUsd(detail.invoice.discount_total_usd || 0)} / {fmtLbp(detail.invoice.discount_total_lbp || 0)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Tax</span>
+                    <span className="font-mono">
+                      {fmtUsd((detail.tax_lines || []).reduce((a, t) => a + Number(t.tax_usd || 0), 0))} /{" "}
+                      {fmtLbp((detail.tax_lines || []).reduce((a, t) => a + Number(t.tax_lbp || 0), 0))}
+                    </span>
+                  </div>
                   <div className="flex items-center justify-between gap-2">
                     <span>Total</span>
                     <span className="font-mono">

@@ -24,6 +24,10 @@ type InvoiceRow = {
   customer_id: string | null;
   customer_name?: string | null;
   status: string;
+  subtotal_usd?: string | number;
+  subtotal_lbp?: string | number;
+  discount_total_usd?: string | number;
+  discount_total_lbp?: string | number;
   total_usd: string | number;
   total_lbp: string | number;
   exchange_rate: string | number;
@@ -389,11 +393,17 @@ function SalesInvoiceShowInner() {
                 <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                   <p className="text-xs text-fg-muted">Totals</p>
                   <p className="text-sm data-mono text-foreground">
-                    {fmtUsd(detail.invoice.total_usd)}
+                    Subtotal: {fmtUsd(detail.invoice.subtotal_usd || 0)} / {fmtLbp(detail.invoice.subtotal_lbp || 0)}
                   </p>
                   <p className="text-sm data-mono text-foreground">
-                    {fmtLbp(detail.invoice.total_lbp)}
+                    Discount: {fmtUsd(detail.invoice.discount_total_usd || 0)} / {fmtLbp(detail.invoice.discount_total_lbp || 0)}
                   </p>
+                  <p className="text-sm data-mono text-foreground">
+                    Tax:{" "}
+                    {fmtUsd((detail.tax_lines || []).reduce((a, t) => a + Number(t.tax_usd || 0), 0))} /{" "}
+                    {fmtLbp((detail.tax_lines || []).reduce((a, t) => a + Number(t.tax_lbp || 0), 0))}
+                  </p>
+                  <p className="text-sm data-mono text-foreground">Total: {fmtUsd(detail.invoice.total_usd)} / {fmtLbp(detail.invoice.total_lbp)}</p>
                   {(() => {
                     const paidUsd = (detail.payments || []).reduce((a, p) => a + Number(p.amount_usd || 0), 0);
                     const paidLbp = (detail.payments || []).reduce((a, p) => a + Number(p.amount_lbp || 0), 0);

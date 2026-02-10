@@ -26,6 +26,8 @@ type InvoiceLineDraft = {
   qty: string;
   unit_price_usd: string;
   unit_price_lbp: string;
+  // Discount percent as 0..100 (UI-friendly). Saved to backend as 0..1.
+  discount_pct: string;
 };
 
 type InvoiceDetail = {
@@ -47,12 +49,29 @@ type InvoiceDetail = {
     qty: string | number;
     unit_price_usd: string | number;
     unit_price_lbp: string | number;
+    pre_discount_unit_price_usd?: string | number | null;
+    pre_discount_unit_price_lbp?: string | number | null;
+    discount_pct?: string | number | null;
   }>;
 };
 
 function toNum(v: string) {
   const r = parseNumberInput(v);
   return r.ok ? r.value : 0;
+}
+
+function clampPct01(v: number) {
+  if (!Number.isFinite(v)) return 0;
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
+}
+
+function parsePct100(v: string) {
+  const n = toNum(v);
+  if (!Number.isFinite(n) || n <= 0) return { pct100: 0, pct01: 0 };
+  const pct100 = Math.min(100, Math.max(0, n));
+  return { pct100, pct01: clampPct01(pct100 / 100) };
 }
 
 function todayIso() {
@@ -90,6 +109,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [addQty, setAddQty] = useState("1");
   const [addUsd, setAddUsd] = useState("");
   const [addLbp, setAddLbp] = useState("");
+  const [addDisc, setAddDisc] = useState("0");
+
+  const [bulkDisc, setBulkDisc] = useState("");
 
   const addQtyRef = useRef<HTMLInputElement | null>(null);
 
@@ -148,8 +170,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
             item_name: (l as any).item_name || byId.get(l.item_id)?.name || null,
             unit_of_measure: (l as any).unit_of_measure || byId.get(l.item_id)?.unit_of_measure || null,
             qty: String(l.qty || 0),
-            unit_price_usd: String(l.unit_price_usd || 0),
-            unit_price_lbp: String(l.unit_price_lbp || 0)
+            unit_price_usd: String((l as any).pre_discount_unit_price_usd ?? l.unit_price_usd ?? 0),
+            unit_price_lbp: String((l as any).pre_discount_unit_price_lbp ?? l.unit_price_lbp ?? 0),
+            discount_pct: String(Math.round(Number((l as any).discount_pct || 0) * 10000) / 100)
           }))
         );
       } else {
@@ -219,13 +242,15 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         unit_of_measure: addItem.unit_of_measure ?? null,
         qty: String(q),
         unit_price_usd: String(unitUsd),
-        unit_price_lbp: String(unitLbp)
+        unit_price_lbp: String(unitLbp),
+        discount_pct: String(parsePct100(addDisc).pct100 || 0)
       }
     ]);
     setAddItem(null);
     setAddQty("1");
     setAddUsd("");
     setAddLbp("");
+    setAddDisc("0");
     setStatus("");
   }
 
@@ -237,21 +262,58 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     if (!exRes.ok && exRes.reason === "invalid") return setStatus("Invalid exchange rate.");
     const ex = exRes.ok ? exRes.value : 0;
 
-    const linesOut: Array<{ item_id: string; qty: number; unit_price_usd: number; unit_price_lbp: number }> = [];
+    const linesOut: Array<{
+      item_id: string;
+      qty: number;
+      uom?: string | null;
+      qty_factor?: number;
+      qty_entered?: number;
+      unit_price_usd: number;
+      unit_price_lbp: number;
+      pre_discount_unit_price_usd?: number;
+      pre_discount_unit_price_lbp?: number;
+      discount_pct?: number;
+      discount_amount_usd?: number;
+      discount_amount_lbp?: number;
+    }> = [];
     for (let i = 0; i < (lines || []).length; i++) {
       const l = lines[i];
       const qtyRes = parseNumberInput(l.qty);
       const usdRes = parseNumberInput(l.unit_price_usd);
       const lbpRes = parseNumberInput(l.unit_price_lbp);
+      const discRes = parseNumberInput(l.discount_pct);
       if (!qtyRes.ok && qtyRes.reason === "invalid") return setStatus(`Invalid qty on line ${i + 1}.`);
       if (!usdRes.ok && usdRes.reason === "invalid") return setStatus(`Invalid unit USD on line ${i + 1}.`);
       if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid unit LL on line ${i + 1}.`);
+      if (!discRes.ok && discRes.reason === "invalid") return setStatus(`Invalid discount % on line ${i + 1}.`);
       const qty = qtyRes.ok ? qtyRes.value : 0;
-      const unitUsd = usdRes.ok ? usdRes.value : 0;
-      const unitLbp = lbpRes.ok ? lbpRes.value : 0;
+      let preUsd = usdRes.ok ? usdRes.value : 0;
+      let preLbp = lbpRes.ok ? lbpRes.value : 0;
+      const disc = parsePct100(String(discRes.ok ? discRes.value : 0));
       if (qty <= 0) return setStatus(`Qty must be > 0 (line ${i + 1}).`);
-      if (unitUsd === 0 && unitLbp === 0) return setStatus(`Set USD or LL unit price (line ${i + 1}).`);
-      linesOut.push({ item_id: l.item_id, qty, unit_price_usd: unitUsd, unit_price_lbp: unitLbp });
+      if (preUsd === 0 && preLbp === 0) return setStatus(`Set USD or LL unit price (line ${i + 1}).`);
+      if (ex > 0) {
+        if (preUsd === 0 && preLbp > 0) preUsd = preLbp / ex;
+        if (preLbp === 0 && preUsd > 0) preLbp = preUsd * ex;
+      }
+      const netUsd = preUsd * (1 - disc.pct01);
+      const netLbp = preLbp * (1 - disc.pct01);
+      const discAmtUsd = (preUsd - netUsd) * qty;
+      const discAmtLbp = (preLbp - netLbp) * qty;
+      linesOut.push({
+        item_id: l.item_id,
+        qty,
+        uom: l.unit_of_measure || undefined,
+        qty_factor: 1,
+        qty_entered: qty,
+        unit_price_usd: netUsd,
+        unit_price_lbp: netLbp,
+        pre_discount_unit_price_usd: preUsd,
+        pre_discount_unit_price_lbp: preLbp,
+        discount_pct: disc.pct01,
+        discount_amount_usd: discAmtUsd,
+        discount_amount_lbp: discAmtLbp
+      });
     }
 
     setSaving(true);
@@ -399,7 +461,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
               </CardHeader>
               <CardContent className="space-y-3">
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                  <div className="space-y-1 md:col-span-6">
+                  <div className="space-y-1 md:col-span-5">
                     <label className="text-xs font-medium text-fg-muted">Item (search by name or barcode)</label>
                     <ItemTypeahead
                       endpoint="/pricing/catalog/typeahead"
@@ -434,6 +496,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                     <label className="text-xs font-medium text-fg-muted">Unit LL</label>
                     <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
                   </div>
+                  <div className="space-y-1 md:col-span-1">
+                    <label className="text-xs font-medium text-fg-muted">Disc%</label>
+                    <Input value={addDisc} onChange={(e) => setAddDisc(e.target.value)} placeholder="0" />
+                  </div>
                   <div className="md:col-span-12 flex justify-end gap-2">
                     <Button type="submit" variant="outline" disabled={loading}>
                       Add Line
@@ -442,6 +508,55 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                 </form>
 
                 <div className="ui-table-wrap">
+                  <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+                    <div className="text-[11px] text-fg-subtle">
+                      {(() => {
+                        let subtotalUsd = 0;
+                        let subtotalLbp = 0;
+                        let discUsd = 0;
+                        let discLbp = 0;
+                        for (const ln of lines || []) {
+                          const qty = toNum(String(ln.qty || 0));
+                          const preUsd = toNum(String(ln.unit_price_usd || 0));
+                          const preLbp = toNum(String(ln.unit_price_lbp || 0));
+                          const d = parsePct100(String(ln.discount_pct || 0));
+                          subtotalUsd += qty * preUsd;
+                          subtotalLbp += qty * preLbp;
+                          discUsd += qty * preUsd * d.pct01;
+                          discLbp += qty * preLbp * d.pct01;
+                        }
+                        const totalUsd = subtotalUsd - discUsd;
+                        const totalLbp = subtotalLbp - discLbp;
+                        return (
+                          <>
+                            Subtotal {subtotalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} USD ·{" "}
+                            {subtotalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL{" "}
+                            <span className="px-1">·</span> Discount {discUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} USD ·{" "}
+                            {discLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL{" "}
+                            <span className="px-1">·</span> Total {totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} USD ·{" "}
+                            {totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })} LL
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-fg-muted">Invoice Disc%</label>
+                        <Input value={bulkDisc} onChange={(e) => setBulkDisc(e.target.value)} placeholder="0" className="w-24" />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          const d = parsePct100(bulkDisc);
+                          setLines((prev) => prev.map((x) => ({ ...x, discount_pct: String(d.pct100 || 0) })));
+                        }}
+                        disabled={loading || saving || lines.length === 0}
+                      >
+                        Apply
+                      </Button>
+                    </div>
+                  </div>
                   <table className="ui-table">
                     <thead className="ui-thead">
                       <tr>
@@ -449,6 +564,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                         <th className="px-3 py-2 text-right">Qty</th>
                         <th className="px-3 py-2 text-right">Unit USD</th>
                         <th className="px-3 py-2 text-right">Unit LL</th>
+                        <th className="px-3 py-2 text-right">Disc%</th>
                         <th className="px-3 py-2 text-right">Total USD</th>
                         <th className="px-3 py-2 text-right">Total LL</th>
                         <th className="px-3 py-2 text-right">Actions</th>
@@ -459,6 +575,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                         const qty = toNum(String(l.qty));
                         const unitUsd = toNum(String(l.unit_price_usd));
                         const unitLbp = toNum(String(l.unit_price_lbp));
+                        const d = parsePct100(String(l.discount_pct || 0));
+                        const netUsd = unitUsd * (1 - d.pct01);
+                        const netLbp = unitLbp * (1 - d.pct01);
                         return (
                           <tr key={`${l.item_id}-${idx}`} className="ui-tr-hover">
                             <td className="px-3 py-2">
@@ -480,11 +599,22 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                             <td className="px-3 py-2 text-right font-mono text-xs">
                               {unitLbp.toLocaleString("en-US", { maximumFractionDigits: 2 })}
                             </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
-                              {(qty * unitUsd).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                            <td className="px-3 py-2 text-right">
+                              <Input
+                                value={l.discount_pct}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setLines((prev) => prev.map((x, i) => (i === idx ? { ...x, discount_pct: v } : x)));
+                                }}
+                                className="h-8 w-20 text-right font-mono text-xs"
+                                placeholder="0"
+                              />
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
-                              {(qty * unitLbp).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                              {(qty * netUsd).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-xs">
+                              {(qty * netLbp).toLocaleString("en-US", { maximumFractionDigits: 0 })}
                             </td>
                             <td className="px-3 py-2 text-right">
                               <div className="flex justify-end gap-2">
@@ -503,7 +633,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                       })}
                       {lines.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
+                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
                             No lines yet.
                           </td>
                         </tr>

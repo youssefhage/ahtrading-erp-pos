@@ -127,13 +127,26 @@ def execute_purchase_action(cur, company_id: str, action_id: str, payload: dict)
     po_id = cur.fetchone()["id"]
 
     cur.execute(
+        "SELECT unit_of_measure FROM items WHERE company_id=%s AND id=%s",
+        (company_id, item_id),
+    )
+    urow = cur.fetchone() or {}
+    base_uom = (urow.get("unit_of_measure") or None)
+
+    cur.execute(
         """
         INSERT INTO purchase_order_lines
-          (id, company_id, purchase_order_id, item_id, qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+          (id, company_id, purchase_order_id, item_id,
+           qty, uom, qty_factor, qty_entered,
+           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+           line_total_usd, line_total_lbp)
         VALUES
-          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, %s,
+           %s, %s, 1, %s,
+           %s, %s, %s, %s,
+           %s, %s)
         """,
-        (company_id, po_id, item_id, qty, unit_cost_usd, unit_cost_lbp, total_usd, total_lbp),
+        (company_id, po_id, item_id, qty, base_uom, qty, unit_cost_usd, unit_cost_lbp, unit_cost_usd, unit_cost_lbp, total_usd, total_lbp),
     )
 
     cur.execute(

@@ -278,6 +278,84 @@ def normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -
     return usd, lbp
 
 
+def compute_vat_breakdown(
+    cur,
+    company_id: str,
+    lines: list[dict],
+    exchange_rate: Decimal,
+    default_tax_code_id: Optional[str],
+) -> tuple[list[dict], Decimal, Decimal]:
+    """
+    Compute VAT totals grouped by tax_code_id.
+
+    Rules:
+    - Per-item items.tax_code_id overrides the default VAT code.
+    - If a line's item tax_code_id is NULL, fall back to default_tax_code_id.
+    - Only VAT tax codes (tax_codes.tax_type='vat') are included.
+    """
+    item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
+    item_tax: dict[str, Optional[str]] = {}
+    if item_ids:
+        cur.execute(
+            """
+            SELECT id, tax_code_id
+            FROM items
+            WHERE company_id=%s AND id = ANY(%s::uuid[])
+            """,
+            (company_id, item_ids),
+        )
+        item_tax = {str(r["id"]): (str(r["tax_code_id"]) if r.get("tax_code_id") else None) for r in cur.fetchall()}
+
+    base_by_tax: dict[str, dict[str, Decimal]] = {}
+    for l in (lines or []):
+        itid = str(l.get("item_id") or "")
+        tcid = item_tax.get(itid) or (str(default_tax_code_id) if default_tax_code_id else None)
+        if not tcid:
+            continue
+        if tcid not in base_by_tax:
+            base_by_tax[tcid] = {"usd": Decimal("0"), "lbp": Decimal("0")}
+        base_by_tax[tcid]["usd"] += Decimal(str(l.get("line_total_usd", 0) or 0))
+        base_by_tax[tcid]["lbp"] += Decimal(str(l.get("line_total_lbp", 0) or 0))
+
+    if not base_by_tax:
+        return [], Decimal("0"), Decimal("0")
+
+    tcids = list(base_by_tax.keys())
+    cur.execute(
+        """
+        SELECT id, rate
+        FROM tax_codes
+        WHERE company_id=%s AND tax_type='vat' AND id = ANY(%s::uuid[])
+        """,
+        (company_id, tcids),
+    )
+    rate_by = {str(r["id"]): Decimal(str(r.get("rate") or 0)) for r in cur.fetchall()}
+
+    rows: list[dict] = []
+    tax_usd = Decimal("0")
+    tax_lbp = Decimal("0")
+    for tcid, b in base_by_tax.items():
+        # Ignore non-VAT tax codes (not returned by the SELECT above).
+        if tcid not in rate_by:
+            continue
+        rate = rate_by.get(tcid, Decimal("0"))
+        tlbp = b["lbp"] * rate if rate else Decimal("0")
+        tusd = (tlbp / exchange_rate) if exchange_rate else Decimal("0")
+        tusd, tlbp = normalize_dual_amounts(tusd, tlbp, exchange_rate)
+        tax_usd += tusd
+        tax_lbp += tlbp
+        rows.append(
+            {
+                "tax_code_id": tcid,
+                "base_usd": b["usd"],
+                "base_lbp": b["lbp"],
+                "tax_usd": tusd,
+                "tax_lbp": tlbp,
+            }
+        )
+    return rows, tax_usd, tax_lbp
+
+
 def get_or_create_batch(cur, company_id: str, item_id: str, batch_no, expiry_date_raw):
     batch_no_norm = batch_no.strip() if isinstance(batch_no, str) else None
     expiry_date = None
@@ -587,9 +665,36 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         total_cost_lbp += qty * unit_cost_lbp
 
     tax = payload.get("tax") or None
-    tax_usd = Decimal(str(tax.get("tax_usd", 0))) if tax else Decimal("0")
-    tax_lbp = Decimal(str(tax.get("tax_lbp", 0))) if tax else Decimal("0")
-    tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
+    tax_rows: list[dict] = []
+    tax_usd = Decimal("0")
+    tax_lbp = Decimal("0")
+    if tax:
+        # Prefer client-provided breakdown (it captures the tax code at the time of sale),
+        # otherwise compute from current items.tax_code_id + tax_codes rates.
+        tb = payload.get("tax_breakdown")
+        if isinstance(tb, list) and tb:
+            for r in tb:
+                if not isinstance(r, dict):
+                    continue
+                tcid = r.get("tax_code_id")
+                if not tcid:
+                    continue
+                bu = Decimal(str(r.get("base_usd", 0) or 0))
+                bl = Decimal(str(r.get("base_lbp", 0) or 0))
+                tu = Decimal(str(r.get("tax_usd", 0) or 0))
+                tl = Decimal(str(r.get("tax_lbp", 0) or 0))
+                tu, tl = normalize_dual_amounts(tu, tl, exchange_rate)
+                tax_rows.append({"tax_code_id": tcid, "base_usd": bu, "base_lbp": bl, "tax_usd": tu, "tax_lbp": tl, "tax_date": r.get("tax_date")})
+                tax_usd += tu
+                tax_lbp += tl
+        else:
+            default_tax_code_id = tax.get("tax_code_id") or None
+            tax_rows, tax_usd, tax_lbp = compute_vat_breakdown(cur, company_id, lines, exchange_rate, default_tax_code_id)
+            # Backward compatibility: if we couldn't compute a breakdown, fall back to client totals.
+            if not tax_rows:
+                tax_usd = Decimal(str(tax.get("tax_usd", 0) or 0))
+                tax_lbp = Decimal(str(tax.get("tax_lbp", 0) or 0))
+                tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
 
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
@@ -733,16 +838,42 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         # Generate stable ids so downstream artifacts (stock moves, etc.) can link to document lines.
         line_id = str(uuid.uuid4())
         l["_invoice_line_id"] = line_id
+        qty = Decimal(str(l.get("qty", 0) or 0))
+        unit_price_usd = Decimal(str(l.get("unit_price_usd", 0) or 0))
+        unit_price_lbp = Decimal(str(l.get("unit_price_lbp", 0) or 0))
+        line_total_usd = Decimal(str(l.get("line_total_usd", 0) or 0))
+        line_total_lbp = Decimal(str(l.get("line_total_lbp", 0) or 0))
+        qty_factor = Decimal(str(l.get("qty_factor", 1) or 1))
+        if qty_factor <= 0:
+            qty_factor = Decimal("1")
+
+        if l.get("qty_entered") is not None:
+            qty_entered = Decimal(str(l.get("qty_entered") or 0))
+        else:
+            qty_entered = (qty / qty_factor) if qty_factor else qty
+
+        if l.get("unit_price_entered_usd") is not None:
+            unit_price_entered_usd = Decimal(str(l.get("unit_price_entered_usd") or 0))
+        else:
+            unit_price_entered_usd = unit_price_usd * qty_factor
+
+        if l.get("unit_price_entered_lbp") is not None:
+            unit_price_entered_lbp = Decimal(str(l.get("unit_price_entered_lbp") or 0))
+        else:
+            unit_price_entered_lbp = unit_price_lbp * qty_factor
+
         cur.execute(
             """
             INSERT INTO sales_invoice_lines
               (id, invoice_id, item_id, qty, unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp,
-               uom, qty_factor,
+               uom, qty_factor, qty_entered,
+               unit_price_entered_usd, unit_price_entered_lbp,
                pre_discount_unit_price_usd, pre_discount_unit_price_lbp,
                discount_pct, discount_amount_usd, discount_amount_lbp,
                applied_promotion_id, applied_promotion_item_id, applied_price_list_id)
             VALUES
               (%s, %s, %s, %s, %s, %s, %s, %s,
+               %s, %s, %s,
                %s, %s,
                %s, %s,
                %s, %s, %s,
@@ -752,13 +883,17 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 line_id,
                 invoice_id,
                 l.get("item_id"),
-                Decimal(str(l.get("qty", 0))),
-                Decimal(str(l.get("unit_price_usd", 0))),
-                Decimal(str(l.get("unit_price_lbp", 0))),
-                Decimal(str(l.get("line_total_usd", 0))),
-                Decimal(str(l.get("line_total_lbp", 0))),
+                # Base qty (inventory) stays canonical.
+                qty,
+                unit_price_usd,
+                unit_price_lbp,
+                line_total_usd,
+                line_total_lbp,
                 l.get("uom"),
-                Decimal(str(l.get("qty_factor", 1) or 1)),
+                qty_factor,
+                qty_entered,
+                unit_price_entered_usd,
+                unit_price_entered_lbp,
                 Decimal(str(l.get("_resolved_pre_discount_unit_price_usd", 0) or 0)),
                 Decimal(str(l.get("_resolved_pre_discount_unit_price_lbp", 0) or 0)),
                 Decimal(str(l.get("_resolved_discount_pct", 0) or 0)),
@@ -781,27 +916,50 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             pts = (total_usd * p_usd) + (total_lbp * p_lbp)
         apply_loyalty_points(cur, company_id, customer_id, "sales_invoice", str(invoice_id), pts)
 
-    # Tax line (VAT)
+    # Tax lines (VAT breakdown)
     if tax:
-        cur.execute(
-            """
-            INSERT INTO tax_lines
-              (id, company_id, source_type, source_id, tax_code_id,
-               base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
-            VALUES
-              (gen_random_uuid(), %s, 'sales_invoice', %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                company_id,
-                invoice_id,
-                tax.get("tax_code_id"),
-                Decimal(str(tax.get("base_usd", base_usd))),
-                Decimal(str(tax.get("base_lbp", base_lbp))),
-                tax_usd,
-                tax_lbp,
-                tax.get("tax_date"),
-            ),
-        )
+        tax_date = tax.get("tax_date") or None
+        if tax_rows:
+            for tr in (tax_rows or []):
+                cur.execute(
+                    """
+                    INSERT INTO tax_lines
+                      (id, company_id, source_type, source_id, tax_code_id,
+                       base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
+                    VALUES
+                      (gen_random_uuid(), %s, 'sales_invoice', %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        company_id,
+                        invoice_id,
+                        tr.get("tax_code_id"),
+                        Decimal(str(tr.get("base_usd", 0) or 0)),
+                        Decimal(str(tr.get("base_lbp", 0) or 0)),
+                        Decimal(str(tr.get("tax_usd", 0) or 0)),
+                        Decimal(str(tr.get("tax_lbp", 0) or 0)),
+                        (tr.get("tax_date") or tax_date),
+                    ),
+                )
+        else:
+            cur.execute(
+                """
+                INSERT INTO tax_lines
+                  (id, company_id, source_type, source_id, tax_code_id,
+                   base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
+                VALUES
+                  (gen_random_uuid(), %s, 'sales_invoice', %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    company_id,
+                    invoice_id,
+                    tax.get("tax_code_id"),
+                    Decimal(str(tax.get("base_usd", base_usd))),
+                    Decimal(str(tax.get("base_lbp", base_lbp))),
+                    tax_usd,
+                    tax_lbp,
+                    tax_date,
+                ),
+            )
 
     # Persist payments.
     for p in raw_payments:
@@ -1107,9 +1265,33 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         base_lbp += Decimal(str(l.get("line_total_lbp", 0)))
 
     tax = payload.get("tax") or None
-    tax_usd = Decimal(str(tax.get("tax_usd", 0))) if tax else Decimal("0")
-    tax_lbp = Decimal(str(tax.get("tax_lbp", 0))) if tax else Decimal("0")
-    tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
+    tax_rows: list[dict] = []
+    tax_usd = Decimal("0")
+    tax_lbp = Decimal("0")
+    if tax:
+        tb = payload.get("tax_breakdown")
+        if isinstance(tb, list) and tb:
+            for r in tb:
+                if not isinstance(r, dict):
+                    continue
+                tcid = r.get("tax_code_id")
+                if not tcid:
+                    continue
+                bu = Decimal(str(r.get("base_usd", 0) or 0))
+                bl = Decimal(str(r.get("base_lbp", 0) or 0))
+                tu = Decimal(str(r.get("tax_usd", 0) or 0))
+                tl = Decimal(str(r.get("tax_lbp", 0) or 0))
+                tu, tl = normalize_dual_amounts(tu, tl, exchange_rate)
+                tax_rows.append({"tax_code_id": tcid, "base_usd": bu, "base_lbp": bl, "tax_usd": tu, "tax_lbp": tl, "tax_date": r.get("tax_date")})
+                tax_usd += tu
+                tax_lbp += tl
+        else:
+            default_tax_code_id = tax.get("tax_code_id") or None
+            tax_rows, tax_usd, tax_lbp = compute_vat_breakdown(cur, company_id, lines, exchange_rate, default_tax_code_id)
+            if not tax_rows:
+                tax_usd = Decimal(str(tax.get("tax_usd", 0) or 0))
+                tax_lbp = Decimal(str(tax.get("tax_lbp", 0) or 0))
+                tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
 
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
@@ -1300,15 +1482,35 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         line_condition = (l.get("line_condition") or None) if l.get("line_condition") is not None else None
         if isinstance(line_condition, str):
             line_condition = line_condition.strip() or None
+
+        qty_factor = Decimal(str(l.get("qty_factor", 1) or 1))
+        if qty_factor <= 0:
+            qty_factor = Decimal("1")
+        qty_entered = (
+            Decimal(str(l.get("qty_entered") or 0))
+            if l.get("qty_entered") is not None
+            else ((qty / qty_factor) if qty_factor else qty)
+        )
+        unit_price_entered_usd = unit_price_usd * qty_factor
+        unit_price_entered_lbp = unit_price_lbp * qty_factor
+        unit_cost_entered_usd = unit_cost_usd * qty_factor
+        unit_cost_entered_lbp = unit_cost_lbp * qty_factor
         cur.execute(
             """
             INSERT INTO sales_return_lines
               (id, company_id, sales_return_id, item_id, qty,
-               unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp,
-               unit_cost_usd, unit_cost_lbp,
+               uom, qty_factor, qty_entered,
+               unit_price_usd, unit_price_lbp, unit_price_entered_usd, unit_price_entered_lbp,
+               line_total_usd, line_total_lbp,
+               unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                reason_id, line_condition)
             VALUES
-              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (%s, %s, %s, %s, %s,
+               %s, %s, %s,
+               %s, %s, %s, %s,
+               %s, %s,
+               %s, %s, %s, %s,
+               %s, %s)
             """,
             (
                 return_line_id,
@@ -1316,38 +1518,68 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                 return_id,
                 l.get("item_id"),
                 qty,
+                l.get("uom"),
+                qty_factor,
+                qty_entered,
                 unit_price_usd,
                 unit_price_lbp,
+                unit_price_entered_usd,
+                unit_price_entered_lbp,
                 Decimal(str(l.get("line_total_usd", 0))),
                 Decimal(str(l.get("line_total_lbp", 0))),
                 unit_cost_usd,
                 unit_cost_lbp,
+                unit_cost_entered_usd,
+                unit_cost_entered_lbp,
                 line_reason_id,
                 line_condition,
             ),
         )
 
-    # Tax line for reporting (negative amounts reduce VAT)
+    # Tax lines for reporting (negative amounts reduce VAT)
     if tax:
-        cur.execute(
-            """
-            INSERT INTO tax_lines
-              (id, company_id, source_type, source_id, tax_code_id,
-               base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
-            VALUES
-              (gen_random_uuid(), %s, 'sales_return', %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                company_id,
-                return_id,
-                tax.get("tax_code_id"),
-                -Decimal(str(tax.get("base_usd", base_usd))),
-                -Decimal(str(tax.get("base_lbp", base_lbp))),
-                -tax_usd,
-                -tax_lbp,
-                tax.get("tax_date"),
-            ),
-        )
+        tax_date = tax.get("tax_date") or None
+        if tax_rows:
+            for tr in (tax_rows or []):
+                cur.execute(
+                    """
+                    INSERT INTO tax_lines
+                      (id, company_id, source_type, source_id, tax_code_id,
+                       base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
+                    VALUES
+                      (gen_random_uuid(), %s, 'sales_return', %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        company_id,
+                        return_id,
+                        tr.get("tax_code_id"),
+                        -Decimal(str(tr.get("base_usd", 0) or 0)),
+                        -Decimal(str(tr.get("base_lbp", 0) or 0)),
+                        -Decimal(str(tr.get("tax_usd", 0) or 0)),
+                        -Decimal(str(tr.get("tax_lbp", 0) or 0)),
+                        (tr.get("tax_date") or tax_date),
+                    ),
+                )
+        else:
+            cur.execute(
+                """
+                INSERT INTO tax_lines
+                  (id, company_id, source_type, source_id, tax_code_id,
+                   base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
+                VALUES
+                  (gen_random_uuid(), %s, 'sales_return', %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    company_id,
+                    return_id,
+                    tax.get("tax_code_id"),
+                    -Decimal(str(tax.get("base_usd", base_usd))),
+                    -Decimal(str(tax.get("base_lbp", base_lbp))),
+                    -tax_usd,
+                    -tax_lbp,
+                    tax_date,
+                ),
+            )
 
     # GL posting
     account_defaults = fetch_account_defaults(cur, company_id)
@@ -1706,14 +1938,35 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
             received_at=datetime.utcnow(),
         )
         gr_line_id = str(uuid.uuid4())
+        qty = Decimal(str(l.get("qty", 0) or 0))
+        unit_cost_usd = Decimal(str(l.get("unit_cost_usd", 0) or 0))
+        unit_cost_lbp = Decimal(str(l.get("unit_cost_lbp", 0) or 0))
+        line_total_usd = Decimal(str(l.get("line_total_usd", 0) or 0))
+        line_total_lbp = Decimal(str(l.get("line_total_lbp", 0) or 0))
+        qty_factor = Decimal(str(l.get("qty_factor", 1) or 1))
+        if qty_factor <= 0:
+            qty_factor = Decimal("1")
+        qty_entered = (
+            Decimal(str(l.get("qty_entered") or 0))
+            if l.get("qty_entered") is not None
+            else ((qty / qty_factor) if qty_factor else qty)
+        )
+        unit_cost_entered_usd = unit_cost_usd * qty_factor
+        unit_cost_entered_lbp = unit_cost_lbp * qty_factor
         cur.execute(
             """
             INSERT INTO goods_receipt_lines
               (id, company_id, goods_receipt_id, item_id, batch_id, qty,
-               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+               uom, qty_factor, qty_entered,
+               unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+               line_total_usd, line_total_lbp,
                location_id, landed_cost_total_usd, landed_cost_total_lbp)
             VALUES
-              (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL, 0, 0)
+              (%s, %s, %s, %s, %s, %s,
+               %s, %s, %s,
+               %s, %s, %s, %s,
+               %s, %s,
+               NULL, 0, 0)
             """,
             (
                 gr_line_id,
@@ -1721,11 +1974,16 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
                 gr_id,
                 l.get("item_id"),
                 batch_id,
-                Decimal(str(l.get("qty", 0))),
-                Decimal(str(l.get("unit_cost_usd", 0))),
-                Decimal(str(l.get("unit_cost_lbp", 0))),
-                Decimal(str(l.get("line_total_usd", 0))),
-                Decimal(str(l.get("line_total_lbp", 0))),
+                qty,
+                l.get("uom"),
+                qty_factor,
+                qty_entered,
+                unit_cost_usd,
+                unit_cost_lbp,
+                unit_cost_entered_usd,
+                unit_cost_entered_lbp,
+                line_total_usd,
+                line_total_lbp,
             ),
         )
         cur.execute(
@@ -1936,24 +2194,49 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
             str(supplier_id or "") or None,
             received_at=datetime.utcnow(),
         )
+        qty = Decimal(str(l.get("qty", 0) or 0))
+        unit_cost_usd = Decimal(str(l.get("unit_cost_usd", 0) or 0))
+        unit_cost_lbp = Decimal(str(l.get("unit_cost_lbp", 0) or 0))
+        line_total_usd = Decimal(str(l.get("line_total_usd", 0) or 0))
+        line_total_lbp = Decimal(str(l.get("line_total_lbp", 0) or 0))
+        qty_factor = Decimal(str(l.get("qty_factor", 1) or 1))
+        if qty_factor <= 0:
+            qty_factor = Decimal("1")
+        qty_entered = (
+            Decimal(str(l.get("qty_entered") or 0))
+            if l.get("qty_entered") is not None
+            else ((qty / qty_factor) if qty_factor else qty)
+        )
+        unit_cost_entered_usd = unit_cost_usd * qty_factor
+        unit_cost_entered_lbp = unit_cost_lbp * qty_factor
         cur.execute(
             """
             INSERT INTO supplier_invoice_lines
               (id, company_id, supplier_invoice_id, item_id, batch_id, qty,
-               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp)
+               uom, qty_factor, qty_entered,
+               unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+               line_total_usd, line_total_lbp)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
+              (gen_random_uuid(), %s, %s, %s, %s, %s,
+               %s, %s, %s,
+               %s, %s, %s, %s,
+               %s, %s)
             """,
             (
                 company_id,
                 inv_id,
                 l.get("item_id"),
                 batch_id,
-                Decimal(str(l.get("qty", 0))),
-                Decimal(str(l.get("unit_cost_usd", 0))),
-                Decimal(str(l.get("unit_cost_lbp", 0))),
-                Decimal(str(l.get("line_total_usd", 0))),
-                Decimal(str(l.get("line_total_lbp", 0))),
+                qty,
+                l.get("uom"),
+                qty_factor,
+                qty_entered,
+                unit_cost_usd,
+                unit_cost_lbp,
+                unit_cost_entered_usd,
+                unit_cost_entered_lbp,
+                line_total_usd,
+                line_total_lbp,
             ),
         )
 

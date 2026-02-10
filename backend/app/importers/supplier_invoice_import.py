@@ -77,6 +77,25 @@ def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) 
     return usd, lbp
 
 
+def _fetch_item_uom(cur, company_id: str, item_id: str) -> Optional[str]:
+    """
+    Best-effort: return the item's base UOM code for persistence on purchasing lines.
+    """
+    if not item_id:
+        return None
+    cur.execute(
+        """
+        SELECT unit_of_measure
+        FROM items
+        WHERE company_id=%s AND id=%s
+        """,
+        (company_id, item_id),
+    )
+    row = cur.fetchone()
+    u = (row or {}).get("unit_of_measure")
+    return (u.strip().upper() if isinstance(u, str) and u.strip() else None)
+
+
 def extract_purchase_invoice_best_effort(
     *,
     raw: bytes,
@@ -508,18 +527,27 @@ def apply_extracted_purchase_invoice_to_draft(
             """
             INSERT INTO supplier_invoice_lines
               (id, company_id, supplier_invoice_id, item_id, qty,
-               unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp,
+               uom, qty_factor, qty_entered,
+               unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+               line_total_usd, line_total_lbp,
                supplier_item_code, supplier_item_name)
             VALUES
               (gen_random_uuid(), %s, %s, %s, %s,
+               %s, 1, %s,
                %s, %s, %s, %s,
+               %s, %s,
                %s, %s)
             """,
             (
+                # Store a concrete UOM for future UX/auditability.
                 company_id,
                 invoice_id,
                 item_id,
                 qty,
+                _fetch_item_uom(cur, company_id, item_id),
+                qty,
+                unit_usd,
+                unit_lbp,
                 unit_usd,
                 unit_lbp,
                 line_total_usd,

@@ -5,7 +5,7 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Build-time config (Next.js inlines NEXT_PUBLIC_* variables).
-ARG NEXT_PUBLIC_API_BASE_URL=/xapi
+ARG NEXT_PUBLIC_API_BASE_URL=/backend
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 
 # Optional: server-side rewrite target for same-origin /api proxy.
