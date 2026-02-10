@@ -18,7 +18,9 @@ services:
       timeout: 5s
       retries: 30
       start_period: 20s
-    network_mode: dokploy-network
+    networks:
+      - default
+      - dokploy
 
   api:
     build:
@@ -65,7 +67,9 @@ services:
           sleep 2
         done
         exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
-    network_mode: dokploy-network
+    # Intentionally do not set networks here. Dokploy rewrites routed services
+    # (like `api` / `admin`) to its own routing network. We'll instead attach
+    # the DB/worker to that network so DNS works.
 
   worker:
     build:
@@ -96,7 +100,9 @@ services:
           sleep 2
         done
         exec python3 -m backend.workers.worker_service --db "$$APP_DATABASE_URL"
-    network_mode: dokploy-network
+    networks:
+      - default
+      - dokploy
 
   admin:
     build:
@@ -108,7 +114,16 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    network_mode: dokploy-network
+    # Intentionally do not set networks here. Dokploy rewrites routed services.
 
 volumes:
   pgdata:
+
+networks:
+  # Default per-compose network (still used by worker/db for isolation).
+  default:
+    driver: bridge
+  # Shared Dokploy routing network used by Traefik (and routed services).
+  dokploy:
+    external: true
+    name: dokploy-network
