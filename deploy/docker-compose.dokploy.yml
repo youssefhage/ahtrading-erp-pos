@@ -142,6 +142,16 @@ services:
       - default
       - dokploy
 
+  # Web POS (browser fallback / quick pilot access).
+  pos_web:
+    build:
+      context: ..
+      dockerfile: apps/pos-web/Dockerfile
+    restart: unless-stopped
+    networks:
+      - default
+      - dokploy
+
 volumes:
   pgdata_pilot_20260210:
   downloads_updates:
