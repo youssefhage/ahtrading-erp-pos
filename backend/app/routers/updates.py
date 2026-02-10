@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse
 
 
 router = APIRouter(prefix="/updates", tags=["updates"])
@@ -82,6 +83,69 @@ def _make_world_readable(target: Path, base: Path) -> None:
         # Never fail the upload due to chmod issues; worst-case nginx returns 403 and
         # we can diagnose from the outside.
         return
+
+
+def _cache_control_for_rel(rel: str) -> str:
+    lower = rel.lower()
+    # Manifests + stable "latest" installers should never be cached.
+    if lower.endswith(".json") or "-latest." in lower:
+        return "no-store"
+    # Versioned artifacts can be cached for a bit.
+    return "public, max-age=86400"
+
+
+def _html_index(dir_path: Path, rel_dir: str) -> str:
+    # Very small nginx-like directory listing, so staff can click "All files".
+    rel_dir = rel_dir.strip().lstrip("/")
+    title = f"Index of /updates/{rel_dir}".rstrip("/")
+    rows = ['<a href="../">../</a>']
+    for p in sorted(dir_path.iterdir(), key=lambda x: x.name.lower()):
+        name = p.name + ("/" if p.is_dir() else "")
+        try:
+            st = p.stat()
+            size = "" if p.is_dir() else str(st.st_size)
+            mtime = ""
+            try:
+                import datetime as _dt
+
+                mtime = _dt.datetime.utcfromtimestamp(st.st_mtime).strftime("%d-%b-%Y %H:%M")
+            except Exception:
+                mtime = ""
+        except Exception:
+            size = ""
+            mtime = ""
+        rows.append(f'<a href="{p.name}">{name}</a>{" " * max(1, 60 - len(name))}{mtime}{" " * 2}{size}')
+    body = "\n".join(rows)
+    return (
+        "<html><head>"
+        f"<title>{title}</title>"
+        "</head><body>"
+        f"<h1>{title}</h1><hr><pre>{body}</pre><hr>"
+        "</body></html>"
+    )
+
+
+@router.get("/{rel_path:path}")
+def get_update_file(rel_path: str):
+    """
+    Public read-only access to update artifacts.
+    """
+    base = _updates_dir()
+    target = _resolve_rel_path(rel_path)
+
+    if target.exists() and target.is_dir():
+        html = _html_index(target, rel_path)
+        return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
+
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+
+    rel = str(target.relative_to(base))
+    return FileResponse(
+        path=str(target),
+        filename=target.name,
+        headers={"Cache-Control": _cache_control_for_rel(rel)},
+    )
 
 
 @router.get("/_debug/ls")
