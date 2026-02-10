@@ -89,6 +89,9 @@ class BulkItemIn(BaseModel):
     unit_of_measure: str = "EA"
     barcode: Optional[str] = None
     tax_code_name: Optional[str] = None
+    # Optional costing fields for imports. If omitted, we preserve any existing cost on upsert.
+    standard_cost_usd: Optional[Decimal] = None
+    standard_cost_lbp: Optional[Decimal] = None
     reorder_point: Optional[Decimal] = Decimal("0")
     reorder_qty: Optional[Decimal] = Decimal("0")
 
@@ -906,11 +909,17 @@ def bulk_upsert_items(data: BulkItemsIn, company_id: str = Depends(get_company_i
 
                     reorder_point = it.reorder_point if it.reorder_point is not None else Decimal("0")
                     reorder_qty = it.reorder_qty if it.reorder_qty is not None else Decimal("0")
+                    standard_cost_usd = it.standard_cost_usd
+                    standard_cost_lbp = it.standard_cost_lbp
 
                     cur.execute(
                         """
-                        INSERT INTO items (id, company_id, sku, barcode, name, unit_of_measure, tax_code_id, reorder_point, reorder_qty)
-                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO items (
+                          id, company_id, sku, barcode, name, unit_of_measure,
+                          tax_code_id, reorder_point, reorder_qty,
+                          standard_cost_usd, standard_cost_lbp
+                        )
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (company_id, sku) DO UPDATE
                         SET barcode = EXCLUDED.barcode,
                             name = EXCLUDED.name,
@@ -918,10 +927,23 @@ def bulk_upsert_items(data: BulkItemsIn, company_id: str = Depends(get_company_i
                             tax_code_id = EXCLUDED.tax_code_id,
                             reorder_point = EXCLUDED.reorder_point,
                             reorder_qty = EXCLUDED.reorder_qty,
+                            standard_cost_usd = COALESCE(EXCLUDED.standard_cost_usd, items.standard_cost_usd),
+                            standard_cost_lbp = COALESCE(EXCLUDED.standard_cost_lbp, items.standard_cost_lbp),
                             updated_at = now()
                         RETURNING id
                         """,
-                        (company_id, sku, barcode, name, uom, tax_code_id, reorder_point, reorder_qty),
+                        (
+                            company_id,
+                            sku,
+                            barcode,
+                            name,
+                            uom,
+                            tax_code_id,
+                            reorder_point,
+                            reorder_qty,
+                            standard_cost_usd,
+                            standard_cost_lbp,
+                        ),
                     )
                     item_id = cur.fetchone()["id"]
                     upserted += 1

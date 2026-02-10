@@ -172,6 +172,18 @@ class ApiClient:
         res = self._req("GET", "/companies")
         return list(res.get("companies") or [])
 
+    def list_tax_codes(self, company_id: str) -> list[dict]:
+        res = self._req("GET", "/config/tax-codes", headers={"X-Company-Id": company_id})
+        return list(res.get("tax_codes") or [])
+
+    def create_tax_code(self, company_id: str, name: str, rate: str, tax_type: str = "vat", reporting_currency: str = "LBP") -> dict:
+        return self._req(
+            "POST",
+            "/config/tax-codes",
+            {"name": name, "rate": rate, "tax_type": tax_type, "reporting_currency": reporting_currency},
+            headers={"X-Company-Id": company_id},
+        )
+
     def list_warehouses(self, company_id: str) -> list[dict]:
         res = self._req("GET", "/warehouses", headers={"X-Company-Id": company_id})
         return list(res.get("warehouses") or [])
@@ -248,6 +260,17 @@ def main() -> int:
         "UNDISCLOSED COMPANY": unofficial_id,
         "ACOUNTING COMPANY": official_id,
     }
+
+    # Ensure required tax codes exist (official company only).
+    # ERPNext mapping:
+    # - "Item Tax Template" = "11%" -> VAT 11%
+    # - "Item Tax Template" = "0%"  -> VAT exempt 0%
+    print("[2.5/6] Ensure tax codes (official)...")
+    existing_tax = {str(tc.get("name") or "").strip().lower(): tc for tc in api.list_tax_codes(official_id)}
+    for name, rate in [("11%", "0.11"), ("0%", "0")]:
+        if name.lower() not in existing_tax:
+            api.create_tax_code(official_id, name=name, rate=rate, tax_type="vat", reporting_currency="LBP")
+            print(f"  - created tax code: {name} (rate={rate})")
 
     print("[3/6] Import customers (shared -> both companies)...")
     customers: list[dict] = []
@@ -338,6 +361,7 @@ def main() -> int:
         c_price = idx.get("Standard Selling Rate")
         c_opening = idx.get("Opening Stock")
         c_val = idx.get("Valuation Rate")
+        c_tax_tmpl = idx.get("Item Tax Template")
 
         c_conv_uom = idx.get("UOM")  # item uom conversion section
         c_conv_factor = idx.get("Conversion Factor")
@@ -367,6 +391,21 @@ def main() -> int:
                 current_base_uom = (base_uom or "EA").strip().upper()[:32]
 
                 if name_cell:
+                    tax_code_name: Optional[str] = None
+                    if c_tax_tmpl is not None and c_tax_tmpl < len(row):
+                        raw_tmpl = _norm(row[c_tax_tmpl])
+                        # In our exports this is typically "11%" or "0%".
+                        if raw_tmpl in {"11%", "0%"}:
+                            tax_code_name = raw_tmpl
+                    # Undisclosed items have no VAT in our rules.
+                    if current_company == unofficial_id:
+                        tax_code_name = None
+
+                    val_rate = _to_decimal(row[c_val]) if c_val is not None and c_val < len(row) else Decimal("0")
+                    standard_cost_usd: Optional[str] = None
+                    if val_rate > 0:
+                        standard_cost_usd = str(val_rate)
+
                     items_by_company[current_company].append(
                         {
                             "sku": current_sku,
@@ -374,6 +413,9 @@ def main() -> int:
                             "unit_of_measure": current_base_uom,
                             # Do NOT set `barcode` here. We'll upsert barcodes with correct UOM + qty_factor below.
                             "barcode": None,
+                            "tax_code_name": tax_code_name,
+                            "standard_cost_usd": standard_cost_usd,
+                            "standard_cost_lbp": None,
                         }
                     )
 
