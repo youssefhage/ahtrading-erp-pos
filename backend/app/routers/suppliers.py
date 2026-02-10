@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from decimal import Decimal
 from typing import Optional, Literal, List
+from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 
@@ -223,27 +224,30 @@ def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_c
                     is_active = bool(s.is_active) if s.is_active is not None else True
 
                     if code:
-                        cur.execute(
-                            """
-                            INSERT INTO suppliers
-                              (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active)
-                            VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (company_id, code) DO UPDATE
-                            SET name = EXCLUDED.name,
-                                phone = EXCLUDED.phone,
-                                email = EXCLUDED.email,
-                                payment_terms_days = EXCLUDED.payment_terms_days,
-                                party_type = EXCLUDED.party_type,
-                                legal_name = EXCLUDED.legal_name,
-                                tax_id = EXCLUDED.tax_id,
-                                vat_no = EXCLUDED.vat_no,
-                                notes = EXCLUDED.notes,
-                                is_active = EXCLUDED.is_active
-                            RETURNING id
-                            """,
-                            (company_id, code, name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes, is_active),
-                        )
+                        try:
+                            cur.execute(
+                                """
+                                INSERT INTO suppliers
+                                  (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active)
+                                VALUES
+                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (company_id, code) DO UPDATE
+                                SET name = EXCLUDED.name,
+                                    phone = EXCLUDED.phone,
+                                    email = EXCLUDED.email,
+                                    payment_terms_days = EXCLUDED.payment_terms_days,
+                                    party_type = EXCLUDED.party_type,
+                                    legal_name = EXCLUDED.legal_name,
+                                    tax_id = EXCLUDED.tax_id,
+                                    vat_no = EXCLUDED.vat_no,
+                                    notes = EXCLUDED.notes,
+                                    is_active = EXCLUDED.is_active
+                                RETURNING id
+                                """,
+                                (company_id, code, name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes, is_active),
+                            )
+                        except (pg_errors.UndefinedColumn, pg_errors.UndefinedTable, pg_errors.InvalidColumnReference) as e:
+                            raise HTTPException(status_code=500, detail=f"db schema mismatch: {e}") from None
                         cur.fetchone()
                         upserted += 1
                         continue

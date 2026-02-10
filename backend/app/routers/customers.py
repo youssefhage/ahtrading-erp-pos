@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Literal, List
 from datetime import date
+from psycopg import errors as pg_errors
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 
@@ -301,54 +302,58 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                     }
 
                     if code:
-                        cur.execute(
-                            """
-                            INSERT INTO customers
-                              (id, company_id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
-                               membership_no, is_member, membership_expires_at,
-                               payment_terms_days, credit_limit_usd, credit_limit_lbp, price_list_id, is_active)
-                            VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (company_id, code) DO UPDATE
-                            SET name = EXCLUDED.name,
-                                phone = EXCLUDED.phone,
-                                email = EXCLUDED.email,
-                                party_type = EXCLUDED.party_type,
-                                legal_name = EXCLUDED.legal_name,
-                                tax_id = EXCLUDED.tax_id,
-                                vat_no = EXCLUDED.vat_no,
-                                notes = EXCLUDED.notes,
-                                membership_no = EXCLUDED.membership_no,
-                                is_member = EXCLUDED.is_member,
-                                membership_expires_at = EXCLUDED.membership_expires_at,
-                                payment_terms_days = EXCLUDED.payment_terms_days,
-                                credit_limit_usd = EXCLUDED.credit_limit_usd,
-                                credit_limit_lbp = EXCLUDED.credit_limit_lbp,
-                                price_list_id = EXCLUDED.price_list_id,
-                                is_active = EXCLUDED.is_active
-                            RETURNING id
-                            """,
-                            (
-                                company_id,
-                                payload["code"],
-                                payload["name"],
-                                payload["phone"],
-                                payload["email"],
-                                payload["party_type"],
-                                payload["legal_name"],
-                                payload["tax_id"],
-                                payload["vat_no"],
-                                payload["notes"],
-                                payload["membership_no"],
-                                payload["is_member"],
-                                payload["membership_expires_at"],
-                                payload["payment_terms_days"],
-                                payload["credit_limit_usd"],
-                                payload["credit_limit_lbp"],
-                                payload["price_list_id"],
-                                payload["is_active"],
-                            ),
-                        )
+                        try:
+                            cur.execute(
+                                """
+                                INSERT INTO customers
+                                  (id, company_id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
+                                   membership_no, is_member, membership_expires_at,
+                                   payment_terms_days, credit_limit_usd, credit_limit_lbp, price_list_id, is_active)
+                                VALUES
+                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (company_id, code) DO UPDATE
+                                SET name = EXCLUDED.name,
+                                    phone = EXCLUDED.phone,
+                                    email = EXCLUDED.email,
+                                    party_type = EXCLUDED.party_type,
+                                    legal_name = EXCLUDED.legal_name,
+                                    tax_id = EXCLUDED.tax_id,
+                                    vat_no = EXCLUDED.vat_no,
+                                    notes = EXCLUDED.notes,
+                                    membership_no = EXCLUDED.membership_no,
+                                    is_member = EXCLUDED.is_member,
+                                    membership_expires_at = EXCLUDED.membership_expires_at,
+                                    payment_terms_days = EXCLUDED.payment_terms_days,
+                                    credit_limit_usd = EXCLUDED.credit_limit_usd,
+                                    credit_limit_lbp = EXCLUDED.credit_limit_lbp,
+                                    price_list_id = EXCLUDED.price_list_id,
+                                    is_active = EXCLUDED.is_active
+                                RETURNING id
+                                """,
+                                (
+                                    company_id,
+                                    payload["code"],
+                                    payload["name"],
+                                    payload["phone"],
+                                    payload["email"],
+                                    payload["party_type"],
+                                    payload["legal_name"],
+                                    payload["tax_id"],
+                                    payload["vat_no"],
+                                    payload["notes"],
+                                    payload["membership_no"],
+                                    payload["is_member"],
+                                    payload["membership_expires_at"],
+                                    payload["payment_terms_days"],
+                                    payload["credit_limit_usd"],
+                                    payload["credit_limit_lbp"],
+                                    payload["price_list_id"],
+                                    payload["is_active"],
+                                ),
+                            )
+                        except (pg_errors.UndefinedColumn, pg_errors.UndefinedTable, pg_errors.InvalidColumnReference) as e:
+                            # Help diagnose schema drift during pilots without requiring DB shell access.
+                            raise HTTPException(status_code=500, detail=f"db schema mismatch: {e}") from None
                         cur.fetchone()
                         upserted += 1
                         continue
