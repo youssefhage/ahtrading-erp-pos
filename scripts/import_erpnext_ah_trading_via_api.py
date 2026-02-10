@@ -73,6 +73,42 @@ def _chunks(seq, n: int):
         yield seq[i : i + n]
 
 
+def _post_with_isolation(post_fn, records: list[dict], chunk_size: int, label: str) -> int:
+    """
+    Robust bulk import:
+    - Try chunks.
+    - If the API returns a 500 (usually a data/DB edge case), bisect until we find
+      the offending record(s), print them, and skip.
+    """
+    ok = 0
+    chunk_size = max(1, min(int(chunk_size or 1000), 5000))
+
+    def push_batch(batch: list[dict]) -> None:
+        nonlocal ok
+        if not batch:
+            return
+        try:
+            post_fn(batch)
+            ok += len(batch)
+            return
+        except RuntimeError as e:
+            msg = str(e)
+            # Only isolate server errors; for 4xx we want to fail fast.
+            if "HTTP 500" not in msg:
+                raise
+            if len(batch) == 1:
+                print(f"[warn] skipping bad record in {label}: {batch[0]}", file=sys.stderr)
+                return
+            mid = len(batch) // 2
+            push_batch(batch[:mid])
+            push_batch(batch[mid:])
+
+    for batch in _chunks(records, chunk_size):
+        push_batch(batch)
+
+    return ok
+
+
 @dataclass(frozen=True)
 class ImportPaths:
     customers_csv: Path
@@ -229,9 +265,8 @@ def main() -> int:
             )
 
     for cid, label in [(official_id, "official"), (unofficial_id, "unofficial")]:
-        for chunk in _chunks(customers, int(args.chunk or 1000)):
-            api.post_bulk_customers(cid, chunk)
-        print(f"  - customers imported to {label}: {len(customers)}")
+        imported = _post_with_isolation(lambda b, _cid=cid: api.post_bulk_customers(_cid, b), customers, int(args.chunk or 1000), f"customers/{label}")
+        print(f"  - customers imported to {label}: {imported}/{len(customers)}")
 
     if not args.skip_suppliers:
         print("[4/6] Import suppliers (-> official)...")
@@ -262,9 +297,8 @@ def main() -> int:
                         "is_active": not disabled,
                     }
                 )
-        for chunk in _chunks(suppliers, int(args.chunk or 1000)):
-            api.post_bulk_suppliers(official_id, chunk)
-        print(f"  - suppliers imported: {len(suppliers)}")
+        imported = _post_with_isolation(lambda b: api.post_bulk_suppliers(official_id, b), suppliers, int(args.chunk or 1000), "suppliers/official")
+        print(f"  - suppliers imported: {imported}/{len(suppliers)}")
 
     print("[5/6] Import items + prices...")
     items_by_company: dict[str, list[dict]] = {official_id: [], unofficial_id: []}
@@ -365,4 +399,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
