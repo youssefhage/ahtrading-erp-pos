@@ -38,7 +38,7 @@ export default function ItemsListPage() {
     setErr(null);
     try {
       const [res, cats] = await Promise.all([
-        apiGet<{ items: ItemRow[] }>("/items"),
+        apiGet<{ items: ItemRow[] }>("/items/list"),
         apiGet<{ categories: Category[] }>("/item-categories").catch(() => ({ categories: [] as Category[] })),
       ]);
       setItems(res.items || []);

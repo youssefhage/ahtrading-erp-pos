@@ -103,7 +103,7 @@ export default function GoodsReceiptViewPage() {
       const [d, s, i, w, tc] = await Promise.all([
         apiGet<ReceiptDetail>(`/purchases/receipts/${encodeURIComponent(id)}`),
         apiGet<{ suppliers: Supplier[] }>("/suppliers"),
-        apiGet<{ items: Item[] }>("/items"),
+        apiGet<{ items: Item[] }>("/items/min"),
         apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes")
       ]);

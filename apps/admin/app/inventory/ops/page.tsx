@@ -109,7 +109,7 @@ export default function InventoryOpsPage() {
     setStatus("Loading...");
     try {
       const [i, w] = await Promise.all([
-        apiGet<{ items: Item[] }>("/items"),
+        apiGet<{ items: Item[] }>("/items/min"),
         apiGet<{ warehouses: Warehouse[] }>("/warehouses")
       ]);
       setItems(i.items || []);

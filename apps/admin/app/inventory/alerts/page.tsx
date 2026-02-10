@@ -57,7 +57,7 @@ export default function InventoryAlertsPage() {
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
 
   async function loadBase() {
-    const [i, w] = await Promise.all([apiGet<{ items: Item[] }>("/items"), apiGet<{ warehouses: Warehouse[] }>("/warehouses")]);
+    const [i, w] = await Promise.all([apiGet<{ items: Item[] }>("/items/min"), apiGet<{ warehouses: Warehouse[] }>("/warehouses")]);
     setItems(i.items || []);
     setWarehouses(w.warehouses || []);
   }

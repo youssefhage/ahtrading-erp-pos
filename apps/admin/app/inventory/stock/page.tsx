@@ -170,7 +170,7 @@ export default function StockPage() {
     try {
       const [stock, itemsRes, whRes] = await Promise.all([
         apiGet<{ stock: StockRow[] }>(`/inventory/stock?by_batch=${byBatch ? "true" : "false"}`),
-        apiGet<{ items: Item[] }>("/items"),
+        apiGet<{ items: Item[] }>("/items/min"),
         apiGet<{ warehouses: Warehouse[] }>("/warehouses")
       ]);
       setRows(stock.stock || []);

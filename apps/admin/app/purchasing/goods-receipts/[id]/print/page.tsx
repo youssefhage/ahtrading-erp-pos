@@ -71,7 +71,7 @@ export default function GoodsReceiptPrintPage() {
       const [d, s, i, w] = await Promise.all([
         apiGet<ReceiptDetail>(`/purchases/receipts/${encodeURIComponent(id)}`),
         apiGet<{ suppliers: Supplier[] }>("/suppliers").catch(() => ({ suppliers: [] })),
-        apiGet<{ items: Item[] }>("/items").catch(() => ({ items: [] })),
+        apiGet<{ items: Item[] }>("/items/min").catch(() => ({ items: [] })),
         apiGet<{ warehouses: Warehouse[] }>("/warehouses").catch(() => ({ warehouses: [] }))
       ]);
       setDetail(d);
@@ -227,4 +227,3 @@ export default function GoodsReceiptPrintPage() {
     </div>
   );
 }
-

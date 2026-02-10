@@ -54,7 +54,7 @@ export default function InventoryMovementsPage() {
 
       const [m, i, w] = await Promise.all([
         apiGet<{ moves: MoveRow[] }>(`/inventory/moves?${qs.toString()}`),
-        apiGet<{ items: Item[] }>("/items"),
+        apiGet<{ items: Item[] }>("/items/min"),
         apiGet<{ warehouses: Warehouse[] }>("/warehouses")
       ]);
       setMoves(m.moves || []);

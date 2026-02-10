@@ -84,7 +84,7 @@ export default function PromotionsPage() {
     try {
       const [p, it] = await Promise.all([
         apiGet<{ promotions: PromotionRow[] }>("/promotions"),
-        apiGet<{ items: ItemRow[] }>("/items")
+        apiGet<{ items: ItemRow[] }>("/items/min")
       ]);
       setPromos(p.promotions || []);
       setItems(it.items || []);

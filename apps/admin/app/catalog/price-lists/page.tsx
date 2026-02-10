@@ -83,7 +83,7 @@ export default function PriceListsPage() {
     try {
       const [pl, it] = await Promise.all([
         apiGet<{ lists: PriceListRow[] }>("/pricing/lists"),
-        apiGet<{ items: ItemRow[] }>("/items")
+        apiGet<{ items: ItemRow[] }>("/items/min")
       ]);
       setLists(pl.lists || []);
       setItems(it.items || []);

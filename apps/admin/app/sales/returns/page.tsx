@@ -101,7 +101,7 @@ export default function SalesReturnsPage() {
         apiGet<{ returns: ReturnRow[] }>("/sales/returns"),
         apiGet<{ invoices: InvoiceRow[] }>("/sales/invoices"),
         apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
-        apiGet<{ items: Item[] }>("/items")
+        apiGet<{ items: Item[] }>("/items/min")
       ]);
       setReturns(r.returns || []);
       setInvoices(inv.invoices || []);

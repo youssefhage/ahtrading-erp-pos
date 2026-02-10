@@ -90,7 +90,7 @@ export default function InventoryBatchesPage() {
     setStatus("Loading...");
     try {
       const [it, batches] = await Promise.all([
-        apiGet<{ items: Item[] }>("/items"),
+        apiGet<{ items: Item[] }>("/items/min"),
         (async () => {
           const qs = new URLSearchParams();
           if (filterItemId) qs.set("item_id", filterItemId);

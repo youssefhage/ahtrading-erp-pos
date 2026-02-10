@@ -160,6 +160,64 @@ def list_items(company_id: str = Depends(get_company_id)):
             )
             return {"items": cur.fetchall()}
 
+@router.get("/min", dependencies=[Depends(require_permission("items:read"))])
+def list_items_min(
+    include_inactive: bool = False,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Lightweight "load all items" endpoint for admin pages that only need to populate
+    dropdowns (id/sku/name). This avoids fetching the full item payload.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT i.id, i.sku, i.name
+                FROM items i
+                WHERE i.company_id = %s
+                  AND (%s = true OR i.is_active = true)
+                ORDER BY i.sku
+                """,
+                (company_id, bool(include_inactive)),
+            )
+            return {"items": cur.fetchall()}
+
+
+@router.get("/list", dependencies=[Depends(require_permission("items:read"))])
+def list_items_list(
+    include_inactive: bool = False,
+    company_id: str = Depends(get_company_id),
+):
+    """
+    Medium-weight catalog listing endpoint for the Items list page.
+    Returns the fields needed for listing/searching without pulling long descriptions,
+    external ids, costing, etc.
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT i.id, i.sku, i.name, i.barcode,
+                       i.unit_of_measure, i.category_id,
+                       i.is_active, i.updated_at,
+                       COALESCE(bc.cnt, 0) AS barcode_count
+                FROM items i
+                LEFT JOIN LATERAL (
+                  SELECT COUNT(*)::int AS cnt
+                  FROM item_barcodes b
+                  WHERE b.company_id = i.company_id AND b.item_id = i.id
+                ) bc ON true
+                WHERE i.company_id = %s
+                  AND (%s = true OR i.is_active = true)
+                ORDER BY i.sku
+                """,
+                (company_id, bool(include_inactive)),
+            )
+            return {"items": cur.fetchall()}
+
 
 class ItemsLookupIn(BaseModel):
     ids: List[str]
