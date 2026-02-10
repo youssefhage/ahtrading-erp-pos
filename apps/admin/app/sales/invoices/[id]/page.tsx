@@ -59,6 +59,8 @@ type SalesPayment = {
   method: string;
   amount_usd: string | number;
   amount_lbp: string | number;
+  tender_usd?: string | number | null;
+  tender_lbp?: string | number | null;
   created_at: string;
 };
 
@@ -549,7 +551,7 @@ function SalesInvoiceShowInner() {
                       <div key={p.id} className="flex items-center justify-between gap-2">
                         <span className="data-mono">{p.method}</span>
                         <span className="data-mono">
-                          {fmtUsd(p.amount_usd)} / {fmtLbp(p.amount_lbp)}
+                          {fmtUsd((p.tender_usd as any) ?? p.amount_usd)} / {fmtLbp((p.tender_lbp as any) ?? p.amount_lbp)}
                         </span>
                       </div>
                     ))}

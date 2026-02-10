@@ -24,6 +24,8 @@ type InvoiceRow = {
   customer_id: string | null;
   total_usd: string | number;
   total_lbp: string | number;
+  exchange_rate?: string | number;
+  settlement_currency?: string | null;
   created_at: string;
 };
 
@@ -39,6 +41,8 @@ type SalesPaymentRow = {
   method: string;
   amount_usd: string | number;
   amount_lbp: string | number;
+  tender_usd?: string | number | null;
+  tender_lbp?: string | number | null;
   created_at: string;
 };
 
@@ -71,12 +75,13 @@ function SalesPaymentsPageInner() {
   const [creating, setCreating] = useState(false);
   const [payInvoiceId, setPayInvoiceId] = useState("");
   const [method, setMethod] = useState("cash");
-  const [amountUsd, setAmountUsd] = useState("");
-  const [amountLbp, setAmountLbp] = useState("");
+  const [tenderUsd, setTenderUsd] = useState("");
+  const [tenderLbp, setTenderLbp] = useState("");
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [bankAccountId, setBankAccountId] = useState("");
 
   const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
+  const invoiceById = useMemo(() => new Map(invoices.map((i) => [i.id, i])), [invoices]);
 
   const methodChoices = useMemo(() => {
     const base = ["cash", "bank", "card", "transfer", "other"];
@@ -155,9 +160,9 @@ function SalesPaymentsPageInner() {
     e.preventDefault();
     if (!payInvoiceId) return setStatus("Invoice is required.");
     if (!method.trim()) return setStatus("Method is required.");
-    const usd = toNum(amountUsd);
-    const lbp = toNum(amountLbp);
-    if (usd === 0 && lbp === 0) return setStatus("Amount is required.");
+    const usd = toNum(tenderUsd);
+    const lbp = toNum(tenderLbp);
+    if (usd === 0 && lbp === 0) return setStatus("Tender is required.");
 
     setCreating(true);
     setStatus("Posting...");
@@ -165,8 +170,8 @@ function SalesPaymentsPageInner() {
       await apiPost<{ id: string }>("/sales/payments", {
         invoice_id: payInvoiceId,
         method: method.trim().toLowerCase(),
-        amount_usd: usd,
-        amount_lbp: lbp,
+        tender_usd: usd,
+        tender_lbp: lbp,
         payment_date: paymentDate || undefined,
         bank_account_id: bankAccountId || undefined
       });
@@ -174,8 +179,8 @@ function SalesPaymentsPageInner() {
       setCreateOpen(false);
       setPayInvoiceId("");
       setMethod("cash");
-      setAmountUsd("");
-      setAmountLbp("");
+      setTenderUsd("");
+      setTenderLbp("");
       setBankAccountId("");
       await loadPayments();
       setStatus("");
@@ -186,6 +191,13 @@ function SalesPaymentsPageInner() {
       setCreating(false);
     }
   }
+
+  const selectedInvoice = payInvoiceId ? invoiceById.get(payInvoiceId) : null;
+  const selectedRate = Number(selectedInvoice?.exchange_rate || 0);
+  const tenderUsdN = toNum(tenderUsd);
+  const tenderLbpN = toNum(tenderLbp);
+  const appliedUsdPreview = selectedRate ? tenderUsdN + tenderLbpN / selectedRate : tenderUsdN;
+  const appliedLbpPreview = selectedRate ? appliedUsdPreview * selectedRate : tenderLbpN;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -268,24 +280,43 @@ function SalesPaymentsPageInner() {
                 </div>
                 <MoneyInput
                   className="md:col-span-3"
-                  label="Amount"
+                  label="Tender"
                   currency="USD"
-                  value={amountUsd}
-                  onChange={setAmountUsd}
+                  value={tenderUsd}
+                  onChange={setTenderUsd}
                   placeholder="0"
                   quick={[0, 1, 10]}
                   disabled={creating}
                 />
                 <MoneyInput
                   className="md:col-span-3"
-                  label="Amount"
+                  label="Tender"
                   currency="LBP"
-                  value={amountLbp}
-                  onChange={setAmountLbp}
+                  value={tenderLbp}
+                  onChange={setTenderLbp}
                   placeholder="0"
                   quick={[0, 1, 10]}
                   disabled={creating}
                 />
+                <div className="md:col-span-6 text-xs text-fg-muted">
+                  {selectedInvoice && selectedRate ? (
+                    <>
+                      Applied (preview at rate{" "}
+                      <span className="data-mono text-foreground">{Number(selectedRate).toLocaleString("en-US")}</span>):{" "}
+                      <span className="data-mono text-foreground">
+                        {appliedUsdPreview.toLocaleString("en-US", { maximumFractionDigits: 4 })}
+                      </span>{" "}
+                      USD{" "}
+                      <span className="text-fg-subtle">/</span>{" "}
+                      <span className="data-mono text-foreground">
+                        {appliedLbpPreview.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                      </span>{" "}
+                      LL.
+                    </>
+                  ) : (
+                    "Tip: Enter USD and/or LL tender. The system applies the payment using the invoice exchange rate."
+                  )}
+                </div>
                     <div className="flex justify-end md:col-span-6">
                       <Button type="submit" disabled={creating}>
                         {creating ? "..." : "Post Payment"}
@@ -375,8 +406,12 @@ function SalesPaymentsPageInner() {
                         )}
                       </td>
                       <td className="px-3 py-2 font-mono text-xs">{p.method}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(p.amount_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(p.amount_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">
+                        {Number((p.tender_usd != null ? p.tender_usd : p.amount_usd) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">
+                        {Number((p.tender_lbp != null ? p.tender_lbp : p.amount_lbp) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                      </td>
                     </tr>
                   ))}
                   {payments.length === 0 ? (

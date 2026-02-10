@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
@@ -14,6 +14,18 @@ from ..validation import CurrencyCode, PaymentMethod, DocStatus
 from ..uom import load_item_uom_context, resolve_line_uom
 
 router = APIRouter(prefix="/sales", tags=["sales"])
+
+USD_Q = Decimal("0.0001")
+LBP_Q = Decimal("0.01")
+
+
+def q_usd(v: Decimal) -> Decimal:
+    return (v or Decimal("0")).quantize(USD_Q, rounding=ROUND_HALF_UP)
+
+
+def q_lbp(v: Decimal) -> Decimal:
+    return (v or Decimal("0")).quantize(LBP_Q, rounding=ROUND_HALF_UP)
+
 
 def _safe_journal_no(prefix: str, base: str) -> str:
     base = (base or "").strip().replace(" ", "-")
@@ -211,8 +223,12 @@ class SalesReturnIn(BaseModel):
 class SalesPaymentIn(BaseModel):
     invoice_id: str
     method: PaymentMethod
-    amount_usd: Decimal
-    amount_lbp: Decimal
+    # Legacy (applied amounts). New clients should prefer tender_*.
+    amount_usd: Decimal = Decimal("0")
+    amount_lbp: Decimal = Decimal("0")
+    # Tender breakdown as received by cashier.
+    tender_usd: Optional[Decimal] = None
+    tender_lbp: Optional[Decimal] = None
     payment_date: Optional[date] = None
     bank_account_id: Optional[str] = None
     reference: Optional[str] = None
@@ -237,7 +253,9 @@ def list_sales_payments(
             sql = """
                 SELECT p.id, p.invoice_id, i.invoice_no, i.customer_id,
                        c.name AS customer_name,
-                       p.method, p.amount_usd, p.amount_lbp, p.created_at
+                       p.method, p.amount_usd, p.amount_lbp,
+                       p.tender_usd, p.tender_lbp,
+                       p.created_at
                 FROM sales_payments p
                 JOIN sales_invoices i ON i.id = p.invoice_id
                 LEFT JOIN customers c ON c.id = i.customer_id
@@ -413,7 +431,9 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
 
             cur.execute(
                 """
-                SELECT id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at, created_at
+                SELECT id, method, amount_usd, amount_lbp,
+                       tender_usd, tender_lbp,
+                       reference, auth_code, provider, settlement_currency, captured_at, created_at
                 FROM sales_payments
                 WHERE invoice_id = %s
                 ORDER BY created_at ASC
@@ -1822,9 +1842,13 @@ def get_sales_return(return_id: str, company_id: str = Depends(get_company_id)):
 
 @router.post("/payments", dependencies=[Depends(require_permission("sales:write"))])
 def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    if data.amount_usd < 0 or data.amount_lbp < 0:
+    # Allow mixed tender; store applied value amounts consistent with invoice exchange rate.
+    tender_usd = Decimal(str(data.tender_usd if data.tender_usd is not None else data.amount_usd or 0))
+    tender_lbp = Decimal(str(data.tender_lbp if data.tender_lbp is not None else data.amount_lbp or 0))
+
+    if tender_usd < 0 or tender_lbp < 0:
         raise HTTPException(status_code=400, detail="amounts must be >= 0")
-    if data.amount_usd == 0 and data.amount_lbp == 0:
+    if tender_usd == 0 and tender_lbp == 0:
         raise HTTPException(status_code=400, detail="amount is required")
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -1834,7 +1858,7 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 assert_period_open(cur, company_id, pay_date)
                 cur.execute(
                     """
-                    SELECT customer_id
+                    SELECT customer_id, exchange_rate, settlement_currency, total_usd, total_lbp
                     FROM sales_invoices
                     WHERE id = %s AND company_id = %s
                     """,
@@ -1843,6 +1867,26 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 row = cur.fetchone()
                 if not row:
                     raise HTTPException(status_code=404, detail="invoice not found")
+
+                exchange_rate = Decimal(str(row.get("exchange_rate") or 0))
+                inv_settlement = str(row.get("settlement_currency") or "USD")
+                settle = str(data.settlement_currency or inv_settlement or "USD").upper()
+                if settle not in {"USD", "LBP"}:
+                    raise HTTPException(status_code=400, detail="unsupported settlement_currency (expected USD or LBP)")
+
+                # Applied value (for AR/GL): keep amount_usd and amount_lbp consistent (derived via exchange_rate).
+                applied_usd = Decimal("0")
+                applied_lbp = Decimal("0")
+                if settle == "USD":
+                    applied_usd = tender_usd + ((tender_lbp / exchange_rate) if exchange_rate else Decimal("0"))
+                    applied_usd = q_usd(applied_usd)
+                    applied_usd, applied_lbp = _normalize_dual_amounts(applied_usd, Decimal("0"), exchange_rate)
+                    applied_lbp = q_lbp(applied_lbp)
+                else:
+                    applied_lbp = tender_lbp + (tender_usd * exchange_rate)
+                    applied_lbp = q_lbp(applied_lbp)
+                    applied_usd, applied_lbp = _normalize_dual_amounts(Decimal("0"), applied_lbp, exchange_rate)
+                    applied_usd = q_usd(applied_usd)
 
                 method = data.method  # already normalized by validator
                 # Always require a mapping so methods stay consistent identifiers across the system.
@@ -1859,19 +1903,22 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
 
                 cur.execute(
                     """
-                    INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at)
-                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, now())
+                    INSERT INTO sales_payments (id, invoice_id, method, amount_usd, amount_lbp, tender_usd, tender_lbp,
+                                               reference, auth_code, provider, settlement_currency, captured_at)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
                     RETURNING id
                     """,
                     (
                         data.invoice_id,
                         method,
-                        data.amount_usd,
-                        data.amount_lbp,
+                        applied_usd,
+                        applied_lbp,
+                        tender_usd,
+                        tender_lbp,
                         (data.reference or None),
                         (data.auth_code or None),
                         (data.provider or None),
-                        (data.settlement_currency or None),
+                        (settle or None),
                     ),
                 )
                 payment_id = cur.fetchone()["id"]
@@ -1884,7 +1931,7 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                             credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0)
                         WHERE company_id = %s AND id = %s
                         """,
-                        (data.amount_usd, data.amount_lbp, company_id, row["customer_id"]),
+                        (applied_usd, applied_lbp, company_id, row["customer_id"]),
                     )
 
                     # GL posting: Dr Cash/Bank, Cr AR
@@ -1933,14 +1980,14 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                         VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Customer payment')
                         """,
-                        (journal_id, pay_account, data.amount_usd, data.amount_lbp),
+                        (journal_id, pay_account, applied_usd, applied_lbp),
                     )
                     cur.execute(
                         """
                         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                         VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'AR settlement')
                         """,
-                        (journal_id, ar, data.amount_usd, data.amount_lbp),
+                        (journal_id, ar, applied_usd, applied_lbp),
                     )
 
                     # Optional banking: create a bank transaction matched to this journal (for reconciliation).
@@ -1969,8 +2016,8 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                                 company_id,
                                 data.bank_account_id,
                                 pay_date,
-                                data.amount_usd,
-                                data.amount_lbp,
+                                applied_usd,
+                                applied_lbp,
                                 f"Customer payment {str(payment_id)[:8]}",
                                 None,
                                 None,
