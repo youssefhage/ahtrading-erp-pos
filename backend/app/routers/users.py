@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..security import hash_password
@@ -11,6 +12,11 @@ router = APIRouter(prefix="/users", tags=["users"])
 class UserIn(BaseModel):
     email: str
     password: str
+
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class RoleIn(BaseModel):
@@ -29,7 +35,7 @@ def list_users(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT DISTINCT u.id, u.email, u.is_active
+                SELECT DISTINCT u.id, u.email, u.full_name, u.phone, u.is_active, u.mfa_enabled
                 FROM users u
                 JOIN user_roles ur ON ur.user_id = u.id
                 WHERE ur.company_id = %s
@@ -38,6 +44,60 @@ def list_users(company_id: str = Depends(get_company_id)):
                 (company_id,),
             )
             return {"users": cur.fetchall()}
+
+
+@router.get("/me", dependencies=[Depends(require_permission("users:read"))])
+def me(company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    # Company-scoped "me" view (safe for Admin UI).
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT u.id, u.email, u.full_name, u.phone, u.is_active, u.mfa_enabled, u.created_at, u.updated_at
+                FROM users u
+                WHERE u.id = %s
+                """,
+                (user["user_id"],),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="user not found")
+            return {"user": row}
+
+
+@router.patch("/me", dependencies=[Depends(require_permission("users:read"))])
+def update_me(
+    data: UserProfileUpdate,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    patch = {k: getattr(data, k) for k in getattr(data, "model_fields_set", set())}
+    if "full_name" in patch:
+        patch["full_name"] = (patch.get("full_name") or "").strip() or None
+    if "phone" in patch:
+        patch["phone"] = (patch.get("phone") or "").strip() or None
+    if not patch:
+        return {"ok": True}
+
+    fields = []
+    params = []
+    for k, v in patch.items():
+        fields.append(f"{k} = %s")
+        params.append(v)
+    params.append(user["user_id"])
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE users
+                SET {', '.join(fields)}, updated_at = now()
+                WHERE id = %s
+                """,
+                params,
+            )
+    return {"ok": True}
 
 
 @router.post("", dependencies=[Depends(require_permission("users:write"))])
@@ -62,6 +122,58 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
                 (company_id, user["user_id"], uid, json.dumps({"email": data.email})),
             )
             return {"id": uid}
+
+
+@router.post("/{user_id}/mfa/reset", dependencies=[Depends(require_permission("users:write"))])
+def reset_user_mfa(user_id: str, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Admin operation: disable MFA for a user and revoke their sessions (account recovery).
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                # Only allow acting on users that belong to this company.
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM user_roles
+                    WHERE user_id = %s AND company_id = %s
+                    LIMIT 1
+                    """,
+                    (user_id, company_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="user not found")
+
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET mfa_enabled = false,
+                        mfa_secret_enc = NULL,
+                        mfa_pending_secret_enc = NULL,
+                        mfa_verified_at = NULL,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (user_id,),
+                )
+                cur.execute(
+                    """
+                    UPDATE auth_sessions
+                    SET is_active = false
+                    WHERE user_id = %s
+                    """,
+                    (user_id,),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'users.mfa.reset', 'user', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], user_id, json.dumps({})),
+                )
+                return {"ok": True}
 
 
 @router.get("/roles", dependencies=[Depends(require_permission("users:read"))])

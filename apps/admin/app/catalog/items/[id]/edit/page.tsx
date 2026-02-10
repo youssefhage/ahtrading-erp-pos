@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
-import { apiGet, apiPatch, apiPost, apiPostForm } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
@@ -391,13 +391,7 @@ export default function ItemEditPage() {
   async function updateBarcode(barcodeId: string, patch: any) {
     setStatus("Updating barcode...");
     try {
-      const raw = await fetch(`/api/items/barcodes/${encodeURIComponent(barcodeId)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(patch),
-      });
-      if (!raw.ok) throw new Error(await raw.text());
+      await apiPatch(`/items/barcodes/${encodeURIComponent(barcodeId)}`, patch);
       await load();
       setStatus("");
     } catch (e) {
@@ -408,8 +402,7 @@ export default function ItemEditPage() {
   async function deleteBarcode(barcodeId: string) {
     setStatus("Deleting barcode...");
     try {
-      const raw = await fetch(`/api/items/barcodes/${encodeURIComponent(barcodeId)}`, { method: "DELETE", credentials: "include" });
-      if (!raw.ok) throw new Error(await raw.text());
+      await apiDelete(`/items/barcodes/${encodeURIComponent(barcodeId)}`);
       await load();
       setStatus("");
     } catch (e) {
@@ -466,8 +459,7 @@ export default function ItemEditPage() {
   async function deleteSupplierLink(linkId: string) {
     setStatus("Deleting supplier link...");
     try {
-      const raw = await fetch(`/api/suppliers/item-links/${encodeURIComponent(linkId)}`, { method: "DELETE", credentials: "include" });
-      if (!raw.ok) throw new Error(await raw.text());
+      await apiDelete(`/suppliers/item-links/${encodeURIComponent(linkId)}`);
       await load();
       setStatus("");
     } catch (e) {

@@ -5,6 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, ApiError } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
+import { PartyAddresses } from "@/components/party-addresses";
+import { PartyContacts } from "@/components/party-contacts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +25,11 @@ type Supplier = {
   tax_id?: string | null;
   vat_no?: string | null;
   notes?: string | null;
+  bank_name?: string | null;
+  bank_account_no?: string | null;
+  bank_iban?: string | null;
+  bank_swift?: string | null;
+  payment_instructions?: string | null;
   is_active?: boolean;
 };
 
@@ -46,6 +54,11 @@ export default function SupplierEditPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [termsDays, setTermsDays] = useState("0");
+  const [bankName, setBankName] = useState("");
+  const [bankAccountNo, setBankAccountNo] = useState("");
+  const [bankIban, setBankIban] = useState("");
+  const [bankSwift, setBankSwift] = useState("");
+  const [paymentInstructions, setPaymentInstructions] = useState("");
   const [isActive, setIsActive] = useState(true);
 
   const load = useCallback(async () => {
@@ -66,6 +79,11 @@ export default function SupplierEditPage() {
       setPhone(String((s as any)?.phone || ""));
       setEmail(String((s as any)?.email || ""));
       setTermsDays(String((s as any)?.payment_terms_days ?? 0));
+      setBankName(String((s as any)?.bank_name || ""));
+      setBankAccountNo(String((s as any)?.bank_account_no || ""));
+      setBankIban(String((s as any)?.bank_iban || ""));
+      setBankSwift(String((s as any)?.bank_swift || ""));
+      setPaymentInstructions(String((s as any)?.payment_instructions || ""));
       setIsActive((s as any)?.is_active !== false);
     } catch (e) {
       setSupplier(null);
@@ -103,6 +121,11 @@ export default function SupplierEditPage() {
         phone: phone.trim() || null,
         email: email.trim() || null,
         payment_terms_days: Number(termsDays || 0),
+        bank_name: bankName.trim() || null,
+        bank_account_no: bankAccountNo.trim() || null,
+        bank_iban: bankIban.trim() || null,
+        bank_swift: bankSwift.trim() || null,
+        payment_instructions: paymentInstructions.trim() || null,
         is_active: isActive
       });
       router.push(`/partners/suppliers/${encodeURIComponent(id)}`);
@@ -128,6 +151,7 @@ export default function SupplierEditPage() {
           <Button type="button" variant="outline" onClick={() => router.push(`/partners/suppliers/${encodeURIComponent(id)}`)} disabled={saving}>
             Back
           </Button>
+          <DocumentUtilitiesDrawer entityType="supplier" entityId={id} allowUploadAttachments={true} className="ml-1" />
         </div>
       </div>
 
@@ -203,6 +227,35 @@ export default function SupplierEditPage() {
               <textarea className="ui-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} disabled={saving || loading} />
             </div>
 
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Bank & Payment</CardTitle>
+                <CardDescription>Optional fields for AP setup and payment instructions.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Bank Name</label>
+                  <Input value={bankName} onChange={(e) => setBankName(e.target.value)} disabled={saving || loading} />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Account No</label>
+                  <Input value={bankAccountNo} onChange={(e) => setBankAccountNo(e.target.value)} disabled={saving || loading} />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">IBAN</label>
+                  <Input value={bankIban} onChange={(e) => setBankIban(e.target.value)} disabled={saving || loading} />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">SWIFT</label>
+                  <Input value={bankSwift} onChange={(e) => setBankSwift(e.target.value)} disabled={saving || loading} />
+                </div>
+                <div className="space-y-1 md:col-span-6">
+                  <label className="text-xs font-medium text-fg-muted">Payment Instructions</label>
+                  <textarea className="ui-textarea" value={paymentInstructions} onChange={(e) => setPaymentInstructions(e.target.value)} rows={3} disabled={saving || loading} />
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => router.push(`/partners/suppliers/${encodeURIComponent(id)}`)} disabled={saving || loading}>
                 Cancel
@@ -214,6 +267,9 @@ export default function SupplierEditPage() {
           </form>
         </CardContent>
       </Card>
+
+      {supplier ? <PartyContacts partyKind="supplier" partyId={supplier.id} /> : null}
+      {supplier ? <PartyAddresses partyKind="supplier" partyId={supplier.id} /> : null}
     </div>
   );
 }

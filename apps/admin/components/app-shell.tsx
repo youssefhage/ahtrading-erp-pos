@@ -53,7 +53,7 @@ import {
   Zap
 } from "lucide-react";
 
-import { apiGet, apiPost, clearSession, getCompanyId, getCompanies } from "@/lib/api";
+import { apiGet, apiPost, apiUrl, clearSession, getCompanyId, getCompanies } from "@/lib/api";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { addRecent, clearRecents, getFavorites, getRecents, toggleFavorite } from "@/lib/nav-memory";
 import { getDefaultBranchId, getDefaultWarehouseId, setDefaultBranchId, setDefaultWarehouseId } from "@/lib/op-context";
@@ -152,6 +152,7 @@ function iconForHref(href: string) {
     "/system/warehouses": Warehouse,
     "/system/warehouse-locations": Warehouse,
     "/system/users": UserRoundCog,
+    "/system/security": ShieldCheck,
     "/system/roles-permissions": ShieldCheck,
   };
 
@@ -291,6 +292,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Warehouses", href: "/system/warehouses" },
       { label: "Warehouse Locations", href: "/system/warehouse-locations" },
       { label: "Users", href: "/system/users" },
+      { label: "Security", href: "/system/security" },
       { label: "Audit Logs", href: "/system/audit-logs" },
       { label: "Roles", href: "/system/roles-permissions" }
     ]
@@ -792,7 +794,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
 
     async function check() {
       try {
-        const res = await fetch("/api/health", { cache: "no-store" });
+        const res = await fetch(apiUrl("/health"), { cache: "no-store" });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         if (cancelled) return;
         setHealth("online");

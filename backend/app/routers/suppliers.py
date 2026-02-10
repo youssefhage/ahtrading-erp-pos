@@ -22,6 +22,11 @@ class SupplierIn(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     payment_terms_days: Optional[int] = None
+    bank_name: Optional[str] = None
+    bank_account_no: Optional[str] = None
+    bank_iban: Optional[str] = None
+    bank_swift: Optional[str] = None
+    payment_instructions: Optional[str] = None
     is_active: Optional[bool] = None
 
 
@@ -41,7 +46,9 @@ def list_suppliers(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active
+                SELECT id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes,
+                       bank_name, bank_account_no, bank_iban, bank_swift, payment_instructions,
+                       is_active
                 FROM suppliers
                 WHERE company_id = %s
                 ORDER BY name
@@ -94,7 +101,9 @@ def get_supplier(supplier_id: str, company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active
+                SELECT id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes,
+                       bank_name, bank_account_no, bank_iban, bank_swift, payment_instructions,
+                       is_active
                 FROM suppliers
                 WHERE company_id = %s AND id = %s
                 """,
@@ -114,8 +123,12 @@ def create_supplier(data: SupplierIn, company_id: str = Depends(get_company_id))
             code = (data.code or "").strip() or None
             cur.execute(
                 """
-                INSERT INTO suppliers (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active)
-                VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO suppliers
+                  (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes,
+                   bank_name, bank_account_no, bank_iban, bank_swift, payment_instructions,
+                   is_active)
+                VALUES
+                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -130,6 +143,11 @@ def create_supplier(data: SupplierIn, company_id: str = Depends(get_company_id))
                     (data.tax_id or '').strip() or None,
                     (data.vat_no or '').strip() or None,
                     (data.notes or '').strip() or None,
+                    (data.bank_name or "").strip() or None,
+                    (data.bank_account_no or "").strip() or None,
+                    (data.bank_iban or "").strip() or None,
+                    (data.bank_swift or "").strip() or None,
+                    (data.payment_instructions or "").strip() or None,
                     bool(data.is_active) if data.is_active is not None else True,
                 ),
             )
@@ -147,6 +165,11 @@ class SupplierUpdate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     payment_terms_days: Optional[int] = None
+    bank_name: Optional[str] = None
+    bank_account_no: Optional[str] = None
+    bank_iban: Optional[str] = None
+    bank_swift: Optional[str] = None
+    payment_instructions: Optional[str] = None
     is_active: Optional[bool] = None
 
 
@@ -157,6 +180,28 @@ def update_supplier(supplier_id: str, data: SupplierUpdate, company_id: str = De
     payload = data.model_dump(exclude_none=True)
     if "code" in payload:
         payload["code"] = (payload.get("code") or "").strip() or None
+    if "legal_name" in payload:
+        payload["legal_name"] = (payload.get("legal_name") or "").strip() or None
+    if "tax_id" in payload:
+        payload["tax_id"] = (payload.get("tax_id") or "").strip() or None
+    if "vat_no" in payload:
+        payload["vat_no"] = (payload.get("vat_no") or "").strip() or None
+    if "notes" in payload:
+        payload["notes"] = (payload.get("notes") or "").strip() or None
+    if "phone" in payload:
+        payload["phone"] = (payload.get("phone") or "").strip() or None
+    if "email" in payload:
+        payload["email"] = (payload.get("email") or "").strip() or None
+    if "bank_name" in payload:
+        payload["bank_name"] = (payload.get("bank_name") or "").strip() or None
+    if "bank_account_no" in payload:
+        payload["bank_account_no"] = (payload.get("bank_account_no") or "").strip() or None
+    if "bank_iban" in payload:
+        payload["bank_iban"] = (payload.get("bank_iban") or "").strip() or None
+    if "bank_swift" in payload:
+        payload["bank_swift"] = (payload.get("bank_swift") or "").strip() or None
+    if "payment_instructions" in payload:
+        payload["payment_instructions"] = (payload.get("payment_instructions") or "").strip() or None
     for k, v in payload.items():
         fields.append(f"{k} = %s")
         params.append(v)
@@ -188,6 +233,11 @@ class BulkSupplierIn(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     payment_terms_days: Optional[int] = None
+    bank_name: Optional[str] = None
+    bank_account_no: Optional[str] = None
+    bank_iban: Optional[str] = None
+    bank_swift: Optional[str] = None
+    payment_instructions: Optional[str] = None
     is_active: Optional[bool] = None
 
 
@@ -220,6 +270,11 @@ def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_c
                     tax_id = (s.tax_id or "").strip() or None
                     vat_no = (s.vat_no or "").strip() or None
                     notes = (s.notes or "").strip() or None
+                    bank_name = (s.bank_name or "").strip() or None
+                    bank_account_no = (s.bank_account_no or "").strip() or None
+                    bank_iban = (s.bank_iban or "").strip() or None
+                    bank_swift = (s.bank_swift or "").strip() or None
+                    payment_instructions = (s.payment_instructions or "").strip() or None
                     terms = int(s.payment_terms_days or 0)
                     is_active = bool(s.is_active) if s.is_active is not None else True
 
@@ -228,9 +283,11 @@ def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_c
                             cur.execute(
                                 """
                                 INSERT INTO suppliers
-                                  (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active)
+                                  (id, company_id, code, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes,
+                                   bank_name, bank_account_no, bank_iban, bank_swift, payment_instructions,
+                                   is_active)
                                 VALUES
-                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON CONFLICT (company_id, code) WHERE code IS NOT NULL AND code <> '' DO UPDATE
                                 SET name = EXCLUDED.name,
                                     phone = EXCLUDED.phone,
@@ -241,10 +298,33 @@ def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_c
                                     tax_id = EXCLUDED.tax_id,
                                     vat_no = EXCLUDED.vat_no,
                                     notes = EXCLUDED.notes,
+                                    bank_name = EXCLUDED.bank_name,
+                                    bank_account_no = EXCLUDED.bank_account_no,
+                                    bank_iban = EXCLUDED.bank_iban,
+                                    bank_swift = EXCLUDED.bank_swift,
+                                    payment_instructions = EXCLUDED.payment_instructions,
                                     is_active = EXCLUDED.is_active
                                 RETURNING id
                                 """,
-                                (company_id, code, name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes, is_active),
+                                (
+                                    company_id,
+                                    code,
+                                    name,
+                                    phone,
+                                    email,
+                                    terms,
+                                    party_type,
+                                    legal_name,
+                                    tax_id,
+                                    vat_no,
+                                    notes,
+                                    bank_name,
+                                    bank_account_no,
+                                    bank_iban,
+                                    bank_swift,
+                                    payment_instructions,
+                                    is_active,
+                                ),
                             )
                         except (pg_errors.UndefinedColumn, pg_errors.UndefinedTable, pg_errors.InvalidColumnReference) as e:
                             raise HTTPException(status_code=500, detail=f"db schema mismatch: {e}") from None
@@ -263,21 +343,60 @@ def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_c
                             """
                             UPDATE suppliers
                             SET name=%s, phone=%s, email=%s, payment_terms_days=%s,
-                                party_type=%s, legal_name=%s, tax_id=%s, vat_no=%s, notes=%s, is_active=%s
+                                party_type=%s, legal_name=%s, tax_id=%s, vat_no=%s, notes=%s,
+                                bank_name=%s, bank_account_no=%s, bank_iban=%s, bank_swift=%s, payment_instructions=%s,
+                                is_active=%s
                             WHERE company_id=%s AND id=%s
                             """,
-                            (name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes, is_active, company_id, existing_id),
+                            (
+                                name,
+                                phone,
+                                email,
+                                terms,
+                                party_type,
+                                legal_name,
+                                tax_id,
+                                vat_no,
+                                notes,
+                                bank_name,
+                                bank_account_no,
+                                bank_iban,
+                                bank_swift,
+                                payment_instructions,
+                                is_active,
+                                company_id,
+                                existing_id,
+                            ),
                         )
                         upserted += 1
                     else:
                         cur.execute(
                             """
                             INSERT INTO suppliers
-                              (id, company_id, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes, is_active)
+                              (id, company_id, name, phone, email, payment_terms_days, party_type, legal_name, tax_id, vat_no, notes,
+                               bank_name, bank_account_no, bank_iban, bank_swift, payment_instructions,
+                               is_active)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """,
-                            (company_id, name, phone, email, terms, party_type, legal_name, tax_id, vat_no, notes, is_active),
+                            (
+                                company_id,
+                                name,
+                                phone,
+                                email,
+                                terms,
+                                party_type,
+                                legal_name,
+                                tax_id,
+                                vat_no,
+                                notes,
+                                bank_name,
+                                bank_account_no,
+                                bank_iban,
+                                bank_swift,
+                                payment_instructions,
+                                is_active,
+                            ),
                         )
                         upserted += 1
 

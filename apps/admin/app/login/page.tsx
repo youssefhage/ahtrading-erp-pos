@@ -12,16 +12,30 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [mfaToken, setMfaToken] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setStatus("Authenticating...");
+    setStatus(mfaToken ? "Verifying code..." : "Authenticating...");
     try {
-      const res = await apiPost<LoginResponse>("/auth/login", { email, password });
-      setSession(res);
+      if (!mfaToken) {
+        const res = await apiPost<LoginResponse>("/auth/login", { email, password });
+        if ("mfa_required" in res && res.mfa_required) {
+          setMfaToken(res.mfa_token);
+          setStatus("MFA required. Enter the 6-digit code from your authenticator.");
+          setLoading(false);
+          return;
+        }
+        setSession(res);
+      } else {
+        const res2 = await apiPost<LoginResponse>("/auth/mfa/verify", { mfa_token: mfaToken, code: mfaCode });
+        setSession(res2);
+      }
+
       const companyId = getCompanyId();
       if (companyId) {
         try {
@@ -114,6 +128,7 @@ export default function LoginPage() {
                 className="h-11"
                 autoComplete="email"
                 required
+                disabled={loading || Boolean(mfaToken)}
               />
             </div>
 
@@ -126,8 +141,39 @@ export default function LoginPage() {
                 className="h-11"
                 autoComplete="current-password"
                 required
+                disabled={loading || Boolean(mfaToken)}
               />
             </div>
+
+            {mfaToken ? (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-fg-muted">Authenticator Code</label>
+                <Input
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  className="h-11"
+                  inputMode="numeric"
+                  placeholder="123456"
+                  autoComplete="one-time-code"
+                  required
+                  disabled={loading}
+                />
+                <div className="flex items-center justify-between text-xs">
+                  <button
+                    type="button"
+                    className="text-fg-subtle underline underline-offset-2 hover:text-foreground"
+                    disabled={loading}
+                    onClick={() => {
+                      setMfaToken("");
+                      setMfaCode("");
+                      setStatus("");
+                    }}
+                  >
+                    Use a different account
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             {status && (
               <div
@@ -149,11 +195,11 @@ export default function LoginPage() {
               {loading ? (
                 <>
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-black/20 border-t-black" />
-                  <span>Signing in...</span>
+                  <span>{mfaToken ? "Verifying..." : "Signing in..."}</span>
                 </>
               ) : (
                 <>
-                  <span>Sign in</span>
+                  <span>{mfaToken ? "Verify code" : "Sign in"}</span>
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 
-import { apiGet, apiPatch, apiPost, apiPostForm, apiUrl } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm, apiUrl } from "@/lib/api";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { ErrorBanner } from "@/components/error-banner";
 import { ViewRaw } from "@/components/view-raw";
@@ -669,11 +669,7 @@ export default function ItemsPage() {
   async function deleteSupplierLink(linkId: string) {
     setSupplierStatus("Deleting...");
     try {
-      await fetch(`/api/suppliers/item-links/${linkId}`, { method: "DELETE", credentials: "include" }).then(
-        async (r) => {
-          if (!r.ok) throw new Error(await r.text());
-        }
-      );
+      await apiDelete(`/suppliers/item-links/${encodeURIComponent(linkId)}`);
       await refreshSupplierManager();
       setSupplierStatus("");
     } catch (err) {
@@ -734,9 +730,7 @@ export default function ItemsPage() {
     if (!barcodeItem) return;
     setBarcodeStatus("Deleting...");
     try {
-      await fetch(`/api/items/barcodes/${barcodeId}`, { method: "DELETE", credentials: "include" }).then(async (r) => {
-        if (!r.ok) throw new Error(await r.text());
-      });
+      await apiDelete(`/items/barcodes/${encodeURIComponent(barcodeId)}`);
       await openBarcodeManager(barcodeItem);
       await load();
       setBarcodeStatus("");

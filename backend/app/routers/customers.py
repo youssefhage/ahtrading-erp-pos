@@ -10,12 +10,16 @@ from ..deps import get_company_id, require_permission, get_current_user
 router = APIRouter(prefix="/customers", tags=["customers"])
 
 PartyType = Literal["individual", "business"]
+CustomerType = Literal["retail", "wholesale", "b2b"]
 
 
 class CustomerIn(BaseModel):
     code: Optional[str] = None
     name: str
     party_type: PartyType = "individual"  # individual|business
+    customer_type: CustomerType = "retail"
+    assigned_salesperson_user_id: Optional[str] = None
+    marketing_opt_in: bool = False
     legal_name: Optional[str] = None
     tax_id: Optional[str] = None
     vat_no: Optional[str] = None
@@ -39,7 +43,8 @@ def list_customers(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
+                SELECT id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                       legal_name, tax_id, vat_no, notes,
                        membership_no, is_member, membership_expires_at,
                        payment_terms_days,
                        credit_limit_usd, credit_limit_lbp,
@@ -116,7 +121,8 @@ def get_customer(customer_id: str, company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
+                SELECT id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                       legal_name, tax_id, vat_no, notes,
                        membership_no, is_member, membership_expires_at,
                        payment_terms_days,
                        credit_limit_usd, credit_limit_lbp,
@@ -145,12 +151,13 @@ def create_customer(data: CustomerIn, company_id: str = Depends(get_company_id))
             cur.execute(
                 """
                 INSERT INTO customers
-                  (id, company_id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
+                  (id, company_id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                   legal_name, tax_id, vat_no, notes,
                    membership_no, is_member, membership_expires_at,
                    payment_terms_days, credit_limit_usd, credit_limit_lbp,
                    price_list_id, is_active)
                 VALUES
-                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -160,6 +167,9 @@ def create_customer(data: CustomerIn, company_id: str = Depends(get_company_id))
                     data.phone,
                     data.email,
                     data.party_type,
+                    data.customer_type,
+                    data.assigned_salesperson_user_id,
+                    bool(data.marketing_opt_in),
                     (data.legal_name or "").strip() or None,
                     (data.tax_id or "").strip() or None,
                     (data.vat_no or "").strip() or None,
@@ -181,6 +191,9 @@ class CustomerUpdate(BaseModel):
     code: Optional[str] = None
     name: Optional[str] = None
     party_type: Optional[PartyType] = None
+    customer_type: Optional[CustomerType] = None
+    assigned_salesperson_user_id: Optional[str] = None
+    marketing_opt_in: Optional[bool] = None
     legal_name: Optional[str] = None
     tax_id: Optional[str] = None
     vat_no: Optional[str] = None
@@ -238,6 +251,9 @@ class BulkCustomerIn(BaseModel):
     code: Optional[str] = None
     name: str
     party_type: PartyType = "individual"
+    customer_type: CustomerType = "retail"
+    assigned_salesperson_user_id: Optional[str] = None
+    marketing_opt_in: bool = False
     legal_name: Optional[str] = None
     tax_id: Optional[str] = None
     vat_no: Optional[str] = None
@@ -287,6 +303,9 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                         "phone": phone,
                         "email": email,
                         "party_type": party_type,
+                        "customer_type": c.customer_type or "retail",
+                        "assigned_salesperson_user_id": c.assigned_salesperson_user_id,
+                        "marketing_opt_in": bool(c.marketing_opt_in),
                         "legal_name": (c.legal_name or "").strip() or None,
                         "tax_id": (c.tax_id or "").strip() or None,
                         "vat_no": (c.vat_no or "").strip() or None,
@@ -306,16 +325,20 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                             cur.execute(
                                 """
                                 INSERT INTO customers
-                                  (id, company_id, code, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
+                                  (id, company_id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                                   legal_name, tax_id, vat_no, notes,
                                    membership_no, is_member, membership_expires_at,
                                    payment_terms_days, credit_limit_usd, credit_limit_lbp, price_list_id, is_active)
                                 VALUES
-                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 ON CONFLICT (company_id, code) WHERE code IS NOT NULL AND code <> '' DO UPDATE
                                 SET name = EXCLUDED.name,
                                     phone = EXCLUDED.phone,
                                     email = EXCLUDED.email,
                                     party_type = EXCLUDED.party_type,
+                                    customer_type = EXCLUDED.customer_type,
+                                    assigned_salesperson_user_id = EXCLUDED.assigned_salesperson_user_id,
+                                    marketing_opt_in = EXCLUDED.marketing_opt_in,
                                     legal_name = EXCLUDED.legal_name,
                                     tax_id = EXCLUDED.tax_id,
                                     vat_no = EXCLUDED.vat_no,
@@ -337,6 +360,9 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                                     payload["phone"],
                                     payload["email"],
                                     payload["party_type"],
+                                    payload["customer_type"],
+                                    payload["assigned_salesperson_user_id"],
+                                    payload["marketing_opt_in"],
                                     payload["legal_name"],
                                     payload["tax_id"],
                                     payload["vat_no"],
@@ -376,6 +402,9 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                                 phone=%s,
                                 email=%s,
                                 party_type=%s,
+                                customer_type=%s,
+                                assigned_salesperson_user_id=%s,
+                                marketing_opt_in=%s,
                                 legal_name=%s,
                                 tax_id=%s,
                                 vat_no=%s,
@@ -394,6 +423,9 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                                 payload["phone"],
                                 payload["email"],
                                 payload["party_type"],
+                                payload["customer_type"],
+                                payload["assigned_salesperson_user_id"],
+                                payload["marketing_opt_in"],
                                 payload["legal_name"],
                                 payload["tax_id"],
                                 payload["vat_no"],
@@ -414,11 +446,12 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                         cur.execute(
                             """
                             INSERT INTO customers
-                              (id, company_id, name, phone, email, party_type, legal_name, tax_id, vat_no, notes,
+                              (id, company_id, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                               legal_name, tax_id, vat_no, notes,
                                membership_no, is_member, membership_expires_at,
                                payment_terms_days, credit_limit_usd, credit_limit_lbp, price_list_id)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             """,
                             (
                                 company_id,
@@ -426,6 +459,9 @@ def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_c
                                 payload["phone"],
                                 payload["email"],
                                 payload["party_type"],
+                                payload["customer_type"],
+                                payload["assigned_salesperson_user_id"],
+                                payload["marketing_opt_in"],
                                 payload["legal_name"],
                                 payload["tax_id"],
                                 payload["vat_no"],

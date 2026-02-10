@@ -27,6 +27,11 @@ export default function SupplierNewPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [termsDays, setTermsDays] = useState("0");
+  const [bankName, setBankName] = useState("");
+  const [bankAccountNo, setBankAccountNo] = useState("");
+  const [bankIban, setBankIban] = useState("");
+  const [bankSwift, setBankSwift] = useState("");
+  const [paymentInstructions, setPaymentInstructions] = useState("");
   const [isActive, setIsActive] = useState(true);
 
   async function createSupplier(e: React.FormEvent) {
@@ -49,6 +54,11 @@ export default function SupplierNewPage() {
         phone: phone.trim() || null,
         email: email.trim() || null,
         payment_terms_days: Number(termsDays || 0),
+        bank_name: bankName.trim() || null,
+        bank_account_no: bankAccountNo.trim() || null,
+        bank_iban: bankIban.trim() || null,
+        bank_swift: bankSwift.trim() || null,
+        payment_instructions: paymentInstructions.trim() || null,
         is_active: isActive
       });
       router.push(`/partners/suppliers/${res.id}`);
@@ -150,6 +160,35 @@ export default function SupplierNewPage() {
               />
             </div>
 
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Bank & Payment (optional)</CardTitle>
+                <CardDescription>Helpful for supplier payments and AP setup.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Bank Name</label>
+                  <Input value={bankName} onChange={(e) => setBankName(e.target.value)} disabled={saving} />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Account No</label>
+                  <Input value={bankAccountNo} onChange={(e) => setBankAccountNo(e.target.value)} disabled={saving} />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">IBAN</label>
+                  <Input value={bankIban} onChange={(e) => setBankIban(e.target.value)} disabled={saving} />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">SWIFT</label>
+                  <Input value={bankSwift} onChange={(e) => setBankSwift(e.target.value)} disabled={saving} />
+                </div>
+                <div className="space-y-1 md:col-span-6">
+                  <label className="text-xs font-medium text-fg-muted">Payment Instructions</label>
+                  <textarea className="ui-textarea" value={paymentInstructions} onChange={(e) => setPaymentInstructions(e.target.value)} rows={3} disabled={saving} />
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => router.push("/partners/suppliers")} disabled={saving}>
                 Cancel
@@ -164,4 +203,3 @@ export default function SupplierNewPage() {
     </div>
   );
 }
-

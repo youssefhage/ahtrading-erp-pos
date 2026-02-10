@@ -11,6 +11,10 @@ router = APIRouter(prefix="/warehouses", tags=["warehouses"])
 class WarehouseIn(BaseModel):
     name: str
     location: Optional[str] = None
+    address: Optional[str] = None
+    is_virtual: bool = False
+    binning_enabled: bool = False
+    capacity_note: Optional[str] = None
     min_shelf_life_days_for_sale_default: int = 0
     # NULL means "inherit company/item policy" (override is optional).
     allow_negative_stock: Optional[bool] = None
@@ -19,6 +23,10 @@ class WarehouseIn(BaseModel):
 class WarehouseUpdate(BaseModel):
     name: Optional[str] = None
     location: Optional[str] = None
+    address: Optional[str] = None
+    is_virtual: Optional[bool] = None
+    binning_enabled: Optional[bool] = None
+    capacity_note: Optional[str] = None
     min_shelf_life_days_for_sale_default: Optional[int] = None
     # Explicit NULL clears the override (inherit).
     allow_negative_stock: Optional[bool] = None
@@ -43,7 +51,8 @@ def list_warehouses(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, location, min_shelf_life_days_for_sale_default, allow_negative_stock
+                SELECT id, name, location, address, is_virtual, binning_enabled, capacity_note,
+                       min_shelf_life_days_for_sale_default, allow_negative_stock
                 FROM warehouses
                 WHERE company_id = %s
                 ORDER BY name
@@ -63,11 +72,24 @@ def create_warehouse(data: WarehouseIn, company_id: str = Depends(get_company_id
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO warehouses (id, company_id, name, location, min_shelf_life_days_for_sale_default, allow_negative_stock)
-                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s)
+                    INSERT INTO warehouses
+                      (id, company_id, name, location, address, is_virtual, binning_enabled, capacity_note,
+                       min_shelf_life_days_for_sale_default, allow_negative_stock)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, data.name, data.location, int(data.min_shelf_life_days_for_sale_default or 0), data.allow_negative_stock),
+                    (
+                        company_id,
+                        data.name,
+                        data.location,
+                        (data.address or "").strip() or None,
+                        bool(data.is_virtual),
+                        bool(data.binning_enabled),
+                        (data.capacity_note or "").strip() or None,
+                        int(data.min_shelf_life_days_for_sale_default or 0),
+                        data.allow_negative_stock,
+                    ),
                 )
                 wid = cur.fetchone()["id"]
                 cur.execute(
@@ -84,6 +106,10 @@ def create_warehouse(data: WarehouseIn, company_id: str = Depends(get_company_id
 def update_warehouse(warehouse_id: str, data: WarehouseUpdate, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     # Build patch using fields explicitly provided so clients can clear nullable fields (set to NULL).
     patch = {k: getattr(data, k) for k in getattr(data, "model_fields_set", set())}
+    if "address" in patch:
+        patch["address"] = (patch.get("address") or "").strip() or None
+    if "capacity_note" in patch:
+        patch["capacity_note"] = (patch.get("capacity_note") or "").strip() or None
     if "min_shelf_life_days_for_sale_default" in patch and patch["min_shelf_life_days_for_sale_default"] is not None:
         if patch["min_shelf_life_days_for_sale_default"] < 0:
             raise HTTPException(status_code=400, detail="min_shelf_life_days_for_sale_default must be >= 0")

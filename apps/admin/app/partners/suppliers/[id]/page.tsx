@@ -24,6 +24,11 @@ type Supplier = {
   tax_id?: string | null;
   vat_no?: string | null;
   notes?: string | null;
+  bank_name?: string | null;
+  bank_account_no?: string | null;
+  bank_iban?: string | null;
+  bank_swift?: string | null;
+  payment_instructions?: string | null;
   is_active?: boolean;
 };
 
@@ -130,6 +135,21 @@ export default function SupplierViewPage() {
           <div>
             <span className="text-fg-subtle">Tax ID:</span> {(supplier as any)?.tax_id || "-"}
           </div>
+          {(supplier as any)?.bank_name ? (
+            <div>
+              <span className="text-fg-subtle">Bank:</span> {(supplier as any)?.bank_name}
+            </div>
+          ) : null}
+          {(supplier as any)?.bank_iban ? (
+            <div>
+              <span className="text-fg-subtle">IBAN:</span> {(supplier as any)?.bank_iban}
+            </div>
+          ) : null}
+          {(supplier as any)?.payment_instructions ? (
+            <div className="rounded-md border border-border bg-bg-sunken p-3 text-sm text-fg-muted whitespace-pre-wrap">
+              {(supplier as any)?.payment_instructions}
+            </div>
+          ) : null}
           {supplier?.notes ? (
             <div className="rounded-md border border-border bg-bg-sunken p-3 text-sm text-fg-muted whitespace-pre-wrap">{supplier.notes}</div>
           ) : null}

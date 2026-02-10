@@ -11,11 +11,14 @@ import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer"
 import { PartyAddresses } from "@/components/party-addresses";
 import { PartyContacts } from "@/components/party-contacts";
 import { MoneyInput } from "@/components/money-input";
+import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 type PartyType = "individual" | "business";
+type CustomerType = "retail" | "wholesale" | "b2b";
+type UserRow = { id: string; email: string; full_name?: string | null };
 
 type Customer = {
   id: string;
@@ -24,6 +27,9 @@ type Customer = {
   phone: string | null;
   email: string | null;
   party_type?: PartyType;
+  customer_type?: CustomerType;
+  assigned_salesperson_user_id?: string | null;
+  marketing_opt_in?: boolean;
   legal_name?: string | null;
   tax_id?: string | null;
   vat_no?: string | null;
@@ -47,10 +53,14 @@ export default function CustomerEditPage() {
   const [status, setStatus] = useState("");
 
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [users, setUsers] = useState<UserRow[]>([]);
 
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [partyType, setPartyType] = useState<PartyType>("individual");
+  const [customerType, setCustomerType] = useState<CustomerType>("retail");
+  const [salespersonId, setSalespersonId] = useState("");
+  const [marketingOptIn, setMarketingOptIn] = useState(false);
   const [legalName, setLegalName] = useState("");
   const [taxId, setTaxId] = useState("");
   const [vatNo, setVatNo] = useState("");
@@ -73,13 +83,20 @@ export default function CustomerEditPage() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await apiGet<{ customer: Customer }>(`/customers/${encodeURIComponent(id)}`);
+      const [res, u] = await Promise.all([
+        apiGet<{ customer: Customer }>(`/customers/${encodeURIComponent(id)}`),
+        apiGet<{ users: UserRow[] }>("/users").catch(() => ({ users: [] as UserRow[] })),
+      ]);
       const c = res.customer || null;
       setCustomer(c);
+      setUsers(u.users || []);
       if (c) {
         setCode(String(c.code || ""));
         setName(String(c.name || ""));
         setPartyType((c.party_type as any) || "individual");
+        setCustomerType((c.customer_type as any) || "retail");
+        setSalespersonId(String(c.assigned_salesperson_user_id || ""));
+        setMarketingOptIn(Boolean(c.marketing_opt_in));
         setLegalName(String(c.legal_name || ""));
         setTaxId(String(c.tax_id || ""));
         setVatNo(String(c.vat_no || ""));
@@ -132,6 +149,9 @@ export default function CustomerEditPage() {
         code: code.trim() || null,
         name: name.trim(),
         party_type: partyType,
+        customer_type: customerType,
+        assigned_salesperson_user_id: salespersonId || null,
+        marketing_opt_in: Boolean(marketingOptIn),
         legal_name: legalName.trim() || null,
         tax_id: taxId.trim() || null,
         vat_no: vatNo.trim() || null,
@@ -227,10 +247,40 @@ export default function CustomerEditPage() {
                     <option value="business">business</option>
                   </select>
                 </div>
-                <div className="space-y-1 md:col-span-4">
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-medium text-fg-muted">Customer Type</label>
+                  <select className="ui-select" value={customerType} onChange={(e) => setCustomerType(e.target.value as CustomerType)} disabled={saving}>
+                    <option value="retail">retail</option>
+                    <option value="wholesale">wholesale</option>
+                    <option value="b2b">b2b</option>
+                  </select>
+                </div>
+                <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">Legal Name</label>
                   <Input value={legalName} onChange={(e) => setLegalName(e.target.value)} disabled={saving} />
                 </div>
+
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-xs font-medium text-fg-muted">Assigned Salesperson (optional)</label>
+                  <SearchableSelect
+                    value={salespersonId}
+                    onChange={setSalespersonId}
+                    disabled={saving}
+                    placeholder="(none)"
+                    searchPlaceholder="Search users..."
+                    options={[
+                      { value: "", label: "(none)" },
+                      ...(users || []).map((u) => ({
+                        value: u.id,
+                        label: u.full_name ? `${u.full_name} (${u.email})` : u.email,
+                        keywords: u.email,
+                      })),
+                    ]}
+                  />
+                </div>
+                <label className="md:col-span-3 flex items-center gap-2 text-xs text-fg-muted">
+                  <input type="checkbox" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)} disabled={saving} /> Marketing opt-in
+                </label>
 
                 <div className="space-y-1 md:col-span-3">
                   <label className="text-xs font-medium text-fg-muted">Phone</label>

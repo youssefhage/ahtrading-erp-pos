@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -240,9 +240,7 @@ export default function PromotionsPage() {
     if (!itemsPromo) return;
     setStatus("Deleting...");
     try {
-      await fetch(`/api/promotions/items/${id}`, { method: "DELETE", credentials: "include" }).then(async (r) => {
-        if (!r.ok) throw new Error(await r.text());
-      });
+      await apiDelete(`/promotions/items/${encodeURIComponent(id)}`);
       const res = await apiGet<{ items: PromotionItemRow[] }>(`/promotions/${itemsPromo.id}/items`);
       setPromoItems(res.items || []);
       setStatus("");

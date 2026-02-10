@@ -1,9 +1,18 @@
-export type LoginResponse = {
-  token: string;
-  user_id: string;
-  companies: string[];
-  active_company_id?: string | null;
-};
+export type LoginResponse =
+  | {
+      token: string;
+      user_id: string;
+      companies: string[];
+      active_company_id?: string | null;
+      mfa_required?: false;
+    }
+  | {
+      mfa_required: true;
+      mfa_token: string;
+      user_id: string;
+      companies: string[];
+      active_company_id?: string | null;
+    };
 
 export class ApiError extends Error {
   status: number;
@@ -53,6 +62,8 @@ export function getCompanies(): string[] {
 
 export function setSession(login: LoginResponse) {
   if (typeof window === "undefined") return;
+  // Only store session info after a successful login that minted a session token.
+  if (!("token" in login)) return;
   window.localStorage.setItem(storageKeys.companies, JSON.stringify(login.companies || []));
   const currentCompany = getCompanyId();
   const nextCompany =
