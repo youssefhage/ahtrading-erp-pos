@@ -70,8 +70,13 @@ services:
         done
         exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
     # Intentionally do not set networks here. Dokploy rewrites routed services
-    # (like `api` / `admin`) to its own routing network. We'll instead attach
-    # the DB/worker to that network so DNS works.
+    # (like `api` / `admin`) to its own routing network. In practice we've seen
+    # cases where the rewrite results in the API not being able to reach Postgres
+    # during /health, which blocks the entire deployment. To make networking
+    # deterministic, explicitly attach routed services to both networks.
+    networks:
+      - default
+      - dokploy
 
   worker:
     build:
@@ -116,7 +121,9 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    # Intentionally do not set networks here. Dokploy rewrites routed services.
+    networks:
+      - default
+      - dokploy
 
   # Static downloads/update host for desktop apps (Tauri installers + updater manifests).
   downloads:
@@ -126,7 +133,9 @@ services:
     restart: unless-stopped
     volumes:
       - downloads_updates:/updates
-    # Intentionally do not set networks here. Dokploy rewrites routed services.
+    networks:
+      - default
+      - dokploy
 
 volumes:
   pgdata:
