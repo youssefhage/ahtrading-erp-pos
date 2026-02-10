@@ -7,5 +7,8 @@ passlib[bcrypt]==1.7.4
 # Pin to a compatible bcrypt to avoid noisy tracebacks in logs.
 bcrypt==3.2.2
 python-multipart==0.0.9
+# MFA (TOTP) + encryption for secrets at rest.
+pyotp==2.9.0
+cryptography==46.0.4
 # Object storage (S3 / MinIO) for attachments v2.
 boto3==1.34.131
