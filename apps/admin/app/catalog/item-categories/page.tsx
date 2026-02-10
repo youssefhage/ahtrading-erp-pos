@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
@@ -37,6 +37,14 @@ export default function ItemCategoriesPage() {
   const [saving, setSaving] = useState(false);
 
   const parentNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+
+  const openEdit = useCallback((c: Category) => {
+    setEditCat(c);
+    setEditName(c.name || "");
+    setEditParentId(c.parent_id || "");
+    setEditIsActive(c.is_active !== false);
+    setEditOpen(true);
+  }, []);
 
   const columns = useMemo((): Array<DataTableColumn<Category>> => {
     return [
@@ -87,7 +95,7 @@ export default function ItemCategoriesPage() {
         ),
       },
     ];
-  }, [parentNameById]);
+  }, [parentNameById, openEdit]);
 
   async function load() {
     setStatus("Loading...");
@@ -128,14 +136,6 @@ export default function ItemCategoriesPage() {
     } finally {
       setCreating(false);
     }
-  }
-
-  function openEdit(c: Category) {
-    setEditCat(c);
-    setEditName(c.name || "");
-    setEditParentId(c.parent_id || "");
-    setEditIsActive(c.is_active !== false);
-    setEditOpen(true);
   }
 
   async function saveEdit(e: React.FormEvent) {
