@@ -8,6 +8,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ahtrading}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
 
   # Object storage for attachments v2 (edge/local). Optional but useful to mirror production behavior.
   minio:
@@ -79,15 +85,18 @@ services:
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_USE_SSL: ${S3_USE_SSL:-0}
     depends_on:
-      - db
-      - minio-init
+      db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     ports:
       - "${API_PORT:-8001}:8000"
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
       interval: 10s
       timeout: 5s
-      retries: 30
+      retries: 60
+      start_period: 180s
     command:
       - sh
       - -lc
