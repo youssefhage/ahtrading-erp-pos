@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -173,41 +174,43 @@ export default function PosCashiersPage() {
               </Dialog>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Cashier ID</th>
-                    <th className="px-3 py-2">Active</th>
-                    <th className="px-3 py-2">Updated</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cashiers.map((c) => (
-                    <tr key={c.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-medium">{c.name}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{c.id}</td>
-                      <td className="px-3 py-2 text-xs">{c.is_active ? "yes" : "no"}</td>
-                      <td className="px-3 py-2 text-xs">{c.updated_at ? new Date(c.updated_at).toLocaleString() : "-"}</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button variant="outline" size="sm" onClick={() => openEdit(c.id)}>
-                          Edit
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {cashiers.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No cashiers yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            {(() => {
+              const columns: Array<DataTableColumn<CashierRow>> = [
+                { id: "name", header: "Name", accessor: (c) => c.name, sortable: true, cell: (c) => <span className="font-medium text-foreground">{c.name}</span> },
+                { id: "id", header: "Cashier ID", accessor: (c) => c.id, mono: true, defaultHidden: true, cell: (c) => <span className="text-xs text-fg-subtle">{c.id}</span> },
+                { id: "active", header: "Active", accessor: (c) => (c.is_active ? "yes" : "no"), sortable: true, cell: (c) => <span className="text-xs text-fg-muted">{c.is_active ? "yes" : "no"}</span> },
+                {
+                  id: "updated",
+                  header: "Updated",
+                  accessor: (c) => c.updated_at,
+                  sortable: true,
+                  cell: (c) => <span className="text-xs text-fg-muted">{c.updated_at ? new Date(c.updated_at).toLocaleString() : "-"}</span>,
+                },
+                {
+                  id: "actions",
+                  header: "Actions",
+                  accessor: () => "",
+                  globalSearch: false,
+                  align: "right",
+                  cell: (c) => (
+                    <Button variant="outline" size="sm" onClick={() => openEdit(c.id)}>
+                      Edit
+                    </Button>
+                  ),
+                },
+              ];
+
+              return (
+                <DataTable<CashierRow>
+                  tableId="system.posCashiers"
+                  rows={cashiers}
+                  columns={columns}
+                  emptyText="No cashiers yet."
+                  globalFilterPlaceholder="Search cashier name..."
+                  initialSort={{ columnId: "name", dir: "asc" }}
+                />
+              );
+            })()}
           </CardContent>
         </Card>
 

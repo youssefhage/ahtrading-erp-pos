@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -153,6 +154,42 @@ export default function WarehousesPage() {
     }
   }
 
+  const columns: Array<DataTableColumn<WarehouseRow>> = [
+    { id: "name", header: "Name", accessor: (w) => w.name, sortable: true, cell: (w) => <span className="font-medium text-foreground">{w.name}</span> },
+    { id: "location", header: "Location", accessor: (w) => w.location || "", sortable: true, cell: (w) => <span className="text-fg-muted">{w.location || "-"}</span> },
+    { id: "virtual", header: "Virtual", accessor: (w) => ((w as any).is_virtual ? "yes" : "no"), sortable: true, cell: (w) => <span className="text-xs text-fg-muted">{(w as any).is_virtual ? "yes" : "no"}</span> },
+    { id: "bins", header: "Bins", accessor: (w) => ((w as any).binning_enabled ? "yes" : "no"), sortable: true, cell: (w) => <span className="text-xs text-fg-muted">{(w as any).binning_enabled ? "yes" : "no"}</span> },
+    {
+      id: "min_shelf_life",
+      header: "Min Shelf-Life Days",
+      accessor: (w) => Number(w.min_shelf_life_days_for_sale_default || 0),
+      sortable: true,
+      align: "right",
+      mono: true,
+      cell: (w) => <span className="text-xs">{Number(w.min_shelf_life_days_for_sale_default || 0)}</span>,
+    },
+    {
+      id: "negative_stock",
+      header: "Negative Stock",
+      accessor: (w) => (w.allow_negative_stock == null ? "inherit" : w.allow_negative_stock ? "allow" : "block"),
+      sortable: true,
+      cell: (w) => <span className="text-xs text-fg-muted">{w.allow_negative_stock == null ? "inherit" : w.allow_negative_stock ? "allow" : "block"}</span>,
+    },
+    { id: "id", header: "Warehouse ID", accessor: (w) => w.id, mono: true, defaultHidden: true, cell: (w) => <span className="text-xs text-fg-subtle">{w.id}</span> },
+    {
+      id: "actions",
+      header: "Actions",
+      accessor: () => "",
+      globalSearch: false,
+      align: "right",
+      cell: (w) => (
+        <Button variant="outline" size="sm" onClick={() => openEdit(w)}>
+          Edit
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
@@ -279,49 +316,14 @@ export default function WarehousesPage() {
                 </DialogContent>
               </Dialog>
             </div>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Location</th>
-                    <th className="px-3 py-2">Virtual</th>
-                    <th className="px-3 py-2">Bins</th>
-                    <th className="px-3 py-2 text-right">Min Shelf-Life Days</th>
-                    <th className="px-3 py-2">Negative Stock</th>
-                    <th className="px-3 py-2">Warehouse ID</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {warehouses.map((w) => (
-                    <tr key={w.id} className="ui-tr-hover">
-                      <td className="px-3 py-2">{w.name}</td>
-                      <td className="px-3 py-2">{w.location || "-"}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{(w as any).is_virtual ? "yes" : "no"}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{(w as any).binning_enabled ? "yes" : "no"}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(w.min_shelf_life_days_for_sale_default || 0)}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">
-                        {w.allow_negative_stock == null ? "inherit" : w.allow_negative_stock ? "allow" : "block"}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs">{w.id}</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button variant="outline" size="sm" onClick={() => openEdit(w)}>
-                          Edit
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {warehouses.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
-                        No warehouses.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<WarehouseRow>
+              tableId="system.warehouses"
+              rows={warehouses}
+              columns={columns}
+              emptyText="No warehouses."
+              globalFilterPlaceholder="Search warehouse name / location..."
+              initialSort={{ columnId: "name", dir: "asc" }}
+            />
           </CardContent>
         </Card>
       </div>);

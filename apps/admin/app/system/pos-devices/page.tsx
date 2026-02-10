@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { apiGet, apiPost, getCompanyId } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -211,41 +212,37 @@ export default function PosDevicesPage() {
             </Dialog>
           </div>
 
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Code</th>
-                  <th className="px-3 py-2">Device ID</th>
-                  <th className="px-3 py-2">Branch</th>
-                  <th className="px-3 py-2">Token</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {devices.map((d) => (
-                  <tr key={d.id} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">{d.device_code}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{d.id}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{d.branch_id || "-"}</td>
-                    <td className="px-3 py-2 text-xs">{d.has_token ? "set" : "missing"}</td>
-                    <td className="px-3 py-2 text-right">
-                      <Button variant="outline" size="sm" onClick={() => resetToken(d.id)}>
-                        Reset Token
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {devices.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                      No devices yet.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          {(() => {
+            const columns: Array<DataTableColumn<DeviceRow>> = [
+              { id: "device_code", header: "Code", accessor: (d) => d.device_code, sortable: true, mono: true, cell: (d) => <span className="text-xs">{d.device_code}</span> },
+              { id: "id", header: "Device ID", accessor: (d) => d.id, mono: true, defaultHidden: true, cell: (d) => <span className="text-xs text-fg-subtle">{d.id}</span> },
+              { id: "branch_id", header: "Branch", accessor: (d) => d.branch_id || "", mono: true, cell: (d) => <span className="text-xs">{d.branch_id || "-"}</span> },
+              { id: "token", header: "Token", accessor: (d) => (d.has_token ? "set" : "missing"), sortable: true, cell: (d) => <span className="text-xs text-fg-muted">{d.has_token ? "set" : "missing"}</span> },
+              {
+                id: "actions",
+                header: "Actions",
+                accessor: () => "",
+                globalSearch: false,
+                align: "right",
+                cell: (d) => (
+                  <Button variant="outline" size="sm" onClick={() => resetToken(d.id)}>
+                    Reset Token
+                  </Button>
+                ),
+              },
+            ];
+
+            return (
+              <DataTable<DeviceRow>
+                tableId="system.posDevices"
+                rows={devices}
+                columns={columns}
+                emptyText="No devices yet."
+                globalFilterPlaceholder="Search device code / branch / token..."
+                initialSort={{ columnId: "device_code", dir: "asc" }}
+              />
+            );
+          })()}
         </CardContent>
       </Card>
     </div>

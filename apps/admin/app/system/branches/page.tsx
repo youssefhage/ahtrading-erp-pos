@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -151,6 +152,42 @@ export default function BranchesPage() {
     }
   }
 
+  const whNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const w of warehouses) m.set(w.id, w.name);
+    return m;
+  }, [warehouses]);
+
+  const columns: Array<DataTableColumn<BranchRow>> = [
+    { id: "name", header: "Name", accessor: (b) => b.name, sortable: true, cell: (b) => <span className="font-medium text-foreground">{b.name}</span> },
+    { id: "address", header: "Address", accessor: (b) => b.address || "", cell: (b) => <span className="text-fg-muted">{b.address || "-"}</span> },
+    {
+      id: "default_warehouse",
+      header: "Default Warehouse",
+      accessor: (b) => String((b as any).default_warehouse_id || ""),
+      cell: (b) =>
+        (b as any).default_warehouse_id ? (
+          <span className="text-xs text-fg-muted">{whNameById.get((b as any).default_warehouse_id) || (b as any).default_warehouse_id}</span>
+        ) : (
+          <span className="text-xs text-fg-subtle">-</span>
+        ),
+    },
+    { id: "invoice_prefix", header: "Invoice Prefix", accessor: (b) => String((b as any).invoice_prefix || ""), cell: (b) => <span className="text-xs text-fg-muted">{(b as any).invoice_prefix || "-"}</span> },
+    { id: "id", header: "Branch ID", accessor: (b) => b.id, mono: true, defaultHidden: true, cell: (b) => <span className="text-xs text-fg-subtle">{b.id}</span> },
+    {
+      id: "actions",
+      header: "Actions",
+      accessor: () => "",
+      globalSearch: false,
+      align: "right",
+      cell: (b) => (
+        <Button variant="outline" size="sm" onClick={() => openEdit(b)}>
+          Edit
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
         {status ? <ErrorBanner error={status} onRetry={load} /> : null}
@@ -257,45 +294,14 @@ export default function BranchesPage() {
                 </DialogContent>
               </Dialog>
             </div>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Address</th>
-                    <th className="px-3 py-2">Default Warehouse</th>
-                    <th className="px-3 py-2">Invoice Prefix</th>
-                    <th className="px-3 py-2">Branch ID</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {branches.map((b) => (
-                    <tr key={b.id} className="ui-tr-hover">
-                      <td className="px-3 py-2">{b.name}</td>
-                      <td className="px-3 py-2">{b.address || "-"}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">
-                        {(b as any).default_warehouse_id ? warehouses.find((w) => w.id === (b as any).default_warehouse_id)?.name || (b as any).default_warehouse_id : "-"}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{(b as any).invoice_prefix || "-"}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{b.id}</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button variant="outline" size="sm" onClick={() => openEdit(b)}>
-                          Edit
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {branches.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                        No branches.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<BranchRow>
+              tableId="system.branches"
+              rows={branches}
+              columns={columns}
+              emptyText="No branches."
+              globalFilterPlaceholder="Search branch name / address..."
+              initialSort={{ columnId: "name", dir: "asc" }}
+            />
           </CardContent>
         </Card>
       </div>);

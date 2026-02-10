@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -252,41 +253,47 @@ export default function WarehouseLocationsPage() {
             </DialogContent>
           </Dialog>
 
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Code</th>
-                  <th className="px-3 py-2">Name</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2 font-mono text-xs">Location ID</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {locations.map((l) => (
-                  <tr key={l.id} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">{l.code}</td>
-                    <td className="px-3 py-2">{l.name || "-"}</td>
-                    <td className="px-3 py-2 text-xs text-fg-muted">{l.is_active ? "active" : "inactive"}</td>
-                    <td className="px-3 py-2 font-mono text-xs">{l.id}</td>
-                    <td className="px-3 py-2 text-right">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(l)}>
-                        Edit
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {locations.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                      No locations.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          {(() => {
+            const columns: Array<DataTableColumn<LocationRow>> = [
+              { id: "code", header: "Code", accessor: (l) => l.code, sortable: true, mono: true, cell: (l) => <span className="text-xs">{l.code}</span> },
+              { id: "name", header: "Name", accessor: (l) => l.name || "", sortable: true, cell: (l) => <span className="text-fg-muted">{l.name || "-"}</span> },
+              {
+                id: "status",
+                header: "Status",
+                accessor: (l) => (l.is_active ? "active" : "inactive"),
+                sortable: true,
+                cell: (l) => (
+                  <span className={l.is_active ? "text-xs text-success" : "text-xs text-fg-muted"}>
+                    {l.is_active ? "active" : "inactive"}
+                  </span>
+                ),
+              },
+              { id: "id", header: "Location ID", accessor: (l) => l.id, mono: true, defaultHidden: true, cell: (l) => <span className="text-xs text-fg-subtle">{l.id}</span> },
+              {
+                id: "actions",
+                header: "Actions",
+                accessor: () => "",
+                globalSearch: false,
+                align: "right",
+                cell: (l) => (
+                  <Button variant="outline" size="sm" onClick={() => openEdit(l)}>
+                    Edit
+                  </Button>
+                ),
+              },
+            ];
+
+            return (
+              <DataTable<LocationRow>
+                tableId={`system.warehouseLocations.${warehouseId || "none"}`}
+                rows={locations}
+                columns={columns}
+                emptyText="No locations."
+                globalFilterPlaceholder="Search code / name..."
+                initialSort={{ columnId: "code", dir: "asc" }}
+              />
+            );
+          })()}
         </CardContent>
       </Card>
     </div>
