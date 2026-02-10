@@ -1,5 +1,45 @@
 const SESSION_KEY = "pos_admin_session_token";
 
+// Numeric inputs: when clicked/focused, select all so typing replaces the value (no appending).
+function installNumericAutoSelect() {
+  function isNumericLikeInput(input) {
+    if (!(input instanceof HTMLInputElement)) return false;
+    const type = String(input.getAttribute("type") || "").toLowerCase();
+    const mode = String(input.getAttribute("inputmode") || "").toLowerCase();
+    return type === "number" || mode === "numeric" || mode === "decimal";
+  }
+
+  // Capture pointerdown before the browser sets the caret position.
+  document.addEventListener(
+    "pointerdown",
+    (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLInputElement)) return;
+      if (!isNumericLikeInput(t)) return;
+      if (document.activeElement !== t) {
+        e.preventDefault();
+        t.focus();
+      }
+    },
+    true
+  );
+
+  document.addEventListener(
+    "focusin",
+    (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLInputElement)) return;
+      if (!isNumericLikeInput(t)) return;
+      try {
+        t.select();
+      } catch {}
+    },
+    true
+  );
+}
+
+installNumericAutoSelect();
+
 function getSessionToken() {
   try {
     return localStorage.getItem(SESSION_KEY) || "";
