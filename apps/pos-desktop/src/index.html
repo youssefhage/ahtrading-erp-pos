@@ -12,23 +12,27 @@
         <div class="logo">AH</div>
         <div>
           <h1>Melqard POS Desktop</h1>
-          <p>Runs offline on LAN with Edge server</p>
+          <p>Connects to cloud API, queues sales offline</p>
         </div>
       </header>
 
       <section class="card">
         <h2>Setup</h2>
         <p class="muted">
-          Enter the Edge API URL (LAN). Example: <code>http://192.168.1.50:8001</code>
+          Enter the API URL. Example: <code>https://api.melqard.com</code>
         </p>
 
         <label class="field">
-          <span>Edge API URL</span>
-          <input id="edgeUrl" placeholder="http://192.168.1.50:8001" />
+          <span>API URL</span>
+          <input id="edgeUrl" placeholder="https://api.melqard.com" />
         </label>
 
         <details class="advanced">
           <summary>Advanced (optional)</summary>
+          <p class="muted">
+            For each company you must paste a POS device token (created in Portal -> System -> POS Devices).
+            After first Sync, the agent auto-pulls default warehouse + VAT settings.
+          </p>
           <div class="grid2">
             <label class="field">
               <span>Official Agent Port</span>
@@ -39,10 +43,39 @@
               <input id="portUnofficial" type="number" value="7072" />
             </label>
           </div>
-          <p class="muted">
-            Device tokens and company IDs are configured in the agent config files. For pilot,
-            we can set them from the Edge admin and paste them later if needed.
-          </p>
+
+          <div class="grid2">
+            <label class="field">
+              <span>Official Company ID</span>
+              <input id="companyOfficial" placeholder="00000000-0000-0000-0000-000000000001" />
+            </label>
+            <label class="field">
+              <span>Unofficial Company ID</span>
+              <input id="companyUnofficial" placeholder="00000000-0000-0000-0000-000000000002" />
+            </label>
+          </div>
+
+          <div class="grid2">
+            <label class="field">
+              <span>Official Device ID</span>
+              <input id="deviceIdOfficial" placeholder="UUID from Portal" />
+            </label>
+            <label class="field">
+              <span>Official Device Token</span>
+              <input id="deviceTokenOfficial" placeholder="Token from Portal" />
+            </label>
+          </div>
+
+          <div class="grid2">
+            <label class="field">
+              <span>Unofficial Device ID</span>
+              <input id="deviceIdUnofficial" placeholder="UUID from Portal" />
+            </label>
+            <label class="field">
+              <span>Unofficial Device Token</span>
+              <input id="deviceTokenUnofficial" placeholder="Token from Portal" />
+            </label>
+          </div>
         </details>
 
         <div class="row">
@@ -58,7 +91,7 @@
         <ul>
           <li>This app starts 2 local agents: Official + Unofficial.</li>
           <li>Unified POS opens at <code>http://127.0.0.1:7070/unified.html</code>.</li>
-          <li>Sales are queued locally if Edge is unreachable; they sync when back online.</li>
+          <li>Sales are queued locally if the cloud is unreachable; they sync when back online.</li>
         </ul>
       </section>
     </main>

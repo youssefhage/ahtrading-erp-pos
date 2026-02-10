@@ -16,6 +16,12 @@ struct AgentsState {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct AgentConfig {
   api_base_url: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  company_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  device_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  device_token: Option<String>,
 }
 
 fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
@@ -32,21 +38,37 @@ fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
   Ok(())
 }
 
-fn write_min_config(path: &Path, edge_url: &str) -> std::io::Result<()> {
+fn patch_config(
+  path: &Path,
+  edge_url: &str,
+  company_id: Option<&str>,
+  device_id: Option<&str>,
+  device_token: Option<&str>,
+) -> std::io::Result<()> {
   ensure_parent_dir(path)?;
   if path.exists() {
-    // Keep existing config (may include device tokens etc). Only patch api_base_url if missing.
+    // Keep existing config, but patch fields when provided.
     let raw = fs::read_to_string(path).unwrap_or_else(|_| "{}".to_string());
     let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
-    if v.get("api_base_url").and_then(|x| x.as_str()).unwrap_or("").trim().is_empty() {
-      v["api_base_url"] = serde_json::Value::String(edge_url.to_string());
-      fs::write(path, serde_json::to_string_pretty(&v).unwrap())?;
+    v["api_base_url"] = serde_json::Value::String(edge_url.to_string());
+    if let Some(x) = company_id.and_then(|s| if s.trim().is_empty() { None } else { Some(s.trim()) }) {
+      v["company_id"] = serde_json::Value::String(x.to_string());
     }
+    if let Some(x) = device_id.and_then(|s| if s.trim().is_empty() { None } else { Some(s.trim()) }) {
+      v["device_id"] = serde_json::Value::String(x.to_string());
+    }
+    if let Some(x) = device_token.and_then(|s| if s.trim().is_empty() { None } else { Some(s.trim()) }) {
+      v["device_token"] = serde_json::Value::String(x.to_string());
+    }
+    fs::write(path, serde_json::to_string_pretty(&v).unwrap())?;
     return Ok(());
   }
 
   let cfg = serde_json::to_string_pretty(&AgentConfig {
     api_base_url: edge_url.to_string(),
+    company_id: company_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+    device_id: device_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+    device_token: device_token.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
   })
   .unwrap();
   fs::write(path, cfg)?;
@@ -108,6 +130,12 @@ fn start_agents(
   edge_url: String,
   port_official: u16,
   port_unofficial: u16,
+  company_official: Option<String>,
+  company_unofficial: Option<String>,
+  device_id_official: Option<String>,
+  device_token_official: Option<String>,
+  device_id_unofficial: Option<String>,
+  device_token_unofficial: Option<String>,
 ) -> Result<(), String> {
   let edge = edge_url.trim().trim_end_matches('/').to_string();
   if edge.is_empty() {
@@ -120,8 +148,22 @@ fn start_agents(
   let official_db = data.join("official").join("pos.sqlite");
   let unofficial_db = data.join("unofficial").join("pos.sqlite");
 
-  write_min_config(&official_cfg, &edge).map_err(|e| e.to_string())?;
-  write_min_config(&unofficial_cfg, &edge).map_err(|e| e.to_string())?;
+  patch_config(
+    &official_cfg,
+    &edge,
+    company_official.as_deref(),
+    device_id_official.as_deref(),
+    device_token_official.as_deref(),
+  )
+  .map_err(|e| e.to_string())?;
+  patch_config(
+    &unofficial_cfg,
+    &edge,
+    company_unofficial.as_deref(),
+    device_id_unofficial.as_deref(),
+    device_token_unofficial.as_deref(),
+  )
+  .map_err(|e| e.to_string())?;
 
   let mut st = state.lock().unwrap();
   if st.official.is_none() {

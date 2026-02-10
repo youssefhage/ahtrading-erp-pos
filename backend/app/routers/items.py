@@ -8,6 +8,7 @@ from ..deps import get_company_id, require_permission
 from ..deps import get_current_user
 import json
 import os
+import uuid
 from ..ai.item_naming import heuristic_item_name_suggestions, openai_item_name_suggestions
 from ..ai.providers import get_ai_provider_config
 from ..ai.policy import is_external_ai_allowed
@@ -84,6 +85,17 @@ class ItemPriceIn(BaseModel):
     price_lbp: Decimal
     effective_from: date
     effective_to: Optional[date] = None
+
+
+class BulkItemPriceIn(BaseModel):
+    sku: str
+    price_usd: Decimal = Decimal("0")
+    price_lbp: Decimal = Decimal("0")
+
+
+class BulkItemPricesIn(BaseModel):
+    effective_from: Optional[date] = None
+    lines: List[BulkItemPriceIn]
 
 
 @router.get("", dependencies=[Depends(require_permission("items:read"))])
@@ -704,6 +716,85 @@ def list_item_prices(item_id: str, company_id: str = Depends(get_company_id)):
                 (item_id,),
             )
             return {"prices": cur.fetchall()}
+
+
+@router.post("/prices/bulk", dependencies=[Depends(require_permission("items:write"))])
+def bulk_upsert_item_prices(data: BulkItemPricesIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Go-live utility: bulk upsert item_prices by SKU.
+
+    Idempotency:
+    - We derive a deterministic (source_type, source_id) per line so repeated imports
+      don't create duplicate price rows.
+    """
+    lines = data.lines or []
+    if not lines:
+        raise HTTPException(status_code=400, detail="lines is required")
+    if len(lines) > 5000:
+        raise HTTPException(status_code=400, detail="too many lines (max 5000)")
+
+    eff = data.effective_from or date.today()
+    # Keep consistent with ERPNext importer UUID namespace to allow stable re-runs.
+    namespace = uuid.UUID("8d5fe1a9-64b2-4dd4-9f45-4d2045b0fd4a")
+    source_type = "erpnext_price_import"
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                skus = sorted({(ln.sku or "").strip() for ln in lines if (ln.sku or "").strip()})
+                if not skus:
+                    raise HTTPException(status_code=400, detail="each line requires sku")
+
+                cur.execute(
+                    """
+                    SELECT sku, id
+                    FROM items
+                    WHERE company_id=%s AND sku = ANY(%s::text[])
+                    """,
+                    (company_id, skus),
+                )
+                sku_to_id = {str(r["sku"]): str(r["id"]) for r in cur.fetchall()}
+
+                upserted = 0
+                for ln in lines:
+                    sku = (ln.sku or "").strip()
+                    if not sku:
+                        raise HTTPException(status_code=400, detail="each line requires sku")
+                    item_id = sku_to_id.get(sku)
+                    if not item_id:
+                        raise HTTPException(status_code=400, detail=f"unknown sku: {sku}")
+
+                    price_usd = Decimal(str(ln.price_usd or 0))
+                    price_lbp = Decimal(str(ln.price_lbp or 0))
+                    if price_usd < 0 or price_lbp < 0:
+                        raise HTTPException(status_code=400, detail=f"negative price not allowed: {sku}")
+
+                    # Deterministic id per (company, sku, effective_from).
+                    src = str(uuid.uuid5(namespace, f"price:{company_id}:{sku}:{eff.isoformat()}"))
+                    cur.execute(
+                        """
+                        INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to, source_type, source_id)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, NULL, %s, %s::uuid)
+                        ON CONFLICT (source_type, source_id) DO UPDATE
+                        SET item_id = EXCLUDED.item_id,
+                            price_usd = EXCLUDED.price_usd,
+                            price_lbp = EXCLUDED.price_lbp,
+                            effective_from = EXCLUDED.effective_from,
+                            effective_to = EXCLUDED.effective_to
+                        """,
+                        (item_id, price_usd, price_lbp, eff, source_type, src),
+                    )
+                    upserted += 1
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_prices_bulk_upsert', 'item_prices', NULL, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], json.dumps({"count": upserted, "effective_from": eff.isoformat()})),
+                )
+                return {"ok": True, "upserted": upserted, "effective_from": eff}
 
 
 class ItemBarcodeIn(BaseModel):
