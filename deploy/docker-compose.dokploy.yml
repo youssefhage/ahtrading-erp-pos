@@ -23,7 +23,8 @@ services:
       - default
       - dokploy
 
-  api:
+  # Name this service uniquely to avoid any Traefik/Dokploy routing collisions with other stacks.
+  api_melqard:
     build:
       # This file lives in `deploy/`, so set context to repo root.
       context: ..
@@ -93,7 +94,7 @@ services:
       APP_DB_PASSWORD: ${APP_DB_PASSWORD}
       APP_DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@db_ahtrading_pos:5432/${POSTGRES_DB}
     depends_on:
-      api:
+      api_melqard:
         condition: service_healthy
     command:
       - sh
@@ -121,9 +122,9 @@ services:
       dockerfile: apps/admin/Dockerfile
     restart: unless-stopped
     environment:
-      API_PROXY_TARGET: http://api:8000
+      API_PROXY_TARGET: http://api_melqard:8000
     depends_on:
-      api:
+      api_melqard:
         condition: service_healthy
     networks:
       - default
