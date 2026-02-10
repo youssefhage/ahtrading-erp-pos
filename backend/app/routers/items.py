@@ -9,6 +9,7 @@ from ..deps import get_current_user
 import json
 import os
 import uuid
+from psycopg import errors as pg_errors
 from ..ai.item_naming import heuristic_item_name_suggestions, openai_item_name_suggestions
 from ..ai.providers import get_ai_provider_config
 from ..ai.policy import is_external_ai_allowed
@@ -450,11 +451,11 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                 if barcode:
                     cur.execute(
                         """
-                        INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, is_primary)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 1, true)
+                        INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, uom_code, is_primary)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 1, %s, true)
                         ON CONFLICT (company_id, barcode) DO NOTHING
                         """,
-                        (company_id, item_id, barcode),
+                        (company_id, item_id, barcode, uom),
                     )
 
                 cur.execute(
@@ -531,14 +532,15 @@ def bulk_upsert_items(data: BulkItemsIn, company_id: str = Depends(get_company_i
                         # Ensure scanning works and primary barcode is kept in sync.
                         cur.execute(
                             """
-                            INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, is_primary)
-                            VALUES (gen_random_uuid(), %s, %s, %s, 1, true)
+                            INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, uom_code, is_primary)
+                            VALUES (gen_random_uuid(), %s, %s, %s, 1, %s, true)
                             ON CONFLICT (company_id, barcode) DO UPDATE
                             SET item_id = EXCLUDED.item_id,
                                 is_primary = true,
+                                uom_code = EXCLUDED.uom_code,
                                 updated_at = now()
                             """,
-                            (company_id, item_id, barcode),
+                            (company_id, item_id, barcode, uom),
                         )
                         cur.execute(
                             """
@@ -613,7 +615,69 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                # Lock the item row so base-UOM changes can be validated safely.
+                cur.execute(
+                    "SELECT unit_of_measure FROM items WHERE company_id=%s AND id=%s FOR UPDATE",
+                    (company_id, item_id),
+                )
+                existing = cur.fetchone()
+                if not existing:
+                    raise HTTPException(status_code=404, detail="item not found")
+                existing_base_uom = _norm_uom(existing.get("unit_of_measure"))
+
                 if uom_to_ensure:
+                    # Base UOM is effectively the "stock UOM". Changing it after any document/stock history
+                    # changes the meaning of stored quantities, so we forbid it once the item has activity.
+                    if uom_to_ensure != existing_base_uom:
+                        cur.execute(
+                            "SELECT 1 FROM stock_moves WHERE company_id=%s AND item_id=%s LIMIT 1",
+                            (company_id, item_id),
+                        )
+                        if cur.fetchone():
+                            raise HTTPException(status_code=409, detail="cannot change base UOM after stock moves exist")
+                        cur.execute(
+                            "SELECT 1 FROM goods_receipt_lines WHERE company_id=%s AND item_id=%s LIMIT 1",
+                            (company_id, item_id),
+                        )
+                        if cur.fetchone():
+                            raise HTTPException(status_code=409, detail="cannot change base UOM after goods receipts exist")
+                        cur.execute(
+                            "SELECT 1 FROM supplier_invoice_lines WHERE company_id=%s AND item_id=%s LIMIT 1",
+                            (company_id, item_id),
+                        )
+                        if cur.fetchone():
+                            raise HTTPException(status_code=409, detail="cannot change base UOM after supplier invoices exist")
+                        cur.execute(
+                            "SELECT 1 FROM purchase_order_lines WHERE company_id=%s AND item_id=%s LIMIT 1",
+                            (company_id, item_id),
+                        )
+                        if cur.fetchone():
+                            raise HTTPException(status_code=409, detail="cannot change base UOM after purchase orders exist")
+                        cur.execute(
+                            """
+                            SELECT 1
+                            FROM sales_invoice_lines l
+                            JOIN sales_invoices i ON i.id = l.invoice_id
+                            WHERE i.company_id=%s AND l.item_id=%s
+                            LIMIT 1
+                            """,
+                            (company_id, item_id),
+                        )
+                        if cur.fetchone():
+                            raise HTTPException(status_code=409, detail="cannot change base UOM after sales invoices exist")
+                        cur.execute(
+                            "SELECT 1 FROM sales_return_lines WHERE company_id=%s AND item_id=%s LIMIT 1",
+                            (company_id, item_id),
+                        )
+                        if cur.fetchone():
+                            raise HTTPException(status_code=409, detail="cannot change base UOM after sales returns exist")
+                        cur.execute(
+                            "SELECT 1 FROM stock_transfer_lines WHERE company_id=%s AND item_id=%s LIMIT 1",
+                            (company_id, item_id),
+                        )
+                        if cur.fetchone():
+                            raise HTTPException(status_code=409, detail="cannot change base UOM after stock transfers exist")
+
                     _ensure_uom_exists(cur, company_id, uom_to_ensure)
                 cur.execute(
                     f"""
@@ -623,6 +687,22 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
                     """,
                     params,
                 )
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="item not found")
+
+                # Ensure base conversion row exists (uom_code=items.unit_of_measure, factor=1).
+                if uom_to_ensure:
+                    cur.execute(
+                        """
+                        INSERT INTO item_uom_conversions (id, company_id, item_id, uom_code, to_base_factor, is_active)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 1, true)
+                        ON CONFLICT (company_id, item_id, uom_code) DO UPDATE
+                        SET to_base_factor = 1,
+                            is_active = true,
+                            updated_at = now()
+                        """,
+                        (company_id, item_id, uom_to_ensure),
+                    )
 
                 # Mirror legacy primary barcode into item_barcodes for POS scanning.
                 patch = data.model_dump(exclude_none=True)
@@ -631,14 +711,15 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
                     if new_barcode:
                         cur.execute(
                             """
-                            INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, is_primary)
-                            VALUES (gen_random_uuid(), %s, %s, %s, 1, true)
+                            INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, uom_code, is_primary)
+                            VALUES (gen_random_uuid(), %s, %s, %s, 1, %s, true)
                             ON CONFLICT (company_id, barcode) DO UPDATE
                             SET item_id = EXCLUDED.item_id,
                                 is_primary = true,
+                                uom_code = EXCLUDED.uom_code,
                                 updated_at = now()
                             """,
-                            (company_id, item_id, new_barcode),
+                            (company_id, item_id, new_barcode, uom_to_ensure or existing_base_uom),
                         )
                         cur.execute(
                             """
@@ -772,19 +853,22 @@ def bulk_upsert_item_prices(data: BulkItemPricesIn, company_id: str = Depends(ge
 
                     # Deterministic id per (company, sku, effective_from).
                     src = str(uuid.uuid5(namespace, f"price:{company_id}:{sku}:{eff.isoformat()}"))
-                    cur.execute(
-                        """
-                        INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to, source_type, source_id)
-                        VALUES (gen_random_uuid(), %s, %s, %s, %s, NULL, %s, %s::uuid)
-                        ON CONFLICT (source_type, source_id) DO UPDATE
-                        SET item_id = EXCLUDED.item_id,
-                            price_usd = EXCLUDED.price_usd,
-                            price_lbp = EXCLUDED.price_lbp,
-                            effective_from = EXCLUDED.effective_from,
-                            effective_to = EXCLUDED.effective_to
-                        """,
-                        (item_id, price_usd, price_lbp, eff, source_type, src),
-                    )
+                    try:
+                        cur.execute(
+                            """
+                            INSERT INTO item_prices (id, item_id, price_usd, price_lbp, effective_from, effective_to, source_type, source_id)
+                            VALUES (gen_random_uuid(), %s, %s, %s, %s, NULL, %s, %s::uuid)
+                            ON CONFLICT (source_type, source_id) DO UPDATE
+                            SET item_id = EXCLUDED.item_id,
+                                price_usd = EXCLUDED.price_usd,
+                                price_lbp = EXCLUDED.price_lbp,
+                                effective_from = EXCLUDED.effective_from,
+                                effective_to = EXCLUDED.effective_to
+                            """,
+                            (item_id, price_usd, price_lbp, eff, source_type, src),
+                        )
+                    except (pg_errors.UndefinedColumn, pg_errors.UndefinedTable, pg_errors.InvalidColumnReference) as e:
+                        raise HTTPException(status_code=500, detail=f"db schema mismatch: {e}") from None
                     upserted += 1
 
                 cur.execute(
@@ -800,12 +884,14 @@ def bulk_upsert_item_prices(data: BulkItemPricesIn, company_id: str = Depends(ge
 class ItemBarcodeIn(BaseModel):
     barcode: str
     qty_factor: Decimal = Decimal("1")
+    uom_code: Optional[str] = None
     label: Optional[str] = None
     is_primary: bool = False
 
 
 class ItemBarcodeUpdate(BaseModel):
     qty_factor: Optional[Decimal] = None
+    uom_code: Optional[str] = None
     label: Optional[str] = None
     is_primary: Optional[bool] = None
 
@@ -849,16 +935,16 @@ def list_item_barcodes(item_id: str, company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, barcode, qty_factor, label, is_primary, created_at, updated_at
-                FROM item_barcodes
-                WHERE company_id = %s AND item_id = %s
-                ORDER BY is_primary DESC, created_at ASC
-                """,
-                (company_id, item_id),
-            )
-            return {"barcodes": cur.fetchall()}
+                cur.execute(
+                    """
+                    SELECT id, barcode, qty_factor, uom_code, label, is_primary, created_at, updated_at
+                    FROM item_barcodes
+                    WHERE company_id = %s AND item_id = %s
+                    ORDER BY is_primary DESC, created_at ASC
+                    """,
+                    (company_id, item_id),
+                )
+                return {"barcodes": cur.fetchall()}
 
 
 @router.get("/barcodes", dependencies=[Depends(require_permission("items:read"))])
@@ -871,7 +957,7 @@ def list_all_barcodes(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, item_id, barcode, qty_factor, label, is_primary, created_at, updated_at
+                SELECT id, item_id, barcode, qty_factor, uom_code, label, is_primary, created_at, updated_at
                 FROM item_barcodes
                 WHERE company_id = %s
                 ORDER BY item_id, is_primary DESC, created_at ASC
@@ -893,19 +979,44 @@ def add_item_barcode(item_id: str, data: ItemBarcodeIn, company_id: str = Depend
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM items WHERE company_id = %s AND id = %s", (company_id, item_id))
-                if not cur.fetchone():
+                cur.execute("SELECT unit_of_measure FROM items WHERE company_id = %s AND id = %s", (company_id, item_id))
+                it = cur.fetchone()
+                if not it:
                     raise HTTPException(status_code=404, detail="item not found")
+                base_uom = _norm_uom(it.get("unit_of_measure"))
+
+                uom_code = _norm_uom(data.uom_code) if data.uom_code is not None else None
+                if data.qty_factor != 1 and not uom_code:
+                    raise HTTPException(status_code=400, detail="uom_code is required when qty_factor != 1")
+                if uom_code and uom_code == base_uom and data.qty_factor != 1:
+                    raise HTTPException(status_code=400, detail="qty_factor must be 1 when uom_code is the item base UOM")
+                if uom_code:
+                    _ensure_uom_exists(cur, company_id, uom_code)
 
                 cur.execute(
                     """
-                    INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, label, is_primary)
-                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s)
+                    INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, uom_code, label, is_primary)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, item_id, barcode, data.qty_factor, data.label, data.is_primary),
+                    (company_id, item_id, barcode, data.qty_factor, uom_code or base_uom, data.label, data.is_primary),
                 )
                 barcode_id = cur.fetchone()["id"]
+
+                # Ensure conversion exists for the declared barcode UOM.
+                # We store the factor used at scan time in docs, so future edits won't rewrite history.
+                bc_uom = uom_code or base_uom
+                cur.execute(
+                    """
+                    INSERT INTO item_uom_conversions (id, company_id, item_id, uom_code, to_base_factor, is_active)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, true)
+                    ON CONFLICT (company_id, item_id, uom_code) DO UPDATE
+                    SET to_base_factor = EXCLUDED.to_base_factor,
+                        is_active = true,
+                        updated_at = now()
+                    """,
+                    (company_id, item_id, bc_uom, Decimal(str(data.qty_factor))),
+                )
 
                 if data.is_primary:
                     cur.execute(
@@ -942,6 +1053,8 @@ def update_item_barcode(barcode_id: str, data: ItemBarcodeUpdate, company_id: st
     patch = data.model_dump(exclude_none=True)
     if "qty_factor" in patch and patch["qty_factor"] is not None and patch["qty_factor"] <= 0:
         raise HTTPException(status_code=400, detail="qty_factor must be > 0")
+    if "uom_code" in patch and patch["uom_code"] is not None:
+        patch["uom_code"] = _norm_uom(patch["uom_code"])
     if not patch:
         return {"ok": True}
 
@@ -961,13 +1074,38 @@ def update_item_barcode(barcode_id: str, data: ItemBarcodeUpdate, company_id: st
                     UPDATE item_barcodes
                     SET {', '.join(fields)}, updated_at = now()
                     WHERE company_id = %s AND id = %s
-                    RETURNING id, item_id, barcode
+                    RETURNING id, item_id, barcode, qty_factor, uom_code
                     """,
                     params,
                 )
                 row = cur.fetchone()
                 if not row:
                     raise HTTPException(status_code=404, detail="barcode not found")
+
+                # Validate vs item base UOM.
+                cur.execute("SELECT unit_of_measure FROM items WHERE company_id=%s AND id=%s", (company_id, row["item_id"]))
+                it = cur.fetchone()
+                if not it:
+                    raise HTTPException(status_code=404, detail="item not found")
+                base_uom = _norm_uom(it.get("unit_of_measure"))
+                bc_uom = _norm_uom(row.get("uom_code") or base_uom)
+                bc_factor = Decimal(str(row.get("qty_factor") or 1))
+                if bc_uom == base_uom and bc_factor != 1:
+                    raise HTTPException(status_code=400, detail="qty_factor must be 1 when uom_code is the item base UOM")
+                _ensure_uom_exists(cur, company_id, bc_uom)
+
+                # Keep conversions in sync (best-effort upsert).
+                cur.execute(
+                    """
+                    INSERT INTO item_uom_conversions (id, company_id, item_id, uom_code, to_base_factor, is_active)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, true)
+                    ON CONFLICT (company_id, item_id, uom_code) DO UPDATE
+                    SET to_base_factor = EXCLUDED.to_base_factor,
+                        is_active = true,
+                        updated_at = now()
+                    """,
+                    (company_id, row["item_id"], bc_uom, bc_factor),
+                )
 
                 if patch.get("is_primary") is True:
                     cur.execute(
@@ -1028,3 +1166,166 @@ def delete_item_barcode(barcode_id: str, company_id: str = Depends(get_company_i
                         cur.execute("UPDATE items SET barcode = NULL WHERE company_id = %s AND id = %s", (company_id, row["item_id"]))
 
                 return {"ok": True}
+
+
+class ItemUomConversionIn(BaseModel):
+    uom_code: str
+    to_base_factor: Decimal = Decimal("1")
+    is_active: bool = True
+
+
+@router.get("/{item_id}/uom-conversions", dependencies=[Depends(require_permission("items:read"))])
+def list_item_uom_conversions(item_id: str, company_id: str = Depends(get_company_id)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute("SELECT unit_of_measure FROM items WHERE company_id=%s AND id=%s", (company_id, item_id))
+            it = cur.fetchone()
+            if not it:
+                raise HTTPException(status_code=404, detail="item not found")
+            base_uom = _norm_uom(it.get("unit_of_measure"))
+            cur.execute(
+                """
+                SELECT c.uom_code, u.name AS uom_name, u.precision AS uom_precision,
+                       c.to_base_factor, c.is_active, c.created_at, c.updated_at
+                FROM item_uom_conversions c
+                JOIN unit_of_measures u
+                  ON u.company_id = c.company_id AND u.code = c.uom_code
+                WHERE c.company_id=%s AND c.item_id=%s
+                ORDER BY (c.uom_code = %s) DESC, c.uom_code ASC
+                """,
+                (company_id, item_id, base_uom),
+            )
+            return {"base_uom": base_uom, "conversions": cur.fetchall()}
+
+
+@router.post("/{item_id}/uom-conversions", dependencies=[Depends(require_permission("items:write"))])
+def upsert_item_uom_conversion(item_id: str, data: ItemUomConversionIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    uom_code = _norm_uom(data.uom_code)
+    f = Decimal(str(data.to_base_factor or 0))
+    if f <= 0:
+        raise HTTPException(status_code=400, detail="to_base_factor must be > 0")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SELECT unit_of_measure FROM items WHERE company_id=%s AND id=%s FOR UPDATE", (company_id, item_id))
+                it = cur.fetchone()
+                if not it:
+                    raise HTTPException(status_code=404, detail="item not found")
+                base_uom = _norm_uom(it.get("unit_of_measure"))
+                if uom_code == base_uom and f != 1:
+                    raise HTTPException(status_code=400, detail="base UOM conversion factor must be 1")
+                _ensure_uom_exists(cur, company_id, uom_code)
+                cur.execute(
+                    """
+                    INSERT INTO item_uom_conversions (id, company_id, item_id, uom_code, to_base_factor, is_active)
+                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s)
+                    ON CONFLICT (company_id, item_id, uom_code) DO UPDATE
+                    SET to_base_factor = EXCLUDED.to_base_factor,
+                        is_active = EXCLUDED.is_active,
+                        updated_at = now()
+                    """,
+                    (company_id, item_id, uom_code, f, bool(data.is_active)),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_uom_conversion_upsert', 'item', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], item_id, json.dumps({"uom_code": uom_code, "to_base_factor": str(f), "is_active": bool(data.is_active)})),
+                )
+                return {"ok": True}
+
+
+class ItemUomConversionUpdateIn(BaseModel):
+    to_base_factor: Optional[Decimal] = None
+    is_active: Optional[bool] = None
+
+
+@router.patch("/{item_id}/uom-conversions/{uom_code}", dependencies=[Depends(require_permission("items:write"))])
+def update_item_uom_conversion(item_id: str, uom_code: str, data: ItemUomConversionUpdateIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    u = _norm_uom(uom_code)
+    patch = data.model_dump(exclude_unset=True)
+    if not patch:
+        return {"ok": True}
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SELECT unit_of_measure FROM items WHERE company_id=%s AND id=%s FOR UPDATE", (company_id, item_id))
+                it = cur.fetchone()
+                if not it:
+                    raise HTTPException(status_code=404, detail="item not found")
+                base_uom = _norm_uom(it.get("unit_of_measure"))
+
+                if "to_base_factor" in patch and patch["to_base_factor"] is not None:
+                    f = Decimal(str(patch["to_base_factor"] or 0))
+                    if f <= 0:
+                        raise HTTPException(status_code=400, detail="to_base_factor must be > 0")
+                    if u == base_uom and f != 1:
+                        raise HTTPException(status_code=400, detail="base UOM conversion factor must be 1")
+                if u == base_uom and patch.get("is_active") is False:
+                    raise HTTPException(status_code=400, detail="cannot deactivate the base UOM conversion")
+
+                fields = []
+                params = []
+                if "to_base_factor" in patch and patch["to_base_factor"] is not None:
+                    fields.append("to_base_factor = %s")
+                    params.append(Decimal(str(patch["to_base_factor"])))
+                if "is_active" in patch and patch["is_active"] is not None:
+                    fields.append("is_active = %s")
+                    params.append(bool(patch["is_active"]))
+                if not fields:
+                    return {"ok": True}
+                params.extend([company_id, item_id, u])
+                cur.execute(
+                    f"""
+                    UPDATE item_uom_conversions
+                    SET {', '.join(fields)}, updated_at = now()
+                    WHERE company_id=%s AND item_id=%s AND uom_code=%s
+                    """,
+                    params,
+                )
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="conversion not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_uom_conversion_update', 'item', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], item_id, json.dumps({"uom_code": u, **patch}, default=str)),
+                )
+                return {"ok": True}
+
+
+class UomConversionLookupIn(BaseModel):
+    item_ids: List[str]
+
+
+@router.post("/uom-conversions/lookup", dependencies=[Depends(require_permission("items:read"))])
+def lookup_item_uom_conversions(data: UomConversionLookupIn, company_id: str = Depends(get_company_id)):
+    ids = sorted({str(i).strip() for i in (data.item_ids or []) if str(i).strip()})
+    if not ids:
+        return {"conversions": {}}
+    if len(ids) > 500:
+        raise HTTPException(status_code=400, detail="too many item_ids (max 500)")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT c.item_id, c.uom_code, u.name AS uom_name, u.precision AS uom_precision,
+                       c.to_base_factor, c.is_active
+                FROM item_uom_conversions c
+                JOIN unit_of_measures u
+                  ON u.company_id = c.company_id AND u.code = c.uom_code
+                WHERE c.company_id=%s AND c.item_id = ANY(%s::uuid[])
+                ORDER BY c.item_id, (c.to_base_factor = 1) DESC, c.uom_code ASC
+                """,
+                (company_id, ids),
+            )
+            out: dict[str, list[dict]] = {}
+            for r in cur.fetchall():
+                out.setdefault(str(r["item_id"]), []).append(dict(r))
+            return {"conversions": out}
