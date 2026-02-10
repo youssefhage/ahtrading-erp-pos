@@ -14,6 +14,8 @@ services:
       timeout: 5s
       retries: 30
       start_period: 20s
+    networks:
+      - internal
 
   api:
     build:
@@ -60,6 +62,9 @@ services:
           sleep 2
         done
         exec uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+    networks:
+      - internal
+      - dokploy
 
   worker:
     build:
@@ -90,6 +95,8 @@ services:
           sleep 2
         done
         exec python3 -m backend.workers.worker_service --db "$$APP_DATABASE_URL"
+    networks:
+      - internal
 
   admin:
     build:
@@ -101,6 +108,19 @@ services:
     depends_on:
       api:
         condition: service_healthy
+    networks:
+      - internal
+      - dokploy
 
 volumes:
   pgdata:
+
+networks:
+  # Internal per-compose network: safe for service-name DNS like `db`, `api`, etc.
+  internal:
+    driver: bridge
+  # Shared dokploy/traefik network for inbound routing.
+  # Dokploy sets this up; we attach only the services that need to be routed.
+  dokploy:
+    external: true
+    name: dokploy-network
