@@ -5,14 +5,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
-import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { StatusChip } from "@/components/ui/status-chip";
 
 type PurchaseOrderRow = {
@@ -36,26 +35,14 @@ export default function PurchaseOrdersListPage() {
   const [err, setErr] = useState<unknown>(null);
 
   const [orders, setOrders] = useState<PurchaseOrderRow[]>([]);
-  const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
   const filtered = useMemo(() => {
-    const base = (orders || []).filter((o) => {
+    return (orders || []).filter((o) => {
       if (statusFilter && o.status !== statusFilter) return false;
       return true;
     });
-    return filterAndRankByFuzzy(base, q, (o) => {
-      return [
-        o.order_no || "",
-        o.supplier_ref || "",
-        o.supplier_name || "",
-        o.warehouse_name || "",
-        o.id,
-      ]
-        .filter(Boolean)
-        .join(" ");
-    });
-  }, [orders, q, statusFilter]);
+  }, [orders, statusFilter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,6 +60,72 @@ export default function PurchaseOrdersListPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const columns = useMemo(() => {
+    const cols: Array<DataTableColumn<PurchaseOrderRow>> = [
+      {
+        id: "order",
+        header: "Order",
+        sortable: true,
+        accessor: (o) => o.order_no || "",
+        cell: (o) => (
+          <Link className="ui-link inline-flex flex-col items-start" href={`/purchasing/purchase-orders/${encodeURIComponent(o.id)}`}>
+            <span className="font-medium text-foreground">{o.order_no || "(draft)"}</span>
+            {o.supplier_ref ? <span className="font-mono text-[11px] text-fg-muted">Ref: {o.supplier_ref}</span> : null}
+            {o.expected_delivery_date ? <span className="font-mono text-[11px] text-fg-muted">ETA: {o.expected_delivery_date}</span> : null}
+            <span className="font-mono text-[10px] text-fg-subtle">{o.id}</span>
+          </Link>
+        ),
+      },
+      {
+        id: "supplier",
+        header: "Supplier",
+        sortable: true,
+        accessor: (o) => o.supplier_name || o.supplier_id || "",
+        cell: (o) =>
+          o.supplier_id ? (
+            <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(o.supplier_id)}`} title="Open supplier">
+              {o.supplier_name || o.supplier_id}
+            </ShortcutLink>
+          ) : (
+            "-"
+          ),
+      },
+      {
+        id: "warehouse",
+        header: "Warehouse",
+        sortable: true,
+        accessor: (o) => o.warehouse_name || o.warehouse_id || "",
+        cell: (o) => o.warehouse_name || o.warehouse_id || "-",
+      },
+      {
+        id: "status",
+        header: "Status",
+        sortable: true,
+        accessor: (o) => o.status,
+        cell: (o) => <StatusChip value={o.status} />,
+      },
+      {
+        id: "total_usd",
+        header: "Total USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (o) => Number(o.total_usd || 0),
+        cell: (o) => <span className="ui-tone-usd">{fmtUsd(o.total_usd)}</span>,
+      },
+      {
+        id: "total_lbp",
+        header: "Total LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (o) => Number(o.total_lbp || 0),
+        cell: (o) => <span className="ui-tone-lbp">{fmtLbp(o.total_lbp)}</span>,
+      },
+    ];
+    return cols;
+  }, []);
 
   if (err) {
     return (
@@ -114,18 +167,6 @@ export default function PurchaseOrdersListPage() {
           <CardDescription>Search and open purchase orders.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="w-full md:w-96">
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search order / supplier / reference..." />
-            </div>
-            <select className="ui-select w-full md:w-48" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="">All statuses</option>
-              <option value="draft">Draft</option>
-              <option value="posted">Posted</option>
-              <option value="canceled">Canceled</option>
-            </select>
-          </div>
-
           {!loading && filtered.length === 0 ? (
             <EmptyState
               title="No purchase orders"
@@ -134,54 +175,22 @@ export default function PurchaseOrdersListPage() {
               onAction={() => router.push("/purchasing/purchase-orders/new")}
             />
           ) : (
-            <div className={loading ? "opacity-70" : ""}>
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">Order</th>
-                      <th className="px-3 py-2">Supplier</th>
-                      <th className="px-3 py-2">Warehouse</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2 text-right">Total USD</th>
-                      <th className="px-3 py-2 text-right">Total LL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((o) => (
-                      <tr key={o.id} className="ui-tr ui-tr-hover">
-                        <td className="px-3 py-2">
-                          <Link
-                            className="ui-link inline-flex flex-col items-start"
-                            href={`/purchasing/purchase-orders/${encodeURIComponent(o.id)}`}
-                          >
-                            <span className="font-medium text-foreground">{o.order_no || "(draft)"}</span>
-                            {o.supplier_ref ? <span className="font-mono text-[11px] text-fg-muted">Ref: {o.supplier_ref}</span> : null}
-                            {o.expected_delivery_date ? <span className="font-mono text-[11px] text-fg-muted">ETA: {o.expected_delivery_date}</span> : null}
-                            <span className="font-mono text-[10px] text-fg-subtle">{o.id}</span>
-                          </Link>
-                        </td>
-                        <td className="px-3 py-2">
-                          {o.supplier_id ? (
-                            <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(o.supplier_id)}`} title="Open supplier">
-                              {o.supplier_name || o.supplier_id}
-                            </ShortcutLink>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-3 py-2">{o.warehouse_name || o.warehouse_id || "-"}</td>
-                        <td className="px-3 py-2">
-                          <StatusChip value={o.status} />
-                        </td>
-                        <td className="px-3 py-2 text-right data-mono ui-tone-usd">{fmtUsd(o.total_usd)}</td>
-                        <td className="px-3 py-2 text-right data-mono ui-tone-lbp">{fmtLbp(o.total_lbp)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <DataTable<PurchaseOrderRow>
+              tableId="purchasing.purchase_orders.list"
+              rows={filtered}
+              columns={columns}
+              getRowId={(r) => r.id}
+              initialSort={{ columnId: "order", dir: "desc" }}
+              globalFilterPlaceholder="Search order / supplier / reference / warehouse"
+              toolbarLeft={
+                <select className="ui-select h-9 text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                  <option value="">All statuses</option>
+                  <option value="draft">Draft</option>
+                  <option value="posted">Posted</option>
+                  <option value="canceled">Canceled</option>
+                </select>
+              }
+            />
           )}
         </CardContent>
       </Card>

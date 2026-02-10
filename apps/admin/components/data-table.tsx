@@ -8,14 +8,7 @@ import { cn } from "@/lib/utils";
 import { scoreFuzzyQuery } from "@/lib/fuzzy";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 type SortDir = "asc" | "desc";
 
@@ -36,7 +29,7 @@ export type DataTableColumn<T> = {
 type ColumnVisibility = Record<string, boolean>;
 
 export type DataTableProps<T> = {
-  tableId: string; // used for persisting column visibility
+  tableId: string; // used for persisting preferences
   rows: T[];
   columns: Array<DataTableColumn<T>>;
   getRowId?: (row: T, index: number) => string;
@@ -48,7 +41,13 @@ export type DataTableProps<T> = {
   // Toolbar
   enableGlobalFilter?: boolean;
   globalFilterPlaceholder?: string;
-  actions?: ReactNode;
+  toolbarLeft?: ReactNode; // rendered next to the global filter
+  actions?: ReactNode; // rendered on the right
+
+  // Pagination (client-side)
+  enablePagination?: boolean; // default: true
+  pageSizeOptions?: number[]; // default: [25, 50, 100, 200]
+  defaultPageSize?: number; // default: 50
 };
 
 function safeJsonParse<T>(raw: string | null): T | null {
@@ -99,10 +98,14 @@ export function DataTable<T>(props: DataTableProps<T>) {
     initialSort = null,
     enableGlobalFilter = true,
     globalFilterPlaceholder = "Search...",
+    toolbarLeft,
     actions,
+    enablePagination = true,
+    pageSizeOptions = [25, 50, 100, 200],
+    defaultPageSize = 50,
   } = props;
 
-  const storageKey = `admin.tablePrefs.${tableId}.v2`;
+  const storageKey = `admin.tablePrefs.${tableId}.v3`;
 
   const defaultVisibility = useMemo(() => {
     const vis: ColumnVisibility = {};
@@ -113,8 +116,10 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>(defaultVisibility);
   const [globalFilter, setGlobalFilter] = useState("");
   const [sort, setSort] = useState<{ columnId: string; dir: SortDir } | null>(initialSort);
+  const [pageSize, setPageSize] = useState<number>(defaultPageSize);
+  const [page, setPage] = useState<number>(0);
 
-  // Load persisted table prefs once.
+  // Load persisted prefs once.
   useEffect(() => {
     let raw: string | null = null;
     try {
@@ -126,10 +131,10 @@ export function DataTable<T>(props: DataTableProps<T>) {
       columnVisibility?: ColumnVisibility;
       globalFilter?: string;
       sort?: { columnId: string; dir: SortDir } | null;
+      pageSize?: number;
     }>(raw);
 
     if (saved?.columnVisibility) {
-      // Only accept visibility keys that exist in current columns.
       const next: ColumnVisibility = { ...defaultVisibility };
       for (const c of columns) {
         const v = saved.columnVisibility[c.id];
@@ -139,21 +144,19 @@ export function DataTable<T>(props: DataTableProps<T>) {
     }
 
     if (typeof saved?.globalFilter === "string") setGlobalFilter(saved.globalFilter);
-    if (saved && Object.prototype.hasOwnProperty.call(saved, "sort")) {
-      // Respect explicit null (user cleared sort), but only apply when the key exists in saved prefs.
-      setSort(saved.sort ?? null);
-    }
+    if (saved && Object.prototype.hasOwnProperty.call(saved, "sort")) setSort(saved.sort ?? null);
+    if (typeof saved?.pageSize === "number" && saved.pageSize > 0) setPageSize(saved.pageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storageKey]);
 
-  // Persist table prefs.
+  // Persist prefs.
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ columnVisibility, globalFilter, sort }));
+      localStorage.setItem(storageKey, JSON.stringify({ columnVisibility, globalFilter, sort, pageSize }));
     } catch {
       // ignore
     }
-  }, [columnVisibility, globalFilter, sort, storageKey]);
+  }, [columnVisibility, globalFilter, sort, pageSize, storageKey]);
 
   // If columns change, merge visibility with defaults (keeps persisted where possible).
   useEffect(() => {
@@ -214,13 +217,31 @@ export function DataTable<T>(props: DataTableProps<T>) {
     return scored.map((x) => x.row);
   }, [filteredRows, sort, columns, enableGlobalFilter, globalFilter]);
 
+  // Reset to the first page whenever the view changes.
+  useEffect(() => {
+    setPage(0);
+  }, [globalFilter, sort, pageSize, enableGlobalFilter]);
+
+  // Clamp current page if data shrinks.
+  useEffect(() => {
+    const maxPage = Math.max(0, Math.ceil(sortedRows.length / Math.max(1, pageSize)) - 1);
+    setPage((p) => Math.min(p, maxPage));
+  }, [sortedRows.length, pageSize]);
+
+  const pageCount = useMemo(() => {
+    if (!enablePagination) return 1;
+    return Math.max(1, Math.ceil(sortedRows.length / Math.max(1, pageSize)));
+  }, [sortedRows.length, pageSize, enablePagination]);
+
+  const pageRows = useMemo(() => {
+    if (!enablePagination) return sortedRows;
+    const start = page * pageSize;
+    return sortedRows.slice(start, start + pageSize);
+  }, [sortedRows, enablePagination, page, pageSize]);
+
   const sortIcon = (columnId: string) => {
     if (!sort || sort.columnId !== columnId) return <ArrowUpDown className="h-3.5 w-3.5 opacity-60" />;
-    return sort.dir === "asc" ? (
-      <ArrowUp className="h-3.5 w-3.5 opacity-80" />
-    ) : (
-      <ArrowDown className="h-3.5 w-3.5 opacity-80" />
-    );
+    return sort.dir === "asc" ? <ArrowUp className="h-3.5 w-3.5 opacity-80" /> : <ArrowDown className="h-3.5 w-3.5 opacity-80" />;
   };
 
   const toggleSort = (col: DataTableColumn<T>) => {
@@ -234,15 +255,21 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
   const visibleCount = Object.values(columnVisibility).filter(Boolean).length;
 
+  const startRow = enablePagination && sortedRows.length ? page * pageSize + 1 : sortedRows.length ? 1 : 0;
+  const endRow = enablePagination ? Math.min(sortedRows.length, page * pageSize + pageRows.length) : sortedRows.length;
+
   return (
     <div className={cn("space-y-3", className)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         {enableGlobalFilter ? (
-          <div className="w-full md:w-96">
-            <Input value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} placeholder={globalFilterPlaceholder} />
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
+            <div className="w-full md:w-96">
+              <Input value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} placeholder={globalFilterPlaceholder} />
+            </div>
+            {toolbarLeft}
           </div>
         ) : (
-          <div />
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">{toolbarLeft}</div>
         )}
 
         <div className="flex items-center gap-2">
@@ -275,7 +302,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setColumnVisibility(Object.fromEntries(columns.map((c) => [c.id, c.defaultHidden ? false : true])) as ColumnVisibility)}
+                    onClick={() =>
+                      setColumnVisibility(Object.fromEntries(columns.map((c) => [c.id, c.defaultHidden ? false : true])) as ColumnVisibility)
+                    }
                   >
                     Reset
                   </Button>
@@ -306,7 +335,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       </div>
 
       <div className="ui-table-wrap">
-        <table className={cn("ui-table")}>
+        <table className="ui-table">
           <thead className="ui-thead">
             <tr>
               {visibleColumns.map((c) => (
@@ -321,7 +350,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                   )}
                   onClick={() => toggleSort(c)}
                 >
-                  <span className={cn("inline-flex items-center gap-1.5", c.align === "right" && "justify-end w-full")}>
+                  <span className={cn("inline-flex items-center gap-1.5", c.align === "right" && "w-full justify-end")}>
                     {c.header}
                     {c.sortable ? sortIcon(c.id) : null}
                   </span>
@@ -330,7 +359,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
             </tr>
           </thead>
           <tbody>
-            {sortedRows.map((r, idx) => {
+            {pageRows.map((r, idx) => {
               const key = getRowId ? getRowId(r, idx) : String(idx);
               return (
                 <tr
@@ -367,7 +396,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
               );
             })}
 
-            {sortedRows.length === 0 ? (
+            {pageRows.length === 0 ? (
               <tr>
                 <td className="px-4 py-8 text-center text-fg-subtle" colSpan={Math.max(visibleColumns.length, 1)}>
                   {emptyText}
@@ -377,6 +406,45 @@ export function DataTable<T>(props: DataTableProps<T>) {
           </tbody>
         </table>
       </div>
+
+      {enablePagination ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-xs text-fg-muted">
+            {sortedRows.length ? (
+              <>
+                Showing <span className="data-mono">{startRow.toLocaleString("en-US")}</span>–<span className="data-mono">{endRow.toLocaleString("en-US")}</span>{" "}
+                of <span className="data-mono">{sortedRows.length.toLocaleString("en-US")}</span>
+                <span className="text-fg-subtle"> · </span>
+                Page <span className="data-mono">{page + 1}</span>/<span className="data-mono">{pageCount}</span>
+              </>
+            ) : (
+              <span>No results.</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <select className="ui-select h-9 text-xs" value={String(pageSize)} onChange={(e) => setPageSize(Number(e.target.value || defaultPageSize))}>
+              {pageSizeOptions.map((n) => (
+                <option key={n} value={String(n)}>
+                  {n} / page
+                </option>
+              ))}
+            </select>
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(0, p - 1))} disabled={page <= 0}>
+              Prev
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              disabled={page >= pageCount - 1}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
+
