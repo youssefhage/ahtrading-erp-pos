@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { AiSetupGate } from "@/components/ai-setup-gate";
-import { ViewRaw } from "@/components/view-raw";
 import { Page } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -128,13 +128,82 @@ export default function OpsCopilotPage() {
     load();
   }, []);
 
-  const aiActions = data?.ai.actions_by_status || {};
-  const recs = data?.ai.recommendations_by_status || {};
-  const pendingByAgent = data?.ai.pending_recommendations_by_agent || {};
-  const outbox = data?.pos.outbox_by_status || {};
-  const heartbeats = data?.workers.heartbeats || [];
-  const overdue = data?.jobs.overdue_schedules || [];
-  const recentJobFailures = data?.jobs.recent_failed_runs || [];
+  const aiActions = useMemo(() => data?.ai.actions_by_status || {}, [data]);
+  const recs = useMemo(() => data?.ai.recommendations_by_status || {}, [data]);
+  const pendingByAgent = useMemo(() => data?.ai.pending_recommendations_by_agent || {}, [data]);
+  const outbox = useMemo(() => data?.pos.outbox_by_status || {}, [data]);
+  const heartbeats = useMemo(() => data?.workers.heartbeats || [], [data]);
+  const overdue = useMemo(() => data?.jobs.overdue_schedules || [], [data]);
+  const recentJobFailures = useMemo(() => data?.jobs.recent_failed_runs || [], [data]);
+  const pendingByAgentRows = useMemo(
+    () =>
+      Object.entries(pendingByAgent)
+        .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+        .slice(0, 12)
+        .map(([agent, pending]) => ({ agent, pending: Number(pending || 0) })),
+    [pendingByAgent],
+  );
+  const pendingByAgentColumns = useMemo((): Array<DataTableColumn<{ agent: string; pending: number }>> => {
+    return [
+      {
+        id: "agent",
+        header: "Agent",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.agent,
+        cell: (r) => <span className="font-mono text-xs text-fg-muted">{r.agent}</span>,
+      },
+      {
+        id: "pending",
+        header: "Pending",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => r.pending,
+        cell: (r) => <span className="data-mono">{r.pending}</span>,
+      },
+    ];
+  }, []);
+  const outboxRows = useMemo(
+    () => Object.entries(outbox).map(([status, count]) => ({ status, count: Number(count || 0) })),
+    [outbox],
+  );
+  const outboxColumns = useMemo((): Array<DataTableColumn<{ status: string; count: number }>> => {
+    return [
+      { id: "status", header: "Status", sortable: true, accessor: (r) => r.status, cell: (r) => <span className="text-fg-muted">{r.status}</span> },
+      { id: "count", header: "Count", sortable: true, align: "right", mono: true, accessor: (r) => r.count, cell: (r) => <span className="data-mono">{r.count}</span> },
+    ];
+  }, []);
+  const periodLockColumns = useMemo(
+    (): Array<DataTableColumn<CopilotOverview["accounting"]["period_locks"][number]>> => [
+      { id: "start", header: "Start", sortable: true, accessor: (l) => l.start_date, cell: (l) => <span className="text-fg-muted">{l.start_date}</span> },
+      { id: "end", header: "End", sortable: true, accessor: (l) => l.end_date, cell: (l) => <span className="text-fg-muted">{l.end_date}</span> },
+      { id: "reason", header: "Reason", sortable: true, accessor: (l) => l.reason || "", cell: (l) => <span className="text-fg-subtle">{l.reason || "-"}</span> },
+    ],
+    [],
+  );
+  const heartbeatColumns = useMemo((): Array<DataTableColumn<CopilotOverview["workers"]["heartbeats"][number]>> => {
+    return [
+      { id: "worker", header: "Worker", sortable: true, accessor: (h) => h.worker_name, cell: (h) => <span className="text-fg-muted">{h.worker_name}</span> },
+      { id: "last_seen", header: "Last Seen", sortable: true, mono: true, accessor: (h) => h.last_seen_at, cell: (h) => <span className="text-fg-muted">{h.last_seen_at}</span> },
+      { id: "age", header: "Age", sortable: true, align: "right", mono: true, accessor: (h) => fmtAge(h.last_seen_at), cell: (h) => <span className="data-mono">{fmtAge(h.last_seen_at)}</span> },
+    ];
+  }, []);
+  const scheduleColumns = useMemo((): Array<DataTableColumn<CopilotOverview["jobs"]["schedules"][number]>> => {
+    return [
+      { id: "job", header: "Job", sortable: true, accessor: (s) => s.job_code, cell: (s) => <span className="text-fg-muted">{s.job_code}</span> },
+      { id: "interval", header: "Interval", sortable: true, mono: true, accessor: (s) => s.interval_seconds, cell: (s) => <span className="data-mono text-fg-muted">{fmtInterval(s.interval_seconds)}</span> },
+      { id: "next", header: "Next", sortable: true, mono: true, accessor: (s) => s.next_run_at || "", cell: (s) => <span className="text-fg-subtle">{s.next_run_at || "-"}</span> },
+      { id: "overdue", header: "Overdue", sortable: true, align: "right", mono: true, accessor: (s) => (s.is_overdue ? 1 : 0), cell: (s) => <span className="data-mono">{s.is_overdue ? "yes" : "no"}</span> },
+    ];
+  }, []);
+  const failureColumns = useMemo((): Array<DataTableColumn<CopilotOverview["jobs"]["recent_failed_runs"][number]>> => {
+    return [
+      { id: "job", header: "Recent Failures", sortable: true, accessor: (r) => r.job_code, cell: (r) => <span className="text-fg-muted">{r.job_code}</span> },
+      { id: "when", header: "When", sortable: true, mono: true, accessor: (r) => r.started_at, cell: (r) => <span className="text-fg-subtle">{fmtAge(r.started_at)}</span> },
+      { id: "message", header: "Message", sortable: true, align: "right", accessor: (r) => r.error_message || "", cell: (r) => <span className="text-fg-subtle">{r.error_message || "-"}</span> },
+    ];
+  }, []);
 
   return (
     <Page>
@@ -175,28 +244,16 @@ export default function OpsCopilotPage() {
                 <div className="mt-2">
                   {Object.keys(pendingByAgent).length ? (
                     <div className="space-y-2">
-                      <div className="ui-table-wrap">
-                        <table className="ui-table">
-                          <thead className="ui-thead">
-                            <tr>
-                              <th className="px-3 py-2">Agent</th>
-                              <th className="px-3 py-2 text-right">Pending</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {Object.entries(pendingByAgent)
-                              .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
-                              .slice(0, 12)
-                              .map(([k, v]) => (
-                                <tr key={k} className="ui-tr ui-tr-hover">
-                                  <td className="px-3 py-2 font-mono text-xs text-fg-muted">{k}</td>
-                                  <td className="px-3 py-2 text-right data-mono">{String(v || 0)}</td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <ViewRaw value={pendingByAgent} label="View raw pending by agent" />
+                      <DataTable<{ agent: string; pending: number }>
+                        tableId="automation.ops.pending_by_agent"
+                        rows={pendingByAgentRows}
+                        columns={pendingByAgentColumns}
+                        getRowId={(r) => r.agent}
+                        emptyText="No pending recommendations."
+                        enableGlobalFilter={false}
+                        enablePagination={false}
+                        initialSort={{ columnId: "pending", dir: "desc" }}
+                      />
                     </div>
                   ) : (
                     <div className="text-xs text-fg-subtle">No pending recommendations.</div>
@@ -218,32 +275,16 @@ export default function OpsCopilotPage() {
                 {pill("failed", String(data?.pos.outbox_failed || 0))}
                 {pill("total", String(Object.values(outbox).reduce((a, b) => a + (b || 0), 0)))}
               </div>
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th>Status</th>
-                      <th className="text-right">Count</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(outbox).length ? (
-                      Object.entries(outbox).map(([k, v]) => (
-                        <tr key={k} className="ui-tr ui-tr-hover">
-                          <td className="text-fg-muted">{k}</td>
-                          <td className="text-right data-mono">{String(v || 0)}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr className="ui-tr">
-                        <td colSpan={2} className="text-fg-subtle">
-                          No outbox data.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<{ status: string; count: number }>
+                tableId="automation.ops.outbox_status"
+                rows={outboxRows}
+                columns={outboxColumns}
+                getRowId={(r) => r.status}
+                emptyText="No outbox data."
+                enableGlobalFilter={false}
+                enablePagination={false}
+                initialSort={{ columnId: "count", dir: "desc" }}
+              />
             </CardContent>
           </Card>
 
@@ -259,34 +300,15 @@ export default function OpsCopilotPage() {
                 {pill("neg value LL", String(data?.inventory.approx_value_lbp || "0"))}
                 {pill("locks", String(data?.accounting.period_locks?.length || 0))}
               </div>
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th>Start</th>
-                      <th>End</th>
-                      <th>Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(data?.accounting.period_locks || []).length ? (
-                      (data?.accounting.period_locks || []).map((l) => (
-                        <tr key={l.id} className="ui-tr ui-tr-hover">
-                          <td className="text-fg-muted">{l.start_date}</td>
-                          <td className="text-fg-muted">{l.end_date}</td>
-                          <td className="text-fg-subtle">{l.reason || "-"}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr className="ui-tr">
-                        <td colSpan={3} className="text-fg-subtle">
-                          No active locks.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<CopilotOverview["accounting"]["period_locks"][number]>
+                tableId="automation.ops.period_locks"
+                rows={data?.accounting.period_locks || []}
+                columns={periodLockColumns}
+                getRowId={(l) => l.id}
+                emptyText="No active locks."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "start", dir: "desc" }}
+              />
             </CardContent>
           </Card>
         </div>
@@ -302,34 +324,15 @@ export default function OpsCopilotPage() {
                 {pill("heartbeats", String(heartbeats.length))}
                 {pill("overdue jobs", String(overdue.length))}
               </div>
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th>Worker</th>
-                      <th>Last Seen</th>
-                      <th className="text-right">Age</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {heartbeats.length ? (
-                      heartbeats.map((hb) => (
-                        <tr key={hb.worker_name} className="ui-tr ui-tr-hover">
-                          <td className="text-fg-muted">{hb.worker_name}</td>
-                          <td className="text-fg-muted">{hb.last_seen_at}</td>
-                          <td className="text-right data-mono">{fmtAge(hb.last_seen_at)}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr className="ui-tr">
-                        <td colSpan={3} className="text-fg-subtle">
-                          No worker heartbeat rows yet (worker may be offline).
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<CopilotOverview["workers"]["heartbeats"][number]>
+                tableId="automation.ops.heartbeats"
+                rows={heartbeats}
+                columns={heartbeatColumns}
+                getRowId={(h) => h.worker_name}
+                emptyText="No worker heartbeat rows yet (worker may be offline)."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "last_seen", dir: "desc" }}
+              />
             </CardContent>
           </Card>
 
@@ -344,65 +347,25 @@ export default function OpsCopilotPage() {
                 {pill("schedules", String(data?.jobs.schedules.length || 0))}
               </div>
 
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th>Job</th>
-                      <th>Interval</th>
-                      <th>Next</th>
-                      <th className="text-right">Overdue</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(data?.jobs.schedules || []).length ? (
-                      (data?.jobs.schedules || []).map((s) => (
-                        <tr key={s.job_code} className="ui-tr ui-tr-hover">
-                          <td className="text-fg-muted">{s.job_code}</td>
-                          <td className="text-fg-muted data-mono">{fmtInterval(s.interval_seconds)}</td>
-                          <td className="text-fg-subtle">{s.next_run_at || "-"}</td>
-                          <td className="text-right data-mono">{s.is_overdue ? "yes" : "no"}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr className="ui-tr">
-                        <td colSpan={4} className="text-fg-subtle">
-                          No schedules found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<CopilotOverview["jobs"]["schedules"][number]>
+                tableId="automation.ops.schedules"
+                rows={data?.jobs.schedules || []}
+                columns={scheduleColumns}
+                getRowId={(s) => s.job_code}
+                emptyText="No schedules found."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "job", dir: "asc" }}
+              />
 
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th>Recent Failures</th>
-                      <th>When</th>
-                      <th className="text-right">Message</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentJobFailures.length ? (
-                      recentJobFailures.map((r) => (
-                        <tr key={r.id} className="ui-tr ui-tr-hover">
-                          <td className="text-fg-muted">{r.job_code}</td>
-                          <td className="text-fg-subtle">{fmtAge(r.started_at)}</td>
-                          <td className="text-right text-fg-subtle">{r.error_message || "-"}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr className="ui-tr">
-                        <td colSpan={3} className="text-fg-subtle">
-                          No recent failed runs.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<CopilotOverview["jobs"]["recent_failed_runs"][number]>
+                tableId="automation.ops.failed_runs"
+                rows={recentJobFailures}
+                columns={failureColumns}
+                getRowId={(r) => r.id}
+                emptyText="No recent failed runs."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "when", dir: "desc" }}
+              />
             </CardContent>
           </Card>
         </div>
