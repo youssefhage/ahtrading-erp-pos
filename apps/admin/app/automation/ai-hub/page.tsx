@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { AiSetupGate } from "@/components/ai-setup-gate";
 import { ViewRaw } from "@/components/view-raw";
@@ -371,69 +372,82 @@ export default function AiHubPage() {
               </div>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Created</th>
-                    <th className="px-3 py-2">Agent</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Recommendation</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recommendations.map((r) => (
-                    <tr key={r.id} className="border-t border-border-subtle align-top">
-                      <td className="px-3 py-2 font-mono text-xs">{r.created_at}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{r.agent_code}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{r.status}</td>
-                      <td className="px-3 py-2">
-                        {(() => {
-                          const j: any = (r as any).recommendation_json || {};
-                          const d = describeRec(j);
-                          return (
-                            <div className="max-w-[560px] space-y-1">
-                              <div className="font-mono text-xs text-fg-muted">{d.kind}</div>
-                              <div className="text-sm text-foreground">{d.why}</div>
-                              <div className="text-sm text-fg-muted">{d.next}</div>
-                              {d.link ? (
-                                <div>
-                                  <a className="ui-link text-xs" href={d.link}>
-                                    Open related document
-                                  </a>
-                                </div>
-                              ) : null}
-                              <ViewRaw value={j} className="pt-1" />
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex flex-col items-end gap-2">
-                          <Button variant="outline" size="sm" onClick={() => decide(r.id, "approved")}>
-                            Approve
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => decide(r.id, "rejected")}>
-                            Reject
-                          </Button>
-                          <Button variant="secondary" size="sm" onClick={() => decide(r.id, "executed")}>
-                            Mark Executed
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {recommendations.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No recommendations.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<RecommendationRow>
+              tableId="automation.ai_hub.recommendations"
+              rows={recommendations}
+              columns={[
+                {
+                  id: "created_at",
+                  header: "Created",
+                  sortable: true,
+                  mono: true,
+                  accessor: (r) => r.created_at,
+                  cell: (r) => <span className="font-mono text-xs">{r.created_at}</span>,
+                },
+                {
+                  id: "agent_code",
+                  header: "Agent",
+                  sortable: true,
+                  mono: true,
+                  accessor: (r) => r.agent_code,
+                  cell: (r) => <span className="font-mono text-xs">{r.agent_code}</span>,
+                },
+                {
+                  id: "status",
+                  header: "Status",
+                  sortable: true,
+                  mono: true,
+                  accessor: (r) => r.status,
+                  cell: (r) => <span className="font-mono text-xs">{r.status}</span>,
+                },
+                {
+                  id: "recommendation",
+                  header: "Recommendation",
+                  accessor: (r) => JSON.stringify(r.recommendation_json || {}),
+                  cell: (r) => {
+                    const j: any = (r as any).recommendation_json || {};
+                    const d = describeRec(j);
+                    return (
+                      <div className="max-w-[560px] space-y-1">
+                        <div className="font-mono text-xs text-fg-muted">{d.kind}</div>
+                        <div className="text-sm text-foreground">{d.why}</div>
+                        <div className="text-sm text-fg-muted">{d.next}</div>
+                        {d.link ? (
+                          <div>
+                            <a className="ui-link text-xs" href={d.link}>
+                              Open related document
+                            </a>
+                          </div>
+                        ) : null}
+                        <ViewRaw value={j} className="pt-1" />
+                      </div>
+                    );
+                  },
+                },
+                {
+                  id: "actions",
+                  header: "Actions",
+                  align: "right",
+                  cell: (r) => (
+                    <div className="flex flex-col items-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => decide(r.id, "approved")}>
+                        Approve
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => decide(r.id, "rejected")}>
+                        Reject
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={() => decide(r.id, "executed")}>
+                        Mark Executed
+                      </Button>
+                    </div>
+                  ),
+                },
+              ]}
+              getRowId={(r) => r.id}
+              emptyText="No recommendations."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "created_at", dir: "desc" }}
+            />
           </CardContent>
         </Card>
 
@@ -465,72 +479,96 @@ export default function AiHubPage() {
               </div>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Created</th>
-                    <th className="px-3 py-2">Agent</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Approval</th>
-                    <th className="px-3 py-2 text-right">Attempts</th>
-                    <th className="px-3 py-2">Error</th>
-                    <th className="px-3 py-2">Action</th>
-                    <th className="px-3 py-2 text-right">Controls</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {actions.map((a) => (
-                    <tr key={a.id} className="border-t border-border-subtle align-top">
-                      <td className="px-3 py-2 font-mono text-xs">{a.created_at}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{a.agent_code}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{a.status}</td>
-                      <td className="px-3 py-2">
-                        <div className="text-xs text-fg-muted">
-                          <div className="font-mono">{a.approved_at ? `approved ${a.approved_at}` : ""}</div>
-                          <div className="font-mono text-fg-subtle">
-                            {a.queued_at ? `queued ${a.queued_at}` : ""}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(a.attempt_count || 0)}</td>
-                      <td className="px-3 py-2">
-                        <span className="text-xs text-fg-muted">{a.error_message || ""}</span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <ViewRaw value={a.action_json} />
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex flex-col items-end gap-2">
-                          {a.status === "approved" || a.status === "blocked" ? (
-                            <Button variant="outline" size="sm" onClick={() => queueAction(a.id)}>
-                              Queue
-                            </Button>
-                          ) : null}
-                          {a.status === "queued" ? (
-                            <Button variant="outline" size="sm" onClick={() => cancelAction(a.id)}>
-                              Cancel
-                            </Button>
-                          ) : null}
-                          {a.status === "failed" || a.status === "canceled" || a.status === "blocked" ? (
-                            <Button variant="outline" size="sm" onClick={() => requeueAction(a.id)}>
-                              Requeue
-                            </Button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {actions.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
-                        No actions.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<ActionRow>
+              tableId="automation.ai_hub.actions"
+              rows={actions}
+              columns={[
+                {
+                  id: "created_at",
+                  header: "Created",
+                  sortable: true,
+                  mono: true,
+                  accessor: (a) => a.created_at,
+                  cell: (a) => <span className="font-mono text-xs">{a.created_at}</span>,
+                },
+                {
+                  id: "agent_code",
+                  header: "Agent",
+                  sortable: true,
+                  mono: true,
+                  accessor: (a) => a.agent_code,
+                  cell: (a) => <span className="font-mono text-xs">{a.agent_code}</span>,
+                },
+                {
+                  id: "status",
+                  header: "Status",
+                  sortable: true,
+                  mono: true,
+                  accessor: (a) => a.status,
+                  cell: (a) => <span className="font-mono text-xs">{a.status}</span>,
+                },
+                {
+                  id: "approval",
+                  header: "Approval",
+                  accessor: (a) => `${a.approved_at || ""} ${a.queued_at || ""}`,
+                  cell: (a) => (
+                    <div className="text-xs text-fg-muted">
+                      <div className="font-mono">{a.approved_at ? `approved ${a.approved_at}` : ""}</div>
+                      <div className="font-mono text-fg-subtle">{a.queued_at ? `queued ${a.queued_at}` : ""}</div>
+                    </div>
+                  ),
+                },
+                {
+                  id: "attempt_count",
+                  header: "Attempts",
+                  sortable: true,
+                  align: "right",
+                  mono: true,
+                  accessor: (a) => Number(a.attempt_count || 0),
+                  cell: (a) => <span className="font-mono text-xs">{Number(a.attempt_count || 0)}</span>,
+                },
+                {
+                  id: "error",
+                  header: "Error",
+                  accessor: (a) => a.error_message || "",
+                  cell: (a) => <span className="text-xs text-fg-muted">{a.error_message || ""}</span>,
+                },
+                {
+                  id: "action_json",
+                  header: "Action",
+                  accessor: (a) => JSON.stringify(a.action_json || {}),
+                  cell: (a) => <ViewRaw value={a.action_json} />,
+                },
+                {
+                  id: "controls",
+                  header: "Controls",
+                  align: "right",
+                  cell: (a) => (
+                    <div className="flex flex-col items-end gap-2">
+                      {a.status === "approved" || a.status === "blocked" ? (
+                        <Button variant="outline" size="sm" onClick={() => queueAction(a.id)}>
+                          Queue
+                        </Button>
+                      ) : null}
+                      {a.status === "queued" ? (
+                        <Button variant="outline" size="sm" onClick={() => cancelAction(a.id)}>
+                          Cancel
+                        </Button>
+                      ) : null}
+                      {a.status === "failed" || a.status === "canceled" || a.status === "blocked" ? (
+                        <Button variant="outline" size="sm" onClick={() => requeueAction(a.id)}>
+                          Requeue
+                        </Button>
+                      ) : null}
+                    </div>
+                  ),
+                },
+              ]}
+              getRowId={(a) => a.id}
+              emptyText="No actions."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "created_at", dir: "desc" }}
+            />
           </CardContent>
         </Card>
 
@@ -540,84 +578,127 @@ export default function AiHubPage() {
             <CardDescription>Schedules are stored in Postgres. Runs are logged. {schedules.length} schedules</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Job</th>
-                    <th className="px-3 py-2">Enabled</th>
-                    <th className="px-3 py-2 text-right">Interval (s)</th>
-                    <th className="px-3 py-2">Next</th>
-                    <th className="px-3 py-2">Last</th>
-                    <th className="px-3 py-2">Options</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {schedules.map((s) => (
-                    <tr key={s.job_code} className="border-t border-border-subtle align-top">
-                      <td className="px-3 py-2 font-mono text-xs">{s.job_code}</td>
-                      <td className="px-3 py-2">{s.enabled ? "yes" : "no"}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(s.interval_seconds || 0)}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{s.next_run_at || ""}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{s.last_run_at || ""}</td>
-                      <td className="px-3 py-2">
-                        <ViewRaw value={s.options_json} />
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex flex-col items-end gap-2">
-                          <Button variant="outline" size="sm" onClick={() => runJobNow(s.job_code)}>
-                            Run Now
-                          </Button>
-                          <Button variant="secondary" size="sm" onClick={() => openScheduleEditor(s)}>
-                            Edit
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {schedules.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
-                        No schedules found.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<JobScheduleRow>
+              tableId="automation.ai_hub.schedules"
+              rows={schedules}
+              columns={[
+                {
+                  id: "job_code",
+                  header: "Job",
+                  sortable: true,
+                  mono: true,
+                  accessor: (s) => s.job_code,
+                  cell: (s) => <span className="font-mono text-xs">{s.job_code}</span>,
+                },
+                {
+                  id: "enabled",
+                  header: "Enabled",
+                  sortable: true,
+                  accessor: (s) => (s.enabled ? "yes" : "no"),
+                  cell: (s) => (s.enabled ? "yes" : "no"),
+                },
+                {
+                  id: "interval_seconds",
+                  header: "Interval (s)",
+                  sortable: true,
+                  align: "right",
+                  mono: true,
+                  accessor: (s) => Number(s.interval_seconds || 0),
+                  cell: (s) => <span className="font-mono text-xs">{Number(s.interval_seconds || 0)}</span>,
+                },
+                {
+                  id: "next_run_at",
+                  header: "Next",
+                  sortable: true,
+                  mono: true,
+                  accessor: (s) => s.next_run_at || "",
+                  cell: (s) => <span className="font-mono text-xs">{s.next_run_at || ""}</span>,
+                },
+                {
+                  id: "last_run_at",
+                  header: "Last",
+                  sortable: true,
+                  mono: true,
+                  accessor: (s) => s.last_run_at || "",
+                  cell: (s) => <span className="font-mono text-xs">{s.last_run_at || ""}</span>,
+                },
+                {
+                  id: "options_json",
+                  header: "Options",
+                  accessor: (s) => JSON.stringify(s.options_json || {}),
+                  cell: (s) => <ViewRaw value={s.options_json} />,
+                },
+                {
+                  id: "actions",
+                  header: "Actions",
+                  align: "right",
+                  cell: (s) => (
+                    <div className="flex flex-col items-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => runJobNow(s.job_code)}>
+                        Run Now
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={() => openScheduleEditor(s)}>
+                        Edit
+                      </Button>
+                    </div>
+                  ),
+                },
+              ]}
+              getRowId={(s) => s.job_code}
+              emptyText="No schedules found."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "job_code", dir: "asc" }}
+            />
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Started</th>
-                    <th className="px-3 py-2">Job</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Finished</th>
-                    <th className="px-3 py-2">Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {runs.map((r) => (
-                    <tr key={r.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{r.started_at}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{r.job_code}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{r.status}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{r.finished_at || ""}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{r.error_message || ""}</td>
-                    </tr>
-                  ))}
-                  {runs.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No runs yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<JobRunRow>
+              tableId="automation.ai_hub.runs"
+              rows={runs}
+              columns={[
+                {
+                  id: "started_at",
+                  header: "Started",
+                  sortable: true,
+                  mono: true,
+                  accessor: (r) => r.started_at,
+                  cell: (r) => <span className="font-mono text-xs">{r.started_at}</span>,
+                },
+                {
+                  id: "job_code",
+                  header: "Job",
+                  sortable: true,
+                  mono: true,
+                  accessor: (r) => r.job_code,
+                  cell: (r) => <span className="font-mono text-xs">{r.job_code}</span>,
+                },
+                {
+                  id: "status",
+                  header: "Status",
+                  sortable: true,
+                  mono: true,
+                  accessor: (r) => r.status,
+                  cell: (r) => <span className="font-mono text-xs">{r.status}</span>,
+                },
+                {
+                  id: "finished_at",
+                  header: "Finished",
+                  sortable: true,
+                  mono: true,
+                  accessor: (r) => r.finished_at || "",
+                  cell: (r) => <span className="font-mono text-xs">{r.finished_at || ""}</span>,
+                },
+                {
+                  id: "error_message",
+                  header: "Error",
+                  sortable: true,
+                  accessor: (r) => r.error_message || "",
+                  cell: (r) => <span className="text-xs text-fg-muted">{r.error_message || ""}</span>,
+                },
+              ]}
+              getRowId={(r) => r.id}
+              emptyText="No runs yet."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "started_at", dir: "desc" }}
+            />
           </CardContent>
         </Card>
 
@@ -684,54 +765,78 @@ export default function AiHubPage() {
               </Dialog>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Agent</th>
-                    <th className="px-3 py-2">Auto</th>
-                    <th className="px-3 py-2 text-right">Max USD</th>
-                    <th className="px-3 py-2 text-right">Max/Day</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {settings.map((s) => (
-                    <tr key={s.agent_code} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{s.agent_code}</td>
-                      <td className="px-3 py-2">
-                        {s.auto_execute ? "yes" : "no"}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(s.max_amount_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(s.max_actions_per_day || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setSettingEditMode(true);
-                            setNewAgentCode(s.agent_code);
-                            setNewAutoExecute(Boolean(s.auto_execute));
-                            setNewMaxAmountUsd(String(s.max_amount_usd ?? 0));
-                            setNewMaxActionsPerDay(String(s.max_actions_per_day ?? 0));
-                            setSettingOpen(true);
-                          }}
-                        >
-                          Edit
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {settings.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No settings yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<AgentSettingRow>
+              tableId="automation.ai_hub.agent_settings"
+              rows={settings}
+              columns={[
+                {
+                  id: "agent_code",
+                  header: "Agent",
+                  sortable: true,
+                  mono: true,
+                  accessor: (s) => s.agent_code,
+                  cell: (s) => <span className="font-mono text-xs">{s.agent_code}</span>,
+                },
+                {
+                  id: "auto_execute",
+                  header: "Auto",
+                  sortable: true,
+                  accessor: (s) => (s.auto_execute ? "yes" : "no"),
+                  cell: (s) => (s.auto_execute ? "yes" : "no"),
+                },
+                {
+                  id: "max_amount_usd",
+                  header: "Max USD",
+                  sortable: true,
+                  align: "right",
+                  mono: true,
+                  accessor: (s) => Number(s.max_amount_usd || 0),
+                  cell: (s) => (
+                    <span className="font-mono text-xs">
+                      {Number(s.max_amount_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                    </span>
+                  ),
+                },
+                {
+                  id: "max_actions_per_day",
+                  header: "Max/Day",
+                  sortable: true,
+                  align: "right",
+                  mono: true,
+                  accessor: (s) => Number(s.max_actions_per_day || 0),
+                  cell: (s) => (
+                    <span className="font-mono text-xs">
+                      {Number(s.max_actions_per_day || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                    </span>
+                  ),
+                },
+                {
+                  id: "actions",
+                  header: "Actions",
+                  align: "right",
+                  cell: (s) => (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSettingEditMode(true);
+                        setNewAgentCode(s.agent_code);
+                        setNewAutoExecute(Boolean(s.auto_execute));
+                        setNewMaxAmountUsd(String(s.max_amount_usd ?? 0));
+                        setNewMaxActionsPerDay(String(s.max_actions_per_day ?? 0));
+                        setSettingOpen(true);
+                      }}
+                    >
+                      Edit
+                    </Button>
+                  ),
+                },
+              ]}
+              getRowId={(s) => s.agent_code}
+              emptyText="No settings yet."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "agent_code", dir: "asc" }}
+            />
           </CardContent>
         </Card>
       </Page>);
