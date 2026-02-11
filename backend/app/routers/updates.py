@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 
 router = APIRouter(prefix="/updates", tags=["updates"])
@@ -92,6 +92,57 @@ def _cache_control_for_rel(rel: str) -> str:
         return "no-store"
     # Versioned artifacts can be cached for a bit.
     return "public, max-age=86400"
+
+
+def _find_latest_installer_rel(app: str, platform: str) -> str:
+    app_key = (app or "").strip().lower()
+    plat = (platform or "").strip().lower()
+    if app_key not in {"pos", "portal"}:
+        raise HTTPException(status_code=400, detail="invalid app")
+    if plat not in {"windows", "macos"}:
+        raise HTTPException(status_code=400, detail="invalid platform")
+
+    stable_name = {
+        ("pos", "windows"): "MelqardPOS-Setup-latest.msi",
+        ("pos", "macos"): "MelqardPOS-Setup-latest.dmg",
+        ("portal", "windows"): "MelqardPortal-Setup-latest.msi",
+        ("portal", "macos"): "MelqardPortal-Setup-latest.dmg",
+    }[(app_key, plat)]
+
+    ext_allow = (".msi", ".exe") if plat == "windows" else (".dmg",)
+    base = _updates_dir().resolve()
+    app_root = (base / app_key).resolve()
+    if base not in app_root.parents and app_root != base:
+        raise HTTPException(status_code=500, detail="invalid updates path")
+    if not app_root.exists() or not app_root.is_dir():
+        raise HTTPException(status_code=404, detail="installer not found")
+
+    stable = (app_root / stable_name).resolve()
+    if stable.exists() and stable.is_file():
+        return str(stable.relative_to(base))
+
+    candidates = []
+    for p in app_root.rglob("*"):
+        if not p.is_file():
+            continue
+        n = p.name.lower()
+        if n.endswith(".sig") or n.endswith(".zip") or n.endswith(".tar.gz") or n.endswith(".json"):
+            continue
+        if not n.endswith(ext_allow):
+            continue
+        try:
+            st = p.stat()
+            candidates.append((st.st_mtime, p.name.lower(), p))
+        except Exception:
+            continue
+
+    if not candidates:
+        raise HTTPException(status_code=404, detail="installer not found")
+
+    # Prefer the newest by mtime; tie-break by name for deterministic behavior.
+    candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    chosen = candidates[0][2].resolve()
+    return str(chosen.relative_to(base))
 
 
 def _html_index(dir_path: Path, rel_dir: str) -> str:
@@ -218,6 +269,16 @@ async def upload_update_file(
             pass
 
     return {"ok": True, "path": str(target.relative_to(base))}
+
+
+@router.get("/latest-installer/{app}/{platform}")
+def latest_installer_redirect(app: str, platform: str):
+    """
+    Stable URL for staff-facing download buttons.
+    Falls back to the newest versioned installer when *-latest files are missing.
+    """
+    rel = _find_latest_installer_rel(app, platform)
+    return RedirectResponse(url=f"/updates/{rel}", status_code=307)
 
 
 @router.get("/{rel_path:path}")
