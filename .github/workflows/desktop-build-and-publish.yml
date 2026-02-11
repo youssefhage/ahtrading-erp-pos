@@ -13,9 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-13 has been intermittently unavailable/cancelled in our runner pool.
-        # Keep distribution unblocked with Windows + Apple Silicon macOS builds.
-        os: [windows-latest, macos-14]
+        # Keep installer publishing deterministic for warehouse rollout.
+        os: [windows-latest]
 
     steps:
       - uses: actions/checkout@v4
