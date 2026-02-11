@@ -350,7 +350,7 @@ function Inner() {
               <ItemTypeahead onSelect={addItem} onClear={() => {}} />
             </div>
 
-            <div className="ui-table-wrap">
+            <div className="ui-table-scroll">
               <table className="ui-table">
                 <thead className="ui-thead">
                   <tr>

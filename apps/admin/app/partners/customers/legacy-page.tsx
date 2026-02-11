@@ -845,7 +845,7 @@ export default function CustomersPage() {
                       </Button>
                     </div>
                     {loyaltyStatus ? <ViewRaw value={loyaltyStatus} label="Loyalty details" /> : null}
-                    <div className="ui-table-wrap">
+                    <div className="ui-table-scroll">
                       <table className="ui-table">
                         <thead className="ui-thead">
                           <tr>

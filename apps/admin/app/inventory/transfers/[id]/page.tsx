@@ -590,7 +590,7 @@ function Inner({ id }: { id: string }) {
                     <ItemTypeahead onSelect={addItem} onClear={() => {}} />
                   </div>
 
-                  <div className="ui-table-wrap">
+                  <div className="ui-table-scroll">
                     <table className="ui-table">
                       <thead className="ui-thead">
                         <tr>
@@ -651,7 +651,7 @@ function Inner({ id }: { id: string }) {
               <CardDescription>Requested qty and picked allocations.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="ui-table-wrap">
+              <div className="ui-table-scroll">
                 <table className="ui-table">
                   <thead className="ui-thead">
                     <tr>

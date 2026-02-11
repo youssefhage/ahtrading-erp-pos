@@ -858,7 +858,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                  </div>
 	                </div>
 
-	                <div className="ui-table-wrap">
+	                <div className="ui-table-scroll">
                   <table className="ui-table">
                     <thead className="ui-thead">
 	                      <tr>

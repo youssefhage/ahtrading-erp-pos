@@ -813,7 +813,7 @@ export default function ItemsPage() {
 	              </CardDescription>
 	            </CardHeader>
 	            <CardContent className="space-y-2">
-	              <div className="ui-table-wrap">
+	              <div className="ui-table-scroll">
 	                <table className="ui-table">
 	                  <thead className="ui-thead">
 	                    <tr>
@@ -1004,7 +1004,7 @@ export default function ItemsPage() {
               </div>
             </div>
 
-            <div className="ui-table-wrap">
+            <div className="ui-table-scroll">
               <table className="ui-table">
                 <thead className="ui-thead">
                   <tr>
@@ -1354,7 +1354,7 @@ export default function ItemsPage() {
 
                 {barcodeStatus ? <ViewRaw value={barcodeStatus} label="Details" /> : null}
 
-                <div className="ui-table-wrap">
+                <div className="ui-table-scroll">
                   <table className="ui-table">
                     <thead className="ui-thead">
                       <tr>
@@ -1449,7 +1449,7 @@ export default function ItemsPage() {
 
                 {supplierStatus ? <ViewRaw value={supplierStatus} label="Details" /> : null}
 
-                <div className="ui-table-wrap">
+                <div className="ui-table-scroll">
                   <table className="ui-table">
                     <thead className="ui-thead">
                       <tr>

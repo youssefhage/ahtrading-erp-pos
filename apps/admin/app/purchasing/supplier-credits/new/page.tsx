@@ -231,7 +231,7 @@ export default function SupplierCreditNewPage() {
                             {receiptsLoading ? "Loading..." : "Search"}
                           </Button>
                         </div>
-                        <div className="ui-table-wrap">
+                        <div className="ui-table-scroll">
                           <table className="ui-table">
                             <thead className="ui-thead">
                               <tr>

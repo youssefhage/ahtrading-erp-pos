@@ -803,7 +803,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             ) : null}
 
             {importLines.length ? (
-              <div className="ui-table-wrap">
+              <div className="ui-table-scroll">
                 <table className="ui-table">
                   <thead className="ui-thead">
                     <tr>
@@ -969,7 +969,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
               </Button>
             </form>
             {attachments.length ? (
-              <div className="ui-table-wrap">
+              <div className="ui-table-scroll">
                 <table className="ui-table">
                   <thead className="ui-thead">
                     <tr>
@@ -1160,7 +1160,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                   </div>
                 </form>
 
-                <div className="ui-table-wrap">
+                <div className="ui-table-scroll">
                   <table className="ui-table">
                     <thead className="ui-thead">
                       <tr>

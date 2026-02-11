@@ -291,7 +291,7 @@
   }
 
   /* Table styling - data terminal aesthetic */
-  .ui-table-wrap {
+  .ui-table-scroll {
     /* Tables are dense: keep them crisp and high-contrast. */
     @apply relative overflow-auto rounded-lg border border-border bg-bg-elevated;
     box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
@@ -303,13 +303,13 @@
     font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
   }
 
-  /* Enhanced table readability (applies to all ui-table inside ui-table-wrap) */
-  .ui-table-wrap .ui-table thead th {
+  /* Enhanced table readability (applies to all ui-table inside ui-table-scroll) */
+  .ui-table-scroll .ui-table thead th {
     @apply sticky top-0 z-10;
     background: rgb(var(--table-head-bg));
   }
 
-  .ui-table-wrap .ui-table tbody tr:nth-child(even) {
+  .ui-table-scroll .ui-table tbody tr:nth-child(even) {
     background: rgba(var(--bg-sunken), 0.22);
   }
 

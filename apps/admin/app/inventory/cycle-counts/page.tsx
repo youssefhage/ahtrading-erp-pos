@@ -481,7 +481,7 @@ export default function CycleCountsPage() {
                       </div>
                     </div>
 
-                    <div className="ui-table-wrap max-h-[420px]">
+                    <div className="ui-table-scroll max-h-[420px]">
                       <table className="ui-table">
                         <thead className="ui-thead">
                           <tr>

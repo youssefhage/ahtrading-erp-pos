@@ -382,7 +382,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
             </div>
           </form>
 
-          <div className="ui-table-wrap">
+          <div className="ui-table-scroll">
             <table className="ui-table">
               <thead className="ui-thead">
                 <tr>
