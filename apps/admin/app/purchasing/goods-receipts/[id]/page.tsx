@@ -7,6 +7,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
@@ -75,6 +76,61 @@ export default function GoodsReceiptViewPage() {
   const supplierById = useMemo(() => new Map(suppliers.map((s) => [s.id, s])), [suppliers]);
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
+  const lineColumns = useMemo((): Array<DataTableColumn<ReceiptLine>> => {
+    return [
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (l) => {
+          const it = itemById.get(l.item_id);
+          return `${it?.sku || ""} ${it?.name || l.item_id}`;
+        },
+        cell: (l) =>
+          itemById.get(l.item_id) ? (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
+              <span className="font-mono text-xs text-fg-muted">{itemById.get(l.item_id)?.sku}</span>{" "}
+              <span className="text-foreground">· {itemById.get(l.item_id)?.name}</span>
+            </ShortcutLink>
+          ) : (
+            <ShortcutLink
+              href={`/catalog/items/${encodeURIComponent(l.item_id)}`}
+              title="Open item"
+              className="font-mono text-xs text-fg-muted"
+            >
+              {l.item_id}
+            </ShortcutLink>
+          ),
+      },
+      {
+        id: "qty",
+        header: "Qty",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.qty || 0),
+        cell: (l) => <span className="font-mono text-xs">{Number(l.qty || 0).toFixed(2)}</span>,
+      },
+      {
+        id: "batch",
+        header: "Batch",
+        sortable: true,
+        mono: true,
+        accessor: (l) => `${l.batch_no || ""} ${l.expiry_date || ""}`,
+        cell: (l) => (
+          <span className="text-sm text-fg-muted">
+            {l.batch_no || l.expiry_date ? (
+              <span className="font-mono text-xs">
+                {l.batch_no ? `#${l.batch_no}` : ""} {l.expiry_date ? `exp ${String(l.expiry_date).slice(0, 10)}` : ""}
+              </span>
+            ) : (
+              "-"
+            )}
+          </span>
+        ),
+      },
+    ];
+  }, [itemById]);
 
   const [postOpen, setPostOpen] = useState(false);
   const [postingDate, setPostingDate] = useState(() => todayIso());
@@ -429,56 +485,15 @@ export default function GoodsReceiptViewPage() {
               <CardDescription>Received quantities.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">Item</th>
-                      <th className="px-3 py-2 text-right">Qty</th>
-                      <th className="px-3 py-2">Batch</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(detail.lines || []).map((l) => (
-                      <tr key={l.id} className="ui-tr-hover">
-                        <td className="px-3 py-2">
-                          {itemById.get(l.item_id) ? (
-                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
-                              <span className="font-mono text-xs text-fg-muted">{itemById.get(l.item_id)?.sku}</span>{" "}
-                              <span className="text-foreground">· {itemById.get(l.item_id)?.name}</span>
-                            </ShortcutLink>
-                          ) : (
-                            <ShortcutLink
-                              href={`/catalog/items/${encodeURIComponent(l.item_id)}`}
-                              title="Open item"
-                              className="font-mono text-xs text-fg-muted"
-                            >
-                              {l.item_id}
-                            </ShortcutLink>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.qty || 0).toFixed(2)}</td>
-                        <td className="px-3 py-2 text-sm text-fg-muted">
-                          {l.batch_no || l.expiry_date ? (
-                            <span className="font-mono text-xs">
-                              {l.batch_no ? `#${l.batch_no}` : ""} {l.expiry_date ? `exp ${String(l.expiry_date).slice(0, 10)}` : ""}
-                            </span>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                    {!detail.lines?.length ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
-                          No lines.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<ReceiptLine>
+                tableId="purchasing.goods_receipt.lines"
+                rows={detail.lines || []}
+                columns={lineColumns}
+                getRowId={(l) => l.id}
+                emptyText="No lines."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "item", dir: "asc" }}
+              />
             </CardContent>
           </Card>
 
