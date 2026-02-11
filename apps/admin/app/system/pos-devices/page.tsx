@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Check, Copy } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost, getCompanyId } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -25,6 +26,75 @@ type BranchRow = {
   address: string | null;
 };
 
+type DeviceSetup = {
+  company_id: string;
+  branch_id: string | null;
+  branch_name: string | null;
+  device_code: string;
+  device_id: string;
+  device_token: string | null;
+  shift_id: string;
+};
+
+function inferDefaultApiBaseUrl(): string {
+  if (typeof window === "undefined") return "";
+  return `${window.location.origin.replace(/\/+$/, "")}/api`;
+}
+
+function buildPosConfigPayload(setup: DeviceSetup, apiBaseUrl: string) {
+  return {
+    api_base_url: apiBaseUrl.trim(),
+    company_id: setup.company_id,
+    branch_id: setup.branch_id || "",
+    device_code: setup.device_code,
+    device_id: setup.device_id,
+    device_token: setup.device_token || "",
+    shift_id: setup.shift_id,
+  };
+}
+
+function CopyValueButton(props: { text: string; label?: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const text = (props.text || "").trim();
+  const disabled = !text;
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className={props.className || "h-8 w-8 text-fg-muted hover:text-foreground"}
+      disabled={disabled}
+      onClick={async () => {
+        if (disabled) return;
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1200);
+        } catch {
+          // ignore clipboard errors
+        }
+      }}
+      title={disabled ? undefined : `Copy${props.label ? ` ${props.label}` : ""}`}
+    >
+      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+      <span className="sr-only">{copied ? "Copied" : "Copy"}</span>
+    </Button>
+  );
+}
+
+function SetupField(props: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border bg-bg-sunken/20 p-3">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</span>
+        <CopyValueButton text={props.value} label={props.label} className="h-7 w-7 text-fg-muted hover:text-foreground" />
+      </div>
+      <code className="block break-all text-xs">{props.value || "-"}</code>
+    </div>
+  );
+}
+
 export default function PosDevicesPage() {
   const [devices, setDevices] = useState<DeviceRow[]>([]);
   const [branches, setBranches] = useState<BranchRow[]>([]);
@@ -34,7 +104,19 @@ export default function PosDevicesPage() {
   const [deviceCode, setDeviceCode] = useState("");
   const [branchId, setBranchId] = useState("");
   const [registering, setRegistering] = useState(false);
-  const [lastToken, setLastToken] = useState<{ id: string; token: string | null } | null>(null);
+  const [lastSetup, setLastSetup] = useState<DeviceSetup | null>(null);
+  const [setupApiBaseUrl, setSetupApiBaseUrl] = useState("");
+
+  const branchById = useMemo(() => new Map(branches.map((b) => [b.id, b])), [branches]);
+  const effectiveApiBaseUrl = (setupApiBaseUrl || inferDefaultApiBaseUrl()).trim();
+  const setupPayload = useMemo(() => {
+    if (!lastSetup) return null;
+    return buildPosConfigPayload(lastSetup, effectiveApiBaseUrl);
+  }, [lastSetup, effectiveApiBaseUrl]);
+  const setupPayloadJson = useMemo(
+    () => (setupPayload ? JSON.stringify(setupPayload, null, 2) : ""),
+    [setupPayload]
+  );
 
   async function load() {
     setStatus("Loading...");
@@ -53,6 +135,7 @@ export default function PosDevicesPage() {
   }
 
   useEffect(() => {
+    setSetupApiBaseUrl(inferDefaultApiBaseUrl());
     load();
   }, []);
 
@@ -68,16 +151,27 @@ export default function PosDevicesPage() {
       return;
     }
 
+    const nextDeviceCode = deviceCode.trim();
+    const nextBranchId = branchId.trim() || null;
     setRegistering(true);
     setStatus("Registering device...");
-    setLastToken(null);
+    setLastSetup(null);
     try {
       const qs = new URLSearchParams();
       qs.set("company_id", companyId);
-      qs.set("device_code", deviceCode.trim());
-      if (branchId.trim()) qs.set("branch_id", branchId.trim());
+      qs.set("device_code", nextDeviceCode);
+      if (nextBranchId) qs.set("branch_id", nextBranchId);
       const res = await apiPost<{ id: string; token: string | null }>(`/pos/devices/register?${qs.toString()}`, {});
-      setLastToken(res);
+      const branch = nextBranchId ? branchById.get(nextBranchId) : null;
+      setLastSetup({
+        company_id: companyId,
+        branch_id: nextBranchId,
+        branch_name: branch?.name || null,
+        device_code: nextDeviceCode,
+        device_id: res.id,
+        device_token: res.token,
+        shift_id: "",
+      });
       setDeviceCode("");
       setBranchId("");
       setRegisterOpen(false);
@@ -91,12 +185,26 @@ export default function PosDevicesPage() {
     }
   }
 
-  async function resetToken(deviceId: string) {
+  async function resetToken(device: DeviceRow) {
+    const companyId = getCompanyId();
+    if (!companyId) {
+      setStatus("Company is not selected. Go to Change Company first.");
+      return;
+    }
     setStatus("Resetting token...");
-    setLastToken(null);
+    setLastSetup(null);
     try {
-      const res = await apiPost<{ id: string; token: string }>(`/pos/devices/${deviceId}/reset-token`, {});
-      setLastToken(res);
+      const res = await apiPost<{ id: string; token: string }>(`/pos/devices/${device.id}/reset-token`, {});
+      const branch = device.branch_id ? branchById.get(device.branch_id) : null;
+      setLastSetup({
+        company_id: companyId,
+        branch_id: device.branch_id,
+        branch_name: branch?.name || null,
+        device_code: device.device_code,
+        device_id: res.id,
+        device_token: res.token,
+        shift_id: "",
+      });
       await load();
       setStatus("");
     } catch (err) {
@@ -113,14 +221,14 @@ export default function PosDevicesPage() {
         <Card>
           <CardHeader>
             <CardTitle>Create Your First POS Device</CardTitle>
-            <CardDescription>Register a device, copy the one-time token, then run the POS agent.</CardDescription>
+            <CardDescription>Register a device, then copy a full setup pack with all required fields.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <ol className="list-decimal space-y-1 pl-5 text-fg-subtle">
               <li>Click Register Device, choose an optional Branch, and set a device code like POS-01.</li>
-              <li>Copy the one-time token (shown once).</li>
-              <li>Paste it into `pos-desktop/config.json` as `device_id` + `device_token`.</li>
-              <li>Start the stack and verify the agent can sync.</li>
+              <li>Copy the generated Setup Pack (includes API URL, company, branch, code, device id, token).</li>
+              <li>Paste those values in POS `Settings` and Save.</li>
+              <li>Sync to verify the agent can connect.</li>
             </ol>
             <div className="flex justify-end">
               <Button onClick={() => setRegisterOpen(true)}>Register Device</Button>
@@ -129,37 +237,60 @@ export default function PosDevicesPage() {
         </Card>
       ) : null}
 
-      {lastToken ? (
+      {lastSetup ? (
         <Card>
           <CardHeader>
-            <CardTitle>Device Token (One-Time)</CardTitle>
-            <CardDescription>This token is shown once. Copy it into the POS agent `pos-desktop/config.json`.</CardDescription>
+            <CardTitle>POS Setup Pack</CardTitle>
+            <CardDescription>
+              Everything needed for POS setup after register/reset. Copy values directly into the POS `Settings` screen.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-fg-muted">Device ID</span>
-              <code className="rounded bg-bg-sunken/30 px-2 py-1 text-xs">{lastToken.id}</code>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-fg-muted">API Base URL for POS agents</label>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={setupApiBaseUrl}
+                  onChange={(e) => setSetupApiBaseUrl(e.target.value)}
+                  placeholder="https://pos.example.com/api"
+                  className="max-w-xl"
+                />
+                <CopyValueButton text={effectiveApiBaseUrl} label="API Base URL" />
+              </div>
+              <p className="text-xs text-fg-subtle">
+                Default is this admin host + `/api`. Change it only if your POS devices use a different API endpoint.
+              </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-fg-muted">Token</span>
-              <code className="rounded bg-bg-sunken/30 px-2 py-1 text-xs break-all">{lastToken.token || "(token not returned; already registered)"}</code>
+
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <SetupField label="Company ID" value={lastSetup.company_id} />
+              <SetupField label="Branch ID" value={lastSetup.branch_id || ""} />
+              <SetupField label="Branch Name" value={lastSetup.branch_name || ""} />
+              <SetupField label="Device Code" value={lastSetup.device_code} />
+              <SetupField label="Device ID" value={lastSetup.device_id} />
+              <SetupField label="Device Token" value={lastSetup.device_token || ""} />
+              <SetupField label="Shift ID (optional)" value={lastSetup.shift_id} />
             </div>
-            {lastToken.token ? (
+
+            {setupPayload ? (
               <div className="space-y-1">
-                <div className="text-xs font-medium text-fg-muted">Suggested `pos-desktop/config.json`</div>
-                <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken/30 p-3 text-xs">
-                  {JSON.stringify(
-                    {
-                      api_base_url: "http://localhost:8001",
-                      device_id: lastToken.id,
-                      device_token: lastToken.token,
-                    },
-                    null,
-                    2
-                  )}
-                </pre>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-medium text-fg-muted">POS Config JSON</div>
+                  <CopyValueButton text={setupPayloadJson} label="config json" />
+                </div>
+                <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken/30 p-3 text-xs">{setupPayloadJson}</pre>
               </div>
             ) : null}
+
+            {lastSetup.device_token ? null : (
+              <div className="rounded-md border border-border-strong bg-bg-elevated p-3 text-xs text-fg-subtle">
+                Token was not returned (device already existed). Click <strong>Reset Token & Setup</strong> on that device to generate a fresh setup pack.
+              </div>
+            )}
+
+            <div className="rounded-md border border-border bg-bg-sunken/20 p-3 text-xs text-fg-subtle">
+              Use this pack in POS: open POS &rarr; <strong>Settings</strong> &rarr; paste values &rarr; Save &rarr; Sync.
+            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -225,8 +356,8 @@ export default function PosDevicesPage() {
                 globalSearch: false,
                 align: "right",
                 cell: (d) => (
-                  <Button variant="outline" size="sm" onClick={() => resetToken(d.id)}>
-                    Reset Token
+                  <Button variant="outline" size="sm" onClick={() => resetToken(d)}>
+                    Reset Token & Setup
                   </Button>
                 ),
               },

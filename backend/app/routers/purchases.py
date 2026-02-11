@@ -13,6 +13,7 @@ import json
 import os
 from ..journal_utils import auto_balance_journal
 from ..validation import DocStatus, PaymentMethod, CurrencyCode
+from ..uom import load_item_uom_context, resolve_line_uom
 from ..importers.supplier_invoice_import import (
     apply_extracted_purchase_invoice_to_draft,
     extract_purchase_invoice_best_effort,
@@ -264,6 +265,89 @@ def _compute_costed_lines(lines_in, exchange_rate: Decimal):
                 'goods_receipt_line_id': getattr(ln, 'goods_receipt_line_id', None),
             }
         )
+    return out, base_usd, base_lbp
+
+
+def _normalize_supplier_invoice_draft_lines(cur, company_id: str, lines_in, exchange_rate: Decimal):
+    """
+    Normalize supplier-invoice draft lines:
+    - Validate/resolve entered UOM context against item conversions.
+    - Convert entered-unit costs to base-unit costs when needed.
+    - Compute line totals from base qty/cost.
+    """
+    ex = Decimal(str(exchange_rate or 0))
+    item_ids = [str(getattr(l, "item_id", "")).strip() for l in (lines_in or []) if getattr(l, "item_id", None)]
+    base_uom_by_item, factors_by_item = load_item_uom_context(cur, company_id, item_ids)
+
+    out: list[dict] = []
+    base_usd = Decimal("0")
+    base_lbp = Decimal("0")
+    for idx, l in enumerate(lines_in or []):
+        resolved = resolve_line_uom(
+            line_label=f"line {idx+1}",
+            item_id=str(getattr(l, "item_id", "")),
+            qty_base=Decimal(str(getattr(l, "qty", 0) or 0)),
+            qty_entered=(Decimal(str(getattr(l, "qty_entered"))) if getattr(l, "qty_entered", None) is not None else None),
+            uom=getattr(l, "uom", None),
+            qty_factor=(Decimal(str(getattr(l, "qty_factor"))) if getattr(l, "qty_factor", None) is not None else None),
+            base_uom_by_item=base_uom_by_item,
+            factors_by_item=factors_by_item,
+            strict_factor=True,
+        )
+        qty_base = resolved["qty"]
+        uom = resolved["uom"]
+        qty_factor = resolved["qty_factor"]
+        qty_entered = resolved["qty_entered"]
+
+        unit_usd = Decimal(str(getattr(l, "unit_cost_usd", 0) or 0))
+        unit_lbp = Decimal(str(getattr(l, "unit_cost_lbp", 0) or 0))
+        if unit_usd == 0 and unit_lbp == 0:
+            # Allow clients to send entered-unit pricing instead of base-unit pricing.
+            if getattr(l, "unit_cost_entered_usd", None) is not None:
+                unit_usd = Decimal(str(getattr(l, "unit_cost_entered_usd", 0) or 0)) / qty_factor
+            if getattr(l, "unit_cost_entered_lbp", None) is not None:
+                unit_lbp = Decimal(str(getattr(l, "unit_cost_entered_lbp", 0) or 0)) / qty_factor
+        unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
+        if unit_usd == 0 and unit_lbp == 0:
+            raise HTTPException(status_code=400, detail=f"line {idx+1}: unit cost is required")
+
+        unit_entered_usd = (
+            Decimal(str(getattr(l, "unit_cost_entered_usd", 0) or 0))
+            if getattr(l, "unit_cost_entered_usd", None) is not None
+            else (unit_usd * qty_factor)
+        )
+        unit_entered_lbp = (
+            Decimal(str(getattr(l, "unit_cost_entered_lbp", 0) or 0))
+            if getattr(l, "unit_cost_entered_lbp", None) is not None
+            else (unit_lbp * qty_factor)
+        )
+
+        line_total_usd = qty_base * unit_usd
+        line_total_lbp = qty_base * unit_lbp
+        base_usd += line_total_usd
+        base_lbp += line_total_lbp
+
+        out.append(
+            {
+                "item_id": str(getattr(l, "item_id", "")),
+                "goods_receipt_line_id": getattr(l, "goods_receipt_line_id", None),
+                "qty": qty_base,
+                "uom": uom,
+                "qty_factor": qty_factor,
+                "qty_entered": qty_entered,
+                "unit_cost_usd": unit_usd,
+                "unit_cost_lbp": unit_lbp,
+                "unit_cost_entered_usd": unit_entered_usd,
+                "unit_cost_entered_lbp": unit_entered_lbp,
+                "line_total_usd": line_total_usd,
+                "line_total_lbp": line_total_lbp,
+                "batch_no": getattr(l, "batch_no", None),
+                "expiry_date": getattr(l, "expiry_date", None),
+                "supplier_item_code": getattr(l, "supplier_item_code", None),
+                "supplier_item_name": getattr(l, "supplier_item_name", None),
+            }
+        )
+
     return out, base_usd, base_lbp
 
 def _fetch_account_defaults(cur, company_id: str) -> dict:
@@ -569,8 +653,14 @@ class SupplierInvoiceDraftLineIn(BaseModel):
     item_id: str
     goods_receipt_line_id: Optional[str] = None
     qty: Decimal
+    # Entered UOM context (optional; qty remains base qty for inventory).
+    uom: Optional[str] = None
+    qty_factor: Decimal = Decimal("1")
+    qty_entered: Optional[Decimal] = None
     unit_cost_usd: Decimal = Decimal("0")
     unit_cost_lbp: Decimal = Decimal("0")
+    unit_cost_entered_usd: Optional[Decimal] = None
+    unit_cost_entered_lbp: Optional[Decimal] = None
     batch_no: Optional[str] = None
     expiry_date: Optional[date] = None
     # Preserve supplier-side identifiers/names when known (used by AI import + matching).
@@ -3253,26 +3343,6 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
     invoice_no = (data.invoice_no or "").strip() or None
 
     exchange_rate = Decimal(str(data.exchange_rate or 0))
-    normalized, base_usd, base_lbp = _compute_costed_lines(data.lines, exchange_rate)
-
-    tax_rate = Decimal('0')
-    if data.tax_code_id:
-        with get_conn() as conn2:
-            set_company_context(conn2, company_id)
-            with conn2.cursor() as cur2:
-                cur2.execute(
-                    """SELECT rate FROM tax_codes WHERE company_id = %s AND id = %s""",
-                    (company_id, data.tax_code_id),
-                )
-                r = cur2.fetchone()
-                if not r:
-                    raise HTTPException(status_code=400, detail="invalid tax_code_id")
-                tax_rate = Decimal(str(r['rate'] or 0))
-
-    tax_lbp = base_lbp * tax_rate
-    tax_usd = (tax_lbp / exchange_rate) if exchange_rate else Decimal('0')
-    total_usd = base_usd + tax_usd
-    total_lbp = base_lbp + tax_lbp
 
     inv_date = data.invoice_date or date.today()
 
@@ -3280,6 +3350,24 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                normalized, base_usd, base_lbp = _normalize_supplier_invoice_draft_lines(cur, company_id, data.lines, exchange_rate)
+
+                tax_rate = Decimal("0")
+                if data.tax_code_id:
+                    cur.execute(
+                        """SELECT rate FROM tax_codes WHERE company_id = %s AND id = %s""",
+                        (company_id, data.tax_code_id),
+                    )
+                    r = cur.fetchone()
+                    if not r:
+                        raise HTTPException(status_code=400, detail="invalid tax_code_id")
+                    tax_rate = Decimal(str(r["rate"] or 0))
+
+                tax_lbp = base_lbp * tax_rate
+                tax_usd = (tax_lbp / exchange_rate) if exchange_rate else Decimal("0")
+                total_usd = base_usd + tax_usd
+                total_lbp = base_lbp + tax_lbp
+
                 # Drafts can be created even if the period is locked; posting enforces the lock.
                 if not invoice_no:
                     # Drafts can be created without a vendor reference; invoice_no is our internal doc number.
@@ -3321,9 +3409,7 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                 )
                 invoice_id = cur.fetchone()["id"]
 
-                uom_by_item = _fetch_item_uoms(cur, company_id, [ln.get("item_id") for ln in (normalized or [])])
                 for idx, ln in enumerate(normalized or []):
-                    base_uom = (uom_by_item.get(str(ln.get("item_id"))) or "").strip() or None
                     exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
                     _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(data.supplier_id))
@@ -3337,7 +3423,7 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                            supplier_item_code, supplier_item_name)
                         VALUES
                           (gen_random_uuid(), %s, %s, %s, %s, %s, %s,
-                           %s, 1, %s,
+                           %s, %s, %s,
                            %s, %s, %s, %s,
                            %s, %s,
                            %s, %s)
@@ -3349,12 +3435,13 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                             ln["item_id"],
                             batch_id,
                             ln["qty"],
-                            base_uom,
-                            ln["qty"],
+                            ln["uom"],
+                            ln["qty_factor"],
+                            ln["qty_entered"],
                             ln["unit_cost_usd"],
                             ln["unit_cost_lbp"],
-                            ln["unit_cost_usd"],
-                            ln["unit_cost_lbp"],
+                            ln["unit_cost_entered_usd"],
+                            ln["unit_cost_entered_lbp"],
                             ln["line_total_usd"],
                             ln["line_total_lbp"],
                             ((ln.get("supplier_item_code") or "").strip() or None) if isinstance(ln.get("supplier_item_code"), str) else ln.get("supplier_item_code"),
@@ -3415,11 +3502,14 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                 supplier_ref = (supplier_ref or "").strip() or None
 
                 if 'lines' in patch:
-                    normalized, base_usd, base_lbp = _compute_costed_lines(data.lines or [], exchange_rate)
+                    normalized, base_usd, base_lbp = _normalize_supplier_invoice_draft_lines(
+                        cur,
+                        company_id,
+                        data.lines or [],
+                        Decimal(str(exchange_rate or 0)),
+                    )
                     cur.execute('DELETE FROM supplier_invoice_lines WHERE company_id=%s AND supplier_invoice_id=%s', (company_id, invoice_id))
-                    uom_by_item = _fetch_item_uoms(cur, company_id, [ln.get("item_id") for ln in (normalized or [])])
                     for idx, ln in enumerate(normalized or []):
-                        base_uom = (uom_by_item.get(str(ln.get("item_id"))) or "").strip() or None
                         exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
                         batch_id = _get_or_create_batch(cur, company_id, ln['item_id'], ln.get('batch_no'), exp)
                         _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(supplier_id or "") or None)
@@ -3433,7 +3523,7 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                                supplier_item_code, supplier_item_name)
                             VALUES
                               (gen_random_uuid(), %s, %s, %s, %s, %s, %s,
-                               %s, 1, %s,
+                               %s, %s, %s,
                                %s, %s, %s, %s,
                                %s, %s,
                                %s, %s)
@@ -3445,12 +3535,13 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                                 ln['item_id'],
                                 batch_id,
                                 ln['qty'],
-                                base_uom,
-                                ln['qty'],
+                                ln["uom"],
+                                ln["qty_factor"],
+                                ln["qty_entered"],
                                 ln['unit_cost_usd'],
                                 ln['unit_cost_lbp'],
-                                ln['unit_cost_usd'],
-                                ln['unit_cost_lbp'],
+                                ln["unit_cost_entered_usd"],
+                                ln["unit_cost_entered_lbp"],
                                 ln['line_total_usd'],
                                 ln['line_total_lbp'],
                                 ((ln.get("supplier_item_code") or "").strip() or None) if isinstance(ln.get("supplier_item_code"), str) else ln.get("supplier_item_code"),

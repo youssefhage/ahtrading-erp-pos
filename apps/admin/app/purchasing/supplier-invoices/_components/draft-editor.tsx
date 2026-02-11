@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost, apiPostForm, apiUrl } from "@/lib/api";
@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
 import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
+import { SearchableSelect } from "@/components/searchable-select";
 import { ErrorBanner } from "@/components/error-banner";
 import { FileInput } from "@/components/file-input";
 type AttachmentRow = { id: string; filename: string; content_type: string; size_bytes: number; uploaded_at: string };
@@ -42,11 +43,15 @@ type TaxCode = {
   reporting_currency: string;
 };
 
+type UomConv = { uom_code: string; to_base_factor: string | number; is_active: boolean };
+
 type InvoiceLineDraft = {
   item_id: string;
   item_sku?: string | null;
   item_name?: string | null;
   unit_of_measure?: string | null;
+  uom?: string | null;
+  qty_factor?: string | null;
   qty: string;
   unit_cost_usd: string;
   unit_cost_lbp: string;
@@ -80,9 +85,15 @@ type InvoiceDetail = {
     item_id: string;
     item_sku?: string | null;
     item_name?: string | null;
+    unit_of_measure?: string | null;
     qty: string | number;
+    uom?: string | null;
+    qty_factor?: string | number | null;
+    qty_entered?: string | number | null;
     unit_cost_usd: string | number;
     unit_cost_lbp: string | number;
+    unit_cost_entered_usd?: string | number | null;
+    unit_cost_entered_lbp?: string | number | null;
     batch_no: string | null;
     expiry_date: string | null;
     goods_receipt_line_id?: string | null;
@@ -98,6 +109,21 @@ function toNum(v: string) {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function buildUomOptions(base: string | null | undefined, convs: UomConv[]) {
+  const seen = new Set<string>();
+  const out: Array<{ value: string; label: string }> = [];
+  for (const c of convs || []) {
+    if (!c?.is_active) continue;
+    const u = String(c.uom_code || "").trim().toUpperCase();
+    if (!u || seen.has(u)) continue;
+    seen.add(u);
+    out.push({ value: u, label: u });
+  }
+  const baseUom = String(base || "").trim().toUpperCase();
+  if (baseUom && !seen.has(baseUom)) out.unshift({ value: baseUom, label: `${baseUom} (base)` });
+  return out.length ? out : baseUom ? [{ value: baseUom, label: baseUom }] : [];
 }
 
 export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; invoiceId?: string }) {
@@ -123,6 +149,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [nameSuggestItemId, setNameSuggestItemId] = useState("");
   const [nameSuggestRaw, setNameSuggestRaw] = useState("");
   const [nameSuggestSuggestions, setNameSuggestSuggestions] = useState<string[]>([]);
+  const [showSecondaryCurrency, setShowSecondaryCurrency] = useState(false);
 
   const [supplierId, setSupplierId] = useState("");
   const [supplierLabel, setSupplierLabel] = useState("");
@@ -135,6 +162,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [goodsReceiptId, setGoodsReceiptId] = useState("");
 
   const [lines, setLines] = useState<InvoiceLineDraft[]>([]);
+  const [uomConvByItem, setUomConvByItem] = useState<Record<string, UomConv[]>>({});
   const [importStatus, setImportStatus] = useState("");
   const [importError, setImportError] = useState("");
   const [importLines, setImportLines] = useState<ImportLineRow[]>([]);
@@ -143,6 +171,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
   const [addItem, setAddItem] = useState<ItemTypeaheadItem | null>(null);
   const [addQty, setAddQty] = useState("1");
+  const [addUom, setAddUom] = useState("");
+  const [addQtyFactor, setAddQtyFactor] = useState("1");
   const [addUsd, setAddUsd] = useState("");
   const [addLbp, setAddLbp] = useState("");
   const [addBatchNo, setAddBatchNo] = useState("");
@@ -150,6 +180,17 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const addQtyRef = useRef<HTMLInputElement | null>(null);
   const saveHotkeyRef = useRef<() => void>(() => {});
   const supplierCostCache = useRef(new Map<string, { usd: number; lbp: number } | null>());
+
+  const ensureUomConversions = useCallback(async (itemIds: string[]) => {
+    const ids = Array.from(new Set((itemIds || []).map((x) => String(x || "").trim()).filter(Boolean)));
+    if (!ids.length) return;
+    try {
+      const res = await apiPost<{ conversions: Record<string, UomConv[]> }>("/items/uom-conversions/lookup", { item_ids: ids });
+      setUomConvByItem((prev) => ({ ...prev, ...(res.conversions || {}) }));
+    } catch {
+      // Non-blocking; base UOM still works without conversion data.
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -181,22 +222,33 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setExchangeRate(String(ex > 0 ? ex : defaultEx));
         setTaxCodeId(String(det.invoice.tax_code_id || ""));
         setGoodsReceiptId(String(det.invoice.goods_receipt_id || ""));
-        setLines(
-          (det.lines || []).map((l) => ({
+        const mapped = (det.lines || []).map((l) => {
+          const qtyFactor = Number((l as any).qty_factor || 1) || 1;
+          const qtyEntered = Number((l as any).qty_entered ?? l.qty ?? 0);
+          const uom = String((l as any).uom || (l as any).unit_of_measure || "").trim() || null;
+          const unitUsdBase = Number(l.unit_cost_usd || 0);
+          const unitLbpBase = Number(l.unit_cost_lbp || 0);
+          const unitUsdEntered = Number((l as any).unit_cost_entered_usd ?? unitUsdBase * qtyFactor);
+          const unitLbpEntered = Number((l as any).unit_cost_entered_lbp ?? unitLbpBase * qtyFactor);
+          return {
             item_id: l.item_id,
             item_sku: (l as any).item_sku || null,
             item_name: (l as any).item_name || null,
-            unit_of_measure: null,
-            qty: String(l.qty || 0),
-            unit_cost_usd: String(l.unit_cost_usd || 0),
-            unit_cost_lbp: String(l.unit_cost_lbp || 0),
+            unit_of_measure: (l as any).unit_of_measure || null,
+            uom,
+            qty_factor: String(qtyFactor),
+            qty: String(qtyEntered || 0),
+            unit_cost_usd: String(unitUsdEntered || 0),
+            unit_cost_lbp: String(unitLbpEntered || 0),
             batch_no: String(l.batch_no || ""),
             expiry_date: String(l.expiry_date || ""),
             goods_receipt_line_id: (l.goods_receipt_line_id as any) || null,
             supplier_item_code: (l.supplier_item_code as any) || null,
             supplier_item_name: (l.supplier_item_name as any) || null
-          }))
-        );
+          } satisfies InvoiceLineDraft;
+        });
+        setLines(mapped);
+        await ensureUomConversions(Array.from(new Set(mapped.map((l) => l.item_id).filter(Boolean))));
 
         // Attachments are optional; don't block editing if the user lacks access.
         await reloadAttachments(id);
@@ -227,6 +279,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setTaxCodeId("");
         setGoodsReceiptId("");
         setLines([]);
+        setUomConvByItem({});
         setAttachments([]);
         setImportStatus("");
         setImportError("");
@@ -241,7 +294,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     } finally {
       setLoading(false);
     }
-  }, [props.mode, props.invoiceId]);
+  }, [props.mode, props.invoiceId, ensureUomConversions]);
 
   useEffect(() => {
     load();
@@ -360,9 +413,19 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     }
   }
 
+  const addUomOptions = useMemo(() => {
+    if (!addItem) return [];
+    const convs = uomConvByItem[addItem.id] || [];
+    return buildUomOptions((addItem as any).unit_of_measure ?? null, convs);
+  }, [addItem, uomConvByItem]);
+
   async function onPickItem(it: ItemTypeaheadItem) {
     setAddItem(it);
+    await ensureUomConversions([it.id]);
     setAddQty("1");
+    const baseUom = String((it as any).unit_of_measure || "").trim().toUpperCase();
+    setAddUom(baseUom);
+    setAddQtyFactor("1");
     setAddBatchNo("");
     setAddExpiry("");
 
@@ -378,8 +441,10 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   function addLine(e: React.FormEvent) {
     e.preventDefault();
     if (!addItem) return setStatus("Select an item.");
-    const q = toNum(addQty);
-    if (q <= 0) return setStatus("qty must be > 0");
+    const qtyEntered = toNum(addQty);
+    if (qtyEntered <= 0) return setStatus("qty must be > 0");
+    const qtyFactor = toNum(addQtyFactor || "1") || 1;
+    if (qtyFactor <= 0) return setStatus("qty factor must be > 0");
     let unitUsd = toNum(addUsd);
     let unitLbp = toNum(addLbp);
     const ex = toNum(exchangeRate);
@@ -387,7 +452,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       if (unitUsd === 0 && unitLbp > 0) unitUsd = unitLbp / ex;
       if (unitLbp === 0 && unitUsd > 0) unitLbp = unitUsd * ex;
     }
-    if (unitUsd === 0 && unitLbp === 0) return setStatus("Set USD or LL unit cost.");
+    if (unitUsd === 0 && unitLbp === 0) return setStatus("Set USD or LBP unit cost.");
+    const uom = String(addUom || (addItem as any).unit_of_measure || "").trim().toUpperCase() || null;
+    if (!uom) return setStatus("UOM is required.");
     setLines((prev) => [
       ...prev,
       {
@@ -395,7 +462,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         item_sku: addItem.sku,
         item_name: addItem.name,
         unit_of_measure: (addItem as any).unit_of_measure ?? null,
-        qty: String(q),
+        uom,
+        qty_factor: String(qtyFactor),
+        qty: String(qtyEntered),
         unit_cost_usd: String(unitUsd),
         unit_cost_lbp: String(unitLbp),
         batch_no: addBatchNo || "",
@@ -406,11 +475,50 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     ]);
     setAddItem(null);
     setAddQty("1");
+    setAddUom("");
+    setAddQtyFactor("1");
     setAddUsd("");
     setAddLbp("");
     setAddBatchNo("");
     setAddExpiry("");
     setStatus("");
+  }
+
+  function patchLine(idx: number, patch: Partial<InvoiceLineDraft>) {
+    setLines((prev) =>
+      prev.map((l, i) => {
+        if (i !== idx) return l;
+        const out = { ...l, ...patch };
+        const ex = toNum(exchangeRate);
+        if (ex > 0) {
+          const usd = toNum(String(out.unit_cost_usd || 0));
+          const lbp = toNum(String(out.unit_cost_lbp || 0));
+          if (patch.unit_cost_usd !== undefined && usd > 0 && lbp === 0) out.unit_cost_lbp = String(usd * ex);
+          if (patch.unit_cost_lbp !== undefined && lbp > 0 && usd === 0) out.unit_cost_usd = String(lbp / ex);
+        }
+        return out;
+      })
+    );
+  }
+
+  function focusLineInput(nextIdx: number, field: string) {
+    const sel = `[data-line-idx="${nextIdx}"][data-line-field="${field}"]`;
+    const el = document.querySelector<HTMLInputElement>(sel);
+    el?.focus();
+    el?.select?.();
+  }
+
+  function onLineKeyDown(e: React.KeyboardEvent<HTMLInputElement>, idx: number, field: string) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      focusLineInput(Math.min(lines.length - 1, idx + 1), field);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      focusLineInput(Math.max(0, idx - 1), field);
+      return;
+    }
   }
 
   async function save(e?: React.FormEvent) {
@@ -424,9 +532,14 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     const linesOut: Array<{
       item_id: string;
       goods_receipt_line_id?: string;
-      qty: number;
+      qty: number; // base qty
+      uom?: string | null;
+      qty_factor?: number | null;
+      qty_entered?: number | null;
       unit_cost_usd: number;
       unit_cost_lbp: number;
+      unit_cost_entered_usd?: number | null;
+      unit_cost_entered_lbp?: number | null;
       batch_no?: string;
       expiry_date?: string;
       supplier_item_code?: string | null;
@@ -439,18 +552,34 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       const lbpRes = parseNumberInput(l.unit_cost_lbp);
       if (!qtyRes.ok && qtyRes.reason === "invalid") return setStatus(`Invalid qty on line ${i + 1}.`);
       if (!usdRes.ok && usdRes.reason === "invalid") return setStatus(`Invalid unit USD on line ${i + 1}.`);
-      if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid unit LL on line ${i + 1}.`);
-      const qty = qtyRes.ok ? qtyRes.value : 0;
-      const unitUsd = usdRes.ok ? usdRes.value : 0;
-      const unitLbp = lbpRes.ok ? lbpRes.value : 0;
-      if (qty <= 0) return setStatus(`Qty must be > 0 (line ${i + 1}).`);
-      if (unitUsd === 0 && unitLbp === 0) return setStatus(`Set USD or LL unit cost (line ${i + 1}).`);
+      if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid unit LBP on line ${i + 1}.`);
+      const qtyEntered = qtyRes.ok ? qtyRes.value : 0;
+      const qtyFactor = toNum(String(l.qty_factor || "1")) || 1;
+      let unitEnteredUsd = usdRes.ok ? usdRes.value : 0;
+      let unitEnteredLbp = lbpRes.ok ? lbpRes.value : 0;
+      if (qtyEntered <= 0) return setStatus(`Qty must be > 0 (line ${i + 1}).`);
+      if (qtyFactor <= 0) return setStatus(`qty_factor must be > 0 (line ${i + 1}).`);
+      const uom = String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || null;
+      if (!uom) return setStatus(`Missing UOM (line ${i + 1}).`);
+      if (ex > 0) {
+        if (unitEnteredUsd === 0 && unitEnteredLbp > 0) unitEnteredUsd = unitEnteredLbp / ex;
+        if (unitEnteredLbp === 0 && unitEnteredUsd > 0) unitEnteredLbp = unitEnteredUsd * ex;
+      }
+      if (unitEnteredUsd === 0 && unitEnteredLbp === 0) return setStatus(`Set USD or LBP unit cost (line ${i + 1}).`);
+      const qtyBase = qtyEntered * qtyFactor;
+      const unitUsd = unitEnteredUsd / qtyFactor;
+      const unitLbp = unitEnteredLbp / qtyFactor;
       linesOut.push({
         item_id: l.item_id,
         goods_receipt_line_id: l.goods_receipt_line_id || undefined,
-        qty,
+        qty: qtyBase,
+        uom,
+        qty_factor: qtyFactor,
+        qty_entered: qtyEntered,
         unit_cost_usd: unitUsd,
         unit_cost_lbp: unitLbp,
+        unit_cost_entered_usd: unitEnteredUsd,
+        unit_cost_entered_lbp: unitEnteredLbp,
         batch_no: (l.batch_no || "").trim() || undefined,
         expiry_date: (l.expiry_date || "").trim() || undefined,
         supplier_item_code: (l.supplier_item_code || null) as any,
@@ -682,7 +811,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                       <th className="px-3 py-2">Supplier Item</th>
                       <th className="px-3 py-2 text-right">Qty</th>
                       <th className="px-3 py-2 text-right">Unit USD</th>
-                      <th className="px-3 py-2 text-right">Unit LL</th>
+                      <th className="px-3 py-2 text-right">Unit LBP</th>
                       <th className="px-3 py-2">Suggested</th>
                       <th className="px-3 py-2">Resolved Item</th>
                       <th className="px-3 py-2 text-right">Actions</th>
@@ -786,7 +915,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                   />
                 </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
+                <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LBP)</label>
                 <Input inputMode="decimal" value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={importing || loading} />
               </div>
               </div>
@@ -928,7 +1057,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 <p className="text-[11px] text-fg-subtle">If empty, the backend auto-calculates from supplier payment terms.</p>
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
+                <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LBP)</label>
                 <Input inputMode="decimal" value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={loading} />
               </div>
             </div>
@@ -953,12 +1082,24 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Lines</CardTitle>
-                <CardDescription>Add items and costs. Batch/expiry required if item tracking is enabled.</CardDescription>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-base">Lines</CardTitle>
+                    <CardDescription>Add items and costs. Batch/expiry required if item tracking is enabled.</CardDescription>
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-xs text-fg-muted">
+                    <input
+                      type="checkbox"
+                      checked={showSecondaryCurrency}
+                      onChange={(e) => setShowSecondaryCurrency(e.target.checked)}
+                    />
+                    Show secondary currency (LBP)
+                  </label>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                  <div className="space-y-1 md:col-span-6">
+                  <div className={`space-y-1 ${showSecondaryCurrency ? "md:col-span-5" : "md:col-span-7"}`}>
                     <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
                     <ItemTypeahead disabled={loading} onSelect={(it) => void onPickItem(it)} />
                     {addItem ? (
@@ -969,24 +1110,40 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                       <p className="text-[11px] text-fg-subtle">Tip: pick the item first, then type qty and cost.</p>
                     )}
                   </div>
-                  <div className="space-y-1 md:col-span-2">
+                  <div className="space-y-1 md:col-span-1">
                     <label className="text-xs font-medium text-fg-muted">Qty</label>
-                    <div className="relative">
-                      <Input inputMode="decimal" ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} className="pr-14" />
-                      {(addItem as any)?.unit_of_measure ? (
-                        <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[11px] text-fg-subtle">
-                          {String((addItem as any).unit_of_measure)}
-                        </div>
-                      ) : null}
-                    </div>
+                    <Input inputMode="decimal" ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-medium text-fg-muted">UOM</label>
+                    <SearchableSelect
+                      value={addUom}
+                      onChange={(v) => {
+                        const u = String(v || "").trim().toUpperCase();
+                        const convs = addItem ? (uomConvByItem[addItem.id] || []) : [];
+                        const hit = convs.find((c) => String(c.uom_code || "").trim().toUpperCase() === u);
+                        const f = hit ? Number(hit.to_base_factor || 1) : 1;
+                        setAddUom(u);
+                        setAddQtyFactor(String(f > 0 ? f : 1));
+                      }}
+                      disabled={loading || !addItem}
+                      placeholder="UOM..."
+                      searchPlaceholder="Search UOM..."
+                      options={addUomOptions}
+                    />
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Unit USD</label>
                     <Input inputMode="decimal" value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" />
                   </div>
-                  <div className="space-y-1 md:col-span-2">
-                    <label className="text-xs font-medium text-fg-muted">Unit LL</label>
-                    <Input inputMode="decimal" value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
+                  {showSecondaryCurrency ? (
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-xs font-medium text-fg-muted">Unit LBP</label>
+                      <Input inputMode="decimal" value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
+                    </div>
+                  ) : null}
+                  <div className="md:col-span-12 text-[11px] text-fg-subtle">
+                    Qty factor: <span className="font-mono">{toNum(addQtyFactor).toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
                   </div>
                   <div className="space-y-1 md:col-span-6">
                     <label className="text-xs font-medium text-fg-muted">Batch No (optional)</label>
@@ -1009,8 +1166,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                       <tr>
                         <th className="px-3 py-2">Item</th>
                         <th className="px-3 py-2 text-right">Qty</th>
+                        <th className="px-3 py-2">UOM</th>
                         <th className="px-3 py-2 text-right">Unit USD</th>
-                        <th className="px-3 py-2 text-right">Unit LL</th>
+                        {showSecondaryCurrency ? <th className="px-3 py-2 text-right">Unit LBP</th> : null}
                         <th className="px-3 py-2">Batch</th>
                         <th className="px-3 py-2">Expiry</th>
                         <th className="px-3 py-2 text-right">Actions</th>
@@ -1018,10 +1176,12 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     </thead>
                     <tbody>
                       {lines.map((l, idx) => {
-                        const qty = toNum(String(l.qty));
                         const unitUsd = toNum(String(l.unit_cost_usd));
                         const unitLbp = toNum(String(l.unit_cost_lbp));
                         const costMissing = unitUsd === 0 && unitLbp === 0;
+                        const convs = uomConvByItem[l.item_id] || [];
+                        const uomOptions = buildUomOptions(l.unit_of_measure ?? null, convs);
+                        const qtyFactor = toNum(String(l.qty_factor || "1")) || 1;
                         return (
                           <tr key={`${l.item_id}-${idx}`} className="ui-tr-hover">
                             <td className="px-3 py-2">
@@ -1041,14 +1201,81 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                                 ) : null}
                               </div>
                             </td>
-                            <td className="px-3 py-2 text-right data-mono text-xs">
-                              {qty.toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
-                              {l.unit_of_measure ? <span className="text-[10px] text-fg-subtle">{String(l.unit_of_measure)}</span> : null}
+                            <td className="px-3 py-2 text-right">
+                              <Input
+                                value={l.qty}
+                                onChange={(e) => patchLine(idx, { qty: e.target.value })}
+                                inputMode="decimal"
+                                data-line-idx={idx}
+                                data-line-field="qty"
+                                onKeyDown={(e) => onLineKeyDown(e, idx, "qty")}
+                                className="h-8 w-24 text-right font-mono text-xs"
+                                disabled={loading || saving}
+                              />
                             </td>
-                            <td className="px-3 py-2 text-right data-mono text-xs">{unitUsd.toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
-                            <td className="px-3 py-2 text-right data-mono text-xs">{unitLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}</td>
-                            <td className="px-3 py-2 font-mono text-xs">{l.batch_no || "-"}</td>
-                            <td className="px-3 py-2 font-mono text-xs">{l.expiry_date ? String(l.expiry_date).slice(0, 10) : "-"}</td>
+                            <td className="px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <div className="min-w-[8rem]">
+                                  <SearchableSelect
+                                    value={String(l.uom || l.unit_of_measure || "").trim().toUpperCase()}
+                                    onChange={(v) => {
+                                      const u = String(v || "").trim().toUpperCase();
+                                      const hit = convs.find((c) => String(c.uom_code || "").trim().toUpperCase() === u);
+                                      const f = hit ? Number(hit.to_base_factor || 1) : 1;
+                                      patchLine(idx, { uom: u, qty_factor: String(f > 0 ? f : 1) });
+                                    }}
+                                    disabled={loading || saving}
+                                    placeholder="UOM..."
+                                    searchPlaceholder="Search UOM..."
+                                    options={uomOptions}
+                                  />
+                                </div>
+                                <span className="text-[10px] font-mono text-fg-subtle">x{qtyFactor.toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Input
+                                value={l.unit_cost_usd}
+                                onChange={(e) => patchLine(idx, { unit_cost_usd: e.target.value })}
+                                inputMode="decimal"
+                                data-line-idx={idx}
+                                data-line-field="usd"
+                                onKeyDown={(e) => onLineKeyDown(e, idx, "usd")}
+                                className="h-8 w-28 text-right font-mono text-xs"
+                                disabled={loading || saving}
+                              />
+                            </td>
+                            {showSecondaryCurrency ? (
+                              <td className="px-3 py-2 text-right">
+                                <Input
+                                  value={l.unit_cost_lbp}
+                                  onChange={(e) => patchLine(idx, { unit_cost_lbp: e.target.value })}
+                                  inputMode="decimal"
+                                  data-line-idx={idx}
+                                  data-line-field="lbp"
+                                  onKeyDown={(e) => onLineKeyDown(e, idx, "lbp")}
+                                  className="h-8 w-28 text-right font-mono text-xs"
+                                  disabled={loading || saving}
+                                />
+                              </td>
+                            ) : null}
+                            <td className="px-3 py-2">
+                              <Input
+                                value={l.batch_no}
+                                onChange={(e) => patchLine(idx, { batch_no: e.target.value })}
+                                className="h-8 min-w-[8rem] font-mono text-xs"
+                                disabled={loading || saving}
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <Input
+                                type="date"
+                                value={l.expiry_date ? String(l.expiry_date).slice(0, 10) : ""}
+                                onChange={(e) => patchLine(idx, { expiry_date: e.target.value })}
+                                className="h-8 min-w-[9rem] font-mono text-xs"
+                                disabled={loading || saving}
+                              />
+                            </td>
                             <td className="px-3 py-2 text-right">
                               <div className="flex justify-end gap-2">
                                 <Button type="button" size="sm" variant="outline" onClick={() => void openNameSuggestions(l)} disabled={nameSuggestLoading}>
@@ -1064,7 +1291,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                       })}
                       {lines.length === 0 ? (
                         <tr>
-                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
+                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={showSecondaryCurrency ? 8 : 7}>
                             No lines yet.
                           </td>
                         </tr>

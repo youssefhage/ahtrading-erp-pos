@@ -149,9 +149,12 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [lines, setLines] = useState<InvoiceLineDraft[]>([]);
   const [invoiceDiscountPct, setInvoiceDiscountPct] = useState("0");
   const [uomConvByItem, setUomConvByItem] = useState<Record<string, UomConv[]>>({});
+  const [showSecondaryCurrency, setShowSecondaryCurrency] = useState(false);
 
   const [addItem, setAddItem] = useState<ItemTypeaheadItem | null>(null);
   const [addQty, setAddQty] = useState("1");
+  const [addUom, setAddUom] = useState("");
+  const [addQtyFactor, setAddQtyFactor] = useState("1");
   const [addUsd, setAddUsd] = useState("");
   const [addLbp, setAddLbp] = useState("");
   const [addDiscPct, setAddDiscPct] = useState("0");
@@ -192,6 +195,23 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       totalLbp: subtotalLbp,
     };
   }, [lines, exchangeRate]);
+
+  const addUomOptions = useMemo(() => {
+    if (!addItem) return [];
+    const convs = uomConvByItem[addItem.id] || [];
+    const seen = new Set<string>();
+    const out: Array<{ value: string; label: string }> = [];
+    for (const c of convs || []) {
+      if (!c?.is_active) continue;
+      const u = String(c.uom_code || "").trim().toUpperCase();
+      if (!u || seen.has(u)) continue;
+      seen.add(u);
+      out.push({ value: u, label: u });
+    }
+    const base = String(addItem.unit_of_measure || "").trim().toUpperCase();
+    if (base && !seen.has(base)) out.unshift({ value: base, label: `${base} (base)` });
+    return out.length ? out : base ? [{ value: base, label: base }] : [];
+  }, [addItem, uomConvByItem]);
 
   function applyInvoiceDiscountToAllLines() {
     const pct = clampPct(toNum(invoiceDiscountPct));
@@ -392,6 +412,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     // Best-effort preload conversions so the line UOM selector is ready.
     ensureUomConversions([it.id]);
     setAddQty("1");
+    const baseUom = String(it.unit_of_measure || "").trim().toUpperCase();
+    setAddUom(baseUom);
+    setAddQtyFactor("1");
     setAddDiscPct(invoiceDiscountPct || "0");
 
     const usd = toNum(String((it as any).price_usd ?? ""));
@@ -406,8 +429,12 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   function addLine(e: React.FormEvent) {
     e.preventDefault();
     if (!addItem) return setStatus("Select an item.");
-    const q = toNum(addQty);
-    if (q <= 0) return setStatus("qty must be > 0");
+    const qtyEntered = toNum(addQty);
+    if (qtyEntered <= 0) return setStatus("qty must be > 0");
+    const qtyFactor = toNum(addQtyFactor || "1") || 1;
+    if (qtyFactor <= 0) return setStatus("qty factor must be > 0");
+    const uom = String(addUom || addItem.unit_of_measure || "").trim().toUpperCase() || null;
+    if (!uom) return setStatus("UOM is required.");
     let unitUsd = toNum(addUsd);
     let unitLbp = toNum(addLbp);
     const ex = toNum(exchangeRate);
@@ -415,7 +442,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       if (unitUsd === 0 && unitLbp > 0) unitUsd = unitLbp / ex;
       if (unitLbp === 0 && unitUsd > 0) unitLbp = unitUsd * ex;
     }
-    if (unitUsd === 0 && unitLbp === 0) return setStatus("Set USD or LL unit price.");
+    if (unitUsd === 0 && unitLbp === 0) return setStatus("Set USD or LBP unit price.");
     setLines((prev) => [
       ...prev,
       {
@@ -426,9 +453,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         tax_code_id: (addItem as any).tax_code_id ?? null,
         standard_cost_usd: (addItem as any).standard_cost_usd ?? null,
         standard_cost_lbp: (addItem as any).standard_cost_lbp ?? null,
-        uom: addItem.unit_of_measure ?? null,
-        qty_factor: "1",
-        qty: String(q),
+        uom,
+        qty_factor: String(qtyFactor),
+        qty: String(qtyEntered),
         pre_unit_price_usd: String(unitUsd),
         pre_unit_price_lbp: String(unitLbp),
         discount_pct: addDiscPct || "0"
@@ -436,6 +463,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     ]);
     setAddItem(null);
     setAddQty("1");
+    setAddUom("");
+    setAddQtyFactor("1");
     setAddUsd("");
     setAddLbp("");
     setAddDiscPct(invoiceDiscountPct || "0");
@@ -490,7 +519,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       const discRes = parseNumberInput(l.discount_pct);
       if (!qtyRes.ok && qtyRes.reason === "invalid") return setStatus(`Invalid qty on line ${i + 1}.`);
       if (!usdRes.ok && usdRes.reason === "invalid") return setStatus(`Invalid unit USD on line ${i + 1}.`);
-      if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid unit LL on line ${i + 1}.`);
+      if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid unit LBP on line ${i + 1}.`);
       if (!discRes.ok && discRes.reason === "invalid") return setStatus(`Invalid discount % on line ${i + 1}.`);
       const qtyEntered = qtyRes.ok ? qtyRes.value : 0;
       let preUsd = usdRes.ok ? usdRes.value : 0;
@@ -509,7 +538,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         if (preUsd === 0 && preLbp > 0) preUsd = preLbp / ex;
         if (preLbp === 0 && preUsd > 0) preLbp = preUsd * ex;
       }
-      if (preUsd === 0 && preLbp === 0) return setStatus(`Set USD or LL unit price (line ${i + 1}).`);
+      if (preUsd === 0 && preLbp === 0) return setStatus(`Set USD or LBP unit price (line ${i + 1}).`);
 
       let netUsd = preUsd * (1 - discFrac);
       let netLbp = preLbp * (1 - discFrac);
@@ -686,7 +715,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
+                <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LBP)</label>
                 <Input inputMode="decimal" value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} disabled={loading} />
               </div>
               <div className="md:col-span-2 flex items-end">
@@ -705,6 +734,14 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                    <CardDescription>Add items, then Post when ready.</CardDescription>
 	                  </div>
 	                  <div className="flex flex-wrap items-end justify-end gap-2">
+                      <label className="inline-flex items-center gap-2 text-[11px] text-fg-muted">
+                        <input
+                          type="checkbox"
+                          checked={showSecondaryCurrency}
+                          onChange={(e) => setShowSecondaryCurrency(e.target.checked)}
+                        />
+                        Show secondary currency (LBP)
+                      </label>
 	                    <div className="space-y-1">
 	                      <label className="text-[11px] font-medium text-fg-muted">Invoice Disc%</label>
 	                      <Input
@@ -723,7 +760,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	              </CardHeader>
               <CardContent className="space-y-3">
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                  <div className="space-y-1 md:col-span-5">
+                  <div className={`space-y-1 ${showSecondaryCurrency ? "md:col-span-4" : "md:col-span-5"}`}>
                     <label className="text-xs font-medium text-fg-muted">Item (search by name or barcode)</label>
                     <ItemTypeahead
                       endpoint="/pricing/catalog/typeahead"
@@ -739,28 +776,44 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                       <p className="text-[11px] text-fg-subtle">Tip: scan a barcode or type a few letters of the name, then Enter.</p>
                     )}
                   </div>
-                  <div className="space-y-1 md:col-span-2">
+                  <div className="space-y-1 md:col-span-1">
                     <label className="text-xs font-medium text-fg-muted">Qty</label>
-                    <div className="relative">
-                      <Input inputMode="decimal" ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} className="pr-14" />
-                      {addItem?.unit_of_measure ? (
-                        <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[11px] text-fg-subtle">
-                          {addItem.unit_of_measure}
-                        </div>
-                      ) : null}
-                    </div>
+                    <Input inputMode="decimal" ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-medium text-fg-muted">UOM</label>
+                    <SearchableSelect
+                      value={addUom}
+                      onChange={(v) => {
+                        const u = String(v || "").trim().toUpperCase();
+                        const convs = addItem ? (uomConvByItem[addItem.id] || []) : [];
+                        const hit = convs.find((c) => String(c.uom_code || "").trim().toUpperCase() === u);
+                        const f = hit ? Number(hit.to_base_factor || 1) : 1;
+                        setAddUom(u);
+                        setAddQtyFactor(String(f > 0 ? f : 1));
+                      }}
+                      disabled={loading || !addItem}
+                      placeholder="UOM..."
+                      searchPlaceholder="Search UOM..."
+                      options={addUomOptions}
+                    />
                   </div>
                   <div className="space-y-1 md:col-span-2">
                     <label className="text-xs font-medium text-fg-muted">Unit USD</label>
                     <Input inputMode="decimal" value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0.00" />
                   </div>
-                  <div className="space-y-1 md:col-span-2">
-                    <label className="text-xs font-medium text-fg-muted">Unit LL</label>
-                    <Input inputMode="decimal" value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
-                  </div>
-                  <div className="space-y-1 md:col-span-1">
+                  {showSecondaryCurrency ? (
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-xs font-medium text-fg-muted">Unit LBP</label>
+                      <Input inputMode="decimal" value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
+                    </div>
+                  ) : null}
+                  <div className={`space-y-1 ${showSecondaryCurrency ? "md:col-span-1" : "md:col-span-2"}`}>
                     <label className="text-xs font-medium text-fg-muted">Disc%</label>
                     <Input inputMode="decimal" value={addDiscPct} onChange={(e) => setAddDiscPct(e.target.value)} placeholder="0" />
+                  </div>
+                  <div className="md:col-span-12 text-[11px] text-fg-subtle">
+                    Qty factor: <span className="font-mono">{toNum(addQtyFactor).toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
                   </div>
                   <div className="md:col-span-12 flex justify-end gap-2">
                     <Button type="submit" variant="outline" disabled={loading}>
@@ -774,8 +827,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                    <div className="flex items-center justify-between gap-2">
 	                      <span>Subtotal</span>
 	                      <span className="font-mono text-foreground">
-	                        {totals.subtotalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} /{" "}
-	                        {totals.subtotalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+	                        {totals.subtotalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                          {showSecondaryCurrency
+                            ? ` / ${totals.subtotalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+                            : ""}
 	                      </span>
 	                    </div>
 	                  </div>
@@ -783,8 +838,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                    <div className="flex items-center justify-between gap-2">
 	                      <span>Discount</span>
 	                      <span className="font-mono text-foreground">
-	                        {totals.discountUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} /{" "}
-	                        {totals.discountLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+	                        {totals.discountUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                          {showSecondaryCurrency
+                            ? ` / ${totals.discountLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+                            : ""}
 	                      </span>
 	                    </div>
 	                  </div>
@@ -792,8 +849,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                    <div className="flex items-center justify-between gap-2">
 	                      <span>Total</span>
 	                      <span className="font-mono text-foreground">
-	                        {totals.totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })} /{" "}
-	                        {totals.totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+	                        {totals.totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                          {showSecondaryCurrency
+                            ? ` / ${totals.totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+                            : ""}
 	                      </span>
 	                    </div>
 	                  </div>
@@ -807,10 +866,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                        <th className="px-3 py-2 text-right">Qty</th>
 	                        <th className="px-3 py-2">UOM</th>
 	                        <th className="px-3 py-2 text-right">Unit USD</th>
-	                        <th className="px-3 py-2 text-right">Unit LL</th>
+	                        {showSecondaryCurrency ? <th className="px-3 py-2 text-right">Unit LBP</th> : null}
 	                        <th className="px-3 py-2 text-right">Disc%</th>
 	                        <th className="px-3 py-2 text-right">Net USD</th>
-	                        <th className="px-3 py-2 text-right">Net LL</th>
+	                        {showSecondaryCurrency ? <th className="px-3 py-2 text-right">Net LBP</th> : null}
 	                        <th className="px-3 py-2 text-right">Actions</th>
 	                      </tr>
                     </thead>
@@ -896,18 +955,20 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                                 className="h-8 w-28 text-right font-mono text-xs"
                               />
                             </td>
-                            <td className="px-3 py-2 text-right">
-                              <Input
-                                value={l.pre_unit_price_lbp}
-                                onChange={(e) => patchLine(idx, { pre_unit_price_lbp: e.target.value })}
-                                placeholder="0"
-                                inputMode="decimal"
-                                data-line-idx={idx}
-                                data-line-field="lbp"
-                                onKeyDown={(e) => onLineKeyDown(e, idx, "lbp")}
-                                className="h-8 w-28 text-right font-mono text-xs"
-                              />
-                            </td>
+                            {showSecondaryCurrency ? (
+                              <td className="px-3 py-2 text-right">
+                                <Input
+                                  value={l.pre_unit_price_lbp}
+                                  onChange={(e) => patchLine(idx, { pre_unit_price_lbp: e.target.value })}
+                                  placeholder="0"
+                                  inputMode="decimal"
+                                  data-line-idx={idx}
+                                  data-line-field="lbp"
+                                  onKeyDown={(e) => onLineKeyDown(e, idx, "lbp")}
+                                  className="h-8 w-28 text-right font-mono text-xs"
+                                />
+                              </td>
+                            ) : null}
                             <td className="px-3 py-2 text-right">
                               <Input
                                 value={l.discount_pct}
@@ -923,9 +984,11 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                             <td className="px-3 py-2 text-right font-mono text-xs">
                               {r.totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
                             </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
-                              {r.totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
-                            </td>
+                            {showSecondaryCurrency ? (
+                              <td className="px-3 py-2 text-right font-mono text-xs">
+                                {r.totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                              </td>
+                            ) : null}
                             <td className="px-3 py-2 text-right">
                               <div className="flex justify-end gap-2">
                                 <Button
@@ -943,7 +1006,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                       })}
 	                      {lines.length === 0 ? (
 	                        <tr>
-	                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={9}>
+	                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={showSecondaryCurrency ? 9 : 7}>
 	                            No lines yet.
 	                          </td>
 	                        </tr>

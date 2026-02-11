@@ -11,6 +11,7 @@
     --bg: 244 244 245; /* zinc-100 */
     --bg-elevated: 255 255 255; /* white */
     --bg-sunken: 228 228 231; /* zinc-200 */
+    --table-head-bg: 242 242 244; /* subtle light grey for table headers */
 
     /* Foreground: near-black for readability on light */
     --fg: 24 24 27; /* zinc-900 */
@@ -103,6 +104,7 @@
     --bg: 9 9 11; /* zinc-950 */
     --bg-elevated: 24 24 27; /* zinc-900 */
     --bg-sunken: 0 0 0; /* pure black */
+    --table-head-bg: 39 39 42; /* subtle grey header contrast in dark mode */
 
     /* Foreground: warm white for readability on dark */
     --fg: 250 250 250; /* zinc-50 */
@@ -303,7 +305,8 @@
 
   /* Enhanced table readability (applies to all ui-table inside ui-table-wrap) */
   .ui-table-wrap .ui-table thead th {
-    @apply sticky top-0 z-10 bg-bg-elevated;
+    @apply sticky top-0 z-10;
+    background: rgb(var(--table-head-bg));
   }
 
   .ui-table-wrap .ui-table tbody tr:nth-child(even) {
@@ -313,7 +316,8 @@
   .ui-thead {
     /* Slightly larger + darker header text improves scan-ability. */
     @apply text-[11px] font-semibold uppercase tracking-wider text-fg-muted;
-    @apply bg-bg-elevated border-b border-border-subtle;
+    @apply border-b border-border-subtle;
+    background: rgb(var(--table-head-bg));
   }
 
   .ui-thead th {
