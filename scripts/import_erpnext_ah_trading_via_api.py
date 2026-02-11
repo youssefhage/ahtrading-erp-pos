@@ -482,8 +482,23 @@ def main() -> int:
                 base_uom2 = _norm(row2[c_uom2]) if c_uom2 is not None and c_uom2 < len(row2) else "EA"
                 sku_base_uom[sku2] = (base_uom2 or "EA").strip().upper()[:32]
 
+        rerouted_barcodes = 0
+        skipped_barcodes = 0
+        skipped_skus: set[str] = set()
         for sku, bcs in barcodes_raw_by_sku.items():
-            cid = sku_company.get(sku, official_id)
+            preferred_cid = sku_company.get(sku, official_id)
+            if sku in items_by_company.get(preferred_cid, {}):
+                cid = preferred_cid
+            elif sku in items_by_company.get(official_id, {}):
+                cid = official_id
+                rerouted_barcodes += len(bcs)
+            elif sku in items_by_company.get(unofficial_id, {}):
+                cid = unofficial_id
+                rerouted_barcodes += len(bcs)
+            else:
+                skipped_barcodes += len(bcs)
+                skipped_skus.add(sku)
+                continue
             base_uom = sku_base_uom.get(sku, "EA")
             conv = conv_map_by_sku.get(sku, {})
             conv.setdefault(base_uom, Decimal("1"))
@@ -499,6 +514,11 @@ def main() -> int:
                         "is_primary": i == 0,
                     }
                 )
+        if rerouted_barcodes:
+            print(f"  - [warn] rerouted {rerouted_barcodes} barcode rows to the company where the SKU exists")
+        if skipped_barcodes:
+            sample = sorted(skipped_skus)[:10]
+            print(f"  - [warn] skipped {skipped_barcodes} barcode rows with missing SKU in both companies: {sample}")
 
     # Upsert items first (needed before prices/opening stock).
     for cid, label in [(official_id, "official"), (unofficial_id, "unofficial")]:

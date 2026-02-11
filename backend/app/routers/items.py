@@ -210,6 +210,9 @@ def list_items_min(
 
 @router.get("/list", dependencies=[Depends(require_permission("items:read"))])
 def list_items_list(
+    q: str = "",
+    limit: int = 0,
+    offset: int = 0,
     include_inactive: bool = False,
     company_id: str = Depends(get_company_id),
 ):
@@ -218,11 +221,40 @@ def list_items_list(
     Returns the fields needed for listing/searching without pulling long descriptions,
     external ids, costing, etc.
     """
+    if limit < 0 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 0 and 500")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
+    qq = (q or "").strip()
+    like = f"%{qq}%"
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
             cur.execute(
                 """
+                SELECT COUNT(*)::int AS n
+                FROM items i
+                WHERE i.company_id = %s
+                  AND (%s = true OR i.is_active = true)
+                  AND (
+                    %s = ''
+                    OR i.sku ILIKE %s
+                    OR i.name ILIKE %s
+                    OR (i.barcode IS NOT NULL AND i.barcode ILIKE %s)
+                    OR EXISTS (
+                      SELECT 1
+                      FROM item_barcodes b
+                      WHERE b.company_id = i.company_id
+                        AND b.item_id = i.id
+                        AND b.barcode ILIKE %s
+                    )
+                  )
+                """,
+                (company_id, bool(include_inactive), qq, like, like, like, like),
+            )
+            total = int((cur.fetchone() or {}).get("n") or 0)
+
+            sql = """
                 SELECT i.id, i.sku, i.name, i.barcode,
                        i.unit_of_measure, i.category_id,
                        i.is_active, i.updated_at,
@@ -235,11 +267,30 @@ def list_items_list(
                 ) bc ON true
                 WHERE i.company_id = %s
                   AND (%s = true OR i.is_active = true)
+                  AND (
+                    %s = ''
+                    OR i.sku ILIKE %s
+                    OR i.name ILIKE %s
+                    OR (i.barcode IS NOT NULL AND i.barcode ILIKE %s)
+                    OR EXISTS (
+                      SELECT 1
+                      FROM item_barcodes b
+                      WHERE b.company_id = i.company_id
+                        AND b.item_id = i.id
+                        AND b.barcode ILIKE %s
+                    )
+                  )
                 ORDER BY i.sku
-                """,
-                (company_id, bool(include_inactive)),
+            """
+            params = [company_id, bool(include_inactive), qq, like, like, like, like]
+            if limit > 0:
+                sql += " LIMIT %s OFFSET %s"
+                params.extend([int(limit), int(offset)])
+            cur.execute(
+                sql,
+                tuple(params),
             )
-            return {"items": cur.fetchall()}
+            return {"items": cur.fetchall(), "total": total}
 
 
 class ItemsLookupIn(BaseModel):

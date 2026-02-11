@@ -21,6 +21,14 @@ const ACCENT_THEMES: {
   { key: "slate", label: "Slate", primary: "100 116 139", dim: "51 65 85" }
 ];
 
+function emitThemeChange(detail: { color?: ColorTheme; accent?: AccentTheme }) {
+  try {
+    window.dispatchEvent(new CustomEvent("admin-theme-change", { detail }));
+  } catch {
+    // ignore
+  }
+}
+
 function applyColorTheme(next: ColorTheme) {
   try {
     localStorage.setItem("admin.colorTheme", next);
@@ -29,6 +37,7 @@ function applyColorTheme(next: ColorTheme) {
   }
   if (next === "dark") document.documentElement.classList.add("dark");
   else document.documentElement.classList.remove("dark");
+  emitThemeChange({ color: next });
 }
 
 function applyAccentTheme(next: AccentTheme) {
@@ -43,6 +52,7 @@ function applyAccentTheme(next: AccentTheme) {
     if (c.startsWith("theme-")) document.documentElement.classList.remove(c);
   }
   document.documentElement.classList.add(`theme-${next}`);
+  emitThemeChange({ accent: next });
 }
 
 function safeReadTheme(): { color: ColorTheme; accent: AccentTheme } {
@@ -212,4 +222,3 @@ export default function AppearanceSettingsPage() {
     </div>
   );
 }
-

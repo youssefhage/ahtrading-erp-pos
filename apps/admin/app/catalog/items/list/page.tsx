@@ -27,33 +27,58 @@ type Category = { id: string; name: string; parent_id: string | null; is_active:
 
 export default function ItemsListPage() {
   const [items, setItems] = useState<ItemRow[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<unknown>(null);
+  const [q, setQ] = useState("");
+  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useState(0);
 
   const categoryNameById = useMemo(() => new Map(categories.map((c) => [c.id, c.name])), [categories]);
+  const offset = page * pageSize;
+  const query = useMemo(() => ({ q: q.trim(), limit: pageSize, offset }), [q, pageSize, offset]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const [res, cats] = await Promise.all([
-        apiGet<{ items: ItemRow[] }>("/items/list"),
-        apiGet<{ categories: Category[] }>("/item-categories").catch(() => ({ categories: [] as Category[] })),
-      ]);
+      const params = new URLSearchParams();
+      params.set("limit", String(query.limit));
+      params.set("offset", String(query.offset));
+      if (query.q) params.set("q", query.q);
+      const res = await apiGet<{ items: ItemRow[]; total?: number }>(`/items/list?${params.toString()}`);
       setItems(res.items || []);
-      setCategories(cats.categories || []);
+      setTotal(typeof res.total === "number" ? res.total : null);
     } catch (e) {
       setItems([]);
-      setCategories([]);
+      setTotal(null);
       setErr(e);
     } finally {
       setLoading(false);
     }
+  }, [query.limit, query.offset, query.q]);
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const cats = await apiGet<{ categories: Category[] }>("/item-categories");
+      setCategories(cats.categories || []);
+    } catch {
+      setCategories([]);
+    }
   }, []);
 
   useEffect(() => {
-    load();
+    loadCategories();
+  }, [loadCategories]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [q, pageSize]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => load(), 250);
+    return () => window.clearTimeout(t);
   }, [load]);
 
   const columns = useMemo(() => {
@@ -147,7 +172,10 @@ export default function ItemsListPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Items</h1>
-          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${items.length} items`}</p>
+          <p className="text-sm text-fg-muted">
+            {total != null ? `${total.toLocaleString("en-US")} total` : `${items.length} shown`}
+            {loading ? " · refreshing..." : ""}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" onClick={load} disabled={loading}>
@@ -175,6 +203,16 @@ export default function ItemsListPage() {
               getRowId={(r) => r.id}
               initialSort={{ columnId: "sku", dir: "asc" }}
               globalFilterPlaceholder="SKU / name / barcode"
+              globalFilterValue={q}
+              onGlobalFilterValueChange={setQ}
+              isLoading={loading}
+              serverPagination={{
+                page,
+                pageSize,
+                total,
+                onPageChange: setPage,
+                onPageSizeChange: setPageSize,
+              }}
             />
           </CardContent>
         </Card>

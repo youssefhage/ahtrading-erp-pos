@@ -339,6 +339,33 @@ const LITE_NAV_SECTIONS: NavSection[] = [
 
 type UiVariant = "full" | "lite";
 type ColorTheme = "light" | "dark";
+type AccentTheme = "sky" | "emerald" | "teal" | "rose" | "slate";
+
+function readColorTheme(): ColorTheme {
+  try {
+    const raw = localStorage.getItem("admin.colorTheme");
+    return raw === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
+function readAccentTheme(): AccentTheme {
+  try {
+    const raw = localStorage.getItem("admin.accentTheme");
+    return raw === "emerald" || raw === "teal" || raw === "rose" || raw === "slate" ? raw : "sky";
+  } catch {
+    return "sky";
+  }
+}
+
+function applyAccentThemeClass(next: AccentTheme) {
+  const cls = Array.from(document.documentElement.classList);
+  for (const c of cls) {
+    if (c.startsWith("theme-")) document.documentElement.classList.remove(c);
+  }
+  document.documentElement.classList.add(`theme-${next}`);
+}
 
 function shortId(id: string) {
   const s = String(id || "");
@@ -422,14 +449,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       return "full";
     }
   });
-  const [colorTheme, setColorTheme] = useState<ColorTheme>(() => {
-    try {
-      const raw = localStorage.getItem("admin.colorTheme");
-      return raw === "dark" ? "dark" : "light";
-    } catch {
-      return "light";
-    }
-  });
+  const [colorTheme, setColorTheme] = useState<ColorTheme>(readColorTheme);
+  const [accentTheme, setAccentTheme] = useState<AccentTheme>(readAccentTheme);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -762,9 +783,26 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key === "ahtrading.companyId") setCompanyId(getCompanyId());
+      if (e.key === "admin.colorTheme") setColorTheme(readColorTheme());
+      if (e.key === "admin.accentTheme") setAccentTheme(readAccentTheme());
     }
+
+    function onThemeChange(e: Event) {
+      const ce = e as CustomEvent<{ color?: string; accent?: string }>;
+      const color = ce.detail?.color;
+      const accent = ce.detail?.accent;
+      if (color === "light" || color === "dark") setColorTheme(color);
+      if (accent === "sky" || accent === "emerald" || accent === "teal" || accent === "rose" || accent === "slate") {
+        setAccentTheme(accent);
+      }
+    }
+
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener("admin-theme-change", onThemeChange as EventListener);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("admin-theme-change", onThemeChange as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -785,6 +823,15 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     if (colorTheme === "dark") document.documentElement.classList.add("dark");
     else document.documentElement.classList.remove("dark");
   }, [colorTheme]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("admin.accentTheme", accentTheme);
+    } catch {
+      // ignore
+    }
+    applyAccentThemeClass(accentTheme);
+  }, [accentTheme]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
