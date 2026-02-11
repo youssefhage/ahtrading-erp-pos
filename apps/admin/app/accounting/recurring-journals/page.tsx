@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
@@ -46,6 +46,81 @@ export default function RecurringJournalsPage() {
   const [creating, setCreating] = useState(false);
 
   const activeTemplates = useMemo(() => templates.filter((t) => t.is_active), [templates]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [tpl, rr] = await Promise.all([
+        apiGet<{ templates: TemplateRow[] }>("/accounting/journal-templates"),
+        apiGet<{ rules: RuleRow[] }>("/accounting/recurring-journals"),
+      ]);
+      setTemplates(tpl.templates || []);
+      setRules(rr.rules || []);
+      setStatus("");
+      const first = (tpl.templates || []).find((t) => t.is_active);
+      if (first) setTemplateId((cur) => cur || first.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function createRule(e: React.FormEvent) {
+    e.preventDefault();
+    if (!templateId) {
+      setStatus("template is required");
+      return;
+    }
+    setCreating(true);
+    setStatus("Saving rule...");
+    try {
+      await apiPost("/accounting/recurring-journals", {
+        journal_template_id: templateId,
+        cadence,
+        day_of_week: cadence === "weekly" ? Number(dayOfWeek || 1) : null,
+        day_of_month: cadence === "monthly" ? Number(dayOfMonth || 1) : null,
+        next_run_date: nextRunDate,
+        is_active: true,
+      });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  const toggleRule = useCallback(async (ruleId: string, isActive: boolean) => {
+    setStatus("Updating...");
+    try {
+      await apiPatch(`/accounting/recurring-journals/${encodeURIComponent(ruleId)}`, { is_active: isActive });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }, [load]);
+
+  const bumpNextRun = useCallback(async (ruleId: string, next: string) => {
+    setStatus("Updating...");
+    try {
+      await apiPatch(`/accounting/recurring-journals/${encodeURIComponent(ruleId)}`, { next_run_date: next });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }, [load]);
 
   const columns = useMemo((): Array<DataTableColumn<RuleRow>> => {
     return [
@@ -108,85 +183,7 @@ export default function RecurringJournalsPage() {
         ),
       },
     ];
-  }, []);
-
-  async function load() {
-    setLoading(true);
-    try {
-      const [tpl, rr] = await Promise.all([
-        apiGet<{ templates: TemplateRow[] }>("/accounting/journal-templates"),
-        apiGet<{ rules: RuleRow[] }>("/accounting/recurring-journals"),
-      ]);
-      setTemplates(tpl.templates || []);
-      setRules(rr.rules || []);
-      setStatus("");
-      if (!templateId) {
-        const first = (tpl.templates || []).find((t) => t.is_active);
-        if (first) setTemplateId(first.id);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function createRule(e: React.FormEvent) {
-    e.preventDefault();
-    if (!templateId) {
-      setStatus("template is required");
-      return;
-    }
-    setCreating(true);
-    setStatus("Saving rule...");
-    try {
-      await apiPost("/accounting/recurring-journals", {
-        journal_template_id: templateId,
-        cadence,
-        day_of_week: cadence === "weekly" ? Number(dayOfWeek || 1) : null,
-        day_of_month: cadence === "monthly" ? Number(dayOfMonth || 1) : null,
-        next_run_date: nextRunDate,
-        is_active: true,
-      });
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function toggleRule(ruleId: string, isActive: boolean) {
-    setStatus("Updating...");
-    try {
-      await apiPatch(`/accounting/recurring-journals/${encodeURIComponent(ruleId)}`, { is_active: isActive });
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    }
-  }
-
-  async function bumpNextRun(ruleId: string, next: string) {
-    setStatus("Updating...");
-    try {
-      await apiPatch(`/accounting/recurring-journals/${encodeURIComponent(ruleId)}`, { next_run_date: next });
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    }
-  }
+  }, [bumpNextRun, toggleRule]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">

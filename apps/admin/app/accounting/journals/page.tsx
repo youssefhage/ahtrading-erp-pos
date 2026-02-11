@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -133,6 +134,49 @@ export default function JournalsPage() {
     }
     return { dUsd, cUsd, dLbp, cLbp, diffUsd: dUsd - cUsd, diffLbp: dLbp - cLbp };
   }, [lines]);
+
+  const journalColumns = useMemo((): Array<DataTableColumn<JournalRow>> => {
+    return [
+      { id: "journal_date", header: "Date", accessor: (j) => j.journal_date, mono: true, sortable: true, globalSearch: false, cell: (j) => <span className="data-mono text-xs">{j.journal_date}</span> },
+      { id: "journal_no", header: "No", accessor: (j) => j.journal_no, mono: true, sortable: true, cell: (j) => <span className="data-mono text-xs">{j.journal_no}</span> },
+      { id: "source_type", header: "Source", accessor: (j) => j.source_type || "-", sortable: true, cell: (j) => <span className="text-xs text-fg-muted">{j.source_type || "-"}</span> },
+      { id: "memo", header: "Memo", accessor: (j) => j.memo || "", sortable: true, cell: (j) => <span className="text-xs text-fg-muted">{j.memo || ""}</span> },
+      { id: "created_by_email", header: "By", accessor: (j) => j.created_by_email || "-", sortable: true, cell: (j) => <span className="text-xs text-fg-muted">{j.created_by_email || "-"}</span> },
+    ];
+  }, []);
+
+  const entryColumns = useMemo((): Array<DataTableColumn<JournalEntry>> => {
+    return [
+      {
+        id: "account",
+        header: "Account",
+        accessor: (e) => `${e.account_code || ""} ${e.name_en || ""}`.trim(),
+        sortable: true,
+        cell: (e) => (
+          <div>
+            <div className="font-mono text-xs">{e.account_code}</div>
+            <div className="text-xs text-fg-muted">{e.name_en || ""}</div>
+          </div>
+        ),
+      },
+      {
+        id: "dims",
+        header: "Dims",
+        accessor: (e) => `${e.cost_center_code || ""} ${e.project_code || ""}`.trim(),
+        sortable: true,
+        cell: (e) => (
+          <div className="text-xs text-fg-muted">
+            {e.cost_center_code ? <span className="font-mono">{e.cost_center_code}</span> : <span>-</span>}
+            {e.project_code ? <span className="ml-2 font-mono">{e.project_code}</span> : null}
+          </div>
+        ),
+      },
+      { id: "debit_usd", header: "Debit USD", accessor: (e) => Number(e.debit_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (e) => <span className="data-mono ui-tone-usd">{fmt(e.debit_usd, 4)}</span> },
+      { id: "credit_usd", header: "Credit USD", accessor: (e) => Number(e.credit_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (e) => <span className="data-mono ui-tone-usd">{fmt(e.credit_usd, 4)}</span> },
+      { id: "debit_lbp", header: "Debit LL", accessor: (e) => Number(e.debit_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (e) => <span className="data-mono ui-tone-lbp">{fmt(e.debit_lbp, 2)}</span> },
+      { id: "credit_lbp", header: "Credit LL", accessor: (e) => Number(e.credit_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (e) => <span className="data-mono ui-tone-lbp">{fmt(e.credit_lbp, 2)}</span> },
+    ];
+  }, []);
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -543,41 +587,16 @@ export default function JournalsPage() {
                 </Dialog>
               </div>
 
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">Date</th>
-                      <th className="px-3 py-2">No</th>
-                      <th className="px-3 py-2">Source</th>
-                      <th className="px-3 py-2">Memo</th>
-                      <th className="px-3 py-2">By</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {journals.map((j) => (
-                      <tr
-                        key={j.id}
-                        className="cursor-pointer border-t border-border-subtle hover:bg-bg-sunken/20"
-                        onClick={() => loadDetail(j.id)}
-                      >
-                        <td className="px-3 py-2 font-mono text-xs">{j.journal_date}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{j.journal_no}</td>
-                        <td className="px-3 py-2 text-xs text-fg-muted">{j.source_type || "-"}</td>
-                        <td className="px-3 py-2 text-xs text-fg-muted">{j.memo || ""}</td>
-                        <td className="px-3 py-2 text-xs text-fg-muted">{j.created_by_email || "-"}</td>
-                      </tr>
-                    ))}
-                    {journals.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                          No journals.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<JournalRow>
+                tableId="accounting.journals.list"
+                rows={journals}
+                columns={journalColumns}
+                onRowClick={(j) => loadDetail(j.id)}
+                getRowId={(j) => j.id}
+                initialSort={{ columnId: "journal_date", dir: "desc" }}
+                globalFilterPlaceholder="Search journal no / memo / source..."
+                emptyText="No journals."
+              />
             </CardContent>
           </Card>
 
@@ -631,47 +650,14 @@ export default function JournalsPage() {
                     </Dialog>
                   </div>
 
-                  <div className="ui-table-wrap">
-                    <table className="ui-table">
-                      <thead className="ui-thead">
-                        <tr>
-                          <th className="px-3 py-2">Account</th>
-                          <th className="px-3 py-2">Dims</th>
-                          <th className="px-3 py-2 text-right">Debit USD</th>
-                          <th className="px-3 py-2 text-right">Credit USD</th>
-                          <th className="px-3 py-2 text-right">Debit LL</th>
-                          <th className="px-3 py-2 text-right">Credit LL</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.entries.map((e) => (
-                          <tr key={e.id} className="ui-tr-hover">
-                            <td className="px-3 py-2">
-                              <div className="font-mono text-xs">{e.account_code}</div>
-                              <div className="text-xs text-fg-muted">{e.name_en || ""}</div>
-                            </td>
-                            <td className="px-3 py-2">
-                              <div className="text-xs text-fg-muted">
-                                {e.cost_center_code ? <span className="font-mono">{e.cost_center_code}</span> : <span>-</span>}
-                                {e.project_code ? <span className="ml-2 font-mono">{e.project_code}</span> : null}
-                              </div>
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{fmt(e.debit_usd, 4)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{fmt(e.credit_usd, 4)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{fmt(e.debit_lbp, 2)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{fmt(e.credit_lbp, 2)}</td>
-                          </tr>
-                        ))}
-                        {detail.entries.length === 0 ? (
-                          <tr>
-                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                              No entries.
-                            </td>
-                          </tr>
-                        ) : null}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable<JournalEntry>
+                    tableId={`accounting.journals.${detail.journal.id}.entries`}
+                    rows={detail.entries}
+                    columns={entryColumns}
+                    initialSort={{ columnId: "account", dir: "asc" }}
+                    globalFilterPlaceholder="Search account / dims..."
+                    emptyText="No entries."
+                  />
                 </>
               ) : (
                 <p className="text-sm text-fg-muted">Pick a journal from the list to see entries.</p>

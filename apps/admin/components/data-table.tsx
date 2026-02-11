@@ -442,7 +442,13 @@ export function DataTable<T>(props: DataTableProps<T>) {
           </thead>
           <tbody className={isLoading ? "opacity-70" : undefined}>
             {pageRows.map((r, idx) => {
-              const key = getRowId ? getRowId(r, idx) : String(idx);
+              const fallbackId = (r as any)?.id;
+              const key =
+                getRowId
+                  ? getRowId(r, idx)
+                  : typeof fallbackId === "string" || typeof fallbackId === "number"
+                    ? String(fallbackId)
+                    : String(idx);
               return (
                 <tr
                   key={key}
