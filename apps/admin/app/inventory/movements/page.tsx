@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,57 @@ export default function InventoryMovementsPage() {
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
 
+  const columns = useMemo((): Array<DataTableColumn<MoveRow>> => {
+    return [
+      { id: "created_at", header: "Created", accessor: (m) => m.created_at, mono: true, sortable: true, globalSearch: false },
+      {
+        id: "item",
+        header: "Item",
+        accessor: (m) => {
+          const it = itemById.get(m.item_id);
+          return `${it?.sku || ""} ${it?.name || ""} ${m.item_id}`.trim();
+        },
+        sortable: true,
+        cell: (m) => {
+          const it = itemById.get(m.item_id);
+          return it ? (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(m.item_id)}`} title="Open item">
+              <span className="font-mono text-xs">{it.sku}</span> · {it.name}
+            </ShortcutLink>
+          ) : (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(m.item_id)}`} title="Open item" className="font-mono text-xs">
+              {m.item_id}
+            </ShortcutLink>
+          );
+        },
+      },
+      {
+        id: "warehouse",
+        header: "Warehouse",
+        accessor: (m) => whById.get(m.warehouse_id)?.name || m.warehouse_id,
+        sortable: true,
+        cell: (m) => whById.get(m.warehouse_id)?.name || m.warehouse_id,
+      },
+      { id: "location_id", header: "Location", accessor: (m) => (m.location_id ? String(m.location_id).slice(0, 8) : "-"), mono: true, sortable: true, globalSearch: false, cell: (m) => <span className="font-mono text-xs text-fg-muted">{m.location_id ? String(m.location_id).slice(0, 8) : "-"}</span> },
+      { id: "qty_in", header: "In", accessor: (m) => Number(m.qty_in || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (m) => Number(m.qty_in || 0).toLocaleString("en-US", { maximumFractionDigits: 3 }) },
+      { id: "qty_out", header: "Out", accessor: (m) => Number(m.qty_out || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (m) => Number(m.qty_out || 0).toLocaleString("en-US", { maximumFractionDigits: 3 }) },
+      { id: "unit_cost_usd", header: "Unit USD", accessor: (m) => Number(m.unit_cost_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (m) => Number(m.unit_cost_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 4 }) },
+      { id: "unit_cost_lbp", header: "Unit LL", accessor: (m) => Number(m.unit_cost_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (m) => Number(m.unit_cost_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 }) },
+      {
+        id: "source",
+        header: "Source",
+        accessor: (m) => `${m.source_type || ""} ${m.source_id || ""}`.trim(),
+        sortable: true,
+        cell: (m) => (
+          <div>
+            <span className="font-mono text-xs">{m.source_type || "-"}</span>
+            {m.source_id ? <div className="text-[10px] text-fg-subtle">{m.source_id}</div> : null}
+          </div>
+        ),
+      },
+    ];
+  }, [itemById, whById]);
+
   async function load() {
     setStatus("Loading...");
     try {
@@ -74,130 +126,73 @@ export default function InventoryMovementsPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>List the latest stock moves (most recent first).</CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-fg-muted">Item</label>
-              <SearchableSelect
-                value={itemId}
-                onChange={setItemId}
-                placeholder="All items"
-                searchPlaceholder="Search items..."
-                maxOptions={120}
-                options={[
-                  { value: "", label: "All items" },
-                  ...items.map((it) => ({ value: it.id, label: `${it.sku} · ${it.name}`, keywords: `${it.sku} ${it.name}` })),
-                ]}
-              />
-            </div>
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-              <SearchableSelect
-                value={warehouseId}
-                onChange={setWarehouseId}
-                placeholder="All warehouses"
-                searchPlaceholder="Search warehouses..."
-                options={[
-                  { value: "", label: "All warehouses" },
-                  ...warehouses.map((w) => ({ value: w.id, label: w.name })),
-                ]}
-              />
-            </div>
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-fg-muted">Source Type</label>
-              <Input value={sourceType} onChange={(e) => setSourceType(e.target.value)} placeholder="sale / goods_receipt / cycle_count" />
-            </div>
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-fg-muted">Limit</label>
-              <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
-            </div>
-            <div className="md:col-span-4 flex items-center justify-end">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+          <CardDescription>List the latest stock moves (most recent first).</CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <div className="space-y-1 md:col-span-1">
+            <label className="text-xs font-medium text-fg-muted">Item</label>
+            <SearchableSelect
+              value={itemId}
+              onChange={setItemId}
+              placeholder="All items"
+              searchPlaceholder="Search items..."
+              maxOptions={120}
+              options={[
+                { value: "", label: "All items" },
+                ...items.map((it) => ({ value: it.id, label: `${it.sku} · ${it.name}`, keywords: `${it.sku} ${it.name}` })),
+              ]}
+            />
+          </div>
+          <div className="space-y-1 md:col-span-1">
+            <label className="text-xs font-medium text-fg-muted">Warehouse</label>
+            <SearchableSelect
+              value={warehouseId}
+              onChange={setWarehouseId}
+              placeholder="All warehouses"
+              searchPlaceholder="Search warehouses..."
+              options={[
+                { value: "", label: "All warehouses" },
+                ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+              ]}
+            />
+          </div>
+          <div className="space-y-1 md:col-span-1">
+            <label className="text-xs font-medium text-fg-muted">Source Type</label>
+            <Input value={sourceType} onChange={(e) => setSourceType(e.target.value)} placeholder="sale / goods_receipt / cycle_count" />
+          </div>
+          <div className="space-y-1 md:col-span-1">
+            <label className="text-xs font-medium text-fg-muted">Limit</label>
+            <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
+          </div>
+          <div className="md:col-span-4 flex items-center justify-end">
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Moves</CardTitle>
-            <CardDescription>{moves.length} moves</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Created</th>
-                    <th className="px-3 py-2">Item</th>
-                    <th className="px-3 py-2">Warehouse</th>
-                    <th className="px-3 py-2">Location</th>
-                    <th className="px-3 py-2 text-right">In</th>
-                    <th className="px-3 py-2 text-right">Out</th>
-                    <th className="px-3 py-2 text-right">Unit USD</th>
-                    <th className="px-3 py-2 text-right">Unit LL</th>
-                    <th className="px-3 py-2">Source</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {moves.map((m) => {
-                    const it = itemById.get(m.item_id);
-                    const wh = whById.get(m.warehouse_id);
-                    return (
-                      <tr key={m.id} className="border-t border-border-subtle align-top">
-                        <td className="px-3 py-2 font-mono text-xs">{m.created_at}</td>
-                        <td className="px-3 py-2">
-                          {it ? (
-                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(m.item_id)}`} title="Open item">
-                              <span className="font-mono text-xs">{it.sku}</span> · {it.name}
-                            </ShortcutLink>
-                          ) : (
-                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(m.item_id)}`} title="Open item" className="font-mono text-xs">
-                              {m.item_id}
-                            </ShortcutLink>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">{wh?.name || m.warehouse_id}</td>
-                        <td className="px-3 py-2 font-mono text-xs text-fg-muted">
-                          {m.location_id ? String(m.location_id).slice(0, 8) : "-"}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">
-                          {Number(m.qty_in || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">
-                          {Number(m.qty_out || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">
-                          {Number(m.unit_cost_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 4 })}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">
-                          {Number(m.unit_cost_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="font-mono text-xs">{m.source_type || "-"}</span>
-                          {m.source_id ? <div className="text-[10px] text-fg-subtle">{m.source_id}</div> : null}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {moves.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={9}>
-                        No moves.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>);
+      <Card>
+        <CardHeader>
+          <CardTitle>Moves</CardTitle>
+          <CardDescription>{moves.length} moves</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable<MoveRow>
+            tableId="inventory.movements"
+            rows={moves}
+            columns={columns}
+            initialSort={{ columnId: "created_at", dir: "desc" }}
+            globalFilterPlaceholder="Search item / warehouse / source..."
+            emptyText="No moves."
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
 }

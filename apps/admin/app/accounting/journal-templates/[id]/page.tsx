@@ -7,6 +7,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -84,6 +85,41 @@ export default function JournalTemplateDetailPage() {
     }
     return { dUsd, cUsd, dLbp, cLbp, diffUsd: dUsd - cUsd, diffLbp: dLbp - cLbp };
   }, [data]);
+
+  const lineColumns = useMemo((): Array<DataTableColumn<LineRow>> => {
+    return [
+      { id: "line_no", header: "#", accessor: (l) => Number(l.line_no || 0), mono: true, sortable: true, globalSearch: false, cell: (l) => <span className="data-mono text-xs">{l.line_no}</span> },
+      {
+        id: "account",
+        header: "Account",
+        accessor: (l) => `${l.account_code || ""} ${l.name_en || ""} ${l.memo || ""}`.trim(),
+        sortable: true,
+        cell: (l) => (
+          <div className="text-xs">
+            <div className="font-mono text-[11px] text-fg-muted">{l.account_code}</div>
+            <div>{l.name_en || ""}</div>
+            {l.memo ? <div className="mt-1 text-[11px] text-fg-muted">{l.memo}</div> : null}
+          </div>
+        ),
+      },
+      { id: "side", header: "Side", accessor: (l) => l.side, sortable: true, globalSearch: false, cell: (l) => <span className="text-xs">{l.side}</span> },
+      { id: "amount_usd", header: "USD", accessor: (l) => Number(l.amount_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (l) => <span className="data-mono ui-tone-usd text-xs">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</span> },
+      { id: "amount_lbp", header: "LL", accessor: (l) => Number(l.amount_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (l) => <span className="data-mono ui-tone-lbp text-xs">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</span> },
+      {
+        id: "dims",
+        header: "Dimensions",
+        accessor: (l) => `${l.cost_center_code || ""} ${l.project_code || ""}`.trim(),
+        sortable: true,
+        globalSearch: false,
+        cell: (l) => (
+          <div className="text-xs text-fg-muted">
+            <div>{l.cost_center_code ? `${l.cost_center_code} · ${l.cost_center_name || ""}` : "-"}</div>
+            <div>{l.project_code ? `${l.project_code} · ${l.project_name || ""}` : "-"}</div>
+          </div>
+        ),
+      },
+    ];
+  }, []);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -241,46 +277,14 @@ export default function JournalTemplateDetailPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">#</th>
-                  <th className="px-3 py-2">Account</th>
-                  <th className="px-3 py-2">Side</th>
-                  <th className="px-3 py-2 text-right">USD</th>
-                  <th className="px-3 py-2 text-right">LL</th>
-                  <th className="px-3 py-2">Dimensions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.lines || []).map((l) => (
-                  <tr key={l.id} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">{l.line_no}</td>
-                    <td className="px-3 py-2 text-xs">
-                      <div className="font-mono text-[11px] text-fg-muted">{l.account_code}</div>
-                      <div>{l.name_en || ""}</div>
-                      {l.memo ? <div className="mt-1 text-[11px] text-fg-muted">{l.memo}</div> : null}
-                    </td>
-                    <td className="px-3 py-2 text-xs">{l.side}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</td>
-                    <td className="px-3 py-2 text-xs text-fg-muted">
-                      <div>{l.cost_center_code ? `${l.cost_center_code} · ${l.cost_center_name || ""}` : "-"}</div>
-                      <div>{l.project_code ? `${l.project_code} · ${l.project_name || ""}` : "-"}</div>
-                    </td>
-                  </tr>
-                ))}
-                {(data?.lines || []).length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                      No lines.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<LineRow>
+            tableId={`accounting.journalTemplates.${id}.lines`}
+            rows={data?.lines || []}
+            columns={lineColumns}
+            initialSort={{ columnId: "line_no", dir: "asc" }}
+            globalFilterPlaceholder="Search account / memo / dims..."
+            emptyText="No lines."
+          />
         </CardContent>
       </Card>
     </div>

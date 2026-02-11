@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -78,7 +79,45 @@ export default function PriceListsPage() {
     return m;
   }, [items]);
 
-  async function load() {
+  const listItemColumns = useMemo((): Array<DataTableColumn<PriceListItemRow>> => {
+    return [
+      {
+        id: "sku",
+        header: "SKU",
+        accessor: (li) => itemById.get(li.item_id)?.sku || "",
+        mono: true,
+        sortable: true,
+        cell: (li) => {
+          const it = itemById.get(li.item_id);
+          return (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(li.item_id)}`} title="Open item" className="font-mono text-xs">
+              {it?.sku || "-"}
+            </ShortcutLink>
+          );
+        },
+      },
+      {
+        id: "item",
+        header: "Item",
+        accessor: (li) => itemById.get(li.item_id)?.name || li.item_id,
+        sortable: true,
+        cell: (li) => {
+          const it = itemById.get(li.item_id);
+          return (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(li.item_id)}`} title="Open item">
+              {it?.name || li.item_id}
+            </ShortcutLink>
+          );
+        },
+      },
+      { id: "price_usd", header: "USD", accessor: (li) => Number(li.price_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="font-mono text-xs">{li.price_usd}</span> },
+      { id: "price_lbp", header: "LL", accessor: (li) => Number(li.price_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="font-mono text-xs">{li.price_lbp}</span> },
+      { id: "effective_from", header: "From", accessor: (li) => li.effective_from, mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="text-xs">{li.effective_from}</span> },
+      { id: "effective_to", header: "To", accessor: (li) => li.effective_to || "", mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="text-xs">{li.effective_to || "-"}</span> },
+    ];
+  }, [itemById]);
+
+  const load = useCallback(async () => {
     setStatus("Loading...");
     try {
       const [pl, it] = await Promise.all([
@@ -92,11 +131,11 @@ export default function PriceListsPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   async function createList(e: React.FormEvent) {
     e.preventDefault();
@@ -129,13 +168,13 @@ export default function PriceListsPage() {
     }
   }
 
-  function openEdit(list: PriceListRow) {
+  const openEdit = useCallback((list: PriceListRow) => {
     setEditId(list.id);
     setEditName(list.name);
     setEditCurrency(list.currency);
     setEditDefault(!!list.is_default);
     setEditOpen(true);
-  }
+  }, []);
 
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
@@ -159,7 +198,7 @@ export default function PriceListsPage() {
     }
   }
 
-  async function setDefaultList(listId: string) {
+  const setDefaultList = useCallback(async (listId: string) => {
     setStatus("Setting default...");
     try {
       await apiPatch(`/pricing/lists/${listId}`, { is_default: true });
@@ -170,9 +209,9 @@ export default function PriceListsPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, [load]);
 
-  async function openListItems(listId: string) {
+  const openListItems = useCallback(async (listId: string) => {
     setItemsListId(listId);
     setListItems([]);
     setAddSku("");
@@ -191,7 +230,38 @@ export default function PriceListsPage() {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }
+  }, []);
+
+  const listColumns = useMemo((): Array<DataTableColumn<PriceListRow>> => {
+    return [
+      { id: "code", header: "Code", accessor: (pl) => pl.code, mono: true, sortable: true, cell: (pl) => <span className="font-mono text-xs">{pl.code}</span> },
+      { id: "name", header: "Name", accessor: (pl) => pl.name, sortable: true, cell: (pl) => <span className="font-medium">{pl.name}</span> },
+      { id: "currency", header: "Currency", accessor: (pl) => pl.currency, sortable: true, globalSearch: false, cell: (pl) => <span className="text-xs">{pl.currency}</span> },
+      { id: "is_default", header: "Default", accessor: (pl) => (pl.is_default ? "yes" : "no"), sortable: true, globalSearch: false, cell: (pl) => <span className="text-xs">{pl.is_default ? "yes" : "no"}</span> },
+      {
+        id: "actions",
+        header: "",
+        accessor: () => "",
+        align: "right",
+        globalSearch: false,
+        cell: (pl) => (
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => openListItems(pl.id)}>
+              Items
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openEdit(pl)}>
+              Edit
+            </Button>
+            {!pl.is_default ? (
+              <Button size="sm" onClick={() => setDefaultList(pl.id)}>
+                Set Default
+              </Button>
+            ) : null}
+          </div>
+        ),
+      },
+    ];
+  }, [openEdit, openListItems, setDefaultList]);
 
   function onSkuChange(nextSku: string) {
     const normalized = (nextSku || "").trim().toUpperCase();
@@ -236,108 +306,67 @@ export default function PriceListsPage() {
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Price Lists</CardTitle>
-            <CardDescription>{lists.length} lists</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button>Create List</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create Price List</DialogTitle>
-                    <DialogDescription>Use this to override default item prices (POS catalog will use the default list).</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={createList} className="grid grid-cols-1 gap-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Code</label>
-                        <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="WHOLESALE" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Currency</label>
-                        <select
-                          className="ui-select"
-                          value={currency}
-                          onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}
-                        >
-                          <option value="USD">USD</option>
-                          <option value="LBP">LL</option>
-                        </select>
-                      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Price Lists</CardTitle>
+          <CardDescription>{lists.length} lists</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>Create List</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Price List</DialogTitle>
+                  <DialogDescription>Use this to override default item prices (POS catalog will use the default list).</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createList} className="grid grid-cols-1 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-fg-muted">Code</label>
+                      <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="WHOLESALE" />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Wholesale USD" />
+                      <label className="text-xs font-medium text-fg-muted">Currency</label>
+                      <select className="ui-select" value={currency} onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}>
+                        <option value="USD">USD</option>
+                        <option value="LBP">LL</option>
+                      </select>
                     </div>
-                    <label className="flex items-center gap-2 text-sm text-fg-muted">
-                      <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
-                      Set as default (used by POS)
-                    </label>
-                    <div className="flex justify-end">
-                      <Button type="submit" disabled={creating}>
-                        {creating ? "..." : "Create"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Name</label>
+                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Wholesale USD" />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-fg-muted">
+                    <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
+                    Set as default (used by POS)
+                  </label>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={creating}>
+                      {creating ? "..." : "Create"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Code</th>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Currency</th>
-                    <th className="px-3 py-2">Default</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lists.map((pl) => (
-                    <tr key={pl.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{pl.code}</td>
-                      <td className="px-3 py-2 font-medium">{pl.name}</td>
-                      <td className="px-3 py-2 text-xs">{pl.currency}</td>
-                      <td className="px-3 py-2 text-xs">{pl.is_default ? "yes" : "no"}</td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" size="sm" onClick={() => openListItems(pl.id)}>
-                            Items
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => openEdit(pl)}>
-                            Edit
-                          </Button>
-                          {!pl.is_default ? (
-                            <Button size="sm" onClick={() => setDefaultList(pl.id)}>
-                              Set Default
-                            </Button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {lists.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No price lists yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+          <DataTable<PriceListRow>
+            tableId="catalog.priceLists"
+            rows={lists}
+            columns={listColumns}
+            initialSort={{ columnId: "code", dir: "asc" }}
+            globalFilterPlaceholder="Search code / name..."
+            emptyText="No price lists yet."
+          />
+        </CardContent>
+      </Card>
 
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
           <DialogContent>
@@ -384,50 +413,14 @@ export default function PriceListsPage() {
             </DialogHeader>
 
             <div className="space-y-3">
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">SKU</th>
-                      <th className="px-3 py-2">Item</th>
-                      <th className="px-3 py-2">USD</th>
-                      <th className="px-3 py-2">LL</th>
-                      <th className="px-3 py-2">From</th>
-                      <th className="px-3 py-2">To</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {listItems.map((li) => {
-                      const it = itemById.get(li.item_id);
-                      return (
-                        <tr key={li.id} className="ui-tr-hover">
-                          <td className="px-3 py-2 font-mono text-xs">
-                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(li.item_id)}`} title="Open item" className="font-mono text-xs">
-                              {it?.sku || "-"}
-                            </ShortcutLink>
-                          </td>
-                          <td className="px-3 py-2">
-                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(li.item_id)}`} title="Open item">
-                              {it?.name || li.item_id}
-                            </ShortcutLink>
-                          </td>
-                          <td className="px-3 py-2 font-mono text-xs">{li.price_usd}</td>
-                          <td className="px-3 py-2 font-mono text-xs">{li.price_lbp}</td>
-                          <td className="px-3 py-2 text-xs">{li.effective_from}</td>
-                          <td className="px-3 py-2 text-xs">{li.effective_to || "-"}</td>
-                        </tr>
-                      );
-                    })}
-                    {listItems.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                          No items yet.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<PriceListItemRow>
+                tableId={`catalog.priceListItems.${itemsListId || "none"}`}
+                rows={listItems}
+                columns={listItemColumns}
+                initialSort={{ columnId: "effective_from", dir: "desc" }}
+                globalFilterPlaceholder="Search SKU / item..."
+                emptyText="No items yet."
+              />
 
               <Card>
                 <CardHeader>
@@ -488,5 +481,6 @@ export default function PriceListsPage() {
             </div>
           </DialogContent>
         </Dialog>
-      </div>);
+    </div>
+  );
 }

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,55 @@ export default function IntercompanyPage() {
   const [exchangeRate, setExchangeRate] = useState("0");
   const [method, setMethod] = useState<"cash" | "bank">("bank");
   const [saving, setSaving] = useState(false);
+
+  const docColumns = useMemo((): Array<DataTableColumn<DocRow>> => {
+    return [
+      {
+        id: "created_at",
+        header: "When",
+        accessor: (d) => d.created_at || "",
+        mono: true,
+        sortable: true,
+        globalSearch: false,
+        cell: (d) => <span className="data-mono text-xs">{String(d.created_at || "").replace("T", " ").slice(0, 19)}</span>,
+      },
+      {
+        id: "source",
+        header: "Source",
+        accessor: (d) => `${d.source_type}:${String(d.source_id).slice(0, 8)}`,
+        mono: true,
+        sortable: true,
+        cell: (d) => (
+          <span className="data-mono text-xs">
+            {d.source_type}:{String(d.source_id).slice(0, 8)}
+          </span>
+        ),
+      },
+      { id: "source_company_name", header: "Source Co", accessor: (d) => d.source_company_name || d.source_company_id.slice(0, 8), sortable: true },
+      { id: "issue_company_name", header: "Issue Co", accessor: (d) => d.issue_company_name || d.issue_company_id.slice(0, 8), sortable: true },
+      { id: "sell_company_name", header: "Sell Co", accessor: (d) => d.sell_company_name || d.sell_company_id.slice(0, 8), sortable: true },
+      { id: "settlement_status", header: "Status", accessor: (d) => d.settlement_status, sortable: true, globalSearch: false },
+    ];
+  }, []);
+
+  const settlementColumns = useMemo((): Array<DataTableColumn<SettlementRow>> => {
+    return [
+      {
+        id: "created_at",
+        header: "When",
+        accessor: (s) => s.created_at || "",
+        mono: true,
+        sortable: true,
+        globalSearch: false,
+        cell: (s) => <span className="data-mono text-xs">{String(s.created_at || "").replace("T", " ").slice(0, 19)}</span>,
+      },
+      { id: "from_company_name", header: "From", accessor: (s) => s.from_company_name || s.from_company_id.slice(0, 8), sortable: true },
+      { id: "to_company_name", header: "To", accessor: (s) => s.to_company_name || s.to_company_id.slice(0, 8), sortable: true },
+      { id: "amount_usd", header: "USD", accessor: (s) => Number(s.amount_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (s) => <span className="data-mono ui-tone-usd">{fmt(s.amount_usd)}</span> },
+      { id: "amount_lbp", header: "LL", accessor: (s) => Number(s.amount_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (s) => <span className="data-mono ui-tone-lbp">{fmt(s.amount_lbp)}</span> },
+      { id: "exchange_rate", header: "Rate", accessor: (s) => Number(s.exchange_rate || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (s) => <span className="data-mono">{fmt(s.exchange_rate)}</span> },
+    ];
+  }, []);
 
   async function load() {
     setStatus("Loading...");
@@ -195,40 +245,15 @@ export default function IntercompanyPage() {
           <CardTitle>Intercompany Documents</CardTitle>
           <CardDescription>{docs.length} recent documents</CardDescription>
         </CardHeader>
-        <CardContent className="ui-table-wrap">
-          <table className="ui-table">
-            <thead className="ui-thead">
-              <tr>
-                <th className="px-3 py-2">When</th>
-                <th className="px-3 py-2">Source</th>
-                <th className="px-3 py-2">Source Co</th>
-                <th className="px-3 py-2">Issue Co</th>
-                <th className="px-3 py-2">Sell Co</th>
-                <th className="px-3 py-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {docs.map((d) => (
-                <tr key={d.id} className="ui-tr-hover">
-                  <td className="px-3 py-2 font-mono text-xs">{String(d.created_at || "").replace("T", " ").slice(0, 19)}</td>
-                  <td className="px-3 py-2 font-mono text-xs">
-                    {d.source_type}:{String(d.source_id).slice(0, 8)}
-                  </td>
-                  <td className="px-3 py-2">{d.source_company_name || d.source_company_id.slice(0, 8)}</td>
-                  <td className="px-3 py-2">{d.issue_company_name || d.issue_company_id.slice(0, 8)}</td>
-                  <td className="px-3 py-2">{d.sell_company_name || d.sell_company_id.slice(0, 8)}</td>
-                  <td className="px-3 py-2">{d.settlement_status}</td>
-                </tr>
-              ))}
-              {docs.length === 0 ? (
-                <tr>
-                  <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                    No intercompany documents.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+        <CardContent>
+          <DataTable<DocRow>
+            tableId="accounting.intercompany.documents"
+            rows={docs}
+            columns={docColumns}
+            initialSort={{ columnId: "created_at", dir: "desc" }}
+            globalFilterPlaceholder="Search source / company..."
+            emptyText="No intercompany documents."
+          />
         </CardContent>
       </Card>
 
@@ -237,38 +262,15 @@ export default function IntercompanyPage() {
           <CardTitle>Settlements</CardTitle>
           <CardDescription>{settlements.length} recent settlements</CardDescription>
         </CardHeader>
-        <CardContent className="ui-table-wrap">
-          <table className="ui-table">
-            <thead className="ui-thead">
-              <tr>
-                <th className="px-3 py-2">When</th>
-                <th className="px-3 py-2">From</th>
-                <th className="px-3 py-2">To</th>
-                <th className="px-3 py-2 text-right">USD</th>
-                <th className="px-3 py-2 text-right">LL</th>
-                <th className="px-3 py-2 text-right">Rate</th>
-              </tr>
-            </thead>
-            <tbody>
-              {settlements.map((s) => (
-                <tr key={s.id} className="ui-tr-hover">
-                  <td className="px-3 py-2 font-mono text-xs">{String(s.created_at || "").replace("T", " ").slice(0, 19)}</td>
-                  <td className="px-3 py-2">{s.from_company_name || s.from_company_id.slice(0, 8)}</td>
-                  <td className="px-3 py-2">{s.to_company_name || s.to_company_id.slice(0, 8)}</td>
-                  <td className="px-3 py-2 text-right font-mono text-xs">{fmt(s.amount_usd)}</td>
-                  <td className="px-3 py-2 text-right font-mono text-xs">{fmt(s.amount_lbp)}</td>
-                  <td className="px-3 py-2 text-right font-mono text-xs">{fmt(s.exchange_rate)}</td>
-                </tr>
-              ))}
-              {settlements.length === 0 ? (
-                <tr>
-                  <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                    No settlements.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+        <CardContent>
+          <DataTable<SettlementRow>
+            tableId="accounting.intercompany.settlements"
+            rows={settlements}
+            columns={settlementColumns}
+            initialSort={{ columnId: "created_at", dir: "desc" }}
+            globalFilterPlaceholder="Search company..."
+            emptyText="No settlements."
+          />
         </CardContent>
       </Card>
     </div>

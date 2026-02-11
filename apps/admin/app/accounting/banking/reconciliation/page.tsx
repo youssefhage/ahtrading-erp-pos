@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
@@ -12,6 +12,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
 import { useToast } from "@/components/toast-provider";
 import { Page, PageHeader } from "@/components/page";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 
 type BankAccountRow = {
   id: string;
@@ -183,15 +184,15 @@ export default function BankingReconciliationPage() {
     }
   }
 
-  function openMatch(txnId: string) {
+  const openMatch = useCallback((txnId: string) => {
     setMatchTxnId(txnId);
     setJournalId("");
     setJournalQuery("");
     setJournalHits([]);
     setMatchOpen(true);
-  }
+  }, []);
 
-  function openCreateJournal(txnId: string) {
+  const openCreateJournal = useCallback((txnId: string) => {
     const t = txns.find((x) => x.id === txnId);
     if (!t) return;
     setCreateTxnId(txnId);
@@ -199,7 +200,7 @@ export default function BankingReconciliationPage() {
     const baseMemo = [t.description, t.reference, t.counterparty].filter(Boolean).join(" · ");
     setCreateMemo(baseMemo || "Bank transaction");
     setCreateJournalOpen(true);
-  }
+  }, [txns]);
 
   async function createAndMatchJournal() {
     if (!createTxnId) return;
@@ -307,7 +308,7 @@ export default function BankingReconciliationPage() {
     }
   }
 
-  async function unmatch(txnId: string) {
+  const unmatch = useCallback(async (txnId: string) => {
     setError(null);
     try {
       await apiPost(`/banking/transactions/${txnId}/unmatch`, {});
@@ -317,7 +318,55 @@ export default function BankingReconciliationPage() {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
     }
-  }
+  }, [loadTxns, toast]);
+
+  const txnColumns = useMemo((): Array<DataTableColumn<BankTxnRow>> => {
+    return [
+      { id: "txn_date", header: "Date", accessor: (t) => t.txn_date, mono: true, sortable: true, globalSearch: false, cell: (t) => <span className="data-mono text-xs">{t.txn_date}</span> },
+      {
+        id: "bank_account_name",
+        header: "Account",
+        accessor: (t) => `${t.bank_account_name || ""} ${t.description || ""}`.trim(),
+        sortable: true,
+        cell: (t) => (
+          <div>
+            <div className="text-sm font-medium">{t.bank_account_name}</div>
+            <div className="text-xs text-fg-subtle">{t.description || ""}</div>
+          </div>
+        ),
+      },
+      { id: "direction", header: "Dir", accessor: (t) => t.direction, sortable: true, globalSearch: false, cell: (t) => <span className="text-xs">{t.direction}</span> },
+      { id: "amount_usd", header: "USD", accessor: (t) => Number(t.amount_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (t) => <span className="data-mono ui-tone-usd">{fmt(t.amount_usd)}</span> },
+      { id: "amount_lbp", header: "LL", accessor: (t) => Number(t.amount_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (t) => <span className="data-mono ui-tone-lbp">{fmt(t.amount_lbp, 0)}</span> },
+      { id: "reference", header: "Ref", accessor: (t) => t.reference || "", sortable: true, cell: (t) => <span className="text-xs">{t.reference || "-"}</span> },
+      { id: "matched", header: "Matched", accessor: (t) => (t.matched_journal_id ? "yes" : "no"), sortable: true, globalSearch: false, cell: (t) => <span className="text-xs">{t.matched_journal_id ? "yes" : "no"}</span> },
+      {
+        id: "actions",
+        header: "",
+        accessor: () => "",
+        align: "right",
+        globalSearch: false,
+        cell: (t) => (
+          <div className="flex justify-end gap-2">
+            {!t.matched_journal_id ? (
+              <>
+                <Button variant="outline" size="sm" onClick={() => openCreateJournal(t.id)}>
+                  Create Journal
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => openMatch(t.id)}>
+                  Match
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => unmatch(t.id)}>
+                Unmatch
+              </Button>
+            )}
+          </div>
+        ),
+      },
+    ];
+  }, [openCreateJournal, openMatch, unmatch]);
 
   return (
     <Page width="lg">
@@ -467,63 +516,15 @@ export default function BankingReconciliationPage() {
               </Dialog>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2">Account</th>
-                    <th className="px-3 py-2">Dir</th>
-                    <th className="px-3 py-2">USD</th>
-                    <th className="px-3 py-2">LL</th>
-                    <th className="px-3 py-2">Ref</th>
-                    <th className="px-3 py-2">Matched</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {txns.map((t) => (
-                    <tr key={t.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 text-xs">{t.txn_date}</td>
-                      <td className="px-3 py-2">
-                        <div className="text-sm font-medium">{t.bank_account_name}</div>
-                        <div className="text-xs text-fg-subtle">{t.description || ""}</div>
-                      </td>
-                      <td className="px-3 py-2 text-xs">{t.direction}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{fmt(t.amount_usd)}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{fmt(t.amount_lbp, 0)}</td>
-                      <td className="px-3 py-2 text-xs">{t.reference || "-"}</td>
-                      <td className="px-3 py-2 text-xs">{t.matched_journal_id ? "yes" : "no"}</td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex justify-end gap-2">
-                          {!t.matched_journal_id ? (
-                            <>
-                              <Button variant="outline" size="sm" onClick={() => openCreateJournal(t.id)}>
-                                Create Journal
-                              </Button>
-                              <Button variant="outline" size="sm" onClick={() => openMatch(t.id)}>
-                                Match
-                              </Button>
-                            </>
-                          ) : (
-                            <Button variant="outline" size="sm" onClick={() => unmatch(t.id)}>
-                              Unmatch
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {txns.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
-                        No transactions.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<BankTxnRow>
+              tableId="accounting.banking.reconciliation.txns"
+              rows={txns}
+              columns={txnColumns}
+              isLoading={loadingTxns}
+              initialSort={{ columnId: "txn_date", dir: "desc" }}
+              globalFilterPlaceholder="Search account / description / ref..."
+              emptyText="No transactions."
+            />
           </CardContent>
         </Card>
 

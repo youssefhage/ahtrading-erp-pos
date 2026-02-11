@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -45,6 +46,69 @@ export default function RecurringJournalsPage() {
   const [creating, setCreating] = useState(false);
 
   const activeTemplates = useMemo(() => templates.filter((t) => t.is_active), [templates]);
+
+  const columns = useMemo((): Array<DataTableColumn<RuleRow>> => {
+    return [
+      {
+        id: "template_name",
+        header: "Template",
+        accessor: (r) => `${r.template_name || ""} ${r.journal_template_id || ""}`.trim(),
+        sortable: true,
+        cell: (r) => (
+          <div>
+            <div className="font-medium">{r.template_name}</div>
+            {!r.template_active ? <div className="text-[11px] text-danger">Template inactive (rule will auto-disable)</div> : null}
+            <div className="text-[10px] text-fg-subtle data-mono">{r.journal_template_id}</div>
+          </div>
+        ),
+      },
+      {
+        id: "cadence",
+        header: "Cadence",
+        accessor: (r) => {
+          const extra =
+            r.cadence === "weekly" && r.day_of_week ? ` DOW ${r.day_of_week}` : r.cadence === "monthly" && r.day_of_month ? ` DOM ${r.day_of_month}` : "";
+          return `${r.cadence}${extra}`;
+        },
+        sortable: true,
+        globalSearch: false,
+        cell: (r) => (
+          <span className="text-xs text-fg-muted">
+            {r.cadence}
+            {r.cadence === "weekly" && r.day_of_week ? <span className="text-fg-subtle"> · DOW {r.day_of_week}</span> : null}
+            {r.cadence === "monthly" && r.day_of_month ? <span className="text-fg-subtle"> · DOM {r.day_of_month}</span> : null}
+          </span>
+        ),
+      },
+      { id: "next_run_date", header: "Next Run", accessor: (r) => r.next_run_date || "", mono: true, sortable: true, globalSearch: false, cell: (r) => <span className="data-mono text-xs">{String(r.next_run_date || "").slice(0, 10)}</span> },
+      { id: "last_run_at", header: "Last Run", accessor: (r) => r.last_run_at || "", mono: true, sortable: true, globalSearch: false, cell: (r) => <span className="data-mono text-xs text-fg-muted">{r.last_run_at ? String(r.last_run_at).slice(0, 19).replace("T", " ") : "-"}</span> },
+      {
+        id: "is_active",
+        header: "Status",
+        accessor: (r) => (r.is_active ? "Active" : "Paused"),
+        sortable: true,
+        globalSearch: false,
+        cell: (r) => (r.is_active ? <span className="ui-chip ui-chip-success">Active</span> : <span className="ui-chip ui-chip-default">Paused</span>),
+      },
+      {
+        id: "actions",
+        header: "",
+        accessor: () => "",
+        align: "right",
+        globalSearch: false,
+        cell: (r) => (
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => bumpNextRun(r.id, todayISO())}>
+              Run Today
+            </Button>
+            <Button variant={r.is_active ? "outline" : "default"} size="sm" onClick={() => toggleRule(r.id, !r.is_active)}>
+              {r.is_active ? "Pause" : "Resume"}
+            </Button>
+          </div>
+        ),
+      },
+    ];
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -203,75 +267,17 @@ export default function RecurringJournalsPage() {
 
           <div className="section-divider" />
 
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Template</th>
-                  <th className="px-3 py-2">Cadence</th>
-                  <th className="px-3 py-2">Next Run</th>
-                  <th className="px-3 py-2">Last Run</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className={loading ? "opacity-70" : ""}>
-                {rules.map((r) => (
-                  <tr key={r.id} className="ui-tr ui-tr-hover">
-                    <td className="px-3 py-2">
-                      <div className="font-medium">{r.template_name}</div>
-                      {!r.template_active ? (
-                        <div className="text-[11px] text-danger">Template inactive (rule will auto-disable)</div>
-                      ) : null}
-                      <div className="text-[10px] text-fg-subtle data-mono">{r.journal_template_id}</div>
-                    </td>
-                    <td className="px-3 py-2 text-xs text-fg-muted">
-                      {r.cadence}
-                      {r.cadence === "weekly" && r.day_of_week ? <span className="text-fg-subtle"> · DOW {r.day_of_week}</span> : null}
-                      {r.cadence === "monthly" && r.day_of_month ? <span className="text-fg-subtle"> · DOM {r.day_of_month}</span> : null}
-                    </td>
-                    <td className="px-3 py-2 data-mono text-xs">{String(r.next_run_date || "").slice(0, 10)}</td>
-                    <td className="px-3 py-2 data-mono text-xs text-fg-muted">{r.last_run_at ? String(r.last_run_at).slice(0, 19).replace("T", " ") : "-"}</td>
-                    <td className="px-3 py-2 text-xs">
-                      {r.is_active ? (
-                        <span className="ui-chip ui-chip-success">Active</span>
-                      ) : (
-                        <span className="ui-chip ui-chip-default">Paused</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => bumpNextRun(r.id, todayISO())}
-                        >
-                          Run Today
-                        </Button>
-                        <Button
-                          variant={r.is_active ? "outline" : "default"}
-                          size="sm"
-                          onClick={() => toggleRule(r.id, !r.is_active)}
-                        >
-                          {r.is_active ? "Pause" : "Resume"}
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {rules.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-8 text-center text-fg-subtle" colSpan={6}>
-                      No recurring rules.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<RuleRow>
+            tableId="accounting.recurringJournals"
+            rows={rules}
+            columns={columns}
+            isLoading={loading}
+            initialSort={{ columnId: "next_run_date", dir: "asc" }}
+            globalFilterPlaceholder="Search template..."
+            emptyText="No recurring rules."
+          />
         </CardContent>
       </Card>
     </div>
   );
 }
-
