@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -79,6 +80,192 @@ export default function PromotionsPage() {
     return m;
   }, [items]);
 
+  const openEdit = useCallback((p: PromotionRow) => {
+    setEditId(p.id);
+    setEditCode(p.code || "");
+    setEditName(p.name || "");
+    setEditStartsOn(p.starts_on || "");
+    setEditEndsOn(p.ends_on || "");
+    setEditPriority(String(p.priority ?? 0));
+    setEditActive(!!p.is_active);
+    setEditOpen(true);
+  }, []);
+
+  const openPromotionItems = useCallback(async (p: PromotionRow) => {
+    setItemsPromo(p);
+    setPromoItems([]);
+    setAddSku("");
+    setAddItemId("");
+    setAddMinQty("1");
+    setAddUsd("");
+    setAddLbp("");
+    setAddDisc("");
+    setItemsOpen(true);
+    setStatus("Loading promotion items...");
+    try {
+      const res = await apiGet<{ items: PromotionItemRow[] }>(`/promotions/${p.id}/items`);
+      setPromoItems(res.items || []);
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }, []);
+
+  const deletePromotionItem = useCallback(
+    async (id: string) => {
+      if (!itemsPromo) return;
+      setStatus("Deleting...");
+      try {
+        await apiDelete(`/promotions/items/${encodeURIComponent(id)}`);
+        const res = await apiGet<{ items: PromotionItemRow[] }>(`/promotions/${itemsPromo.id}/items`);
+        setPromoItems(res.items || []);
+        setStatus("");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setStatus(message);
+      }
+    },
+    [itemsPromo]
+  );
+
+  const promoColumns = useMemo((): Array<DataTableColumn<PromotionRow>> => {
+    return [
+      {
+        id: "code",
+        header: "Code",
+        sortable: true,
+        mono: true,
+        accessor: (p) => p.code,
+        cell: (p) => <span className="font-mono text-xs">{p.code}</span>,
+      },
+      {
+        id: "name",
+        header: "Name",
+        sortable: true,
+        accessor: (p) => p.name,
+        cell: (p) => <span className="text-sm">{p.name}</span>,
+      },
+      {
+        id: "dates",
+        header: "Dates",
+        sortable: true,
+        mono: true,
+        accessor: (p) => `${p.starts_on || ""} ${p.ends_on || ""}`,
+        cell: (p) => <span className="text-xs text-fg-muted">{(p.starts_on || "-") + " → " + (p.ends_on || "-")}</span>,
+      },
+      {
+        id: "priority",
+        header: "Priority",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (p) => Number(p.priority || 0),
+        cell: (p) => <span className="font-mono text-xs">{Number(p.priority || 0)}</span>,
+      },
+      {
+        id: "active",
+        header: "Active",
+        sortable: true,
+        accessor: (p) => (p.is_active ? 1 : 0),
+        cell: (p) => <span className="text-xs">{p.is_active ? "Yes" : "No"}</span>,
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        align: "right",
+        sortable: false,
+        accessor: (p) => p.id,
+        cell: (p) => (
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => openPromotionItems(p)}>
+              Items
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => openEdit(p)}>
+              Edit
+            </Button>
+          </div>
+        ),
+      },
+    ];
+  }, [openEdit, openPromotionItems]);
+
+  const promoItemColumns = useMemo((): Array<DataTableColumn<PromotionItemRow>> => {
+    return [
+      {
+        id: "sku",
+        header: "SKU",
+        sortable: true,
+        mono: true,
+        accessor: (pi) => pi.sku,
+        cell: (pi) => (
+          <ShortcutLink href={`/catalog/items/${encodeURIComponent(pi.item_id)}`} title="Open item" className="font-mono text-xs">
+            {pi.sku}
+          </ShortcutLink>
+        ),
+      },
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (pi) => pi.name,
+        cell: (pi) => (
+          <ShortcutLink href={`/catalog/items/${encodeURIComponent(pi.item_id)}`} title="Open item">
+            {pi.name}
+          </ShortcutLink>
+        ),
+      },
+      {
+        id: "min_qty",
+        header: "Min Qty",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (pi) => Number(pi.min_qty || 0),
+        cell: (pi) => <span className="font-mono text-xs">{Number(pi.min_qty || 0).toLocaleString("en-US")}</span>,
+      },
+      {
+        id: "promo_price_usd",
+        header: "Promo USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (pi) => Number(pi.promo_price_usd || 0),
+        cell: (pi) => <span className="font-mono text-xs">{Number(pi.promo_price_usd || 0).toFixed(2)}</span>,
+      },
+      {
+        id: "promo_price_lbp",
+        header: "Promo LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (pi) => Number(pi.promo_price_lbp || 0),
+        cell: (pi) => <span className="font-mono text-xs">{Number(pi.promo_price_lbp || 0).toLocaleString("en-US")}</span>,
+      },
+      {
+        id: "discount_pct",
+        header: "Discount %",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (pi) => Number(pi.discount_pct || 0),
+        cell: (pi) => <span className="font-mono text-xs">{(Number(pi.discount_pct || 0) * 100).toFixed(2)}%</span>,
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        align: "right",
+        sortable: false,
+        accessor: (pi) => pi.id,
+        cell: (pi) => (
+          <Button type="button" variant="outline" size="sm" onClick={() => deletePromotionItem(pi.id)}>
+            Delete
+          </Button>
+        ),
+      },
+    ];
+  }, [deletePromotionItem]);
+
   async function load() {
     setStatus("Loading...");
     try {
@@ -131,17 +318,6 @@ export default function PromotionsPage() {
     }
   }
 
-  function openEdit(p: PromotionRow) {
-    setEditId(p.id);
-    setEditCode(p.code || "");
-    setEditName(p.name || "");
-    setEditStartsOn(p.starts_on || "");
-    setEditEndsOn(p.ends_on || "");
-    setEditPriority(String(p.priority ?? 0));
-    setEditActive(!!p.is_active);
-    setEditOpen(true);
-  }
-
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editId) return;
@@ -166,27 +342,6 @@ export default function PromotionsPage() {
       setStatus(message);
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function openPromotionItems(p: PromotionRow) {
-    setItemsPromo(p);
-    setPromoItems([]);
-    setAddSku("");
-    setAddItemId("");
-    setAddMinQty("1");
-    setAddUsd("");
-    setAddLbp("");
-    setAddDisc("");
-    setItemsOpen(true);
-    setStatus("Loading promotion items...");
-    try {
-      const res = await apiGet<{ items: PromotionItemRow[] }>(`/promotions/${p.id}/items`);
-      setPromoItems(res.items || []);
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
     }
   }
 
@@ -233,20 +388,6 @@ export default function PromotionsPage() {
       setStatus(message);
     } finally {
       setAdding(false);
-    }
-  }
-
-  async function deletePromotionItem(id: string) {
-    if (!itemsPromo) return;
-    setStatus("Deleting...");
-    try {
-      await apiDelete(`/promotions/items/${encodeURIComponent(id)}`);
-      const res = await apiGet<{ items: PromotionItemRow[] }>(`/promotions/${itemsPromo.id}/items`);
-      setPromoItems(res.items || []);
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
     }
   }
 
@@ -311,51 +452,15 @@ export default function PromotionsPage() {
                 </DialogContent>
               </Dialog>
             </div>
-
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Code</th>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Dates</th>
-                    <th className="px-3 py-2 text-right">Priority</th>
-                    <th className="px-3 py-2">Active</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {promos.map((p) => (
-                    <tr key={p.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{p.code}</td>
-                      <td className="px-3 py-2">{p.name}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">
-                        {(p.starts_on || "-") + " → " + (p.ends_on || "-")}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(p.priority || 0)}</td>
-                      <td className="px-3 py-2 text-xs">{p.is_active ? "Yes" : "No"}</td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button type="button" variant="outline" size="sm" onClick={() => openPromotionItems(p)}>
-                            Items
-                          </Button>
-                          <Button type="button" variant="outline" size="sm" onClick={() => openEdit(p)}>
-                            Edit
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {promos.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                        No promotions yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<PromotionRow>
+              tableId="catalog.promotions.list"
+              rows={promos}
+              columns={promoColumns}
+              getRowId={(r) => r.id}
+              emptyText="No promotions yet."
+              globalFilterPlaceholder="Search code / name"
+              initialSort={{ columnId: "priority", dir: "desc" }}
+            />
           </CardContent>
         </Card>
 
@@ -427,53 +532,15 @@ export default function PromotionsPage() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">SKU</th>
-                    <th className="px-3 py-2">Item</th>
-                    <th className="px-3 py-2 text-right">Min Qty</th>
-                    <th className="px-3 py-2 text-right">Promo USD</th>
-                    <th className="px-3 py-2 text-right">Promo LL</th>
-                    <th className="px-3 py-2 text-right">Discount %</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {promoItems.map((pi) => (
-                    <tr key={pi.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">
-                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(pi.item_id)}`} title="Open item" className="font-mono text-xs">
-                          {pi.sku}
-                        </ShortcutLink>
-                      </td>
-                      <td className="px-3 py-2">
-                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(pi.item_id)}`} title="Open item">
-                          {pi.name}
-                        </ShortcutLink>
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(pi.min_qty || 0).toLocaleString("en-US")}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(pi.promo_price_usd || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(pi.promo_price_lbp || 0).toLocaleString("en-US")}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{(Number(pi.discount_pct || 0) * 100).toFixed(2)}%</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button type="button" variant="outline" size="sm" onClick={() => deletePromotionItem(pi.id)}>
-                          Delete
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {promoItems.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
-                        No promo rules yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<PromotionItemRow>
+              tableId="catalog.promotions.items"
+              rows={promoItems}
+              columns={promoItemColumns}
+              getRowId={(r) => r.id}
+              emptyText="No promo rules yet."
+              globalFilterPlaceholder="Search sku / item"
+              initialSort={{ columnId: "sku", dir: "asc" }}
+            />
 
             <form onSubmit={addPromotionItem} className="grid grid-cols-1 gap-3 md:grid-cols-8">
               <div className="space-y-1 md:col-span-2">

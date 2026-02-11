@@ -3,13 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { StatusChip } from "@/components/ui/status-chip";
 
 type ReturnRow = {
@@ -77,7 +76,6 @@ export default function SalesReturnsPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState("");
-  const [q, setQ] = useState("");
 
   const invoiceById = useMemo(() => new Map(invoices.map((i) => [i.id, i])), [invoices]);
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
@@ -86,13 +84,81 @@ export default function SalesReturnsPage() {
   const [returnId, setReturnId] = useState("");
   const [detail, setDetail] = useState<ReturnDetail | null>(null);
 
-  const filtered = useMemo(() => {
-    return filterAndRankByFuzzy(returns || [], q, (r) => {
-      const inv = r.invoice_id ? (invoiceById.get(r.invoice_id)?.invoice_no || "") : "";
-      const wh = r.warehouse_id ? (whById.get(r.warehouse_id)?.name || "") : "";
-      return `${r.return_no || ""} ${inv} ${wh} ${r.id}`;
-    });
-  }, [returns, q, invoiceById, whById]);
+  const columns = useMemo((): Array<DataTableColumn<ReturnRow>> => {
+    return [
+      {
+        id: "return",
+        header: "Return",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.return_no || r.id,
+        cell: (r) => <span className="font-mono text-xs">{r.return_no || r.id}</span>,
+      },
+      {
+        id: "invoice",
+        header: "Invoice",
+        sortable: true,
+        accessor: (r) => (r.invoice_id ? invoiceById.get(r.invoice_id)?.invoice_no || r.invoice_id : ""),
+        cell: (r) =>
+          r.invoice_id ? (
+            <ShortcutLink
+              href={`/sales/invoices/${encodeURIComponent(r.invoice_id)}`}
+              title="Open sales invoice"
+              className="font-mono text-xs"
+            >
+              {invoiceById.get(r.invoice_id)?.invoice_no || r.invoice_id.slice(0, 8)}
+            </ShortcutLink>
+          ) : (
+            <span className="text-fg-subtle">-</span>
+          ),
+      },
+      {
+        id: "warehouse",
+        header: "Warehouse",
+        sortable: true,
+        accessor: (r) => (r.warehouse_id ? whById.get(r.warehouse_id)?.name || r.warehouse_id : ""),
+        cell: (r) =>
+          r.warehouse_id ? (
+            <span className="text-sm">{whById.get(r.warehouse_id)?.name || r.warehouse_id}</span>
+          ) : (
+            <span className="text-fg-subtle">-</span>
+          ),
+      },
+      {
+        id: "refund_method",
+        header: "Refund",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.refund_method || "",
+        cell: (r) => <span className="font-mono text-xs">{r.refund_method || "-"}</span>,
+      },
+      {
+        id: "status",
+        header: "Status",
+        sortable: true,
+        accessor: (r) => r.status,
+        cell: (r) => <StatusChip value={r.status} />,
+      },
+      {
+        id: "total_usd",
+        header: "Total USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.total_usd || 0),
+        cell: (r) => <span className="data-mono text-xs ui-tone-usd">{fmtUsd(r.total_usd)}</span>,
+      },
+      {
+        id: "total_lbp",
+        header: "Total LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.total_lbp || 0),
+        cell: (r) => <span className="data-mono text-xs ui-tone-lbp">{fmtLbp(r.total_lbp)}</span>,
+      },
+    ];
+  }, [invoiceById, whById]);
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -162,81 +228,27 @@ export default function SalesReturnsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Returns</CardTitle>
-            <CardDescription>{filtered.length} returns</CardDescription>
+            <CardDescription>{returns.length} returns</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="w-full md:w-96">
-                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search return / invoice / warehouse..." />
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <Button variant="outline" onClick={load}>
-                  Refresh
-                </Button>
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="md:col-span-2">
-                <div className="ui-table-wrap">
-                  <table className="ui-table">
-                    <thead className="ui-thead">
-                      <tr>
-                        <th className="px-3 py-2">Return</th>
-                        <th className="px-3 py-2">Invoice</th>
-                        <th className="px-3 py-2">Warehouse</th>
-                        <th className="px-3 py-2">Refund</th>
-                        <th className="px-3 py-2">Status</th>
-                        <th className="px-3 py-2 text-right">Total USD</th>
-                        <th className="px-3 py-2 text-right">Total LL</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.map((r) => {
-                        const selected = r.id === returnId;
-                        return (
-                          <tr
-                            key={r.id}
-                            className={selected ? "bg-bg-sunken/20" : "ui-tr-hover"}
-                            style={{ cursor: "pointer" }}
-                            onClick={() => setReturnId(r.id)}
-                          >
-                            <td className="px-3 py-2 font-mono text-xs">{r.return_no || r.id}</td>
-                            <td className="px-3 py-2">
-                              {r.invoice_id ? (
-                                <ShortcutLink
-                                  href={`/sales/invoices/${encodeURIComponent(r.invoice_id)}`}
-                                  title="Open sales invoice"
-                                  className="font-mono text-xs"
-                                >
-                                  {invoiceById.get(r.invoice_id)?.invoice_no || r.invoice_id.slice(0, 8)}
-                                </ShortcutLink>
-                              ) : (
-                                <span className="text-fg-subtle">-</span>
-                              )}
-                            </td>
-                            <td className="px-3 py-2">
-                              {r.warehouse_id ? whById.get(r.warehouse_id)?.name || r.warehouse_id : <span className="text-fg-subtle">-</span>}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-xs">{r.refund_method || "-"}</td>
-                            <td className="px-3 py-2">
-                              <StatusChip value={r.status} />
-                            </td>
-                            <td className="px-3 py-2 text-right data-mono text-xs ui-tone-usd">{fmtUsd(r.total_usd)}</td>
-                            <td className="px-3 py-2 text-right data-mono text-xs ui-tone-lbp">{fmtLbp(r.total_lbp)}</td>
-                          </tr>
-                        );
-                      })}
-                      {filtered.length === 0 ? (
-                        <tr>
-                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={7}>
-                            No returns.
-                          </td>
-                        </tr>
-                      ) : null}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<ReturnRow>
+                  tableId="sales.returns.list"
+                  rows={returns}
+                  columns={columns}
+                  getRowId={(r) => r.id}
+                  onRowClick={(r) => setReturnId(r.id)}
+                  rowClassName={(r) => (r.id === returnId ? "bg-bg-sunken/20" : undefined)}
+                  emptyText="No returns."
+                  initialSort={{ columnId: "return", dir: "desc" }}
+                  globalFilterPlaceholder="Search return / invoice / warehouse"
+                  actions={
+                    <Button variant="outline" onClick={load}>
+                      Refresh
+                    </Button>
+                  }
+                />
               </div>
 
               <div className="md:col-span-1">

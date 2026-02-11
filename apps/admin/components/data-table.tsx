@@ -34,6 +34,7 @@ export type DataTableProps<T> = {
   columns: Array<DataTableColumn<T>>;
   getRowId?: (row: T, index: number) => string;
   onRowClick?: (row: T) => void;
+  rowClassName?: string | ((row: T) => string | undefined);
   emptyText?: string;
   className?: string;
   initialSort?: { columnId: string; dir: SortDir } | null;
@@ -110,6 +111,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
     columns,
     getRowId,
     onRowClick,
+    rowClassName,
     emptyText = "No rows.",
     className,
     initialSort = null,
@@ -452,7 +454,11 @@ export function DataTable<T>(props: DataTableProps<T>) {
               return (
                 <tr
                   key={key}
-                  className={cn("ui-tr ui-tr-hover", onRowClick && "cursor-pointer")}
+                  className={cn(
+                    "ui-tr ui-tr-hover",
+                    onRowClick && "cursor-pointer",
+                    typeof rowClassName === "function" ? rowClassName(r) : rowClassName
+                  )}
                   onClick={onRowClick ? () => onRowClick(r) : undefined}
                   tabIndex={onRowClick ? 0 : undefined}
                   role={onRowClick ? "button" : undefined}
