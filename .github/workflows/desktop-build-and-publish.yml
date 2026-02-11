@@ -47,12 +47,12 @@ jobs:
 
           # POS
           find apps/pos-desktop/src-tauri/target/release/bundle -maxdepth 5 -type f \
-            \\( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \\) \
+            \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) \
             -print0 | xargs -0 -I{} cp "{}" "dist/${{ matrix.os }}/pos/" || true
 
           # Portal
           find apps/admin-desktop/src-tauri/target/release/bundle -maxdepth 5 -type f \
-            \\( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \\) \
+            \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) \
             -print0 | xargs -0 -I{} cp "{}" "dist/${{ matrix.os }}/portal/" || true
 
           # Help the publish step detect which runner produced which folder.
@@ -100,9 +100,9 @@ jobs:
               "${api_url}" >/dev/null
           }
 
-          pos_win="$(find dist -type f \\( -name '*.msi' -o -name '*.exe' \\) | rg '/pos/' | head -n1 || true)"
+          pos_win="$(find dist -type f \( -name '*.msi' -o -name '*.exe' \) | rg '/pos/' | head -n1 || true)"
           pos_mac="$(find dist -type f -name '*.dmg' | rg '/pos/' | head -n1 || true)"
-          portal_win="$(find dist -type f \\( -name '*.msi' -o -name '*.exe' \\) | rg '/portal/' | head -n1 || true)"
+          portal_win="$(find dist -type f \( -name '*.msi' -o -name '*.exe' \) | rg '/portal/' | head -n1 || true)"
           portal_mac="$(find dist -type f -name '*.dmg' | rg '/portal/' | head -n1 || true)"
 
           [ -n "$pos_win" ] || { echo "missing POS windows installer" >&2; exit 1; }
