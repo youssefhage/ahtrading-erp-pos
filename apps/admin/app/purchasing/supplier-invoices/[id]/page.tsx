@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { MoneyInput } from "@/components/money-input";
@@ -163,6 +164,100 @@ function SupplierInvoiceShowInner() {
     merged.sort();
     return merged;
   }, [paymentMethods]);
+  const invoiceLineColumns = useMemo((): Array<DataTableColumn<InvoiceLine>> => {
+    return [
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (l) => `${l.item_sku || ""} ${l.item_name || ""}`,
+        cell: (l) =>
+          l.item_sku || l.item_name ? (
+            <div>
+              <div>
+                <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
+                  <span className="font-mono text-xs">{l.item_sku || "-"}</span> · {l.item_name || "-"}
+                </ShortcutLink>
+              </div>
+              {l.supplier_item_code || l.supplier_item_name ? (
+                <div className="mt-1 text-[10px] text-fg-subtle">
+                  Supplier: <span className="font-mono">{l.supplier_item_code || "-"}</span>
+                  {l.supplier_item_name ? <span> · {l.supplier_item_name}</span> : null}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
+              {l.item_id}
+            </ShortcutLink>
+          ),
+      },
+      {
+        id: "qty",
+        header: "Qty",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.qty_entered ?? l.qty ?? 0),
+        cell: (l) => (
+          <div className="text-right font-mono text-xs">
+            <div className="text-foreground">
+              {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
+              <span className="text-[10px] text-fg-subtle">{String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}</span>
+            </div>
+            {Number(l.qty_factor || 1) !== 1 ? (
+              <div className="mt-0.5 text-[10px] text-fg-subtle">
+                base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+              </div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: "batch_no",
+        header: "Batch",
+        sortable: true,
+        mono: true,
+        accessor: (l) => l.batch_no || "",
+        cell: (l) => (
+          <span className="font-mono text-xs">
+            {l.batch_no || "-"}
+            {l.batch_status && l.batch_status !== "available" ? (
+              <span className="ml-2 rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">
+                {l.batch_status}
+              </span>
+            ) : null}
+          </span>
+        ),
+      },
+      {
+        id: "expiry_date",
+        header: "Expiry",
+        sortable: true,
+        mono: true,
+        accessor: (l) => l.expiry_date || "",
+        cell: (l) => <span className="font-mono text-xs">{fmtIso(l.expiry_date)}</span>,
+      },
+      {
+        id: "line_total_usd",
+        header: "Total USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.line_total_usd || 0),
+        cell: (l) => <span className="font-mono text-xs">{fmtUsd(l.line_total_usd)}</span>,
+      },
+      {
+        id: "line_total_lbp",
+        header: "Total LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.line_total_lbp || 0),
+        cell: (l) => <span className="font-mono text-xs">{fmtLbp(l.line_total_lbp)}</span>,
+      },
+    ];
+  }, []);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -634,54 +729,44 @@ function SupplierInvoiceShowInner() {
                     <CardDescription>Signals detected from this invoice (review recommended).</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    <div className="ui-table-wrap">
-                      <table className="ui-table">
-                        <thead className="ui-thead">
-                          <tr>
-                            <th className="px-3 py-2">Item</th>
-                            <th className="px-3 py-2 text-right">Prev</th>
-                            <th className="px-3 py-2 text-right">New</th>
-                            <th className="px-3 py-2 text-right">% +</th>
-                            <th className="px-3 py-2 text-right">Sell USD</th>
-                            <th className="px-3 py-2 text-right">Margin</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(((aiInsight as any).recommendation_json?.price_changes as any[]) || []).slice(0, 10).map((c, idx) => (
-                            <tr key={String(c.item_id || idx)} className="border-t border-border-subtle align-top">
-                              <td className="px-3 py-2 text-xs">
-                                {c.item_id ? (
-                                  <ShortcutLink
-                                    href={`/catalog/items/${encodeURIComponent(String(c.item_id))}`}
-                                    title="Open item"
-                                    className="font-mono text-[10px] text-fg-subtle"
-                                  >
-                                    {String(c.item_id)}
-                                  </ShortcutLink>
-                                ) : (
-                                  <div className="font-mono text-[10px] text-fg-subtle">-</div>
-                                )}
-                                <div className="text-xs text-foreground">
-                                  {c.supplier_item_code ? <span className="font-mono">{c.supplier_item_code}</span> : null}
-                                  {c.supplier_item_name ? <span>{c.supplier_item_code ? " · " : ""}{c.supplier_item_name}</span> : null}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{c.prev_unit_cost_usd || c.prev_unit_cost_lbp || "-"}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{c.new_unit_cost_usd || c.new_unit_cost_lbp || "-"}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">
-                                {typeof c.pct_increase === "number" ? `${(c.pct_increase * 100).toFixed(1)}%` : "-"}
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{c.sell_price_usd || "-"}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">
-                                {typeof c.margin_before === "number" && typeof c.margin_after === "number"
-                                  ? `${(c.margin_before * 100).toFixed(1)}% → ${(c.margin_after * 100).toFixed(1)}%`
-                                  : "-"}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable<any>
+                      tableId="purchasing.supplier_invoice.ai_price_impact"
+                      rows={(((aiInsight as any).recommendation_json?.price_changes as any[]) || []).slice(0, 10)}
+                      columns={[
+                        {
+                          id: "item",
+                          header: "Item",
+                          accessor: (c) => `${c.item_id || ""} ${c.supplier_item_name || ""}`,
+                          cell: (c) => (
+                            <div className="text-xs">
+                              {c.item_id ? (
+                                <ShortcutLink
+                                  href={`/catalog/items/${encodeURIComponent(String(c.item_id))}`}
+                                  title="Open item"
+                                  className="font-mono text-[10px] text-fg-subtle"
+                                >
+                                  {String(c.item_id)}
+                                </ShortcutLink>
+                              ) : (
+                                <div className="font-mono text-[10px] text-fg-subtle">-</div>
+                              )}
+                              <div className="text-xs text-foreground">
+                                {c.supplier_item_code ? <span className="font-mono">{c.supplier_item_code}</span> : null}
+                                {c.supplier_item_name ? <span>{c.supplier_item_code ? " · " : ""}{c.supplier_item_name}</span> : null}
+                              </div>
+                            </div>
+                          ),
+                        },
+                        { id: "prev", header: "Prev", sortable: true, align: "right", mono: true, accessor: (c) => c.prev_unit_cost_usd || c.prev_unit_cost_lbp || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.prev_unit_cost_usd || c.prev_unit_cost_lbp || "-"}</span> },
+                        { id: "new", header: "New", sortable: true, align: "right", mono: true, accessor: (c) => c.new_unit_cost_usd || c.new_unit_cost_lbp || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.new_unit_cost_usd || c.new_unit_cost_lbp || "-"}</span> },
+                        { id: "pct", header: "% +", sortable: true, align: "right", mono: true, accessor: (c) => Number(c.pct_increase || 0), cell: (c) => <span className="font-mono text-xs text-fg-muted">{typeof c.pct_increase === "number" ? `${(c.pct_increase * 100).toFixed(1)}%` : "-"}</span> },
+                        { id: "sell", header: "Sell USD", sortable: true, align: "right", mono: true, accessor: (c) => c.sell_price_usd || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.sell_price_usd || "-"}</span> },
+                        { id: "margin", header: "Margin", align: "right", mono: true, accessor: (c) => `${c.margin_before || ""}${c.margin_after || ""}`, cell: (c) => <span className="font-mono text-xs text-fg-muted">{typeof c.margin_before === "number" && typeof c.margin_after === "number" ? `${(c.margin_before * 100).toFixed(1)}% → ${(c.margin_after * 100).toFixed(1)}%` : "-"}</span> },
+                      ]}
+                      getRowId={(c, idx) => String(c.item_id || idx)}
+                      emptyText="No AI price-change rows."
+                      enableGlobalFilter={false}
+                    />
                     <div className="flex justify-end">
                       <Button asChild variant="outline" size="sm">
                         <a href="/automation/ai-hub">Open AI Hub</a>
@@ -712,91 +797,92 @@ function SupplierInvoiceShowInner() {
                         );
                       }
                       return (
-                        <div className="ui-table-wrap">
-                          <table className="ui-table">
-                            <thead className="ui-thead">
-                              <tr>
-                                <th className="px-3 py-2">Kind</th>
-                                <th className="px-3 py-2">Details</th>
-                                <th className="px-3 py-2 text-right">Variance</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {flags.slice(0, 20).map((f, idx) => {
+                        <DataTable<any>
+                          tableId="purchasing.supplier_invoice.hold_flags"
+                          rows={flags.slice(0, 20)}
+                          columns={[
+                            {
+                              id: "kind",
+                              header: "Kind",
+                              sortable: true,
+                              mono: true,
+                              accessor: (f) => String(f?.kind || "unknown"),
+                              cell: (f) => <span className="text-xs font-mono text-fg-muted">{String(f?.kind || "unknown")}</span>,
+                            },
+                            {
+                              id: "details",
+                              header: "Details",
+                              accessor: (f) => JSON.stringify(f || {}),
+                              cell: (f) => {
                                 const kind = String(f?.kind || "unknown");
                                 if (kind === "unit_cost_variance") {
                                   return (
-                                    <tr key={idx} className="ui-tr-hover align-top">
-                                      <td className="px-3 py-2 text-xs font-mono text-fg-muted">unit_cost</td>
-                                      <td className="px-3 py-2 text-xs">
-                                        <div className="font-medium text-foreground">
-                                          {f.item_id ? (
-                                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(String(f.item_id))}`} title="Open item">
-                                              <span className="font-mono">{f.item_sku || String(f.item_id).slice(0, 8)}</span>
-                                              {f.item_name ? <span> · {f.item_name}</span> : null}
-                                            </ShortcutLink>
-                                          ) : (
-                                            "-"
-                                          )}
-                                        </div>
-                                        <div className="mt-1 text-[11px] text-fg-muted">
-                                          Expected: <span className="font-mono">{String(f.expected_unit_cost_usd || "0")}</span> USD
-                                          {" · "}Actual: <span className="font-mono">{String(f.actual_unit_cost_usd || "0")}</span> USD
-                                        </div>
-                                      </td>
-                                      <td className="px-3 py-2 text-right text-xs font-mono text-fg-muted">
-                                        {f.pct_variance_usd ? `${(Number(f.pct_variance_usd) * 100).toFixed(1)}%` : "-"}
-                                      </td>
-                                    </tr>
+                                    <div className="text-xs">
+                                      <div className="font-medium text-foreground">
+                                        {f.item_id ? (
+                                          <ShortcutLink href={`/catalog/items/${encodeURIComponent(String(f.item_id))}`} title="Open item">
+                                            <span className="font-mono">{f.item_sku || String(f.item_id).slice(0, 8)}</span>
+                                            {f.item_name ? <span> · {f.item_name}</span> : null}
+                                          </ShortcutLink>
+                                        ) : "-"}
+                                      </div>
+                                      <div className="mt-1 text-[11px] text-fg-muted">
+                                        Expected: <span className="font-mono">{String(f.expected_unit_cost_usd || "0")}</span> USD{" · "}
+                                        Actual: <span className="font-mono">{String(f.actual_unit_cost_usd || "0")}</span> USD
+                                      </div>
+                                    </div>
                                   );
                                 }
                                 if (kind === "qty_exceeds_received") {
                                   return (
-                                    <tr key={idx} className="ui-tr-hover align-top">
-                                      <td className="px-3 py-2 text-xs font-mono text-fg-muted">qty</td>
-                                      <td className="px-3 py-2 text-xs">
-                                        <div className="text-foreground">Invoiced qty exceeds received qty.</div>
-                                        <div className="mt-1 text-[11px] text-fg-muted font-mono">
-                                          line {String(f.goods_receipt_line_id || "").slice(0, 8)} · received {String(f.received_qty || "0")} · prev {String(f.previously_invoiced_qty || "0")} · this {String(f.this_invoice_qty || "0")}
-                                        </div>
-                                      </td>
-                                      <td className="px-3 py-2 text-right text-xs font-mono text-fg-muted">
-                                        +{String(f.total_after || "")}
-                                      </td>
-                                    </tr>
+                                    <div className="text-xs">
+                                      <div className="text-foreground">Invoiced qty exceeds received qty.</div>
+                                      <div className="mt-1 text-[11px] text-fg-muted font-mono">
+                                        line {String(f.goods_receipt_line_id || "").slice(0, 8)} · received {String(f.received_qty || "0")} · prev {String(f.previously_invoiced_qty || "0")} · this {String(f.this_invoice_qty || "0")}
+                                      </div>
+                                    </div>
                                   );
                                 }
                                 if (kind === "tax_variance") {
                                   return (
-                                    <tr key={idx} className="ui-tr-hover align-top">
-                                      <td className="px-3 py-2 text-xs font-mono text-fg-muted">tax</td>
-                                      <td className="px-3 py-2 text-xs">
-                                        <div className="text-foreground">Invoice tax does not match item-level expected tax.</div>
-                                        <div className="mt-1 text-[11px] text-fg-muted font-mono">
-                                          invoice_tax {String(f.invoice_tax_lbp || "0")} · expected {String(f.expected_tax_lbp || "0")} · diff {String(f.diff_lbp || "0")} · items {String(f.mismatch_count || 0)}
-                                        </div>
-                                      </td>
-                                      <td className="px-3 py-2 text-right text-xs font-mono text-fg-muted">
-                                        {f.diff_pct_of_base ? `${(Number(f.diff_pct_of_base) * 100).toFixed(2)}%` : "-"}
-                                      </td>
-                                    </tr>
+                                    <div className="text-xs">
+                                      <div className="text-foreground">Invoice tax does not match item-level expected tax.</div>
+                                      <div className="mt-1 text-[11px] text-fg-muted font-mono">
+                                        invoice_tax {String(f.invoice_tax_lbp || "0")} · expected {String(f.expected_tax_lbp || "0")} · diff {String(f.diff_lbp || "0")} · items {String(f.mismatch_count || 0)}
+                                      </div>
+                                    </div>
                                   );
                                 }
                                 return (
-                                  <tr key={idx} className="ui-tr-hover align-top">
-                                    <td className="px-3 py-2 text-xs font-mono text-fg-muted">{kind}</td>
-                                    <td className="px-3 py-2 text-xs text-fg-muted">
-                                      <pre className="max-h-24 overflow-auto rounded-md border border-border-subtle bg-bg-sunken/40 p-2 text-[11px]">
+                                  <pre className="max-h-24 overflow-auto rounded-md border border-border-subtle bg-bg-sunken/40 p-2 text-[11px] text-fg-muted">
 {JSON.stringify(f, null, 2)}
-                                      </pre>
-                                    </td>
-                                    <td className="px-3 py-2 text-right text-xs text-fg-muted">-</td>
-                                  </tr>
+                                  </pre>
                                 );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                              },
+                            },
+                            {
+                              id: "variance",
+                              header: "Variance",
+                              align: "right",
+                              mono: true,
+                              accessor: (f) => Number(f?.pct_variance_usd || f?.diff_pct_of_base || 0),
+                              cell: (f) => (
+                                <span className="text-xs font-mono text-fg-muted">
+                                  {f?.pct_variance_usd
+                                    ? `${(Number(f.pct_variance_usd) * 100).toFixed(1)}%`
+                                    : f?.diff_pct_of_base
+                                      ? `${(Number(f.diff_pct_of_base) * 100).toFixed(2)}%`
+                                      : f?.total_after
+                                        ? `+${String(f.total_after)}`
+                                        : "-"}
+                                </span>
+                              ),
+                            },
+                          ]}
+                          getRowId={(_, idx) => String(idx)}
+                          enableGlobalFilter={false}
+                          emptyText="No hold flags."
+                        />
                       );
                     })()}
                   </CardContent>
@@ -808,84 +894,15 @@ function SupplierInvoiceShowInner() {
                   <CardTitle className="text-base">Lines</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="ui-table-wrap">
-                    <table className="ui-table">
-                      <thead className="ui-thead">
-                        <tr>
-                          <th className="px-3 py-2">Item</th>
-                          <th className="px-3 py-2 text-right">Qty</th>
-                          <th className="px-3 py-2">Batch</th>
-                          <th className="px-3 py-2">Expiry</th>
-                          <th className="px-3 py-2 text-right">Total USD</th>
-                          <th className="px-3 py-2 text-right">Total LL</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.lines.map((l) => (
-                          <tr key={l.id} className="ui-tr-hover">
-                            <td className="px-3 py-2">
-                              {l.item_sku || l.item_name ? (
-                                <div>
-                                  <div>
-                                    <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
-                                      <span className="font-mono text-xs">{l.item_sku || "-"}</span> · {l.item_name || "-"}
-                                    </ShortcutLink>
-                                  </div>
-                                  {l.supplier_item_code || l.supplier_item_name ? (
-                                    <div className="mt-1 text-[10px] text-fg-subtle">
-                                      Supplier: <span className="font-mono">{l.supplier_item_code || "-"}</span>
-                                      {l.supplier_item_name ? <span> · {l.supplier_item_name}</span> : null}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              ) : (
-                                <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
-                                  {l.item_id}
-                                </ShortcutLink>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
-                              <div>
-                                <div className="text-foreground">
-                                  {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
-                                  <span className="text-[10px] text-fg-subtle">
-                                    {String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}
-                                  </span>
-                                </div>
-                                {Number(l.qty_factor || 1) !== 1 ? (
-                                  <div className="mt-0.5 text-[10px] text-fg-subtle">
-                                    base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </td>
-                            <td className="px-3 py-2 font-mono text-xs">
-                              {l.batch_no || "-"}
-                              {l.batch_status && l.batch_status !== "available" ? (
-                                <span className="ml-2 rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">
-                                  {l.batch_status}
-                                </span>
-                              ) : null}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-xs">{fmtIso(l.expiry_date)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
-                              {fmtUsd(l.line_total_usd)}
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">
-                              {fmtLbp(l.line_total_lbp)}
-                            </td>
-                          </tr>
-                        ))}
-                        {detail.lines.length === 0 ? (
-                          <tr>
-                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                              No lines.
-                            </td>
-                          </tr>
-                        ) : null}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable<InvoiceLine>
+                    tableId="purchasing.supplier_invoice.lines"
+                    rows={detail.lines}
+                    columns={invoiceLineColumns}
+                    getRowId={(l) => l.id}
+                    emptyText="No lines."
+                    enableGlobalFilter={false}
+                    initialSort={{ columnId: "item", dir: "asc" }}
+                  />
                 </CardContent>
               </Card>
 

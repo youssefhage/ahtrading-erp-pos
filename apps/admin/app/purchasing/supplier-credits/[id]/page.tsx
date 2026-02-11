@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -202,6 +203,169 @@ export default function SupplierCreditDetailPage() {
   }
 
   const credit = data?.credit;
+  const openInvoiceColumns: Array<DataTableColumn<OpenInvoiceRow>> = [
+    {
+      id: "invoice_no",
+      header: "Invoice",
+      sortable: true,
+      mono: true,
+      accessor: (inv) => inv.invoice_no,
+      cell: (inv) => <span className="font-mono text-xs">{inv.invoice_no}</span>,
+    },
+    {
+      id: "invoice_date",
+      header: "Date",
+      sortable: true,
+      mono: true,
+      accessor: (inv) => inv.invoice_date,
+      cell: (inv) => <span className="font-mono text-xs text-fg-muted">{inv.invoice_date}</span>,
+    },
+    {
+      id: "balance",
+      header: "Balance",
+      sortable: true,
+      align: "right",
+      mono: true,
+      accessor: (inv) => toNum(inv.balance_usd),
+      cell: (inv) => (
+        <div className="text-right data-mono text-xs">
+          {fmtUsd(inv.balance_usd)}
+          <div className="text-[11px] text-fg-muted">{fmtLbp(inv.balance_lbp)}</div>
+        </div>
+      ),
+    },
+    {
+      id: "select",
+      header: "",
+      align: "right",
+      cell: (inv) => (
+        <Button
+          type="button"
+          size="sm"
+          variant={invoiceId === inv.id ? "default" : "outline"}
+          onClick={() => {
+            setInvoiceId(inv.id);
+            const usd = Math.max(0, Math.min(toNum(inv.balance_usd), remaining.usd));
+            const lbp = Math.max(0, Math.min(toNum(inv.balance_lbp), remaining.lbp));
+            setApplyUsd(usd ? String(usd) : "");
+            setApplyLbp(lbp ? String(lbp) : "");
+          }}
+        >
+          {invoiceId === inv.id ? "Selected" : "Select"}
+        </Button>
+      ),
+    },
+  ];
+  const appColumns: Array<DataTableColumn<AppRow>> = [
+    {
+      id: "invoice",
+      header: "Invoice",
+      sortable: true,
+      mono: true,
+      accessor: (a) => a.invoice_no,
+      cell: (a) => (
+        <div className="font-mono text-xs">
+          <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(a.supplier_invoice_id)}`} title="Open supplier invoice">
+            {a.invoice_no}
+          </ShortcutLink>
+          <div className="text-[11px] text-fg-muted">{a.invoice_date}</div>
+        </div>
+      ),
+    },
+    {
+      id: "amount",
+      header: "Amount",
+      sortable: true,
+      align: "right",
+      mono: true,
+      accessor: (a) => toNum(a.amount_usd),
+      cell: (a) => (
+        <div className="text-right data-mono text-xs">
+          {fmtUsd(a.amount_usd)}
+          <div className="text-[11px] text-fg-muted">{fmtLbp(a.amount_lbp)}</div>
+        </div>
+      ),
+    },
+    {
+      id: "created_at",
+      header: "Created",
+      sortable: true,
+      mono: true,
+      accessor: (a) => a.created_at,
+      cell: (a) => <span className="font-mono text-xs text-fg-muted">{(a.created_at || "").slice(0, 10)}</span>,
+    },
+  ];
+  const lineColumns: Array<DataTableColumn<LineRow>> = [
+    {
+      id: "line_no",
+      header: "#",
+      sortable: true,
+      mono: true,
+      accessor: (l) => Number(l.line_no || 0),
+      cell: (l) => <span className="font-mono text-xs">{l.line_no}</span>,
+    },
+    {
+      id: "description",
+      header: "Description",
+      sortable: true,
+      accessor: (l) => l.description || "",
+      cell: (l) => <span className="text-xs">{l.description || "-"}</span>,
+    },
+    {
+      id: "amount_usd",
+      header: "USD",
+      sortable: true,
+      align: "right",
+      mono: true,
+      accessor: (l) => toNum(l.amount_usd),
+      cell: (l) => <span className="data-mono text-xs ui-tone-usd">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</span>,
+    },
+    {
+      id: "amount_lbp",
+      header: "LL",
+      sortable: true,
+      align: "right",
+      mono: true,
+      accessor: (l) => toNum(l.amount_lbp),
+      cell: (l) => <span className="data-mono text-xs ui-tone-lbp">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</span>,
+    },
+  ];
+  const allocColumns: Array<DataTableColumn<AllocRow>> = [
+    {
+      id: "goods_receipt_line_id",
+      header: "Goods Receipt Line",
+      sortable: true,
+      mono: true,
+      accessor: (a) => a.goods_receipt_line_id,
+      cell: (a) => <span className="font-mono text-xs">{a.goods_receipt_line_id}</span>,
+    },
+    {
+      id: "batch_id",
+      header: "Batch",
+      sortable: true,
+      mono: true,
+      accessor: (a) => a.batch_id || "",
+      cell: (a) => <span className="font-mono text-xs text-fg-muted">{a.batch_id || "-"}</span>,
+    },
+    {
+      id: "amount_usd",
+      header: "USD",
+      sortable: true,
+      align: "right",
+      mono: true,
+      accessor: (a) => toNum(a.amount_usd),
+      cell: (a) => <span className="data-mono text-xs ui-tone-usd">{fmtUsd(a.amount_usd, { maximumFractionDigits: 4 })}</span>,
+    },
+    {
+      id: "amount_lbp",
+      header: "LL",
+      sortable: true,
+      align: "right",
+      mono: true,
+      accessor: (a) => toNum(a.amount_lbp),
+      cell: (a) => <span className="data-mono text-xs ui-tone-lbp">{fmtLbp(a.amount_lbp, { maximumFractionDigits: 2 })}</span>,
+    },
+  ];
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -302,53 +466,15 @@ export default function SupplierCreditDetailPage() {
                         </div>
                       </div>
 
-                      <div className="ui-table-wrap">
-                        <table className="ui-table">
-                          <thead className="ui-thead">
-                            <tr>
-                              <th className="px-3 py-2">Invoice</th>
-                              <th className="px-3 py-2">Date</th>
-                              <th className="px-3 py-2 text-right">Balance</th>
-                              <th className="px-3 py-2"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {openInvoices.map((inv) => (
-                              <tr key={inv.id} className="ui-tr-hover">
-                                <td className="px-3 py-2 font-mono text-xs">{inv.invoice_no}</td>
-                                <td className="px-3 py-2 font-mono text-xs text-fg-muted">{inv.invoice_date}</td>
-                                <td className="px-3 py-2 text-right data-mono text-xs">
-                                  {fmtUsd(inv.balance_usd)}
-                                  <div className="text-[11px] text-fg-muted">{fmtLbp(inv.balance_lbp)}</div>
-                                </td>
-                                <td className="px-3 py-2 text-right">
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant={invoiceId === inv.id ? "default" : "outline"}
-                                    onClick={() => {
-                                      setInvoiceId(inv.id);
-                                      const usd = Math.max(0, Math.min(toNum(inv.balance_usd), remaining.usd));
-                                      const lbp = Math.max(0, Math.min(toNum(inv.balance_lbp), remaining.lbp));
-                                      setApplyUsd(usd ? String(usd) : "");
-                                      setApplyLbp(lbp ? String(lbp) : "");
-                                    }}
-                                  >
-                                    {invoiceId === inv.id ? "Selected" : "Select"}
-                                  </Button>
-                                </td>
-                              </tr>
-                            ))}
-                            {openInvoices.length === 0 ? (
-                              <tr>
-                                <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                                  No open invoices found.
-                                </td>
-                              </tr>
-                            ) : null}
-                          </tbody>
-                        </table>
-                      </div>
+                      <DataTable<OpenInvoiceRow>
+                        tableId="purchasing.supplier_credit.open_invoices"
+                        rows={openInvoices}
+                        columns={openInvoiceColumns}
+                        getRowId={(inv) => inv.id}
+                        emptyText="No open invoices found."
+                        enableGlobalFilter={false}
+                        initialSort={{ columnId: "invoice_date", dir: "desc" }}
+                      />
 
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         <MoneyInput label="Apply USD" currency="USD" value={applyUsd} onChange={setApplyUsd} quick={[0]} />
@@ -425,41 +551,15 @@ export default function SupplierCreditDetailPage() {
             <CardDescription>{data?.applications?.length || 0} applications</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Invoice</th>
-                    <th className="px-3 py-2 text-right">Amount</th>
-                    <th className="px-3 py-2">Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data?.applications || []).map((a) => (
-                    <tr key={a.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">
-                        <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(a.supplier_invoice_id)}`} title="Open supplier invoice">
-                          {a.invoice_no}
-                        </ShortcutLink>
-                        <div className="text-[11px] text-fg-muted">{a.invoice_date}</div>
-                      </td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">
-                        {fmtUsd(a.amount_usd)}
-                        <div className="text-[11px] text-fg-muted">{fmtLbp(a.amount_lbp)}</div>
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs text-fg-muted">{(a.created_at || "").slice(0, 10)}</td>
-                    </tr>
-                  ))}
-                  {(data?.applications || []).length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
-                        No applications.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<AppRow>
+              tableId="purchasing.supplier_credit.applications"
+              rows={data?.applications || []}
+              columns={appColumns}
+              getRowId={(a) => a.id}
+              emptyText="No applications."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "created_at", dir: "desc" }}
+            />
           </CardContent>
         </Card>
       </div>
@@ -470,35 +570,15 @@ export default function SupplierCreditDetailPage() {
           <CardDescription>{data?.lines?.length || 0} lines</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">#</th>
-                  <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2 text-right">USD</th>
-                  <th className="px-3 py-2 text-right">LL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.lines || []).map((l) => (
-                  <tr key={l.id} className="ui-tr-hover">
-                    <td className="px-3 py-2 font-mono text-xs">{l.line_no}</td>
-                    <td className="px-3 py-2 text-xs">{l.description || "-"}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs ui-tone-usd">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs ui-tone-lbp">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</td>
-                  </tr>
-                ))}
-                {(data?.lines || []).length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                      No lines.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<LineRow>
+            tableId="purchasing.supplier_credit.lines"
+            rows={data?.lines || []}
+            columns={lineColumns}
+            getRowId={(l) => l.id}
+            emptyText="No lines."
+            enableGlobalFilter={false}
+            initialSort={{ columnId: "line_no", dir: "asc" }}
+          />
         </CardContent>
       </Card>
 
@@ -509,28 +589,15 @@ export default function SupplierCreditDetailPage() {
             <CardDescription>Rebate allocations applied to goods receipt lines/batches.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Goods Receipt Line</th>
-                    <th className="px-3 py-2">Batch</th>
-                    <th className="px-3 py-2 text-right">USD</th>
-                    <th className="px-3 py-2 text-right">LL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data?.allocations || []).map((a) => (
-                    <tr key={a.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{a.goods_receipt_line_id}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-fg-muted">{a.batch_id || "-"}</td>
-                      <td className="px-3 py-2 text-right data-mono text-xs ui-tone-usd">{fmtUsd(a.amount_usd, { maximumFractionDigits: 4 })}</td>
-                      <td className="px-3 py-2 text-right data-mono text-xs ui-tone-lbp">{fmtLbp(a.amount_lbp, { maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<AllocRow>
+              tableId="purchasing.supplier_credit.allocations"
+              rows={data?.allocations || []}
+              columns={allocColumns}
+              getRowId={(a) => a.id}
+              emptyText="No allocations."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "goods_receipt_line_id", dir: "asc" }}
+            />
           </CardContent>
         </Card>
       ) : null}
