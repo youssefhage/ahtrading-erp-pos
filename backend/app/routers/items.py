@@ -130,6 +130,26 @@ class BulkBarcodesIn(BaseModel):
     lines: List[BulkBarcodeIn]
 
 
+class BulkUomConversionIn(BaseModel):
+    sku: str
+    uom_code: str
+    to_base_factor: Decimal
+    is_active: bool = True
+
+
+class BulkUomConversionsIn(BaseModel):
+    lines: List[BulkUomConversionIn]
+
+
+class BulkCategoryAssignIn(BaseModel):
+    sku: str
+    category_name: str
+
+
+class BulkCategoryAssignRequest(BaseModel):
+    lines: List[BulkCategoryAssignIn]
+
+
 @router.get("", dependencies=[Depends(require_permission("items:read"))])
 def list_items(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
@@ -1336,6 +1356,170 @@ def bulk_upsert_item_prices(data: BulkItemPricesIn, company_id: str = Depends(ge
                     (company_id, user["user_id"], json.dumps({"count": upserted, "effective_from": eff.isoformat()})),
                 )
                 return {"ok": True, "upserted": upserted, "effective_from": eff}
+
+
+@router.post("/uom-conversions/bulk", dependencies=[Depends(require_permission("items:write"))])
+def bulk_upsert_item_uom_conversions(
+    data: BulkUomConversionsIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    """
+    Go-live utility: bulk upsert item_uom_conversions by SKU.
+    """
+    lines = data.lines or []
+    if not lines:
+        raise HTTPException(status_code=400, detail="lines is required")
+    if len(lines) > 20000:
+        raise HTTPException(status_code=400, detail="too many lines (max 20000)")
+
+    skus = sorted({(ln.sku or "").strip() for ln in lines if (ln.sku or "").strip()})
+    if not skus:
+        raise HTTPException(status_code=400, detail="each line requires sku")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT sku, id, unit_of_measure
+                    FROM items
+                    WHERE company_id=%s AND sku = ANY(%s::text[])
+                    """,
+                    (company_id, skus),
+                )
+                item_by_sku = {
+                    (str(r["sku"]) or "").strip(): {"id": str(r["id"]), "base_uom": _norm_uom(r.get("unit_of_measure"))}
+                    for r in (cur.fetchall() or [])
+                }
+
+                missing = [s for s in skus if s not in item_by_sku]
+                if missing:
+                    raise HTTPException(status_code=400, detail=f"unknown sku(s): {missing[:25]}")
+
+                upserted = 0
+                for ln in lines:
+                    sku = (ln.sku or "").strip()
+                    if not sku:
+                        raise HTTPException(status_code=400, detail="each line requires sku")
+                    it = item_by_sku[sku]
+                    item_id = it["id"]
+                    base_uom = it["base_uom"]
+
+                    uom_code = _norm_uom(ln.uom_code)
+                    f = Decimal(str(ln.to_base_factor or 0))
+                    if f <= 0:
+                        raise HTTPException(status_code=400, detail=f"to_base_factor must be > 0: {sku}/{uom_code}")
+                    if uom_code == base_uom and f != 1:
+                        raise HTTPException(status_code=400, detail=f"base UOM conversion factor must be 1: {sku}/{uom_code}")
+                    if uom_code != base_uom and f == 1:
+                        # Allowed, but usually indicates missing data; keep permissive.
+                        pass
+
+                    _ensure_uom_exists(cur, company_id, uom_code)
+
+                    cur.execute(
+                        """
+                        INSERT INTO item_uom_conversions (id, company_id, item_id, uom_code, to_base_factor, is_active)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s)
+                        ON CONFLICT (company_id, item_id, uom_code) DO UPDATE
+                        SET to_base_factor = EXCLUDED.to_base_factor,
+                            is_active = EXCLUDED.is_active,
+                            updated_at = now()
+                        """,
+                        (company_id, item_id, uom_code, f, bool(ln.is_active)),
+                    )
+                    upserted += 1
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_uom_conversions_bulk_upsert', 'item_uom_conversions', NULL, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], json.dumps({"count": upserted})),
+                )
+                return {"ok": True, "upserted": upserted}
+
+
+@router.post("/category-assign/bulk", dependencies=[Depends(require_permission("items:write"))])
+def bulk_assign_item_categories(
+    data: BulkCategoryAssignRequest,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    """
+    Go-live utility: assign item_categories by SKU.
+    Category names must already exist (use /item-categories to create them).
+    """
+    lines = data.lines or []
+    if not lines:
+        raise HTTPException(status_code=400, detail="lines is required")
+    if len(lines) > 20000:
+        raise HTTPException(status_code=400, detail="too many lines (max 20000)")
+
+    skus = sorted({(ln.sku or "").strip() for ln in lines if (ln.sku or "").strip()})
+    if not skus:
+        raise HTTPException(status_code=400, detail="each line requires sku")
+
+    cat_names = sorted({(ln.category_name or "").strip() for ln in lines if (ln.category_name or "").strip()})
+    if not cat_names:
+        raise HTTPException(status_code=400, detail="each line requires category_name")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT sku, id
+                    FROM items
+                    WHERE company_id=%s AND sku = ANY(%s::text[])
+                    """,
+                    (company_id, skus),
+                )
+                item_by_sku = {(str(r["sku"]) or "").strip(): str(r["id"]) for r in (cur.fetchall() or [])}
+                missing_items = [s for s in skus if s not in item_by_sku]
+                if missing_items:
+                    raise HTTPException(status_code=400, detail=f"unknown sku(s): {missing_items[:25]}")
+
+                cur.execute(
+                    """
+                    SELECT id, name
+                    FROM item_categories
+                    WHERE company_id=%s AND name = ANY(%s::text[])
+                    """,
+                    (company_id, cat_names),
+                )
+                cat_by_name = {(str(r["name"]) or "").strip(): str(r["id"]) for r in (cur.fetchall() or [])}
+                missing_cats = [n for n in cat_names if n not in cat_by_name]
+                if missing_cats:
+                    raise HTTPException(status_code=400, detail=f"unknown category_name(s): {missing_cats[:25]}")
+
+                updated = 0
+                for ln in lines:
+                    sku = (ln.sku or "").strip()
+                    cname = (ln.category_name or "").strip()
+                    if not sku or not cname:
+                        continue
+                    cur.execute(
+                        """
+                        UPDATE items
+                        SET category_id=%s::uuid, updated_at=now()
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (cat_by_name[cname], company_id, item_by_sku[sku]),
+                    )
+                    updated += 1
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'items_bulk_category_assign', 'items', NULL, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], json.dumps({"count": updated})),
+                )
+                return {"ok": True, "updated": updated}
 
 
 class ItemBarcodeIn(BaseModel):
