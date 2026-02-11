@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -52,6 +53,37 @@ export default function BankAccountsPage() {
     for (const a of coa) m.set(a.account_code, a);
     return m;
   }, [coa]);
+
+  const columns = useMemo((): Array<DataTableColumn<BankAccountRow>> => {
+    return [
+      { id: "name", header: "Name", accessor: (a) => a.name, sortable: true },
+      { id: "currency", header: "Currency", accessor: (a) => a.currency, sortable: true, globalSearch: false, cell: (a) => <span className="text-xs">{a.currency}</span> },
+      {
+        id: "gl",
+        header: "GL",
+        accessor: (a) => `${a.account_code} ${a.name_en || ""}`.trim(),
+        sortable: true,
+        cell: (a) => (
+          <span className="text-xs">
+            <span className="font-mono">{a.account_code}</span> <span className="text-fg-subtle">{a.name_en || ""}</span>
+          </span>
+        ),
+      },
+      { id: "is_active", header: "Active", accessor: (a) => (a.is_active ? "yes" : "no"), sortable: true, globalSearch: false, cell: (a) => <span className="text-xs">{a.is_active ? "yes" : "no"}</span> },
+      {
+        id: "actions",
+        header: "",
+        accessor: () => "",
+        align: "right",
+        globalSearch: false,
+        cell: (a) => (
+          <Button variant="outline" size="sm" onClick={() => openEdit(a)}>
+            Edit
+          </Button>
+        ),
+      },
+    ];
+  }, []);
 
   async function load() {
     setStatus("Loading...");
@@ -138,160 +170,123 @@ export default function BankAccountsPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Accounts</CardTitle>
-            <CardDescription>{accounts.length} bank accounts</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button>Create Account</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create Bank Account</DialogTitle>
-                    <DialogDescription>Each bank account maps to a GL account in your chart of accounts.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={createAccount} className="grid grid-cols-1 gap-3">
+      <Card>
+        <CardHeader>
+          <CardTitle>Accounts</CardTitle>
+          <CardDescription>{accounts.length} bank accounts</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>Create Account</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Bank Account</DialogTitle>
+                  <DialogDescription>Each bank account maps to a GL account in your chart of accounts.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createAccount} className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Name</label>
+                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Bank - USD" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Bank - USD" />
+                      <label className="text-xs font-medium text-fg-muted">Currency</label>
+                      <select className="ui-select" value={currency} onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}>
+                        <option value="USD">USD</option>
+                        <option value="LBP">LL</option>
+                      </select>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Currency</label>
-                        <select
-                          className="ui-select"
-                          value={currency}
-                          onChange={(e) => setCurrency(e.target.value as "USD" | "LBP")}
-                        >
-                          <option value="USD">USD</option>
-                          <option value="LBP">LL</option>
-                        </select>
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">GL Account Code</label>
-                        <Input value={glCode} onChange={(e) => setGlCode(e.target.value)} placeholder="e.g. 100100" list="coaCodes" />
-                        <datalist id="coaCodes">
-                          {coa.slice(0, 2000).map((a) => (
-                            <option key={a.id} value={a.account_code}>
-                              {a.name_en || ""}
-                            </option>
-                          ))}
-                        </datalist>
-                        {coaByCode.get(glCode.trim()) ? (
-                          <p className="text-xs text-fg-subtle">{coaByCode.get(glCode.trim())?.name_en || "OK"}</p>
-                        ) : (
-                          <p className="text-xs text-fg-subtle">Pick a valid GL account.</p>
-                        )}
-                      </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-fg-muted">GL Account Code</label>
+                      <Input value={glCode} onChange={(e) => setGlCode(e.target.value)} placeholder="e.g. 100100" list="coaCodes" />
+                      <datalist id="coaCodes">
+                        {coa.slice(0, 2000).map((a) => (
+                          <option key={a.id} value={a.account_code}>
+                            {a.name_en || ""}
+                          </option>
+                        ))}
+                      </datalist>
+                      {coaByCode.get(glCode.trim()) ? (
+                        <p className="text-xs text-fg-subtle">{coaByCode.get(glCode.trim())?.name_en || "OK"}</p>
+                      ) : (
+                        <p className="text-xs text-fg-subtle">Pick a valid GL account.</p>
+                      )}
                     </div>
-                    <label className="flex items-center gap-2 text-sm text-fg-muted">
-                      <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-                      Active
-                    </label>
-                    <div className="flex justify-end">
-                      <Button type="submit" disabled={creating}>
-                        {creating ? "..." : "Create"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-fg-muted">
+                    <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+                    Active
+                  </label>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={creating}>
+                      {creating ? "..." : "Create"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Currency</th>
-                    <th className="px-3 py-2">GL</th>
-                    <th className="px-3 py-2">Active</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {accounts.map((a) => (
-                    <tr key={a.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-medium">{a.name}</td>
-                      <td className="px-3 py-2 text-xs">{a.currency}</td>
-                      <td className="px-3 py-2 text-xs">
-                        <span className="font-mono">{a.account_code}</span>{" "}
-                        <span className="text-fg-subtle">{a.name_en || ""}</span>
-                      </td>
-                      <td className="px-3 py-2 text-xs">{a.is_active ? "yes" : "no"}</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button variant="outline" size="sm" onClick={() => openEdit(a)}>
-                          Edit
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {accounts.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No bank accounts yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+          <DataTable<BankAccountRow>
+            tableId="accounting.banking.accounts"
+            rows={accounts}
+            columns={columns}
+            initialSort={{ columnId: "name", dir: "asc" }}
+            globalFilterPlaceholder="Search name / GL..."
+            emptyText="No bank accounts yet."
+          />
+        </CardContent>
+      </Card>
 
-        <Dialog open={editOpen} onOpenChange={setEditOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Edit Bank Account</DialogTitle>
-              <DialogDescription>Changing the GL mapping affects reconciliation matching.</DialogDescription>
-            </DialogHeader>
-            <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Bank Account</DialogTitle>
+            <DialogDescription>Changing the GL mapping affects reconciliation matching.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-fg-muted">Name</label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Name</label>
-                <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+                <label className="text-xs font-medium text-fg-muted">Currency</label>
+                <select className="ui-select" value={editCurrency} onChange={(e) => setEditCurrency(e.target.value as "USD" | "LBP")}>
+                  <option value="USD">USD</option>
+                  <option value="LBP">LL</option>
+                </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Currency</label>
-                  <select
-                    className="ui-select"
-                    value={editCurrency}
-                    onChange={(e) => setEditCurrency(e.target.value as "USD" | "LBP")}
-                  >
-                    <option value="USD">USD</option>
-                    <option value="LBP">LL</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">GL Account Code</label>
-                  <Input value={editGlCode} onChange={(e) => setEditGlCode(e.target.value)} list="coaCodes" />
-                  {coaByCode.get(editGlCode.trim()) ? (
-                    <p className="text-xs text-fg-subtle">{coaByCode.get(editGlCode.trim())?.name_en || "OK"}</p>
-                  ) : (
-                    <p className="text-xs text-fg-subtle">Pick a valid GL account.</p>
-                  )}
-                </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">GL Account Code</label>
+                <Input value={editGlCode} onChange={(e) => setEditGlCode(e.target.value)} list="coaCodes" />
+                {coaByCode.get(editGlCode.trim()) ? (
+                  <p className="text-xs text-fg-subtle">{coaByCode.get(editGlCode.trim())?.name_en || "OK"}</p>
+                ) : (
+                  <p className="text-xs text-fg-subtle">Pick a valid GL account.</p>
+                )}
               </div>
-              <label className="flex items-center gap-2 text-sm text-fg-muted">
-                <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
-                Active
-              </label>
-              <div className="flex justify-end">
-                <Button type="submit" disabled={editing}>
-                  {editing ? "..." : "Save"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>);
+            </div>
+            <label className="flex items-center gap-2 text-sm text-fg-muted">
+              <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
+              Active
+            </label>
+            <div className="flex justify-end">
+              <Button type="submit" disabled={editing}>
+                {editing ? "..." : "Save"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 }

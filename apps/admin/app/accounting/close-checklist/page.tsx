@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -56,6 +57,29 @@ export default function CloseChecklistPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const columns = useMemo((): Array<DataTableColumn<CheckRow>> => {
+    return [
+      { id: "level", header: "Status", accessor: (c) => c.level, sortable: true, globalSearch: false, cell: (c) => <StatusChip value={c.level} /> },
+      { id: "title", header: "Check", accessor: (c) => c.title, sortable: true, cell: (c) => <span className="text-xs">{c.title}</span> },
+      { id: "count", header: "Count", accessor: (c) => Number(c.count || 0), sortable: true, align: "right", mono: true, globalSearch: false, cell: (c) => <span className="data-mono text-xs">{Number(c.count || 0)}</span> },
+      {
+        id: "href",
+        header: "Link",
+        accessor: (c) => c.href || "",
+        sortable: false,
+        globalSearch: false,
+        cell: (c) =>
+          c.href ? (
+            <a className="ui-link text-xs" href={c.href}>
+              Open
+            </a>
+          ) : (
+            <span className="text-xs text-fg-subtle">-</span>
+          ),
+      },
+    ];
+  }, []);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -116,48 +140,16 @@ export default function CloseChecklistPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Check</th>
-                  <th className="px-3 py-2 text-right">Count</th>
-                  <th className="px-3 py-2">Link</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.checks || []).map((c) => (
-                  <tr key={c.code} className="ui-tr-hover">
-                    <td className="px-3 py-2">
-                      <StatusChip value={c.level} />
-                    </td>
-                    <td className="px-3 py-2 text-xs">{c.title}</td>
-                    <td className="px-3 py-2 text-right data-mono text-xs">{Number(c.count || 0)}</td>
-                    <td className="px-3 py-2 text-xs">
-                      {c.href ? (
-                        <a className="ui-link" href={c.href}>
-                          Open
-                        </a>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {(data?.checks || []).length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                      No checks found.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<CheckRow>
+            tableId="accounting.closeChecklist"
+            rows={data?.checks || []}
+            columns={columns}
+            initialSort={{ columnId: "level", dir: "asc" }}
+            globalFilterPlaceholder="Search checks..."
+            emptyText="No checks found."
+          />
         </CardContent>
       </Card>
     </div>
   );
 }
-
