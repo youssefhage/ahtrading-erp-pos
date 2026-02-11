@@ -159,6 +159,44 @@ export default function SalesReturnsPage() {
       },
     ];
   }, [invoiceById, whById]);
+  const detailLineColumns = useMemo((): Array<DataTableColumn<ReturnLine>> => {
+    return [
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (l) => {
+          const it = itemById.get(l.item_id);
+          return `${it?.sku || ""} ${it?.name || l.item_id}`;
+        },
+        cell: (l) => {
+          const it = itemById.get(l.item_id);
+          return it ? (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
+              <span className="font-mono text-xs">{it.sku}</span> · {it.name}
+            </ShortcutLink>
+          ) : (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
+              {l.item_id}
+            </ShortcutLink>
+          );
+        },
+      },
+      {
+        id: "qty",
+        header: "Qty",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.qty || 0),
+        cell: (l) => (
+          <span className="font-mono text-xs">
+            {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+          </span>
+        ),
+      },
+    ];
+  }, [itemById]);
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -356,46 +394,15 @@ export default function SalesReturnsPage() {
                           </div>
                         ) : null}
 
-                        <div className="ui-table-wrap">
-                          <table className="ui-table">
-                            <thead className="ui-thead">
-                              <tr>
-                                <th className="px-3 py-2">Item</th>
-                                <th className="px-3 py-2 text-right">Qty</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(detail.lines || []).map((l) => {
-                                const it = itemById.get(l.item_id);
-                                return (
-                                  <tr key={l.id} className="ui-tr-hover">
-                                    <td className="px-3 py-2">
-                                      {it ? (
-                                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
-                                          <span className="font-mono text-xs">{it.sku}</span> · {it.name}
-                                        </ShortcutLink>
-                                      ) : (
-                                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
-                                          {l.item_id}
-                                        </ShortcutLink>
-                                      )}
-                                    </td>
-                                    <td className="px-3 py-2 text-right font-mono text-xs">
-                                      {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                              {!(detail.lines || []).length ? (
-                                <tr>
-                                  <td className="px-3 py-6 text-center text-fg-subtle" colSpan={2}>
-                                    No lines.
-                                  </td>
-                                </tr>
-                              ) : null}
-                            </tbody>
-                          </table>
-                        </div>
+                        <DataTable<ReturnLine>
+                          tableId="sales.returns.detail_lines"
+                          rows={detail.lines || []}
+                          columns={detailLineColumns}
+                          getRowId={(l) => l.id}
+                          emptyText="No lines."
+                          enableGlobalFilter={false}
+                          initialSort={{ columnId: "item", dir: "asc" }}
+                        />
 
                         <div className="rounded-md border border-border bg-bg-elevated p-3">
                           <p className="text-sm font-medium text-foreground">Tax Lines</p>

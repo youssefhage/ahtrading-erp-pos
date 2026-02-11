@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -96,6 +97,144 @@ export default function ConfigPage() {
 
   const accountByCode = useMemo(() => new Map(accounts.map((a) => [a.account_code, a])), [accounts]);
   const defaultByRole = useMemo(() => new Map(defaults.map((d) => [d.role_code, d])), [defaults]);
+  const accountDefaultsRows = useMemo(
+    () =>
+      roles.map((r) => {
+        const d = defaultByRole.get(r.code);
+        const a = d?.account_code ? accountByCode.get(d.account_code) : undefined;
+        return {
+          role_code: r.code,
+          account_code: d?.account_code || "",
+          name_en: a?.name_en || d?.name_en || "",
+        };
+      }),
+    [roles, defaultByRole, accountByCode],
+  );
+  const accountDefaultsColumns = useMemo((): Array<DataTableColumn<{ role_code: string; account_code: string; name_en: string }>> => {
+    return [
+      {
+        id: "role_code",
+        header: "Role",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.role_code,
+        cell: (r) => <span className="font-mono text-xs">{r.role_code}</span>,
+      },
+      {
+        id: "account_code",
+        header: "Account",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.account_code,
+        cell: (r) => <span className="font-mono text-xs">{r.account_code || "-"}</span>,
+      },
+      {
+        id: "name_en",
+        header: "Name",
+        sortable: true,
+        accessor: (r) => r.name_en,
+        cell: (r) => <span className="text-xs text-fg-muted">{r.name_en || "-"}</span>,
+      },
+    ];
+  }, []);
+  const paymentMethodColumns = useMemo((): Array<DataTableColumn<PaymentMethodRow>> => {
+    return [
+      {
+        id: "method",
+        header: "Method",
+        sortable: true,
+        mono: true,
+        accessor: (m) => m.method,
+        cell: (m) => <span className="font-mono text-xs">{m.method}</span>,
+      },
+      {
+        id: "role_code",
+        header: "Role",
+        sortable: true,
+        mono: true,
+        accessor: (m) => m.role_code,
+        cell: (m) => <span className="font-mono text-xs">{m.role_code}</span>,
+      },
+      {
+        id: "created_at",
+        header: "Created",
+        sortable: true,
+        mono: true,
+        accessor: (m) => m.created_at,
+        cell: (m) => <span className="text-xs text-fg-muted">{m.created_at}</span>,
+      },
+    ];
+  }, []);
+  const taxCodeColumns = useMemo((): Array<DataTableColumn<TaxCode>> => {
+    return [
+      {
+        id: "name",
+        header: "Name",
+        sortable: true,
+        accessor: (t) => t.name,
+        cell: (t) => t.name,
+      },
+      {
+        id: "rate",
+        header: "Rate",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (t) => Number(t.rate || 0),
+        cell: (t) => (
+          <span className="font-mono text-xs">
+            {Number(t.rate || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}%
+          </span>
+        ),
+      },
+      {
+        id: "tax_type",
+        header: "Type",
+        sortable: true,
+        accessor: (t) => t.tax_type,
+        cell: (t) => t.tax_type,
+      },
+      {
+        id: "reporting_currency",
+        header: "Currency",
+        sortable: true,
+        accessor: (t) => t.reporting_currency,
+        cell: (t) => t.reporting_currency,
+      },
+    ];
+  }, []);
+  const exchangeRateColumns = useMemo((): Array<DataTableColumn<ExchangeRateRow>> => {
+    return [
+      {
+        id: "rate_date",
+        header: "Date",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.rate_date,
+        cell: (r) => <span className="font-mono text-xs">{r.rate_date}</span>,
+      },
+      {
+        id: "rate_type",
+        header: "Type",
+        sortable: true,
+        accessor: (r) => r.rate_type,
+        cell: (r) => r.rate_type,
+      },
+      {
+        id: "usd_to_lbp",
+        header: "USD to LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.usd_to_lbp || 0),
+        cell: (r) => (
+          <span className="font-mono text-xs">
+            {Number(r.usd_to_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          </span>
+        ),
+      },
+    ];
+  }, []);
 
   async function load() {
     setStatus("Loading...");
@@ -583,37 +722,15 @@ export default function ConfigPage() {
               </Dialog>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Role</th>
-                    <th className="px-3 py-2">Account</th>
-                    <th className="px-3 py-2">Name</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {roles.map((r) => {
-                    const d = defaultByRole.get(r.code);
-                    const a = d?.account_code ? accountByCode.get(d.account_code) : undefined;
-                    return (
-                      <tr key={r.code} className="ui-tr-hover">
-                        <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{d?.account_code || "-"}</td>
-                        <td className="px-3 py-2 text-xs text-fg-muted">{a?.name_en || d?.name_en || "-"}</td>
-                      </tr>
-                    );
-                  })}
-                  {roles.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
-                        No roles found.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<{ role_code: string; account_code: string; name_en: string }>
+              tableId="system.config.account_defaults"
+              rows={accountDefaultsRows}
+              columns={accountDefaultsColumns}
+              getRowId={(r) => r.role_code}
+              emptyText="No roles found."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "role_code", dir: "asc" }}
+            />
           </CardContent>
         </Card>
 
@@ -763,33 +880,15 @@ export default function ConfigPage() {
               </Dialog>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Method</th>
-                    <th className="px-3 py-2">Role</th>
-                    <th className="px-3 py-2">Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {methods.map((m) => (
-                    <tr key={m.method} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{m.method}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{m.role_code}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{m.created_at}</td>
-                    </tr>
-                  ))}
-                  {methods.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
-                        No payment method mappings yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<PaymentMethodRow>
+              tableId="system.config.payment_methods"
+              rows={methods}
+              columns={paymentMethodColumns}
+              getRowId={(m) => m.method}
+              emptyText="No payment method mappings yet."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "method", dir: "asc" }}
+            />
           </CardContent>
         </Card>
 
@@ -843,37 +942,15 @@ export default function ConfigPage() {
               </Dialog>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2 text-right">Rate</th>
-                    <th className="px-3 py-2">Type</th>
-                    <th className="px-3 py-2">Currency</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {taxCodes.map((t) => (
-                    <tr key={t.id} className="ui-tr-hover">
-                      <td className="px-3 py-2">{t.name}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">
-                        {Number(t.rate || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}%
-                      </td>
-                      <td className="px-3 py-2">{t.tax_type}</td>
-                      <td className="px-3 py-2">{t.reporting_currency}</td>
-                    </tr>
-                  ))}
-                  {taxCodes.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                        No tax codes yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<TaxCode>
+              tableId="system.config.tax_codes"
+              rows={taxCodes}
+              columns={taxCodeColumns}
+              getRowId={(t) => t.id}
+              emptyText="No tax codes yet."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "name", dir: "asc" }}
+            />
           </CardContent>
         </Card>
 
@@ -918,35 +995,15 @@ export default function ConfigPage() {
               </Dialog>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Date</th>
-                    <th className="px-3 py-2">Type</th>
-                    <th className="px-3 py-2 text-right">USD→LL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rates.map((r) => (
-                    <tr key={r.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{r.rate_date}</td>
-                      <td className="px-3 py-2">{r.rate_type}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">
-                        {Number(r.usd_to_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  ))}
-                  {rates.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
-                        No exchange rates yet.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<ExchangeRateRow>
+              tableId="system.config.exchange_rates"
+              rows={rates}
+              columns={exchangeRateColumns}
+              getRowId={(r) => r.id}
+              emptyText="No exchange rates yet."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "rate_date", dir: "desc" }}
+            />
           </CardContent>
         </Card>
       </div>);

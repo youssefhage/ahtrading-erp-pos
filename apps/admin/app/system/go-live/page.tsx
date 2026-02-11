@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -162,6 +163,53 @@ export default function GoLivePage() {
     ],
     []
   );
+
+  const preflightColumns = useMemo((): Array<DataTableColumn<{ name: string; status: string; detail: string }>> => {
+    return [
+      {
+        id: "name",
+        header: "Check",
+        sortable: true,
+        mono: true,
+        accessor: (c) => c.name,
+        cell: (c) => <span className="font-mono text-xs">{c.name}</span>,
+      },
+      {
+        id: "status",
+        header: "Status",
+        sortable: true,
+        accessor: (c) => c.status,
+        cell: (c) => <span className="ui-chip ui-chip-default">{c.status.toUpperCase()}</span>,
+      },
+      {
+        id: "detail",
+        header: "Details",
+        sortable: true,
+        accessor: (c) => c.detail,
+        cell: (c) => <span className="text-sm text-fg-muted">{c.detail}</span>,
+      },
+    ];
+  }, []);
+
+  const arPreviewColumns = useMemo((): Array<DataTableColumn<OpeningArRow>> => {
+    return [
+      { id: "customer", header: "Customer", sortable: true, mono: true, accessor: (r) => r.customer_code || r.customer_id || "", cell: (r) => <span className="font-mono text-xs">{r.customer_code || r.customer_id || "-"}</span> },
+      { id: "invoice_no", header: "Invoice", sortable: true, mono: true, accessor: (r) => r.invoice_no || "", cell: (r) => <span className="font-mono text-xs">{r.invoice_no || "(auto)"}</span> },
+      { id: "invoice_date", header: "Date", sortable: true, mono: true, accessor: (r) => r.invoice_date, cell: (r) => <span className="font-mono text-xs">{r.invoice_date}</span> },
+      { id: "amount_usd", header: "USD", sortable: true, align: "right", mono: true, accessor: (r) => Number(r.amount_usd || 0), cell: (r) => <span className="font-mono text-xs">{r.amount_usd ?? "-"}</span> },
+      { id: "amount_lbp", header: "LL", sortable: true, align: "right", mono: true, accessor: (r) => Number(r.amount_lbp || 0), cell: (r) => <span className="font-mono text-xs">{r.amount_lbp ?? "-"}</span> },
+    ];
+  }, []);
+
+  const apPreviewColumns = useMemo((): Array<DataTableColumn<OpeningApRow>> => {
+    return [
+      { id: "supplier", header: "Supplier", sortable: true, mono: true, accessor: (r) => r.supplier_code || r.supplier_id || "", cell: (r) => <span className="font-mono text-xs">{r.supplier_code || r.supplier_id || "-"}</span> },
+      { id: "invoice_no", header: "Invoice", sortable: true, mono: true, accessor: (r) => r.invoice_no || "", cell: (r) => <span className="font-mono text-xs">{r.invoice_no || "(auto)"}</span> },
+      { id: "invoice_date", header: "Date", sortable: true, mono: true, accessor: (r) => r.invoice_date, cell: (r) => <span className="font-mono text-xs">{r.invoice_date}</span> },
+      { id: "amount_usd", header: "USD", sortable: true, align: "right", mono: true, accessor: (r) => Number(r.amount_usd || 0), cell: (r) => <span className="font-mono text-xs">{r.amount_usd ?? "-"}</span> },
+      { id: "amount_lbp", header: "LL", sortable: true, align: "right", mono: true, accessor: (r) => Number(r.amount_lbp || 0), cell: (r) => <span className="font-mono text-xs">{r.amount_lbp ?? "-"}</span> },
+    ];
+  }, []);
 
   function recomputeAr(text: string) {
     const trimmed = (text || "").trim();
@@ -360,28 +408,14 @@ export default function GoLivePage() {
           </div>
 
           {preflight ? (
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Check</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preflight.checks.map((c) => (
-                    <tr key={c.name} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{c.name}</td>
-                      <td className="px-3 py-2">
-                        <span className="ui-chip ui-chip-default">{c.status.toUpperCase()}</span>
-                      </td>
-                      <td className="px-3 py-2 text-sm text-fg-muted">{c.detail}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<{ name: string; status: string; detail: string }>
+              tableId="system.go_live.preflight"
+              rows={preflight.checks}
+              columns={preflightColumns}
+              getRowId={(r) => r.name}
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "name", dir: "asc" }}
+            />
           ) : (
             <div className="text-sm text-fg-muted">No preflight data yet.</div>
           )}
@@ -458,37 +492,15 @@ export default function GoLivePage() {
                   </div>
                   <div className="space-y-2">
                     <div className="text-xs text-fg-muted">Preview (first {arPreview.length})</div>
-                    <div className="ui-table-wrap">
-                      <table className="ui-table">
-                        <thead className="ui-thead">
-                          <tr>
-                            <th className="px-3 py-2">Customer</th>
-                            <th className="px-3 py-2">Invoice</th>
-                            <th className="px-3 py-2">Date</th>
-                            <th className="px-3 py-2 text-right">USD</th>
-                            <th className="px-3 py-2 text-right">LL</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {arPreview.map((r, i) => (
-                            <tr key={i} className="ui-tr-hover">
-                              <td className="px-3 py-2 font-mono text-xs">{r.customer_code || r.customer_id || "-"}</td>
-                              <td className="px-3 py-2 font-mono text-xs">{r.invoice_no || "(auto)"}</td>
-                              <td className="px-3 py-2 font-mono text-xs">{r.invoice_date}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{r.amount_usd ?? "-"}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{r.amount_lbp ?? "-"}</td>
-                            </tr>
-                          ))}
-                          {arPreview.length === 0 ? (
-                            <tr>
-                              <td colSpan={5} className="px-3 py-6 text-center text-fg-subtle">
-                                Paste CSV to preview.
-                              </td>
-                            </tr>
-                          ) : null}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable<OpeningArRow>
+                      tableId="system.go_live.ar_preview"
+                      rows={arPreview}
+                      columns={arPreviewColumns}
+                      getRowId={(_, i) => String(i)}
+                      emptyText="Paste CSV to preview."
+                      enableGlobalFilter={false}
+                      enablePagination
+                    />
                     <div className="flex justify-end gap-2">
                       <Button
                         variant="outline"
@@ -572,37 +584,15 @@ export default function GoLivePage() {
                   </div>
                   <div className="space-y-2">
                     <div className="text-xs text-fg-muted">Preview (first {apPreview.length})</div>
-                    <div className="ui-table-wrap">
-                      <table className="ui-table">
-                        <thead className="ui-thead">
-                          <tr>
-                            <th className="px-3 py-2">Supplier</th>
-                            <th className="px-3 py-2">Invoice</th>
-                            <th className="px-3 py-2">Date</th>
-                            <th className="px-3 py-2 text-right">USD</th>
-                            <th className="px-3 py-2 text-right">LL</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {apPreview.map((r, i) => (
-                            <tr key={i} className="ui-tr-hover">
-                              <td className="px-3 py-2 font-mono text-xs">{r.supplier_code || r.supplier_id || "-"}</td>
-                              <td className="px-3 py-2 font-mono text-xs">{r.invoice_no || "(auto)"}</td>
-                              <td className="px-3 py-2 font-mono text-xs">{r.invoice_date}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{r.amount_usd ?? "-"}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{r.amount_lbp ?? "-"}</td>
-                            </tr>
-                          ))}
-                          {apPreview.length === 0 ? (
-                            <tr>
-                              <td colSpan={5} className="px-3 py-6 text-center text-fg-subtle">
-                                Paste CSV to preview.
-                              </td>
-                            </tr>
-                          ) : null}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable<OpeningApRow>
+                      tableId="system.go_live.ap_preview"
+                      rows={apPreview}
+                      columns={apPreviewColumns}
+                      getRowId={(_, i) => String(i)}
+                      emptyText="Paste CSV to preview."
+                      enableGlobalFilter={false}
+                      enablePagination
+                    />
                     <div className="flex justify-end gap-2">
                       <Button
                         variant="outline"
