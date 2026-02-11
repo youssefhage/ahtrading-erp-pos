@@ -3,6 +3,8 @@
 Import master data into the POS API from CSVs produced by export_erpnext_pos_masterdata.py.
 
 Imports (in order):
+0) customers (bulk upsert; optional)
+0) suppliers (bulk upsert; optional)
 1) tax codes (ensures tax_code names exist)
 2) item categories (creates by name)
 3) items (bulk upsert)
@@ -176,6 +178,98 @@ def read_csv_dict(path: str) -> list[dict]:
         return [dict(row) for row in r]
 
 
+def read_csv_dict_if_exists(path: str) -> list[dict]:
+    if not path:
+        return []
+    if not os.path.exists(path):
+        return []
+    return read_csv_dict(path)
+
+
+def _to_int_or_none(v: Any) -> Optional[int]:
+    s = str(v or "").strip()
+    if not s:
+        return None
+    try:
+        return int(s)
+    except Exception:
+        return None
+
+
+def _to_bool_or_none(v: Any) -> Optional[bool]:
+    s = str(v or "").strip().lower()
+    if not s:
+        return None
+    if s in {"1", "true", "yes", "y"}:
+        return True
+    if s in {"0", "false", "no", "n"}:
+        return False
+    return None
+
+
+def bulk_upsert_customers(cli: ApiClient, rows: list[dict], chunk: int) -> int:
+    if not rows:
+        return 0
+    up = 0
+    for batch in _chunks(rows, chunk):
+        payload = []
+        for r in batch:
+            code = str(r.get("code") or "").strip()
+            name = str(r.get("name") or "").strip()
+            if not code or not name:
+                continue
+            payload.append(
+                {
+                    "code": code,
+                    "name": name,
+                    "party_type": str(r.get("party_type") or "individual").strip() or "individual",
+                    "customer_type": str(r.get("customer_type") or "retail").strip() or "retail",
+                    "phone": (str(r.get("phone") or "").strip() or None),
+                    "email": (str(r.get("email") or "").strip() or None),
+                    "tax_id": (str(r.get("tax_id") or "").strip() or None),
+                    "vat_no": (str(r.get("vat_no") or "").strip() or None),
+                    "payment_terms_days": _to_int_or_none(r.get("payment_terms_days")),
+                    "is_active": _to_bool_or_none(r.get("is_active")),
+                }
+            )
+        if not payload:
+            continue
+        res = cli.req_json("POST", "/customers/bulk", {"customers": payload})
+        up += int(res.get("upserted") or len(payload))
+    return up
+
+
+def bulk_upsert_suppliers(cli: ApiClient, rows: list[dict], chunk: int) -> int:
+    if not rows:
+        return 0
+    up = 0
+    for batch in _chunks(rows, chunk):
+        payload = []
+        for r in batch:
+            code = str(r.get("code") or "").strip()
+            name = str(r.get("name") or "").strip()
+            if not code or not name:
+                continue
+            payload.append(
+                {
+                    "code": code,
+                    "name": name,
+                    "party_type": str(r.get("party_type") or "business").strip() or "business",
+                    "phone": (str(r.get("phone") or "").strip() or None),
+                    "email": (str(r.get("email") or "").strip() or None),
+                    "tax_id": (str(r.get("tax_id") or "").strip() or None),
+                    "vat_no": (str(r.get("vat_no") or "").strip() or None),
+                    "payment_terms_days": _to_int_or_none(r.get("payment_terms_days")),
+                    "is_active": _to_bool_or_none(r.get("is_active")),
+                }
+            )
+        if not payload:
+            continue
+        res = cli.req_json("POST", "/suppliers/bulk", {"suppliers": payload})
+        up += int(res.get("upserted") or len(payload))
+    return up
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--api-base", default=os.getenv("POS_API_BASE_URL") or "http://localhost:8001")
@@ -183,6 +277,8 @@ def main() -> int:
     ap.add_argument("--password", default=os.getenv("BOOTSTRAP_ADMIN_PASSWORD") or "change-me")
     ap.add_argument("--company-name", default=os.getenv("POS_COMPANY_NAME") or "")
     ap.add_argument("--dir", default="Data AH Trading")
+    ap.add_argument("--customers", default="")
+    ap.add_argument("--suppliers", default="")
     ap.add_argument("--items", default="")
     ap.add_argument("--prices", default="")
     ap.add_argument("--uoms", default="")
@@ -193,6 +289,8 @@ def main() -> int:
     args = ap.parse_args()
 
     base_dir = str(args.dir)
+    customers_csv = str(args.customers or os.path.join(base_dir, "erpnext_pos_customers.csv"))
+    suppliers_csv = str(args.suppliers or os.path.join(base_dir, "erpnext_pos_suppliers.csv"))
     items_csv = str(args.items or os.path.join(base_dir, "erpnext_pos_items.csv"))
     prices_csv = str(args.prices or os.path.join(base_dir, "erpnext_pos_prices.csv"))
     uoms_csv = str(args.uoms or os.path.join(base_dir, "erpnext_pos_uom_conversions.csv"))
@@ -205,6 +303,8 @@ def main() -> int:
     if str(args.company_name or "").strip():
         select_company(cli, str(args.company_name))
 
+    customers_rows = read_csv_dict_if_exists(customers_csv)
+    suppliers_rows = read_csv_dict_if_exists(suppliers_csv)
     items_rows = read_csv_dict(items_csv)
     prices_rows = read_csv_dict(prices_csv)
     uoms_rows = read_csv_dict(uoms_csv)
@@ -218,6 +318,8 @@ def main() -> int:
                     "ok": True,
                     "dry_run": True,
                     "api_base": str(args.api_base),
+                    "customers": len(customers_rows),
+                    "suppliers": len(suppliers_rows),
                     "items": len(items_rows),
                     "prices": len(prices_rows),
                     "uoms": len(uoms_rows),
@@ -228,6 +330,9 @@ def main() -> int:
             )
         )
         return 0
+
+    up_customers = bulk_upsert_customers(cli, customers_rows, int(args.chunk))
+    up_suppliers = bulk_upsert_suppliers(cli, suppliers_rows, int(args.chunk))
 
     created_tax = ensure_tax_codes(cli, items_rows)
     cats = ensure_categories(cli, categories_rows)
@@ -323,6 +428,8 @@ def main() -> int:
                 "ok": True,
                 "api_base": str(args.api_base),
                 "effective_from": eff,
+                "customers_upserted": up_customers,
+                "suppliers_upserted": up_suppliers,
                 "tax_codes_created": created_tax,
                 "categories_known": len(cats),
                 "items_upserted": up_items,
@@ -339,4 +446,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

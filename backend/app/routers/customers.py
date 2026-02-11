@@ -36,23 +36,6 @@ class CustomerIn(BaseModel):
     is_active: Optional[bool] = None
 
 
-class BulkCustomerIn(BaseModel):
-    code: str
-    name: str
-    party_type: PartyType = "individual"
-    customer_type: CustomerType = "retail"
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    tax_id: Optional[str] = None
-    vat_no: Optional[str] = None
-    payment_terms_days: Optional[int] = None
-    is_active: Optional[bool] = None
-
-
-class BulkCustomersIn(BaseModel):
-    customers: List[BulkCustomerIn]
-
-
 @router.get("", dependencies=[Depends(require_permission("customers:read"))])
 def list_customers(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
@@ -77,70 +60,6 @@ def list_customers(company_id: str = Depends(get_company_id)):
                 (company_id,),
             )
             return {"customers": cur.fetchall()}
-
-
-@router.post("/bulk", dependencies=[Depends(require_permission("customers:write"))])
-def bulk_upsert_customers(data: BulkCustomersIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
-    """
-    Go-live utility: upsert customers by (company_id, code).
-    """
-    customers = data.customers or []
-    if not customers:
-        raise HTTPException(status_code=400, detail="customers is required")
-    if len(customers) > 10000:
-        raise HTTPException(status_code=400, detail="too many customers (max 10000)")
-
-    with get_conn() as conn:
-        set_company_context(conn, company_id)
-        with conn.transaction():
-            with conn.cursor() as cur:
-                upserted = 0
-                for c in customers:
-                    code = (c.code or "").strip()
-                    name = (c.name or "").strip()
-                    if not code or not name:
-                        raise HTTPException(status_code=400, detail="each customer requires code and name")
-                    cur.execute(
-                        """
-                        INSERT INTO customers (id, company_id, code, name, phone, email, party_type, customer_type,
-                                               tax_id, vat_no, payment_terms_days, is_active)
-                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (company_id, code) DO UPDATE
-                        SET name = EXCLUDED.name,
-                            phone = EXCLUDED.phone,
-                            email = EXCLUDED.email,
-                            party_type = EXCLUDED.party_type,
-                            customer_type = EXCLUDED.customer_type,
-                            tax_id = EXCLUDED.tax_id,
-                            vat_no = EXCLUDED.vat_no,
-                            payment_terms_days = EXCLUDED.payment_terms_days,
-                            is_active = EXCLUDED.is_active,
-                            updated_at = now()
-                        """,
-                        (
-                            company_id,
-                            code,
-                            name,
-                            (c.phone or "").strip() or None,
-                            (c.email or "").strip() or None,
-                            c.party_type,
-                            c.customer_type,
-                            (c.tax_id or "").strip() or None,
-                            (c.vat_no or "").strip() or None,
-                            int(c.payment_terms_days or 0),
-                            bool(c.is_active) if c.is_active is not None else True,
-                        ),
-                    )
-                    upserted += 1
-
-                cur.execute(
-                    """
-                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
-                    VALUES (gen_random_uuid(), %s, %s, 'customers_bulk_upsert', 'customers', NULL, %s::jsonb)
-                    """,
-                    (company_id, user["user_id"], json.dumps({"count": upserted})),
-                )
-                return {"ok": True, "upserted": upserted}
 
 
 @router.get("/typeahead", dependencies=[Depends(require_permission("customers:read"))])
