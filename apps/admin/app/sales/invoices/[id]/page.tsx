@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { MoneyInput } from "@/components/money-input";
@@ -140,6 +141,67 @@ function SalesInvoiceShowInner() {
     merged.sort();
     return merged;
   }, [paymentMethods]);
+  const invoiceLineColumns = useMemo((): Array<DataTableColumn<InvoiceLine>> => {
+    return [
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (l) => `${l.item_sku || ""} ${l.item_name || ""}`,
+        cell: (l) =>
+          l.item_sku || l.item_name ? (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="text-sm">
+              <span className="font-mono text-xs">{l.item_sku || "-"}</span>{" "}
+              <span className="text-fg-subtle">·</span>{" "}
+              <span dir="auto">{l.item_name || "-"}</span>
+            </ShortcutLink>
+          ) : (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
+              {l.item_id}
+            </ShortcutLink>
+          ),
+      },
+      {
+        id: "qty",
+        header: "Qty",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.qty_entered ?? l.qty ?? 0),
+        cell: (l) => (
+          <div className="text-right data-mono text-xs">
+            <div className="text-foreground">
+              {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
+              <span className="text-[10px] text-fg-subtle">{String(l.uom || "").trim().toUpperCase() || "-"}</span>
+            </div>
+            {Number(l.qty_factor || 1) !== 1 ? (
+              <div className="mt-0.5 text-[10px] text-fg-subtle">
+                base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
+              </div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: "line_total_usd",
+        header: "Total USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.line_total_usd || 0),
+        cell: (l) => <span className="data-mono text-xs">{fmtUsd(l.line_total_usd)}</span>,
+      },
+      {
+        id: "line_total_lbp",
+        header: "Total LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.line_total_lbp || 0),
+        cell: (l) => <span className="data-mono text-xs">{fmtLbp(l.line_total_lbp)}</span>,
+      },
+    ];
+  }, []);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -692,67 +754,15 @@ function SalesInvoiceShowInner() {
                   <CardTitle className="text-base">Lines</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="ui-table-wrap">
-                    <table className="ui-table">
-                      <thead className="ui-thead">
-                        <tr>
-                          <th className="px-4 py-3">Item</th>
-                          <th className="px-4 py-3 text-right">Qty</th>
-                          <th className="px-4 py-3 text-right">Total USD</th>
-                          <th className="px-4 py-3 text-right">Total LL</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.lines.map((l) => (
-                          <tr key={l.id} className="ui-tr-hover">
-                            <td className="px-4 py-3">
-                              {l.item_sku || l.item_name ? (
-                                <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="text-sm">
-                                  <span className="font-mono text-xs">{l.item_sku || "-"}</span>{" "}
-                                  <span className="text-fg-subtle">·</span>{" "}
-                                  <span dir="auto">{l.item_name || "-"}</span>
-                                </ShortcutLink>
-                              ) : (
-                                <ShortcutLink
-                                  href={`/catalog/items/${encodeURIComponent(l.item_id)}`}
-                                  title="Open item"
-                                  className="font-mono text-xs"
-                                >
-                                  {l.item_id}
-                                </ShortcutLink>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-right data-mono text-xs">
-                              <div>
-                                <div className="text-foreground">
-                                  {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
-                                  <span className="text-[10px] text-fg-subtle">{String(l.uom || "").trim().toUpperCase() || "-"}</span>
-                                </div>
-                                {Number(l.qty_factor || 1) !== 1 ? (
-                                  <div className="mt-0.5 text-[10px] text-fg-subtle">
-                                    base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-right data-mono text-xs">
-                              {fmtUsd(l.line_total_usd)}
-                            </td>
-                            <td className="px-4 py-3 text-right data-mono text-xs">
-                              {fmtLbp(l.line_total_lbp)}
-                            </td>
-                          </tr>
-                        ))}
-                        {detail.lines.length === 0 ? (
-                          <tr>
-                            <td className="px-4 py-6 text-center text-fg-subtle" colSpan={4}>
-                              No lines.
-                            </td>
-                          </tr>
-                        ) : null}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable<InvoiceLine>
+                    tableId="sales.invoice.lines"
+                    rows={detail.lines}
+                    columns={invoiceLineColumns}
+                    getRowId={(l) => l.id}
+                    emptyText="No lines."
+                    enableGlobalFilter={false}
+                    initialSort={{ columnId: "item", dir: "asc" }}
+                  />
                 </CardContent>
               </Card>
 
