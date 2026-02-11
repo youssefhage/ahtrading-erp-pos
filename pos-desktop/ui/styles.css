@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
 
 :root {
   --bg: #0f1113;
@@ -183,7 +183,12 @@ input, select {
 
 .item h3 { margin: 0 0 6px; font-size: 14px; }
 
-.item small { color: var(--muted); font-family: 'Roboto Mono', monospace; }
+.item small {
+  color: var(--muted);
+  font-family: 'Roboto', sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
+}
 
 .cart-list { display: flex; flex-direction: column; gap: 8px; }
 
@@ -198,7 +203,9 @@ input, select {
   color: var(--muted);
   font-size: 11px;
   margin-top: 2px;
-  font-family: 'Roboto Mono', monospace;
+  font-family: 'Roboto', sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
 }
 
 .qty {
@@ -213,7 +220,9 @@ input, select {
   margin-top: 12px;
   padding: 10px;
   border-top: 1px dashed #2a2f38;
-  font-family: 'Roboto Mono', monospace;
+  font-family: 'Roboto', sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
 }
 
 .totals div { display: flex; justify-content: space-between; padding: 4px 0; }
@@ -344,7 +353,9 @@ button.small {
 .list .meta {
   font-size: 12px;
   color: var(--muted);
-  font-family: 'Roboto Mono', monospace;
+  font-family: 'Roboto', sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
 }
 
 @media (max-width: 960px) {

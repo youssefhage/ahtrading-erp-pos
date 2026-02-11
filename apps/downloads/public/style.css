@@ -22,7 +22,7 @@
 html, body {
   height: 100%;
   margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  font-family: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial;
   color: var(--text);
   background:
     radial-gradient(1200px 600px at 18% 14%, rgba(255, 209, 102, 0.16), transparent 60%),

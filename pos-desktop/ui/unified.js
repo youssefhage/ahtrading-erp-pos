@@ -35,9 +35,22 @@ const state = {
     official: [],
     unofficial: []
   },
+  configs: {
+    official: null,
+    unofficial: null
+  },
   // Cart lines include agent/company attribution.
   cart: [],
   lastLookup: null
+};
+
+const CONFIG_FIELD_SUFFIX = {
+  api_base_url: "ApiBaseUrl",
+  company_id: "CompanyId",
+  branch_id: "BranchId",
+  device_code: "DeviceCode",
+  device_id: "DeviceId",
+  shift_id: "ShiftId"
 };
 
 async function jget(base, path) {
@@ -72,6 +85,127 @@ function setStatus(msg) {
 
 function setOtherAgentBase() {
   state.agents.unofficial.base = otherAgentUrl();
+}
+
+function settingsFieldId(agentKey, suffix) {
+  return `${agentKey}${suffix}`;
+}
+
+function setSettingsStatus(msg, isError = false) {
+  const node = el("settingsStatus");
+  if (!node) return;
+  node.textContent = msg || "";
+  node.style.color = isError ? "var(--danger)" : "var(--muted)";
+}
+
+function openSettingsModal() {
+  el("settingsBackdrop").classList.remove("hidden");
+  el("settingsModal").classList.remove("hidden");
+}
+
+function closeSettingsModal() {
+  el("settingsModal").classList.add("hidden");
+  el("settingsBackdrop").classList.add("hidden");
+  setSettingsStatus("");
+}
+
+function setSettingsBusy(busy) {
+  const btn = el("settingsSave");
+  if (btn) btn.disabled = !!busy;
+}
+
+function clearAgentConfigForm(agentKey) {
+  for (const suffix of Object.values(CONFIG_FIELD_SUFFIX)) {
+    const n = el(settingsFieldId(agentKey, suffix));
+    if (n) n.value = "";
+  }
+  const tok = el(settingsFieldId(agentKey, "DeviceToken"));
+  if (tok) tok.value = "";
+}
+
+function fillAgentConfigForm(agentKey, cfg) {
+  const src = cfg || {};
+  for (const [k, suffix] of Object.entries(CONFIG_FIELD_SUFFIX)) {
+    const n = el(settingsFieldId(agentKey, suffix));
+    if (n) n.value = src[k] || "";
+  }
+  const tok = el(settingsFieldId(agentKey, "DeviceToken"));
+  if (tok) tok.value = "";
+}
+
+async function loadAgentConfig(agentKey) {
+  const base = state.agents[agentKey].base;
+  const cfg = await jget(base, "/api/config");
+  state.configs[agentKey] = cfg;
+  fillAgentConfigForm(agentKey, cfg);
+  return cfg;
+}
+
+async function openSettingsDialog() {
+  setOtherAgentBase();
+  openSettingsModal();
+  setSettingsBusy(true);
+  setSettingsStatus("Loading current settings…");
+  clearAgentConfigForm("official");
+  clearAgentConfigForm("unofficial");
+
+  const results = await Promise.allSettled([loadAgentConfig("official"), loadAgentConfig("unofficial")]);
+  setSettingsBusy(false);
+
+  const failed = [];
+  if (results[0].status === "rejected") failed.push("Official");
+  if (results[1].status === "rejected") failed.push("Unofficial");
+
+  if (!failed.length) {
+    setSettingsStatus("Loaded. Edit fields then save.");
+    return;
+  }
+  setSettingsStatus(`Could not load: ${failed.join(", ")}. Check agent URL and try again.`, true);
+}
+
+function collectAgentPayload(agentKey) {
+  const payload = {};
+  for (const [k, suffix] of Object.entries(CONFIG_FIELD_SUFFIX)) {
+    const n = el(settingsFieldId(agentKey, suffix));
+    payload[k] = String(n?.value || "").trim();
+  }
+  const tokenInput = String(el(settingsFieldId(agentKey, "DeviceToken"))?.value || "").trim();
+  if (tokenInput) payload.device_token = tokenInput;
+  return payload;
+}
+
+async function saveSettingsDialog() {
+  setOtherAgentBase();
+  setSettingsBusy(true);
+  setSettingsStatus("Saving settings…");
+
+  const updates = ["official", "unofficial"].map(async (agentKey) => {
+    const base = state.agents[agentKey].base;
+    const payload = collectAgentPayload(agentKey);
+    await jpost(base, "/api/config", payload);
+    return agentKey;
+  });
+  const results = await Promise.allSettled(updates);
+  setSettingsBusy(false);
+
+  const ok = results
+    .filter((r) => r.status === "fulfilled")
+    .map((r) => r.value);
+  const failed = ["official", "unofficial"].filter((k, i) => results[i].status === "rejected");
+
+  if (failed.length) {
+    setSettingsStatus(
+      `Saved: ${ok.join(", ") || "none"}. Failed: ${failed.join(", ")}. Verify URL/token and retry.`,
+      true
+    );
+    return;
+  }
+
+  setSettingsStatus("Saved.");
+  closeSettingsModal();
+  await refreshEdgeStatusBoth();
+  await loadCaches();
+  setStatus("Settings saved and reloaded.");
 }
 
 function renderEdgeBadges() {
@@ -524,6 +658,14 @@ function wire() {
     } catch (e) {
       setStatus(`Login error: ${e.message}`);
     }
+  });
+  el("settingsBtn").addEventListener("click", () => {
+    openSettingsDialog().catch((e) => setSettingsStatus(`Error: ${e.message}`, true));
+  });
+  el("settingsCancel").addEventListener("click", closeSettingsModal);
+  el("settingsBackdrop").addEventListener("click", closeSettingsModal);
+  el("settingsSave").addEventListener("click", () => {
+    saveSettingsDialog().catch((e) => setSettingsStatus(`Save failed: ${e.message}`, true));
   });
   el("receiptBtn").addEventListener("click", () => {
     window.open(`/receipt/last`, "_blank", "noopener,noreferrer,width=420,height=820");

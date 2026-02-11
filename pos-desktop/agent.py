@@ -937,8 +937,8 @@ def _receipt_html(receipt_row):
 	        --muted: #666;
 	        --border: #ddd;
 	        /* Avoid external font fetches so receipt printing stays fast offline. */
-	        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-	        --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Arial, "Noto Sans", "Liberation Sans", sans-serif;
+	        --mono: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+	        --sans: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, "Noto Sans", "Liberation Sans", sans-serif;
 	      }}
       body {{
         margin: 0;

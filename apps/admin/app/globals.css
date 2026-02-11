@@ -177,18 +177,18 @@
     This addresses the “0 with a dot inside” complaint.
   */
   .font-mono {
-    font-feature-settings: "zero" 0;
+    font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
+    font-variant-numeric: tabular-nums lining-nums;
   }
 }
 
 @layer components {
   /* Terminal-style data display */
   .data-mono {
-    /* Higher weight + a touch of spacing makes dense amounts easier to scan */
-    @apply font-mono tabular-nums font-medium tracking-[0.02em];
-    font-variant-numeric: tabular-nums;
-    /* Avoid dotted/slashed zeros; they hurt scanning in dense tables */
-    font-feature-settings: "zero" 0;
+    /* Use Roboto for better digit legibility while keeping aligned columns. */
+    @apply font-sans tabular-nums font-semibold tracking-[0.01em];
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
   }
 
   /* Polished surface for “cards inside cards” and dense summaries. */
@@ -297,8 +297,8 @@
 
   .ui-table {
     @apply w-full text-left text-sm;
-    font-variant-numeric: tabular-nums;
-    font-feature-settings: "zero" 0;
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1, "zero" 0;
   }
 
   /* Enhanced table readability (applies to all ui-table inside ui-table-wrap) */

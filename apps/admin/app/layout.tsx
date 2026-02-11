@@ -1,19 +1,20 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Schibsted_Grotesk } from "next/font/google";
+import { Roboto } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { ClientShellLayout } from "./client-shell-layout";
 import { ToastProvider } from "@/components/toast-provider";
 
-const schibsted = Schibsted_Grotesk({
+const roboto = Roboto({
   subsets: ["latin"],
+  weight: ["300", "400", "500", "700"],
   display: "swap",
   variable: "--font-sans"
 });
 
-const plexMono = IBM_Plex_Mono({
+const robotoNumeric = Roboto({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "700"],
   display: "swap",
   variable: "--font-mono"
 });
@@ -25,7 +26,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${schibsted.variable} ${plexMono.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${roboto.variable} ${robotoNumeric.variable}`} suppressHydrationWarning>
       <head>
         <Script
           id="admin-theme-init"
