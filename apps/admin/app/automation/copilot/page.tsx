@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
 import { AiSetupGate } from "@/components/ai-setup-gate";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ViewRaw } from "@/components/view-raw";
 import { Page } from "@/components/page";
 import { Button } from "@/components/ui/button";
@@ -196,26 +197,39 @@ export default function CopilotChatPage() {
                             <CardDescription>Breakdown by device and status.</CardDescription>
                           </CardHeader>
                           <CardContent>
-                            <div className="ui-table-wrap">
-                              <table className="ui-table">
-                                <thead className="ui-thead">
-                                  <tr>
-                                    <th className="px-3 py-2">Device</th>
-                                    <th className="px-3 py-2">Status</th>
-                                    <th className="px-3 py-2 text-right">Count</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {rows.map((r, i) => (
-                                    <tr key={i} className="ui-tr">
-                                      <td className="px-3 py-2 font-mono text-xs">{String(r.device_code || "-")}</td>
-                                      <td className="px-3 py-2 text-fg-muted">{String(r.status || "-")}</td>
-                                      <td className="px-3 py-2 text-right data-mono">{String(r.count ?? 0)}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                            <DataTable<any>
+                              tableId={`automation.copilot.pos_outbox.${idx}`}
+                              rows={rows}
+                              columns={[
+                                {
+                                  id: "device",
+                                  header: "Device",
+                                  sortable: true,
+                                  mono: true,
+                                  accessor: (r) => String(r.device_code || "-"),
+                                  cell: (r) => <span className="font-mono text-xs">{String(r.device_code || "-")}</span>,
+                                },
+                                {
+                                  id: "status",
+                                  header: "Status",
+                                  sortable: true,
+                                  accessor: (r) => String(r.status || "-"),
+                                  cell: (r) => <span className="text-fg-muted">{String(r.status || "-")}</span>,
+                                },
+                                {
+                                  id: "count",
+                                  header: "Count",
+                                  sortable: true,
+                                  align: "right",
+                                  mono: true,
+                                  accessor: (r) => Number(r.count ?? 0),
+                                  cell: (r) => <span className="data-mono">{String(r.count ?? 0)}</span>,
+                                },
+                              ]}
+                              getRowId={(_, i) => String(i)}
+                              emptyText="No rows."
+                              enableGlobalFilter={false}
+                            />
                           </CardContent>
                         </Card>
                       );
@@ -229,26 +243,38 @@ export default function CopilotChatPage() {
                             <CardDescription>Posting is blocked inside locked ranges.</CardDescription>
                           </CardHeader>
                           <CardContent>
-                            <div className="ui-table-wrap">
-                              <table className="ui-table">
-                                <thead className="ui-thead">
-                                  <tr>
-                                    <th className="px-3 py-2">Start</th>
-                                    <th className="px-3 py-2">End</th>
-                                    <th className="px-3 py-2">Reason</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {rows.map((r, i) => (
-                                    <tr key={i} className="ui-tr">
-                                      <td className="px-3 py-2 font-mono text-xs">{String(r.start_date || "-")}</td>
-                                      <td className="px-3 py-2 font-mono text-xs">{String(r.end_date || "-")}</td>
-                                      <td className="px-3 py-2 text-sm text-fg-muted">{String(r.reason || "-")}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                            <DataTable<any>
+                              tableId={`automation.copilot.period_locks.${idx}`}
+                              rows={rows}
+                              columns={[
+                                {
+                                  id: "start",
+                                  header: "Start",
+                                  sortable: true,
+                                  mono: true,
+                                  accessor: (r) => String(r.start_date || "-"),
+                                  cell: (r) => <span className="font-mono text-xs">{String(r.start_date || "-")}</span>,
+                                },
+                                {
+                                  id: "end",
+                                  header: "End",
+                                  sortable: true,
+                                  mono: true,
+                                  accessor: (r) => String(r.end_date || "-"),
+                                  cell: (r) => <span className="font-mono text-xs">{String(r.end_date || "-")}</span>,
+                                },
+                                {
+                                  id: "reason",
+                                  header: "Reason",
+                                  sortable: true,
+                                  accessor: (r) => String(r.reason || "-"),
+                                  cell: (r) => <span className="text-sm text-fg-muted">{String(r.reason || "-")}</span>,
+                                },
+                              ]}
+                              getRowId={(_, i) => String(i)}
+                              emptyText="No rows."
+                              enableGlobalFilter={false}
+                            />
                           </CardContent>
                         </Card>
                       );
@@ -262,30 +288,45 @@ export default function CopilotChatPage() {
                             <CardDescription>Queue-first view. Approve items in AI Hub.</CardDescription>
                           </CardHeader>
                           <CardContent>
-                            <div className="ui-table-wrap">
-                              <table className="ui-table">
-                                <thead className="ui-thead">
-                                  <tr>
-                                    <th className="px-3 py-2">When</th>
-                                    <th className="px-3 py-2">Agent</th>
-                                    <th className="px-3 py-2">Summary</th>
-                                    <th className="px-3 py-2 font-mono text-xs">ID</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {rows.map((r, i) => (
-                                    <tr key={i} className="ui-tr">
-                                      <td className="px-3 py-2 font-mono text-xs">{safeIso(r.created_at)}</td>
-                                      <td className="px-3 py-2 text-xs text-fg-muted">{String(r.agent_code || "-")}</td>
-                                      <td className="px-3 py-2 text-sm text-foreground">
-                                        {summarizeRecJson(r.recommendation_json) || <span className="text-fg-subtle">View raw</span>}
-                                      </td>
-                                      <td className="px-3 py-2 font-mono text-[10px] text-fg-subtle">{String(r.id || "-")}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                            <DataTable<any>
+                              tableId={`automation.copilot.recs.${type}.${idx}`}
+                              rows={rows}
+                              columns={[
+                                {
+                                  id: "when",
+                                  header: "When",
+                                  sortable: true,
+                                  mono: true,
+                                  accessor: (r) => safeIso(r.created_at),
+                                  cell: (r) => <span className="font-mono text-xs">{safeIso(r.created_at)}</span>,
+                                },
+                                {
+                                  id: "agent",
+                                  header: "Agent",
+                                  sortable: true,
+                                  accessor: (r) => String(r.agent_code || "-"),
+                                  cell: (r) => <span className="text-xs text-fg-muted">{String(r.agent_code || "-")}</span>,
+                                },
+                                {
+                                  id: "summary",
+                                  header: "Summary",
+                                  sortable: true,
+                                  accessor: (r) => summarizeRecJson(r.recommendation_json),
+                                  cell: (r) => summarizeRecJson(r.recommendation_json) || <span className="text-fg-subtle">View raw</span>,
+                                },
+                                {
+                                  id: "id",
+                                  header: "ID",
+                                  sortable: true,
+                                  mono: true,
+                                  accessor: (r) => String(r.id || "-"),
+                                  cell: (r) => <span className="font-mono text-[10px] text-fg-subtle">{String(r.id || "-")}</span>,
+                                },
+                              ]}
+                              getRowId={(_, i) => String(i)}
+                              emptyText="No rows."
+                              enableGlobalFilter={false}
+                            />
                           </CardContent>
                         </Card>
                       );
@@ -294,6 +335,13 @@ export default function CopilotChatPage() {
                     // Fallback: show a small table from object keys and keep raw behind a toggle.
                     const first = rows[0] && typeof rows[0] === "object" ? (rows[0] as any) : null;
                     const keys = first ? Object.keys(first).slice(0, 6) : [];
+                    const fallbackColumns: Array<DataTableColumn<any>> = keys.map((k) => ({
+                      id: k,
+                      header: k,
+                      sortable: true,
+                      accessor: (r) => String(r?.[k] ?? ""),
+                      cell: (r) => <span className="font-mono text-xs text-fg-muted">{String(r?.[k] ?? "") || "-"}</span>,
+                    }));
                     return (
                       <Card key={`${type}:${idx}`}>
                         <CardHeader>
@@ -302,30 +350,14 @@ export default function CopilotChatPage() {
                         </CardHeader>
                         <CardContent className="space-y-3">
                           {keys.length ? (
-                            <div className="ui-table-wrap">
-                              <table className="ui-table">
-                                <thead className="ui-thead">
-                                  <tr>
-                                    {keys.map((k) => (
-                                      <th key={k} className="px-3 py-2">
-                                        {k}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {rows.slice(0, 25).map((r, i) => (
-                                    <tr key={i} className="ui-tr">
-                                      {keys.map((k) => (
-                                        <td key={k} className="px-3 py-2 font-mono text-xs text-fg-muted">
-                                          {String((r as any)?.[k] ?? "") || "-"}
-                                        </td>
-                                      ))}
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                            <DataTable<any>
+                              tableId={`automation.copilot.fallback.${type}.${idx}`}
+                              rows={rows.slice(0, 25)}
+                              columns={fallbackColumns}
+                              getRowId={(_, i) => String(i)}
+                              emptyText="No rows."
+                              enableGlobalFilter={false}
+                            />
                           ) : null}
                           <ViewRaw value={c} label="View raw card" />
                         </CardContent>
