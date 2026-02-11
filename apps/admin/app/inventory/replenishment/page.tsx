@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { apiGet, apiPost, getCompanyId } from "@/lib/api";
 import { getDefaultWarehouseId, setDefaultWarehouseId } from "@/lib/op-context";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
 import { Button } from "@/components/ui/button";
@@ -78,6 +79,114 @@ export default function ReplenishmentPage() {
   const [savingRule, setSavingRule] = useState(false);
 
   const locById = useMemo(() => new Map(locations.map((l) => [l.id, l])), [locations]);
+  const suggestionColumns = useMemo((): Array<DataTableColumn<SuggestionRow>> => {
+    return [
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (s) => `${s.item_sku || ""} ${s.item_name || ""}`,
+        cell: (s) => (
+          <div>
+            <div className="data-mono text-xs">{s.item_sku || s.item_id.slice(0, 8)}</div>
+            <div className="text-xs text-fg-muted">{s.item_name}</div>
+            {s.from_location_code ? (
+              <div className="text-[11px] text-fg-subtle">
+                From: <span className="data-mono">{s.from_location_code}</span>
+              </div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: "qty_on_hand",
+        header: "On Hand",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => toNum(s.qty_on_hand),
+        cell: (s) => <span className="data-mono text-xs ui-tone-qty">{toNum(s.qty_on_hand).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+      },
+      {
+        id: "min_qty",
+        header: "Min",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => toNum(s.min_qty),
+        cell: (s) => <span className="data-mono text-xs">{toNum(s.min_qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+      },
+      {
+        id: "target_qty",
+        header: "Target",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => toNum(s.target_qty),
+        cell: (s) => <span className="data-mono text-xs">{toNum(s.target_qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+      },
+      {
+        id: "qty_needed",
+        header: "Needed",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => toNum(s.qty_needed),
+        cell: (s) => <span className="data-mono text-xs ui-tone-qty">{toNum(s.qty_needed).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+      },
+    ];
+  }, []);
+  const ruleColumns = useMemo((): Array<DataTableColumn<RuleRow>> => {
+    return [
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (r) => `${r.item_sku || ""} ${r.item_name || ""}`,
+        cell: (r) => (
+          <div>
+            <div className="data-mono text-xs">{r.item_sku}</div>
+            <div className="text-xs text-fg-muted">{r.item_name}</div>
+          </div>
+        ),
+      },
+      {
+        id: "from_location_code",
+        header: "From",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.from_location_code || "",
+        cell: (r) => <span className="data-mono text-xs">{r.from_location_code || "-"}</span>,
+      },
+      {
+        id: "min_qty",
+        header: "Min",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => toNum(r.min_qty),
+        cell: (r) => <span className="data-mono text-xs">{toNum(r.min_qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+      },
+      {
+        id: "target_qty",
+        header: "Target",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => toNum(r.target_qty),
+        cell: (r) => <span className="data-mono text-xs">{toNum(r.target_qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+      },
+      {
+        id: "max_qty",
+        header: "Max",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => toNum(r.max_qty),
+        cell: (r) => <span className="data-mono text-xs">{toNum(r.max_qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>,
+      },
+    ];
+  }, []);
 
   const loadWarehouses = useCallback(async () => {
     const res = await apiGet<{ warehouses: WarehouseRow[] }>("/warehouses");
@@ -301,38 +410,15 @@ export default function ReplenishmentPage() {
                   </div>
                 </div>
 
-                <div className="ui-table-wrap">
-                  <table className="ui-table">
-                    <thead className="ui-thead">
-                      <tr>
-                        <th className="px-3 py-2">Item</th>
-                        <th className="px-3 py-2 text-right">On Hand</th>
-                        <th className="px-3 py-2 text-right">Min</th>
-                        <th className="px-3 py-2 text-right">Target</th>
-                        <th className="px-3 py-2 text-right">Needed</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {suggestions.map((s) => (
-                        <tr key={`${s.rule_id}-${s.item_id}`} className="ui-tr ui-tr-hover">
-                          <td className="px-3 py-2">
-                            <div className="data-mono text-xs">{s.item_sku || s.item_id.slice(0, 8)}</div>
-                            <div className="text-xs text-fg-muted">{s.item_name}</div>
-                            {s.from_location_code ? (
-                              <div className="text-[11px] text-fg-subtle">
-                                From: <span className="data-mono">{s.from_location_code}</span>
-                              </div>
-                            ) : null}
-                          </td>
-                          <td className="px-3 py-2 text-right data-mono text-xs ui-tone-qty">{toNum(s.qty_on_hand).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
-                          <td className="px-3 py-2 text-right data-mono text-xs">{toNum(s.min_qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
-                          <td className="px-3 py-2 text-right data-mono text-xs">{toNum(s.target_qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
-                          <td className="px-3 py-2 text-right data-mono text-xs ui-tone-qty">{toNum(s.qty_needed).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<SuggestionRow>
+                  tableId="inventory.replenishment.suggestions"
+                  rows={suggestions}
+                  columns={suggestionColumns}
+                  getRowId={(s) => `${s.rule_id}-${s.item_id}`}
+                  enableGlobalFilter={false}
+                  enablePagination
+                  initialSort={{ columnId: "qty_needed", dir: "desc" }}
+                />
               </div>
             ) : (
               <div className="rounded-lg border border-border-subtle bg-bg-elevated/60 p-6 text-sm text-fg-muted">
@@ -393,42 +479,15 @@ export default function ReplenishmentPage() {
               </div>
             </form>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Item</th>
-                    <th className="px-3 py-2">From</th>
-                    <th className="px-3 py-2 text-right">Min</th>
-                    <th className="px-3 py-2 text-right">Target</th>
-                    <th className="px-3 py-2 text-right">Max</th>
-                  </tr>
-                </thead>
-                <tbody className={loading ? "opacity-70" : ""}>
-                  {rules.map((r) => (
-                    <tr key={r.id} className="ui-tr ui-tr-hover">
-                      <td className="px-3 py-2">
-                        <div className="data-mono text-xs">{r.item_sku}</div>
-                        <div className="text-xs text-fg-muted">{r.item_name}</div>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">
-                        <span className="data-mono">{r.from_location_code || "-"}</span>
-                      </td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">{toNum(r.min_qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">{toNum(r.target_qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">{toNum(r.max_qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
-                    </tr>
-                  ))}
-                  {!rules.length ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No rules for this destination location.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<RuleRow>
+              tableId="inventory.replenishment.rules"
+              rows={rules}
+              columns={ruleColumns}
+              getRowId={(r) => r.id}
+              emptyText="No rules for this destination location."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "item", dir: "asc" }}
+            />
 
             <div className="rounded-lg border border-border-subtle bg-bg-elevated/60 p-3 text-xs text-fg-muted">
               Tip: After creating a transfer draft, go to Inventory Transfers to pick/confirm and post it.
@@ -439,4 +498,3 @@ export default function ReplenishmentPage() {
     </div>
   );
 }
-

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
 import { getDefaultWarehouseId, setDefaultWarehouseId } from "@/lib/op-context";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -86,6 +87,106 @@ export default function CycleCountsPage() {
   const [posting, setPosting] = useState(false);
 
   const locById = useMemo(() => new Map(locations.map((l) => [l.id, l])), [locations]);
+  const planColumns: Array<DataTableColumn<PlanRow>> = [
+      {
+        id: "plan",
+        header: "Plan",
+        sortable: true,
+        accessor: (p) => p.name,
+        cell: (p) => (
+          <div>
+            <div className="font-medium">{p.name}</div>
+            <div className="text-[10px] text-fg-subtle data-mono">{p.id}</div>
+          </div>
+        ),
+      },
+      {
+        id: "scope",
+        header: "Scope",
+        sortable: true,
+        accessor: (p) => `${p.warehouse_name} ${p.location_code || "ALL"}`,
+        cell: (p) => (
+          <div className="text-xs text-fg-muted">
+            <div>{p.warehouse_name}</div>
+            <div className="text-fg-subtle">
+              Loc: <span className="data-mono">{p.location_code || "ALL"}</span>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "frequency_days",
+        header: "Freq",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (p) => Number(p.frequency_days || 0),
+        cell: (p) => <span className="data-mono text-xs">{Number(p.frequency_days || 0)}</span>,
+      },
+      {
+        id: "next_run_date",
+        header: "Next",
+        sortable: true,
+        mono: true,
+        accessor: (p) => String(p.next_run_date || ""),
+        cell: (p) => <span className="data-mono text-xs">{String(p.next_run_date || "").slice(0, 10)}</span>,
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        align: "right",
+        cell: (p) => (
+          <Button size="sm" onClick={() => runPlanNow(p.id)} disabled={!p.is_active}>
+            Run
+          </Button>
+        ),
+      },
+    ];
+  const taskColumns: Array<DataTableColumn<TaskRow>> = [
+      {
+        id: "scheduled_date",
+        header: "When",
+        sortable: true,
+        mono: true,
+        accessor: (t) => String(t.scheduled_date || ""),
+        cell: (t) => <span className="data-mono text-xs">{String(t.scheduled_date || "").slice(0, 10)}</span>,
+      },
+      {
+        id: "scope",
+        header: "Scope",
+        sortable: true,
+        accessor: (t) => `${t.warehouse_name} ${t.location_code || "ALL"}`,
+        cell: (t) => (
+          <div className="text-xs text-fg-muted">
+            <div>{t.warehouse_name}</div>
+            <div className="text-fg-subtle">
+              Loc: <span className="data-mono">{t.location_code || "ALL"}</span>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "status",
+        header: "Status",
+        sortable: true,
+        accessor: (t) => t.status,
+        cell: (t) => (
+          <span className={t.status === "posted" ? "ui-chip ui-chip-success" : "ui-chip ui-chip-default"}>
+            {t.status}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        align: "right",
+        cell: (t) => (
+          <Button size="sm" variant="outline" onClick={() => openTask(t.id)}>
+            View
+          </Button>
+        ),
+      },
+    ];
 
   const loadWarehouses = useCallback(async () => {
     const res = await apiGet<{ warehouses: WarehouseRow[] }>("/warehouses");
@@ -329,47 +430,15 @@ export default function CycleCountsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Plan</th>
-                    <th className="px-3 py-2">Scope</th>
-                    <th className="px-3 py-2 text-right">Freq</th>
-                    <th className="px-3 py-2">Next</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className={loading ? "opacity-70" : ""}>
-                  {plans.map((p) => (
-                    <tr key={p.id} className="ui-tr ui-tr-hover">
-                      <td className="px-3 py-2">
-                        <div className="font-medium">{p.name}</div>
-                        <div className="text-[10px] text-fg-subtle data-mono">{p.id}</div>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">
-                        <div>{p.warehouse_name}</div>
-                        <div className="text-fg-subtle">Loc: <span className="data-mono">{p.location_code || "ALL"}</span></div>
-                      </td>
-                      <td className="px-3 py-2 text-right data-mono text-xs">{Number(p.frequency_days || 0)}</td>
-                      <td className="px-3 py-2 data-mono text-xs">{String(p.next_run_date || "").slice(0, 10)}</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button size="sm" onClick={() => runPlanNow(p.id)} disabled={!p.is_active}>
-                          Run
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {plans.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No plans.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<PlanRow>
+              tableId="inventory.cycle_counts.plans"
+              rows={plans}
+              columns={planColumns}
+              getRowId={(p) => p.id}
+              emptyText="No plans."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "next_run_date", dir: "asc" }}
+            />
           </CardContent>
         </Card>
 
@@ -379,44 +448,15 @@ export default function CycleCountsPage() {
             <CardDescription>{tasks.length.toLocaleString("en-US")} shown</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">When</th>
-                    <th className="px-3 py-2">Scope</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className={loading ? "opacity-70" : ""}>
-                  {tasks.map((t) => (
-                    <tr key={t.id} className="ui-tr ui-tr-hover">
-                      <td className="px-3 py-2 data-mono text-xs">{String(t.scheduled_date || "").slice(0, 10)}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">
-                        <div>{t.warehouse_name}</div>
-                        <div className="text-fg-subtle">Loc: <span className="data-mono">{t.location_code || "ALL"}</span></div>
-                      </td>
-                      <td className="px-3 py-2 text-xs">
-                        <span className={t.status === "posted" ? "ui-chip ui-chip-success" : "ui-chip ui-chip-default"}>{t.status}</span>
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <Button size="sm" variant="outline" onClick={() => openTask(t.id)}>
-                          View
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {tasks.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                        No tasks.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<TaskRow>
+              tableId="inventory.cycle_counts.tasks"
+              rows={tasks}
+              columns={taskColumns}
+              getRowId={(t) => t.id}
+              emptyText="No tasks."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "scheduled_date", dir: "desc" }}
+            />
 
             <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
               <DialogContent className="max-w-5xl">
@@ -515,4 +555,3 @@ export default function CycleCountsPage() {
     </div>
   );
 }
-
