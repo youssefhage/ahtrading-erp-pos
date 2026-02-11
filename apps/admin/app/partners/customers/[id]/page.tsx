@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { PartyAddresses } from "@/components/party-addresses";
@@ -91,6 +92,39 @@ export default function CustomerViewPage() {
     if (customer) return customer.name;
     return "Customer";
   }, [loading, customer]);
+  const loyaltyColumns = useMemo((): Array<DataTableColumn<LoyaltyRow>> => {
+    return [
+      {
+        id: "created_at",
+        header: "When",
+        sortable: true,
+        mono: true,
+        accessor: (l) => l.created_at,
+        cell: (l) => <span className="font-mono text-xs text-fg-muted">{fmtIso(l.created_at)}</span>,
+      },
+      {
+        id: "source",
+        header: "Source",
+        sortable: true,
+        accessor: (l) => `${l.source_type} ${l.source_id}`,
+        cell: (l) => (
+          <span className="text-xs text-fg-muted">
+            <span className="font-mono">{l.source_type}</span>{" "}
+            {l.source_id ? <span className="font-mono text-[10px]">{String(l.source_id).slice(0, 8)}</span> : null}
+          </span>
+        ),
+      },
+      {
+        id: "points",
+        header: "Points",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.points || 0),
+        cell: (l) => <span className="font-mono text-xs">{String(l.points || 0)}</span>,
+      },
+    ];
+  }, []);
 
   if (err) {
     return (
@@ -194,35 +228,15 @@ export default function CustomerViewPage() {
               <CardDescription>Points ledger (most recent).</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">When</th>
-                      <th className="px-3 py-2">Source</th>
-                      <th className="px-3 py-2 text-right">Points</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ledger.map((l) => (
-                      <tr key={l.id} className="ui-tr-hover">
-                        <td className="px-3 py-2 font-mono text-xs text-fg-muted">{fmtIso(l.created_at)}</td>
-                        <td className="px-3 py-2 text-xs text-fg-muted">
-                          <span className="font-mono">{l.source_type}</span> {l.source_id ? <span className="font-mono text-[10px]">{String(l.source_id).slice(0, 8)}</span> : null}
-                        </td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{String(l.points || 0)}</td>
-                      </tr>
-                    ))}
-                    {ledger.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
-                          No loyalty activity.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<LoyaltyRow>
+                tableId="partners.customer.loyalty"
+                rows={ledger}
+                columns={loyaltyColumns}
+                getRowId={(l) => l.id}
+                emptyText="No loyalty activity."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "created_at", dir: "desc" }}
+              />
             </CardContent>
           </Card>
 

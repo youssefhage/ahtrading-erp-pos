@@ -8,6 +8,7 @@ import { Check, Copy } from "lucide-react";
 
 import { apiGet, apiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
@@ -184,6 +185,100 @@ export default function ItemViewPage() {
 
   const taxById = useMemo(() => new Map(taxCodes.map((t) => [t.id, t])), [taxCodes]);
   const taxMeta = useMemo(() => (item?.tax_code_id ? taxById.get(item.tax_code_id) : undefined), [item?.tax_code_id, taxById]);
+  const barcodeColumns = useMemo((): Array<DataTableColumn<ItemBarcode>> => {
+    return [
+      {
+        id: "barcode",
+        header: "Barcode",
+        sortable: true,
+        mono: true,
+        accessor: (b) => b.barcode,
+        cell: (b) => (
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-mono text-sm">{b.barcode}</span>
+            <CopyIconButton text={b.barcode} label="barcode" className="h-7 w-7" />
+          </div>
+        ),
+      },
+      {
+        id: "qty_factor",
+        header: "Factor",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (b) => Number(b.qty_factor || 1),
+        cell: (b) => <span className="font-mono text-sm">{String(b.qty_factor || 1)}</span>,
+      },
+      {
+        id: "label",
+        header: "Label",
+        sortable: true,
+        accessor: (b) => b.label || "",
+        cell: (b) => <span className="text-sm text-fg-muted">{b.label || "-"}</span>,
+      },
+      {
+        id: "is_primary",
+        header: "Primary",
+        sortable: true,
+        accessor: (b) => (b.is_primary ? "yes" : "no"),
+        cell: (b) => (b.is_primary ? <Chip variant="primary">yes</Chip> : <Chip variant="default">no</Chip>),
+      },
+    ];
+  }, []);
+  const supplierColumns = useMemo((): Array<DataTableColumn<ItemSupplierLinkRow>> => {
+    return [
+      {
+        id: "name",
+        header: "Supplier",
+        sortable: true,
+        accessor: (s) => s.name,
+        cell: (s) => <span className="text-sm">{s.name}</span>,
+      },
+      {
+        id: "is_primary",
+        header: "Primary",
+        sortable: true,
+        accessor: (s) => (s.is_primary ? "yes" : "no"),
+        cell: (s) => (s.is_primary ? <Chip variant="primary">yes</Chip> : <Chip variant="default">no</Chip>),
+      },
+      {
+        id: "lead_time_days",
+        header: "Lead (days)",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => Number(s.lead_time_days || 0),
+        cell: (s) => <span className="font-mono text-sm">{String(s.lead_time_days || 0)}</span>,
+      },
+      {
+        id: "min_order_qty",
+        header: "Min Qty",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => Number(s.min_order_qty || 0),
+        cell: (s) => <span className="font-mono text-sm">{String(s.min_order_qty || 0)}</span>,
+      },
+      {
+        id: "last_cost_usd",
+        header: "Last Cost USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => Number(s.last_cost_usd || 0),
+        cell: (s) => <span className="font-mono text-sm">{String(s.last_cost_usd || 0)}</span>,
+      },
+      {
+        id: "last_cost_lbp",
+        header: "Last Cost LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => Number(s.last_cost_lbp || 0),
+        cell: (s) => <span className="font-mono text-sm">{String(s.last_cost_lbp || 0)}</span>,
+      },
+    ];
+  }, []);
 
   if (err) {
     return (
@@ -335,42 +430,15 @@ export default function ItemViewPage() {
               <CardDescription>Primary and alternate barcodes.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th>Barcode</th>
-                      <th className="text-right">Factor</th>
-                      <th>Label</th>
-                      <th>Primary</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {barcodes.map((b) => (
-                      <tr key={b.id} className="ui-tr ui-tr-hover">
-                        <td>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono text-sm">{b.barcode}</span>
-                            <CopyIconButton text={b.barcode} label="barcode" className="h-7 w-7" />
-                          </div>
-                        </td>
-                        <td className="text-right font-mono text-sm">{String(b.qty_factor || 1)}</td>
-                        <td className="text-sm text-fg-muted">{b.label || "-"}</td>
-                        <td>
-                          {b.is_primary ? <Chip variant="primary">yes</Chip> : <Chip variant="default">no</Chip>}
-                        </td>
-                      </tr>
-                    ))}
-                    {barcodes.length === 0 ? (
-                      <tr>
-                        <td className="py-6 text-center text-fg-subtle" colSpan={4}>
-                          No barcodes.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<ItemBarcode>
+                tableId="catalog.item.barcodes"
+                rows={barcodes}
+                columns={barcodeColumns}
+                getRowId={(b) => b.id}
+                emptyText="No barcodes."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "is_primary", dir: "desc" }}
+              />
             </CardContent>
           </Card>
 
@@ -380,39 +448,15 @@ export default function ItemViewPage() {
               <CardDescription>Preferred supplier and last cost.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th>Supplier</th>
-                      <th>Primary</th>
-                      <th className="text-right">Lead (days)</th>
-                      <th className="text-right">Min Qty</th>
-                      <th className="text-right">Last Cost USD</th>
-                      <th className="text-right">Last Cost LL</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {suppliers.map((s) => (
-                      <tr key={s.id} className="ui-tr ui-tr-hover">
-                        <td className="text-sm">{s.name}</td>
-                        <td>{s.is_primary ? <Chip variant="primary">yes</Chip> : <Chip variant="default">no</Chip>}</td>
-                        <td className="text-right font-mono text-sm">{String(s.lead_time_days || 0)}</td>
-                        <td className="text-right font-mono text-sm">{String(s.min_order_qty || 0)}</td>
-                        <td className="text-right font-mono text-sm">{String(s.last_cost_usd || 0)}</td>
-                        <td className="text-right font-mono text-sm">{String(s.last_cost_lbp || 0)}</td>
-                      </tr>
-                    ))}
-                    {suppliers.length === 0 ? (
-                      <tr>
-                        <td className="py-6 text-center text-fg-subtle" colSpan={6}>
-                          No suppliers linked.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<ItemSupplierLinkRow>
+                tableId="catalog.item.suppliers"
+                rows={suppliers}
+                columns={supplierColumns}
+                getRowId={(s) => s.id}
+                emptyText="No suppliers linked."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "is_primary", dir: "desc" }}
+              />
             </CardContent>
           </Card>
 

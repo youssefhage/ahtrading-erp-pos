@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
@@ -63,6 +64,35 @@ function Inner({ id }: { id: string }) {
 
   const lc = detail?.landed_cost;
   const lines = detail?.lines || [];
+  const lineColumns = useMemo((): Array<DataTableColumn<LandedCostLine>> => {
+    return [
+      {
+        id: "description",
+        header: "Description",
+        sortable: true,
+        accessor: (ln) => ln.description || "",
+        cell: (ln) => ln.description || "-",
+      },
+      {
+        id: "amount_usd",
+        header: "USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (ln) => Number(ln.amount_usd || 0),
+        cell: (ln) => <span className="data-mono">{fmtUsd(ln.amount_usd)}</span>,
+      },
+      {
+        id: "amount_lbp",
+        header: "LBP",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (ln) => Number(ln.amount_lbp || 0),
+        cell: (ln) => <span className="data-mono">{fmtLbp(ln.amount_lbp)}</span>,
+      },
+    ];
+  }, []);
 
   const totalUsd = useMemo(() => (lc ? fmtUsd(lc.total_usd) : fmtUsd(0)), [lc]);
   const totalLbp = useMemo(() => (lc ? fmtLbp(lc.total_lbp) : fmtLbp(0)), [lc]);
@@ -231,33 +261,15 @@ function Inner({ id }: { id: string }) {
               <CardDescription>Cost components included in this allocation.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">Description</th>
-                      <th className="px-3 py-2 text-right">USD</th>
-                      <th className="px-3 py-2 text-right">LBP</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lines.map((ln) => (
-                      <tr key={ln.id} className="ui-tr-hover">
-                        <td className="px-3 py-2">{ln.description || "-"}</td>
-                        <td className="px-3 py-2 text-right data-mono">{fmtUsd(ln.amount_usd)}</td>
-                        <td className="px-3 py-2 text-right data-mono">{fmtLbp(ln.amount_lbp)}</td>
-                      </tr>
-                    ))}
-                    {lines.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
-                          No lines.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<LandedCostLine>
+                tableId="inventory.landed_cost.lines"
+                rows={lines}
+                columns={lineColumns}
+                getRowId={(ln) => ln.id}
+                emptyText="No lines."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "description", dir: "asc" }}
+              />
             </CardContent>
           </Card>
 

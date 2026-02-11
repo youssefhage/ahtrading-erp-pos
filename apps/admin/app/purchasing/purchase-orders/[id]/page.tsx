@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { ViewRaw } from "@/components/view-raw";
@@ -121,6 +122,110 @@ export default function PurchaseOrderViewPage() {
 
   const order = detail?.order || null;
   const lines = detail?.lines || [];
+  const lineColumns = useMemo((): Array<DataTableColumn<PurchaseOrderLine>> => {
+    return [
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (l) => {
+          const it = itemsById.get(l.item_id);
+          return `${it?.sku || ""} ${it?.name || l.item_id}`;
+        },
+        cell: (l) => {
+          const it = itemsById.get(l.item_id);
+          return (
+            <div className="flex flex-col gap-0.5">
+              <div className="font-medium text-foreground">
+                {it ? (
+                  <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
+                    <span className="font-mono text-xs text-fg-muted">{it.sku}</span> · {it.name}
+                  </ShortcutLink>
+                ) : (
+                  <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
+                    {l.item_id}
+                  </ShortcutLink>
+                )}
+              </div>
+              {it?.unit_of_measure ? <div className="font-mono text-[10px] text-fg-subtle">UOM: {String(it.unit_of_measure)}</div> : null}
+            </div>
+          );
+        },
+      },
+      {
+        id: "qty",
+        header: "Ordered",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.qty || 0),
+        cell: (l) => <span className="font-mono text-xs">{Number(l.qty || 0).toFixed(2)}</span>,
+      },
+      {
+        id: "received_qty",
+        header: "Received",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.received_qty || 0),
+        cell: (l) => <span className="font-mono text-xs">{Number(l.received_qty || 0).toFixed(2)}</span>,
+      },
+      {
+        id: "invoiced_qty",
+        header: "Invoiced",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.invoiced_qty || 0),
+        cell: (l) => <span className="font-mono text-xs">{Number(l.invoiced_qty || 0).toFixed(2)}</span>,
+      },
+      {
+        id: "open_to_receive_qty",
+        header: "To Receive",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.open_to_receive_qty || 0),
+        cell: (l) => <span className="font-mono text-xs">{Number(l.open_to_receive_qty || 0).toFixed(2)}</span>,
+      },
+      {
+        id: "open_to_invoice_qty",
+        header: "To Invoice",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.open_to_invoice_qty || 0),
+        cell: (l) => <span className="font-mono text-xs">{Number(l.open_to_invoice_qty || 0).toFixed(2)}</span>,
+      },
+      {
+        id: "unit_cost_usd",
+        header: "Unit USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.unit_cost_usd || 0),
+        cell: (l) => <span className="font-mono text-xs">{Number(l.unit_cost_usd || 0).toFixed(2)}</span>,
+      },
+      {
+        id: "received_unit_cost_usd",
+        header: "Recv USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.received_unit_cost_usd || 0),
+        cell: (l) => <span className="font-mono text-xs">{Number(l.received_unit_cost_usd || 0).toFixed(2)}</span>,
+      },
+      {
+        id: "invoiced_unit_cost_usd",
+        header: "Inv USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (l) => Number(l.invoiced_unit_cost_usd || 0),
+        cell: (l) => <span className="font-mono text-xs">{Number(l.invoiced_unit_cost_usd || 0).toFixed(2)}</span>,
+      },
+    ];
+  }, [itemsById]);
 
   const canEditDraft = order?.status === "draft";
   const canPost = order?.status === "draft" && lines.length > 0;
@@ -382,63 +487,15 @@ export default function PurchaseOrderViewPage() {
           <CardDescription>Ordered vs received vs invoiced.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Item</th>
-                  <th className="px-3 py-2 text-right">Ordered</th>
-                  <th className="px-3 py-2 text-right">Received</th>
-                  <th className="px-3 py-2 text-right">Invoiced</th>
-                  <th className="px-3 py-2 text-right">To Receive</th>
-                  <th className="px-3 py-2 text-right">To Invoice</th>
-                  <th className="px-3 py-2 text-right">Unit USD</th>
-                  <th className="px-3 py-2 text-right">Recv USD</th>
-                  <th className="px-3 py-2 text-right">Inv USD</th>
-                </tr>
-              </thead>
-              <tbody className={loading ? "opacity-70" : ""}>
-                {lines.map((l) => {
-                  const it = itemsById.get(l.item_id);
-                  return (
-                    <tr key={l.id} className="ui-tr">
-                      <td className="px-3 py-2">
-                        <div className="flex flex-col gap-0.5">
-                          <div className="font-medium text-foreground">
-                            {it ? (
-                              <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
-                                <span className="font-mono text-xs text-fg-muted">{it.sku}</span> · {it.name}
-                              </ShortcutLink>
-                            ) : (
-                              <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
-                                {l.item_id}
-                              </ShortcutLink>
-                            )}
-                          </div>
-                          {it?.unit_of_measure ? <div className="font-mono text-[10px] text-fg-subtle">UOM: {String(it.unit_of_measure)}</div> : null}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.qty || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.received_qty || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.invoiced_qty || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.open_to_receive_qty || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.open_to_invoice_qty || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.unit_cost_usd || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.received_unit_cost_usd || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.invoiced_unit_cost_usd || 0).toFixed(2)}</td>
-                    </tr>
-                  );
-                })}
-                {!loading && lines.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-fg-subtle">
-                      No lines.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<PurchaseOrderLine>
+            tableId="purchasing.purchase_order.lines"
+            rows={lines}
+            columns={lineColumns}
+            getRowId={(l) => l.id}
+            emptyText="No lines."
+            enableGlobalFilter={false}
+            initialSort={{ columnId: "item", dir: "asc" }}
+          />
         </CardContent>
       </Card>
 
