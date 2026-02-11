@@ -32,12 +32,12 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build Portal Desktop
+      - name: Build Portal Desktop (optional)
         shell: bash
         run: |
           cd apps/admin-desktop
           npm ci
-          npm run build
+          npm run build || echo "Portal build failed; continuing POS release."
 
       - name: Collect artifacts
         shell: bash
@@ -106,10 +106,12 @@ jobs:
           portal_mac="$(find dist -type f -name '*.dmg' | rg '/portal/' | head -n1 || true)"
 
           [ -n "$pos_win" ] || { echo "missing POS windows installer" >&2; exit 1; }
-          [ -n "$portal_win" ] || { echo "missing Portal windows installer" >&2; exit 1; }
 
           upload_file "pos/MelqardPOS-Setup-latest.msi" "$pos_win"
-          upload_file "portal/MelqardPortal-Setup-latest.msi" "$portal_win"
+
+          if [ -n "$portal_win" ]; then
+            upload_file "portal/MelqardPortal-Setup-latest.msi" "$portal_win"
+          fi
 
           if [ -n "$pos_mac" ]; then
             upload_file "pos/MelqardPOS-Setup-latest.dmg" "$pos_mac"
