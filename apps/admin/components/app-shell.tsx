@@ -27,6 +27,7 @@ import {
   Menu,
   Monitor,
   Moon,
+  Palette,
   Package,
   PackageCheck,
   Percent,
@@ -149,6 +150,7 @@ function iconForHref(href: string) {
 
     "/system/go-live": Rocket,
     "/system/config": Settings2,
+    "/system/appearance": Palette,
     "/system/dimensions": Settings2,
     "/system/branches": GitBranch,
     "/system/warehouses": Warehouse,
@@ -290,6 +292,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Go-Live", href: "/system/go-live" },
       { label: "Config", href: "/system/config" },
+      { label: "Appearance", href: "/system/appearance" },
       { label: "Dimensions", href: "/system/dimensions" },
       { label: "Branches", href: "/system/branches" },
       { label: "UOMs", href: "/system/uoms" },
@@ -328,6 +331,7 @@ const LITE_NAV_SECTIONS: NavSection[] = [
       { label: "Users", href: "/system/users" },
       { label: "Audit Logs", href: "/system/audit-logs" },
       { label: "Config", href: "/system/config" },
+      { label: "Appearance", href: "/system/appearance" },
       { label: "UOMs", href: "/system/uoms" },
     ]
   }

@@ -68,6 +68,7 @@ const TITLE_BY_PATH: Record<string, string> = {
   "/accounting/reports/landed-cost-impact": "Landed Cost Impact",
   "/accounting/reports/consolidated": "Consolidated Reports",
   "/system/config": "Config",
+  "/system/appearance": "Appearance",
   "/system/dimensions": "Dimensions",
   "/system/branches": "Branches",
   "/system/warehouses": "Warehouses",
