@@ -30,6 +30,22 @@ class SupplierIn(BaseModel):
     is_active: Optional[bool] = None
 
 
+class BulkSupplierIn(BaseModel):
+    code: str
+    name: str
+    party_type: PartyType = "business"
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    tax_id: Optional[str] = None
+    vat_no: Optional[str] = None
+    payment_terms_days: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class BulkSuppliersIn(BaseModel):
+    suppliers: List[BulkSupplierIn]
+
+
 class ItemSupplierIn(BaseModel):
     item_id: str
     is_primary: bool = False
@@ -56,6 +72,68 @@ def list_suppliers(company_id: str = Depends(get_company_id)):
                 (company_id,),
             )
             return {"suppliers": cur.fetchall()}
+
+
+@router.post("/bulk", dependencies=[Depends(require_permission("suppliers:write"))])
+def bulk_upsert_suppliers(data: BulkSuppliersIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Go-live utility: upsert suppliers by (company_id, code).
+    """
+    suppliers = data.suppliers or []
+    if not suppliers:
+        raise HTTPException(status_code=400, detail="suppliers is required")
+    if len(suppliers) > 10000:
+        raise HTTPException(status_code=400, detail="too many suppliers (max 10000)")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                upserted = 0
+                for s in suppliers:
+                    code = (s.code or "").strip()
+                    name = (s.name or "").strip()
+                    if not code or not name:
+                        raise HTTPException(status_code=400, detail="each supplier requires code and name")
+                    cur.execute(
+                        """
+                        INSERT INTO suppliers (id, company_id, code, name, phone, email, party_type,
+                                               tax_id, vat_no, payment_terms_days, is_active)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (company_id, code) DO UPDATE
+                        SET name = EXCLUDED.name,
+                            phone = EXCLUDED.phone,
+                            email = EXCLUDED.email,
+                            party_type = EXCLUDED.party_type,
+                            tax_id = EXCLUDED.tax_id,
+                            vat_no = EXCLUDED.vat_no,
+                            payment_terms_days = EXCLUDED.payment_terms_days,
+                            is_active = EXCLUDED.is_active,
+                            updated_at = now()
+                        """,
+                        (
+                            company_id,
+                            code,
+                            name,
+                            (s.phone or "").strip() or None,
+                            (s.email or "").strip() or None,
+                            s.party_type,
+                            (s.tax_id or "").strip() or None,
+                            (s.vat_no or "").strip() or None,
+                            int(s.payment_terms_days or 0),
+                            bool(s.is_active) if s.is_active is not None else True,
+                        ),
+                    )
+                    upserted += 1
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'suppliers_bulk_upsert', 'suppliers', NULL, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], json.dumps({"count": upserted})),
+                )
+                return {"ok": True, "upserted": upserted}
 
 @router.get("/typeahead", dependencies=[Depends(require_permission("suppliers:read"))])
 def typeahead_suppliers(
