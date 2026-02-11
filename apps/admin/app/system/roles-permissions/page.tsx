@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -119,10 +120,55 @@ export default function RolesPermissionsPage() {
     }
   }
 
+  const rolePermColumns = useMemo((): Array<DataTableColumn<{ code: string; description: string }>> => {
+    return [
+      {
+        id: "code",
+        header: "Code",
+        sortable: true,
+        mono: true,
+        accessor: (p) => p.code,
+        cell: (p) => <span className="font-mono text-xs">{p.code}</span>,
+      },
+      {
+        id: "description",
+        header: "Description",
+        sortable: true,
+        accessor: (p) => p.description,
+        cell: (p) => <span className="text-sm">{p.description}</span>,
+      },
+    ];
+  }, []);
+
+  const allPermColumns = useMemo((): Array<DataTableColumn<PermissionRow>> => {
+    return [
+      {
+        id: "code",
+        header: "Code",
+        sortable: true,
+        mono: true,
+        accessor: (p) => p.code,
+        cell: (p) => <span className="font-mono text-xs">{p.code}</span>,
+      },
+      {
+        id: "description",
+        header: "Description",
+        sortable: true,
+        accessor: (p) => p.description,
+        cell: (p) => <span className="text-sm">{p.description}</span>,
+      },
+    ];
+  }, []);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Roles & Permissions</h1>
+          <p className="text-sm text-fg-muted">Define roles and grant permission codes.</p>
+        </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="outline" onClick={load}>
             Refresh
@@ -199,6 +245,7 @@ export default function RolesPermissionsPage() {
             </DialogContent>
           </Dialog>
         </div>
+      </div>
 
         <Card>
           <CardHeader>
@@ -224,40 +271,17 @@ export default function RolesPermissionsPage() {
               </div>
             </div>
 
-            <div className="rounded-md border border-border bg-bg-elevated p-3">
-              <p className="text-sm font-medium text-foreground">
-                {selectedRoleId ? (
-                  <span className="ml-2 text-xs font-normal text-fg-muted">
-                    ({roleById.get(selectedRoleId)?.name || selectedRoleId})
-                  </span>
-                ) : null}
-              </p>
-              <div className="mt-3 overflow-x-auto">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">Code</th>
-                      <th className="px-3 py-2">Description</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rolePerms.map((p) => (
-                      <tr key={p.code} className="ui-tr-hover">
-                        <td className="px-3 py-2 font-mono text-xs">{p.code}</td>
-                        <td className="px-3 py-2">{p.description}</td>
-                      </tr>
-                    ))}
-                    {rolePerms.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={2}>
-                          No permissions assigned.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <DataTable<{ code: string; description: string }>
+              tableId="system.roles_permissions.role_perms"
+              rows={rolePerms}
+              columns={rolePermColumns}
+              getRowId={(r) => r.code}
+              enablePagination
+              emptyText={selectedRoleId ? "No permissions assigned." : "Select a role."}
+              enableGlobalFilter={Boolean(selectedRoleId)}
+              globalFilterPlaceholder="Search permission code / description"
+              initialSort={{ columnId: "code", dir: "asc" }}
+            />
           </CardContent>
         </Card>
 
@@ -267,31 +291,16 @@ export default function RolesPermissionsPage() {
             <CardDescription>{permissions.length} permission codes</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Code</th>
-                    <th className="px-3 py-2">Description</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {permissions.map((p) => (
-                    <tr key={p.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{p.code}</td>
-                      <td className="px-3 py-2">{p.description}</td>
-                    </tr>
-                  ))}
-                  {permissions.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={2}>
-                        No permissions.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<PermissionRow>
+              tableId="system.roles_permissions.all_permissions"
+              rows={permissions}
+              columns={allPermColumns}
+              getRowId={(r) => r.id}
+              enablePagination
+              emptyText="No permissions."
+              globalFilterPlaceholder="Search code / description"
+              initialSort={{ columnId: "code", dir: "asc" }}
+            />
           </CardContent>
         </Card>
       </div>);

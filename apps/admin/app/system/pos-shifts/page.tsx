@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -70,6 +71,164 @@ export default function PosShiftsPage() {
 
   const deviceById = useMemo(() => new Map(devices.map((d) => [d.id, d])), [devices]);
 
+  const shiftColumns = useMemo((): Array<DataTableColumn<ShiftRow>> => {
+    return [
+      {
+        id: "opened_at",
+        header: "Opened",
+        sortable: true,
+        mono: true,
+        accessor: (s) => s.opened_at,
+        cell: (s) => <span className="font-mono text-xs">{s.opened_at}</span>,
+      },
+      {
+        id: "device",
+        header: "Device",
+        sortable: true,
+        mono: true,
+        accessor: (s) => deviceById.get(s.device_id)?.device_code || s.device_id,
+        cell: (s) => <span className="font-mono text-xs">{deviceById.get(s.device_id)?.device_code || s.device_id}</span>,
+      },
+      {
+        id: "status",
+        header: "Status",
+        sortable: true,
+        mono: true,
+        accessor: (s) => s.status,
+        cell: (s) => <span className="font-mono text-xs">{s.status}</span>,
+      },
+      {
+        id: "opening_cash_usd",
+        header: "Open USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => Number(s.opening_cash_usd || 0),
+        cell: (s) => (
+          <span className="font-mono text-xs">
+            {Number(s.opening_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          </span>
+        ),
+      },
+      {
+        id: "expected_cash_usd",
+        header: "Expected USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => Number(s.expected_cash_usd || 0),
+        cell: (s) => (
+          <span className="font-mono text-xs">
+            {Number(s.expected_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          </span>
+        ),
+      },
+      {
+        id: "closing_cash_usd",
+        header: "Close USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => Number(s.closing_cash_usd || 0),
+        cell: (s) => (
+          <span className="font-mono text-xs">
+            {Number(s.closing_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          </span>
+        ),
+      },
+      {
+        id: "variance_usd",
+        header: "Var USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (s) => Number(s.variance_usd || 0),
+        cell: (s) => (
+          <span className="font-mono text-xs">
+            {Number(s.variance_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        align: "right",
+        sortable: false,
+        accessor: (s) => s.id,
+        cell: (s) => {
+          const active = selectedShiftId === s.id;
+          return (
+            <Button variant={active ? "secondary" : "outline"} size="sm" onClick={() => setSelectedShiftId(s.id)}>
+              Cash Movements
+            </Button>
+          );
+        },
+      },
+    ];
+  }, [deviceById, selectedShiftId]);
+
+  const movementColumns = useMemo((): Array<DataTableColumn<CashMovementRow>> => {
+    return [
+      {
+        id: "created_at",
+        header: "Created",
+        sortable: true,
+        mono: true,
+        accessor: (m) => m.created_at,
+        cell: (m) => <span className="font-mono text-xs">{m.created_at}</span>,
+      },
+      {
+        id: "device_code",
+        header: "Device",
+        sortable: true,
+        mono: true,
+        accessor: (m) => m.device_code,
+        cell: (m) => <span className="font-mono text-xs">{m.device_code}</span>,
+      },
+      {
+        id: "movement_type",
+        header: "Type",
+        sortable: true,
+        mono: true,
+        accessor: (m) => m.movement_type,
+        cell: (m) => <span className="font-mono text-xs">{m.movement_type}</span>,
+      },
+      {
+        id: "amount_usd",
+        header: "USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (m) => Number(m.amount_usd || 0),
+        cell: (m) => (
+          <span className="font-mono text-xs">
+            {Number(m.amount_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+          </span>
+        ),
+      },
+      {
+        id: "amount_lbp",
+        header: "LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (m) => Number(m.amount_lbp || 0),
+        cell: (m) => (
+          <span className="font-mono text-xs">
+            {Number(m.amount_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+          </span>
+        ),
+      },
+      {
+        id: "notes",
+        header: "Notes",
+        sortable: true,
+        accessor: (m) => m.notes || "",
+        cell: (m) => <span className="text-xs text-fg-muted">{m.notes || "-"}</span>,
+      },
+    ];
+  }, []);
+
   async function load() {
     setStatus("Loading...");
     try {
@@ -126,131 +285,95 @@ export default function PosShiftsPage() {
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <div className="flex items-center justify-end">
-          <Button variant="outline" onClick={load}>
-            Refresh
-          </Button>
-        </div>
+      <div className="flex items-center justify-end">
+        <Button variant="outline" onClick={load}>
+          Refresh
+        </Button>
+      </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Shifts</CardTitle>
-            <CardDescription>{shifts.length} shifts (latest first)</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Opened</th>
-                    <th className="px-3 py-2">Device</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2 text-right">Open USD</th>
-                    <th className="px-3 py-2 text-right">Expected USD</th>
-                    <th className="px-3 py-2 text-right">Close USD</th>
-                    <th className="px-3 py-2 text-right">Var USD</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shifts.map((s) => {
-                    const d = deviceById.get(s.device_id);
-                    const active = selectedShiftId === s.id;
-                    return (
-                      <tr key={s.id} className="ui-tr-hover">
-                        <td className="px-3 py-2 font-mono text-xs">{s.opened_at}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{d?.device_code || s.device_id}</td>
-                        <td className="px-3 py-2 font-mono text-xs">{s.status}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{Number(s.opening_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{Number(s.expected_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{Number(s.closing_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                        <td className="px-3 py-2 text-right font-mono text-xs">{Number(s.variance_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                        <td className="px-3 py-2 text-right">
-                          <Button variant={active ? "secondary" : "outline"} size="sm" onClick={() => setSelectedShiftId(s.id)}>
-                            Cash Movements
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {shifts.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
-                        No shifts.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Shifts</CardTitle>
+          <CardDescription>{shifts.length} shifts (latest first)</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <DataTable<ShiftRow>
+            tableId="system.pos_shifts.shifts"
+            rows={shifts}
+            columns={shiftColumns}
+            getRowId={(r) => r.id}
+            emptyText="No shifts."
+            globalFilterPlaceholder="Search device / status / id"
+            initialSort={{ columnId: "opened_at", dir: "desc" }}
+          />
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Cash Movements</CardTitle>
-            <CardDescription>
-              {selectedShiftId ? (
-                <span>
-                  Shift: <span className="font-mono text-xs">{selectedShiftId}</span>
-                </span>
-              ) : (
-                "Select a shift to view cash movements."
-              )}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {recon ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Cash Reconciliation</CardTitle>
-                  <CardDescription>
-                    Cash methods:{" "}
-                    <span className="font-mono text-xs">
-                      {(recon.cash_methods || []).length ? recon.cash_methods.join(", ") : "none"}
-                    </span>
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                    <div className="text-xs text-fg-muted">Opening</div>
-                    <div className="mt-1 font-mono text-sm">
-                      USD {Number(recon.shift.opening_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                    </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Cash Movements</CardTitle>
+          <CardDescription>
+            {selectedShiftId ? (
+              <span>
+                Shift: <span className="font-mono text-xs">{selectedShiftId}</span>
+              </span>
+            ) : (
+              "Select a shift to view cash movements."
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {recon ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Cash Reconciliation</CardTitle>
+                <CardDescription>
+                  Cash methods:{" "}
+                  <span className="font-mono text-xs">
+                    {(recon.cash_methods || []).length ? recon.cash_methods.join(", ") : "none"}
+                  </span>
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                  <div className="text-xs text-fg-muted">Opening</div>
+                  <div className="mt-1 font-mono text-sm">
+                    USD {Number(recon.shift.opening_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
                   </div>
-                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                    <div className="text-xs text-fg-muted">Cash Sales</div>
-                    <div className="mt-1 font-mono text-sm">
-                      USD {Number(recon.sales_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                    </div>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                  <div className="text-xs text-fg-muted">Cash Sales</div>
+                  <div className="mt-1 font-mono text-sm">
+                    USD {Number(recon.sales_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
                   </div>
-                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                    <div className="text-xs text-fg-muted">Cash Refunds</div>
-                    <div className="mt-1 font-mono text-sm">
-                      USD {Number(recon.refunds_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                    </div>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                  <div className="text-xs text-fg-muted">Cash Refunds</div>
+                  <div className="mt-1 font-mono text-sm">
+                    USD {Number(recon.refunds_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
                   </div>
-                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                    <div className="text-xs text-fg-muted">Cash Movements (net)</div>
-                    <div className="mt-1 font-mono text-sm">
-                      USD {Number(recon.cash_movements_net_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                    </div>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                  <div className="text-xs text-fg-muted">Cash Movements (net)</div>
+                  <div className="mt-1 font-mono text-sm">
+                    USD {Number(recon.cash_movements_net_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
                   </div>
-                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                    <div className="text-xs text-fg-muted">Expected (computed)</div>
-                    <div className="mt-1 font-mono text-sm">
-                      USD {Number(recon.expected_computed_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                    </div>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                  <div className="text-xs text-fg-muted">Expected (computed)</div>
+                  <div className="mt-1 font-mono text-sm">
+                    USD {Number(recon.expected_computed_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
                   </div>
-                  <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                    <div className="text-xs text-fg-muted">Closing (counted)</div>
-                    <div className="mt-1 font-mono text-sm">
-                      USD {Number(recon.shift.closing_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                    </div>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                  <div className="text-xs text-fg-muted">Closing (counted)</div>
+                  <div className="mt-1 font-mono text-sm">
+                    USD {Number(recon.shift.closing_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
                   </div>
-                </CardContent>
-              </Card>
-            ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div className="w-full md:w-56">
@@ -262,40 +385,17 @@ export default function PosShiftsPage() {
               </Button>
             </div>
 
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Created</th>
-                    <th className="px-3 py-2">Device</th>
-                    <th className="px-3 py-2">Type</th>
-                    <th className="px-3 py-2 text-right">USD</th>
-                    <th className="px-3 py-2 text-right">LL</th>
-                    <th className="px-3 py-2">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {movements.map((m) => (
-                    <tr key={m.id} className="border-t border-border-subtle align-top">
-                      <td className="px-3 py-2 font-mono text-xs">{m.created_at}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{m.device_code}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{m.movement_type}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(m.amount_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">{Number(m.amount_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{m.notes || "-"}</td>
-                    </tr>
-                  ))}
-                  {movements.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-                        No cash movements.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>);
+          <DataTable<CashMovementRow>
+            tableId="system.pos_shifts.cash_movements"
+            rows={movements}
+            columns={movementColumns}
+            getRowId={(r) => r.id}
+            emptyText={selectedShiftId ? "No cash movements." : "Select a shift to view cash movements."}
+            globalFilterPlaceholder="Search device / type / notes"
+            initialSort={{ columnId: "created_at", dir: "desc" }}
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
 }

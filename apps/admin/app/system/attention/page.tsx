@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,6 +75,67 @@ function Inner() {
 
   const failedJobs = data?.failed_jobs || [];
 
+  const attentionColumns = useMemo((): Array<DataTableColumn<AttentionItem>> => {
+    return [
+      {
+        id: "severity",
+        header: "Severity",
+        sortable: true,
+        accessor: (it) => (it.severity === "critical" ? 0 : it.severity === "warning" ? 1 : 2),
+        cell: (it) => severityChip(it.severity),
+      },
+      {
+        id: "label",
+        header: "Signal",
+        sortable: true,
+        accessor: (it) => it.label,
+        cell: (it) => <span className="text-sm">{it.label}</span>,
+      },
+      {
+        id: "count",
+        header: "Count",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (it) => Number(it.count || 0),
+        cell: (it) => <span className="data-mono">{String(it.count || 0)}</span>,
+      },
+      {
+        id: "open",
+        header: "Open",
+        align: "right",
+        sortable: false,
+        accessor: (it) => it.href,
+        cell: (it) => (
+          <Button asChild variant="outline" size="sm">
+            <Link href={it.href}>Open</Link>
+          </Button>
+        ),
+      },
+    ];
+  }, []);
+
+  const failedJobColumns = useMemo((): Array<DataTableColumn<FailedJob>> => {
+    return [
+      {
+        id: "job_code",
+        header: "Job",
+        sortable: true,
+        accessor: (j) => j.job_code,
+        cell: (j) => <span className="text-sm">{j.job_code}</span>,
+      },
+      {
+        id: "count",
+        header: "Failures (24h)",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (j) => Number(j.count || 0),
+        cell: (j) => <span className="data-mono">{String(j.count || 0)}</span>,
+      },
+    ];
+  }, []);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -96,39 +158,17 @@ function Inner() {
           <CardDescription>Operational queue: resolve these before posting/cash close.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Severity</th>
-                  <th className="px-3 py-2">Signal</th>
-                  <th className="px-3 py-2 text-right">Count</th>
-                  <th className="px-3 py-2 text-right">Open</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((it) => (
-                  <tr key={it.key} className="ui-tr-hover">
-                    <td className="px-3 py-2">{severityChip(it.severity)}</td>
-                    <td className="px-3 py-2 text-sm">{it.label}</td>
-                    <td className="px-3 py-2 text-right data-mono">{String(it.count || 0)}</td>
-                    <td className="px-3 py-2 text-right">
-                      <Button asChild variant="outline" size="sm">
-                        <Link href={it.href}>Open</Link>
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {!loading && sorted.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                      All clear.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<AttentionItem>
+            tableId="system.attention.today"
+            rows={sorted}
+            columns={attentionColumns}
+            getRowId={(r) => r.key}
+            isLoading={loading}
+            emptyText={loading ? "Loading..." : "All clear."}
+            enablePagination
+            enableGlobalFilter={false}
+            initialSort={{ columnId: "severity", dir: "asc" }}
+          />
         </CardContent>
       </Card>
 
@@ -143,31 +183,17 @@ function Inner() {
             <div className="data-mono font-medium">{fmtAge(data?.worker_age_seconds ?? null)} ago</div>
           </div>
 
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2">Job</th>
-                  <th className="px-3 py-2 text-right">Failures (24h)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {failedJobs.map((j) => (
-                  <tr key={j.job_code} className="ui-tr-hover">
-                    <td className="px-3 py-2 text-sm">{j.job_code}</td>
-                    <td className="px-3 py-2 text-right data-mono">{String(j.count || 0)}</td>
-                  </tr>
-                ))}
-                {!loading && failedJobs.length === 0 ? (
-                  <tr>
-                    <td className="px-3 py-6 text-center text-fg-subtle" colSpan={2}>
-                      No failed jobs in the last 24 hours.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<FailedJob>
+            tableId="system.attention.failed_jobs"
+            rows={failedJobs}
+            columns={failedJobColumns}
+            getRowId={(r) => r.job_code}
+            isLoading={loading}
+            emptyText={loading ? "Loading..." : "No failed jobs in the last 24 hours."}
+            enablePagination
+            enableGlobalFilter={false}
+            initialSort={{ columnId: "count", dir: "desc" }}
+          />
         </CardContent>
       </Card>
     </div>

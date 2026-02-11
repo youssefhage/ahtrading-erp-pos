@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { SearchableSelect } from "@/components/searchable-select";
@@ -44,6 +45,7 @@ type AiRecRow = {
 
 export default function InventoryAlertsPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<Item[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [aiExpiryOps, setAiExpiryOps] = useState<AiRecRow[]>([]);
@@ -86,6 +88,7 @@ export default function InventoryAlertsPage() {
   }
 
   async function loadAll() {
+    setLoading(true);
     setStatus("Loading...");
     try {
       await loadBase();
@@ -94,6 +97,8 @@ export default function InventoryAlertsPage() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus(msg);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -107,6 +112,183 @@ export default function InventoryAlertsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [warehouseId]);
 
+  const aiColumns = useMemo((): Array<DataTableColumn<AiRecRow>> => {
+    return [
+      {
+        id: "expiry",
+        header: "Expiry",
+        sortable: true,
+        accessor: (r) => String((r as any).recommendation_json?.expiry_date || ""),
+        cell: (r) => (
+          <span className="font-mono text-xs text-fg-muted">{String((r as any).recommendation_json?.expiry_date || "").slice(0, 10) || "-"}</span>
+        ),
+      },
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (r) => `${String((r as any).recommendation_json?.sku || "")} ${String((r as any).recommendation_json?.item_name || "")}`,
+        cell: (r) => (
+          <div>
+            <div className="font-mono text-xs">{String((r as any).recommendation_json?.sku || "-")}</div>
+            <div className="text-xs text-fg-muted">{String((r as any).recommendation_json?.item_name || "")}</div>
+          </div>
+        ),
+      },
+      {
+        id: "warehouse",
+        header: "Warehouse",
+        sortable: true,
+        accessor: (r) => String((r as any).recommendation_json?.warehouse_name || (r as any).recommendation_json?.warehouse_id || ""),
+        cell: (r) => <span className="text-xs">{String((r as any).recommendation_json?.warehouse_name || (r as any).recommendation_json?.warehouse_id || "-")}</span>,
+      },
+      {
+        id: "batch",
+        header: "Batch",
+        sortable: true,
+        accessor: (r) => String((r as any).recommendation_json?.batch_no || ""),
+        cell: (r) => <span className="font-mono text-xs">{String((r as any).recommendation_json?.batch_no || "-")}</span>,
+      },
+      {
+        id: "qty",
+        header: "Qty",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number((r as any).recommendation_json?.qty_on_hand || 0),
+        cell: (r) => <span className="font-mono text-xs">{String((r as any).recommendation_json?.qty_on_hand || "0")}</span>,
+      },
+    ];
+  }, []);
+
+  const expiryColumns = useMemo((): Array<DataTableColumn<ExpiryRow>> => {
+    return [
+      {
+        id: "expiry_date",
+        header: "Expiry",
+        sortable: true,
+        accessor: (r) => String(r.expiry_date || ""),
+        cell: (r) => <span className="font-mono text-xs">{(r.expiry_date || "").slice(0, 10) || "-"}</span>,
+      },
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (r) => {
+          const it = itemById.get(r.item_id);
+          return `${it?.sku || ""} ${it?.name || ""} ${r.item_id || ""}`;
+        },
+        cell: (r) => {
+          const it = itemById.get(r.item_id);
+          return it ? (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
+              <span className="font-mono text-xs">{it.sku}</span> · {it.name}
+            </ShortcutLink>
+          ) : (
+            <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item" className="font-mono text-xs">
+              {r.item_id}
+            </ShortcutLink>
+          );
+        },
+      },
+      {
+        id: "warehouse",
+        header: "Warehouse",
+        sortable: true,
+        accessor: (r) => whById.get(r.warehouse_id)?.name || r.warehouse_id,
+        cell: (r) => <span className="text-sm">{whById.get(r.warehouse_id)?.name || r.warehouse_id}</span>,
+      },
+      {
+        id: "batch",
+        header: "Batch",
+        sortable: true,
+        accessor: (r) => r.batch_no || r.batch_id,
+        cell: (r) => <span className="font-mono text-xs">{r.batch_no || "-"}</span>,
+      },
+      {
+        id: "status",
+        header: "Status",
+        sortable: true,
+        accessor: (r) => (r.status as any) || "available",
+        cell: (r) => (
+          <div className="text-xs">
+            <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">
+              {(r.status as any) || "available"}
+            </span>
+            {r.hold_reason ? <span className="ml-2 text-[10px] text-fg-subtle">{r.hold_reason}</span> : null}
+          </div>
+        ),
+      },
+      {
+        id: "qty_on_hand",
+        header: "Qty",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.qty_on_hand || 0),
+        cell: (r) => (
+          <span className="font-mono text-xs">{Number(r.qty_on_hand || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>
+        ),
+      },
+    ];
+  }, [itemById, whById]);
+
+  const reorderColumns = useMemo((): Array<DataTableColumn<ReorderRow>> => {
+    return [
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (r) => `${r.sku || ""} ${r.name || ""}`,
+        cell: (r) => (
+          <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
+            <span className="font-mono text-xs">{r.sku}</span> · {r.name}
+          </ShortcutLink>
+        ),
+      },
+      {
+        id: "warehouse",
+        header: "Warehouse",
+        sortable: true,
+        accessor: (r) => whById.get(r.warehouse_id)?.name || r.warehouse_id,
+        cell: (r) => <span className="text-sm">{whById.get(r.warehouse_id)?.name || r.warehouse_id}</span>,
+      },
+      {
+        id: "qty_on_hand",
+        header: "On Hand",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.qty_on_hand || 0),
+        cell: (r) => (
+          <span className="font-mono text-xs">{Number(r.qty_on_hand || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>
+        ),
+      },
+      {
+        id: "reorder_point",
+        header: "Reorder Point",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.reorder_point || 0),
+        cell: (r) => (
+          <span className="font-mono text-xs">{Number(r.reorder_point || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>
+        ),
+      },
+      {
+        id: "reorder_qty",
+        header: "Reorder Qty",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.reorder_qty || 0),
+        cell: (r) => (
+          <span className="font-mono text-xs">{Number(r.reorder_qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>
+        ),
+      },
+    ];
+  }, [whById]);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
         {status ? <ErrorBanner error={status} onRetry={loadAll} /> : null}
@@ -118,36 +300,14 @@ export default function InventoryAlertsPage() {
               <CardDescription>{aiExpiryOps.length} pending suggestions (batches expiring soon with stock on hand).</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              <div className="ui-table-wrap">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">Expiry</th>
-                      <th className="px-3 py-2">Item</th>
-                      <th className="px-3 py-2">Warehouse</th>
-                      <th className="px-3 py-2">Batch</th>
-                      <th className="px-3 py-2 text-right">Qty</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {aiExpiryOps.slice(0, 8).map((r) => {
-                      const j = (r as any).recommendation_json || {};
-                      return (
-                        <tr key={r.id} className="border-t border-border-subtle align-top">
-                          <td className="px-3 py-2 font-mono text-xs text-fg-muted">{String(j.expiry_date || "").slice(0, 10) || "-"}</td>
-                          <td className="px-3 py-2">
-                            <div className="font-mono text-xs">{j.sku || "-"}</div>
-                            <div className="text-xs text-fg-muted">{j.item_name || ""}</div>
-                          </td>
-                          <td className="px-3 py-2 text-xs">{j.warehouse_name || j.warehouse_id || "-"}</td>
-                          <td className="px-3 py-2 font-mono text-xs">{j.batch_no || "-"}</td>
-                          <td className="px-3 py-2 text-right font-mono text-xs">{String(j.qty_on_hand || "0")}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<AiRecRow>
+                tableId="inventory.alerts.ai_expiry_ops"
+                rows={aiExpiryOps.slice(0, 8)}
+                columns={aiColumns}
+                getRowId={(r) => r.id}
+                enableGlobalFilter={false}
+                enablePagination={false}
+              />
               <div className="flex justify-end">
                 <Button asChild variant="outline" size="sm">
                   <a href="/automation/ai-hub">Open AI Hub</a>
@@ -178,60 +338,16 @@ export default function InventoryAlertsPage() {
                 Apply
               </Button>
             </div>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-	                <thead className="ui-thead">
-	                  <tr>
-	                    <th className="px-3 py-2">Expiry</th>
-	                    <th className="px-3 py-2">Item</th>
-	                    <th className="px-3 py-2">Warehouse</th>
-	                    <th className="px-3 py-2">Batch</th>
-	                    <th className="px-3 py-2">Status</th>
-	                    <th className="px-3 py-2 text-right">Qty</th>
-	                  </tr>
-	                </thead>
-                <tbody>
-                  {expiry.map((r) => {
-                    const it = itemById.get(r.item_id);
-                    const wh = whById.get(r.warehouse_id);
-                    return (
-                      <tr key={`${r.batch_id}:${r.warehouse_id}`} className="ui-tr-hover">
-                        <td className="px-3 py-2 font-mono text-xs">{(r.expiry_date || "").slice(0, 10) || "-"}</td>
-                        <td className="px-3 py-2">
-                          {it ? (
-                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
-                              <span className="font-mono text-xs">{it.sku}</span> · {it.name}
-                            </ShortcutLink>
-                          ) : (
-                            <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item" className="font-mono text-xs">
-                              {r.item_id}
-                            </ShortcutLink>
-                          )}
-                        </td>
-	                        <td className="px-3 py-2">{wh?.name || r.warehouse_id}</td>
-	                        <td className="px-3 py-2 font-mono text-xs">{r.batch_no || "-"}</td>
-	                        <td className="px-3 py-2 text-xs">
-	                          <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">
-	                            {(r.status as any) || "available"}
-	                          </span>
-	                          {r.hold_reason ? <span className="ml-2 text-[10px] text-fg-subtle">{r.hold_reason}</span> : null}
-	                        </td>
-	                        <td className="px-3 py-2 text-right font-mono text-xs">
-	                          {Number(r.qty_on_hand || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-	                        </td>
-	                      </tr>
-                    );
-                  })}
-	                  {expiry.length === 0 ? (
-	                    <tr>
-	                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={6}>
-	                        No expiring batches found.
-	                      </td>
-	                    </tr>
-	                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<ExpiryRow>
+              tableId="inventory.alerts.expiry"
+              rows={expiry}
+              columns={expiryColumns}
+              getRowId={(r, idx) => `${r.batch_id}:${r.warehouse_id}:${idx}`}
+              isLoading={loading}
+              emptyText={loading ? "Loading..." : "No expiring batches found."}
+              globalFilterPlaceholder="Search item / sku / batch / warehouse"
+              initialSort={{ columnId: "expiry_date", dir: "asc" }}
+            />
           </CardContent>
         </Card>
 
@@ -241,65 +357,32 @@ export default function InventoryAlertsPage() {
             <CardDescription>Items below reorder point.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <div className="w-full md:w-96 space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Warehouse (optional)</label>
-                <SearchableSelect
-                  value={warehouseId}
-                  onChange={setWarehouseId}
-                  placeholder="All warehouses"
-                  searchPlaceholder="Search warehouses..."
-                  options={[
-                    { value: "", label: "All warehouses" },
-                    ...warehouses.map((w) => ({ value: w.id, label: w.name })),
-                  ]}
-                />
-              </div>
-              <Button variant="outline" onClick={loadReorder}>
-                Refresh
-              </Button>
-            </div>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Item</th>
-                    <th className="px-3 py-2">Warehouse</th>
-                    <th className="px-3 py-2 text-right">On Hand</th>
-                    <th className="px-3 py-2 text-right">Reorder Point</th>
-                    <th className="px-3 py-2 text-right">Reorder Qty</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reorder.map((r) => (
-                    <tr key={`${r.item_id}:${r.warehouse_id}`} className="ui-tr-hover">
-                      <td className="px-3 py-2">
-                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
-                          <span className="font-mono text-xs">{r.sku}</span> · {r.name}
-                        </ShortcutLink>
-                      </td>
-                      <td className="px-3 py-2">{whById.get(r.warehouse_id)?.name || r.warehouse_id}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">
-                        {Number(r.qty_on_hand || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">
-                        {Number(r.reorder_point || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs">
-                        {Number(r.reorder_qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
-                      </td>
-                    </tr>
-                  ))}
-                  {reorder.length === 0 ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                        No reorder alerts.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<ReorderRow>
+              tableId="inventory.alerts.reorder"
+              rows={reorder}
+              columns={reorderColumns}
+              getRowId={(r, idx) => `${r.item_id}:${r.warehouse_id}:${idx}`}
+              isLoading={loading}
+              emptyText={loading ? "Loading..." : "No reorder alerts."}
+              globalFilterPlaceholder="Search item / sku / warehouse"
+              toolbarLeft={
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-96">
+                    <SearchableSelect
+                      value={warehouseId}
+                      onChange={setWarehouseId}
+                      placeholder="All warehouses"
+                      searchPlaceholder="Search warehouses..."
+                      options={[{ value: "", label: "All warehouses" }, ...warehouses.map((w) => ({ value: w.id, label: w.name }))]}
+                    />
+                  </div>
+                  <Button variant="outline" onClick={loadReorder}>
+                    Refresh
+                  </Button>
+                </div>
+              }
+              initialSort={{ columnId: "qty_on_hand", dir: "asc" }}
+            />
           </CardContent>
         </Card>
       </div>);

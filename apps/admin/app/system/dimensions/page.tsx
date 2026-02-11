@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -38,6 +39,41 @@ export default function DimensionsPage() {
 
   const ccSorted = useMemo(() => sortDims(costCenters), [costCenters]);
   const prSorted = useMemo(() => sortDims(projects), [projects]);
+
+  const dimColumns = useMemo((): Array<DataTableColumn<DimRow>> => {
+    return [
+      {
+        id: "code",
+        header: "Code",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.code,
+        cell: (r) => <span className="font-mono text-xs">{r.code}</span>,
+      },
+      {
+        id: "name",
+        header: "Name",
+        sortable: true,
+        accessor: (r) => r.name,
+        cell: (r) => <span className="text-sm">{r.name}</span>,
+      },
+      {
+        id: "is_active",
+        header: "Active",
+        sortable: true,
+        accessor: (r) => (r.is_active ? 1 : 0),
+        cell: (r) => <span className="text-xs text-fg-muted">{r.is_active ? "yes" : "no"}</span>,
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        align: "right",
+        sortable: false,
+        accessor: (r) => r.id,
+        cell: () => null,
+      },
+    ];
+  }, []);
 
   async function load() {
     setStatus("Loading...");
@@ -133,39 +169,26 @@ export default function DimensionsPage() {
               </Button>
               <Button onClick={() => openCreate("cc")}>New</Button>
             </div>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Code</th>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Active</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ccSorted.map((r) => (
-                    <tr key={r.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
-                      <td className="px-3 py-2 text-sm">{r.name}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{r.is_active ? "yes" : "no"}</td>
-                      <td className="px-3 py-2 text-right">
+            <DataTable<DimRow>
+              tableId="system.dimensions.cost_centers"
+              rows={ccSorted}
+              columns={dimColumns.map((c) =>
+                c.id === "actions"
+                  ? {
+                      ...c,
+                      cell: (r) => (
                         <Button type="button" size="sm" variant="outline" onClick={() => openEdit("cc", r)}>
                           Edit
                         </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {!ccSorted.length ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                        No cost centers.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+                      ),
+                    }
+                  : c
+              )}
+              getRowId={(r) => r.id}
+              emptyText="No cost centers."
+              globalFilterPlaceholder="Search code / name"
+              initialSort={{ columnId: "code", dir: "asc" }}
+            />
           </CardContent>
         </Card>
 
@@ -181,39 +204,26 @@ export default function DimensionsPage() {
               </Button>
               <Button onClick={() => openCreate("pr")}>New</Button>
             </div>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
-                <thead className="ui-thead">
-                  <tr>
-                    <th className="px-3 py-2">Code</th>
-                    <th className="px-3 py-2">Name</th>
-                    <th className="px-3 py-2">Active</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {prSorted.map((r) => (
-                    <tr key={r.id} className="ui-tr-hover">
-                      <td className="px-3 py-2 font-mono text-xs">{r.code}</td>
-                      <td className="px-3 py-2 text-sm">{r.name}</td>
-                      <td className="px-3 py-2 text-xs text-fg-muted">{r.is_active ? "yes" : "no"}</td>
-                      <td className="px-3 py-2 text-right">
+            <DataTable<DimRow>
+              tableId="system.dimensions.projects"
+              rows={prSorted}
+              columns={dimColumns.map((c) =>
+                c.id === "actions"
+                  ? {
+                      ...c,
+                      cell: (r) => (
                         <Button type="button" size="sm" variant="outline" onClick={() => openEdit("pr", r)}>
                           Edit
                         </Button>
-                      </td>
-                    </tr>
-                  ))}
-                  {!prSorted.length ? (
-                    <tr>
-                      <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                        No projects.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+                      ),
+                    }
+                  : c
+              )}
+              getRowId={(r) => r.id}
+              emptyText="No projects."
+              globalFilterPlaceholder="Search code / name"
+              initialSort={{ columnId: "code", dir: "asc" }}
+            />
           </CardContent>
         </Card>
       </div>
