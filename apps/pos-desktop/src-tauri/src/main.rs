@@ -181,11 +181,11 @@ fn start_agents(
 #[tauri::command]
 fn stop_agents(state: tauri::State<'_, Mutex<AgentsState>>) -> Result<(), String> {
   let mut st = state.lock().unwrap();
-  for child in [&mut st.official, &mut st.unofficial] {
-    if let Some(c) = child.as_mut() {
-      let _ = c.kill();
-    }
-    *child = None;
+  if let Some(mut c) = st.official.take() {
+    let _ = c.kill();
+  }
+  if let Some(mut c) = st.unofficial.take() {
+    let _ = c.kill();
   }
   Ok(())
 }

@@ -35,6 +35,6 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "icon": []
+    "icon": ["icons/icon.png"]
   }
 }
