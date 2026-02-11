@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
@@ -55,6 +55,7 @@ class ApiClient:
     api_base: str
     token: str
     timeout_s: int = 60
+    max_retries: int = 5
 
     def req_json(self, method: str, path: str, payload: Any | None = None) -> dict:
         url = self.api_base.rstrip("/") + path
@@ -67,14 +68,27 @@ class ApiClient:
         }
         if payload is not None:
             data = json.dumps(payload, default=str).encode("utf-8")
-        req = Request(url, data=data, headers=headers, method=method)
-        try:
-            with urlopen(req, timeout=self.timeout_s) as resp:
-                body = resp.read().decode("utf-8")
-        except HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"HTTP {e.code} {path}: {body[:800]}") from None
-        return json.loads(body) if body else {}
+        attempt = 0
+        while True:
+            req = Request(url, data=data, headers=headers, method=method)
+            try:
+                with urlopen(req, timeout=self.timeout_s) as resp:
+                    body = resp.read().decode("utf-8")
+                    return json.loads(body) if body else {}
+            except HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")
+                # Retry common transient server/rate-limit failures.
+                if e.code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
+                    time.sleep(min(2 ** attempt, 10))
+                    attempt += 1
+                    continue
+                raise RuntimeError(f"HTTP {e.code} {path}: {body[:800]}") from None
+            except URLError as e:
+                if attempt < self.max_retries:
+                    time.sleep(min(2 ** attempt, 10))
+                    attempt += 1
+                    continue
+                raise RuntimeError(f"network error {path}: {e}") from None
 
 
 def wait_for_health(api_base: str, timeout_s: int = 90) -> None:
