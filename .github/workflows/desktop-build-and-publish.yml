@@ -26,18 +26,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Write Tauri signing key
-        shell: bash
-        run: |
-          mkdir -p .secrets-ci
-          # Secret is stored as a single-line string (base64 minisign key file content).
-          printf "%s" "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" > .secrets-ci/tauri.key
-
       - name: Build POS Desktop
         shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ github.workspace }}/.secrets-ci/tauri.key
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           cd apps/pos-desktop
           npm ci
@@ -45,9 +35,6 @@ jobs:
 
       - name: Build Portal Desktop
         shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ github.workspace }}/.secrets-ci/tauri.key
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           cd apps/admin-desktop
           npm ci
@@ -61,12 +48,12 @@ jobs:
 
           # POS
           find apps/pos-desktop/src-tauri/target/release/bundle -maxdepth 5 -type f \
-            \\( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.tar.gz' -o -name '*.sig' \\) \
+            \\( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \\) \
             -print0 | xargs -0 -I{} cp "{}" "dist/${{ matrix.os }}/pos/" || true
 
           # Portal
           find apps/admin-desktop/src-tauri/target/release/bundle -maxdepth 5 -type f \
-            \\( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.tar.gz' -o -name '*.sig' \\) \
+            \\( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \\) \
             -print0 | xargs -0 -I{} cp "{}" "dist/${{ matrix.os }}/portal/" || true
 
           # Help the publish step detect which runner produced which folder.
@@ -89,12 +76,45 @@ jobs:
         with:
           path: dist
 
-      - name: Publish (uploads + latest.json)
+      - name: Publish stable installers
         shell: bash
         env:
           UPDATES_PUBLISH_KEY: ${{ secrets.UPDATES_PUBLISH_KEY }}
         run: |
-          python3 scripts/publish_desktop_release.py \
-            --api-base "https://app.melqard.com/api/" \
-            --download-base "https://download.melqard.com" \
-            --dist-dir dist
+          set -euo pipefail
+
+          if [ -z "${UPDATES_PUBLISH_KEY:-}" ]; then
+            echo "UPDATES_PUBLISH_KEY is required" >&2
+            exit 1
+          fi
+
+          api_url="https://app.melqard.com/api/updates/upload"
+
+          upload_file() {
+            local rel="$1"
+            local file="$2"
+            echo "Uploading $file -> $rel"
+            curl -fsS -X POST \
+              -H "X-Updates-Key: ${UPDATES_PUBLISH_KEY}" \
+              -F "rel_path=${rel}" \
+              -F "file=@${file}" \
+              "${api_url}" >/dev/null
+          }
+
+          pos_win="$(find dist -type f \\( -name '*.msi' -o -name '*.exe' \\) | rg '/pos/' | head -n1 || true)"
+          pos_mac="$(find dist -type f -name '*.dmg' | rg '/pos/' | head -n1 || true)"
+          portal_win="$(find dist -type f \\( -name '*.msi' -o -name '*.exe' \\) | rg '/portal/' | head -n1 || true)"
+          portal_mac="$(find dist -type f -name '*.dmg' | rg '/portal/' | head -n1 || true)"
+
+          [ -n "$pos_win" ] || { echo "missing POS windows installer" >&2; exit 1; }
+          [ -n "$portal_win" ] || { echo "missing Portal windows installer" >&2; exit 1; }
+
+          upload_file "pos/MelqardPOS-Setup-latest.msi" "$pos_win"
+          upload_file "portal/MelqardPortal-Setup-latest.msi" "$portal_win"
+
+          if [ -n "$pos_mac" ]; then
+            upload_file "pos/MelqardPOS-Setup-latest.dmg" "$pos_mac"
+          fi
+          if [ -n "$portal_mac" ]; then
+            upload_file "portal/MelqardPortal-Setup-latest.dmg" "$portal_mac"
+          fi
