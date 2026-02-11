@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 import { cn } from "@/lib/utils";
+import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
@@ -12,13 +13,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 
 type Warehouse = { id: string; name: string };
-
-type RateRow = {
-  rate_date: string;
-  rate_type: string;
-  usd_to_lbp: number;
-  created_at?: string;
-};
 
 type SuggestRow = {
   item_id: string;
@@ -61,6 +55,7 @@ export default function ReorderSuggestionsPage() {
   const [rows, setRows] = useState<SuggestRow[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [warehouseId, setWarehouseId] = useState("");
+  const [q, setQ] = useState("");
 
   const [windowDays, setWindowDays] = useState("28");
   const [reviewDays, setReviewDays] = useState("7");
@@ -121,7 +116,6 @@ export default function ReorderSuggestionsPage() {
   }, [loadAll]);
 
   useEffect(() => {
-    // Auto-run once we have warehouses; prefer first warehouse for a smooth first view.
     if (!warehouses.length) return;
     if (!warehouseId) setWarehouseId(warehouses[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,9 +163,9 @@ export default function ReorderSuggestionsPage() {
                 item_id: l.item_id,
                 qty: toNum(l.reorder_qty),
                 unit_cost_usd: unitUsd,
-                unit_cost_lbp: unitUsd * ex
+                unit_cost_lbp: unitUsd * ex,
               };
-            })
+            }),
         };
         const res = await apiPost<{ id: string }>("/purchases/orders/drafts", payload);
         if (res?.id) created.push(res.id);
@@ -183,15 +177,135 @@ export default function ReorderSuggestionsPage() {
     }
   }, [exchangeRate, selectedRows, warehouseId]);
 
+  const columns = useMemo((): Array<DataTableColumn<SuggestRow>> => {
+    return [
+      {
+        id: "pick",
+        header: "Pick",
+        sortable: false,
+        accessor: (r) => (selected[r.item_id] ? 1 : 0),
+        cell: (r) => (
+          <input
+            type="checkbox"
+            checked={!!selected[r.item_id]}
+            onChange={(e) => setSelected((prev) => ({ ...prev, [r.item_id]: e.target.checked }))}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ),
+      },
+      {
+        id: "item",
+        header: "Item",
+        sortable: true,
+        accessor: (r) => `${r.sku || ""} ${r.name || ""}`,
+        cell: (r) => {
+          const wh = whById.get(r.warehouse_id);
+          return (
+            <div>
+              <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
+                <span className="font-mono text-xs">{r.sku}</span> · {r.name}
+              </ShortcutLink>
+              <div className="mt-1 text-[11px] text-fg-muted">
+                {wh?.name || r.warehouse_id}
+                {toNum(r.reserved_qty) > 0 ? (
+                  <span className="ml-2">
+                    <span className="ui-chip ui-chip-warning px-2 py-0.5 text-[10px]">reserved {fmt(r.reserved_qty)}</span>
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: "supplier",
+        header: "Supplier",
+        sortable: true,
+        accessor: (r) => `${r.supplier_name || ""} ${r.supplier_id || ""}`,
+        cell: (r) => (
+          <div className="text-xs">
+            <div>{r.supplier_name || r.supplier_id}</div>
+            <div className="mt-1 text-[11px] text-fg-muted">
+              lead {String(r.lead_time_days || 0)}d · MOQ {fmt(r.min_order_qty, 2)}
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "avg_daily_qty",
+        header: "Avg/Day",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => toNum(r.avg_daily_qty),
+        cell: (r) => <span className="font-mono text-xs text-fg-muted">{fmt(r.avg_daily_qty, 4)}</span>,
+      },
+      {
+        id: "horizon_days",
+        header: "Horizon",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => toNum(r.horizon_days),
+        cell: (r) => <span className="font-mono text-xs text-fg-muted">{String(r.horizon_days || "-")}</span>,
+      },
+      {
+        id: "available_qty",
+        header: "Available",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => toNum(r.available_qty),
+        cell: (r) => {
+          const avail = toNum(r.available_qty);
+          const reorder = toNum(r.reorder_qty);
+          return (
+            <span
+              className={cn("font-mono text-xs", avail <= 0 ? "text-danger" : avail < reorder ? "text-warning" : "text-fg-muted")}
+              title={`On hand: ${fmt(r.on_hand_qty)} · Reserved: ${fmt(r.reserved_qty)}`}
+            >
+              {fmt(r.available_qty)}
+            </span>
+          );
+        },
+      },
+      {
+        id: "incoming_qty",
+        header: "Incoming",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => toNum(r.incoming_qty),
+        cell: (r) => (
+          <span className={cn("font-mono text-xs", toNum(r.incoming_qty) > 0 ? "text-success" : "text-fg-muted")}>{fmt(r.incoming_qty)}</span>
+        ),
+      },
+      {
+        id: "reorder_qty",
+        header: "Reorder",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => toNum(r.reorder_qty),
+        cell: (r) => (
+          <span className={cn("font-mono text-xs", toNum(r.reorder_qty) > 0 ? "text-primary" : "text-fg-muted")}>{fmt(r.reorder_qty)}</span>
+        ),
+      },
+      {
+        id: "est_amount_usd",
+        header: "Est USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => toNum(r.est_amount_usd),
+        cell: (r) => <span className="font-mono text-xs text-fg-muted">{fmt(r.est_amount_usd, 2)}</span>,
+      },
+    ];
+  }, [selected, whById]);
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={() => loadSuggestions()} /> : null}
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button variant="outline" onClick={() => loadSuggestions({ refresh: true })} disabled={!warehouseId}>
-          Refresh (recompute)
-        </Button>
-      </div>
 
       <Card>
         <CardHeader>
@@ -238,108 +352,47 @@ export default function ReorderSuggestionsPage() {
               <Button variant="outline" onClick={() => loadSuggestions()} disabled={!warehouseId}>
                 Apply
               </Button>
+              <Button variant="outline" onClick={() => loadSuggestions({ refresh: true })} disabled={!warehouseId}>
+                Refresh (recompute)
+              </Button>
               <Button onClick={createDraftPOs} disabled={!selectedRows.length}>
                 Create Draft PO(s)
               </Button>
             </div>
           </div>
 
-          <div className="ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th className="px-3 py-2 w-10">
-                    <input
-                      type="checkbox"
-                      checked={rows.length > 0 && selectedRows.length === rows.length}
-                      onChange={(e) => {
-                        const on = e.target.checked;
-                        const next: Record<string, boolean> = {};
-                        if (on) for (const r of rows) next[r.item_id] = true;
-                        setSelected(next);
-                      }}
-                    />
-                  </th>
-                  <th className="px-3 py-2">Item</th>
-                  <th className="px-3 py-2">Supplier</th>
-                  <th className="px-3 py-2 text-right">Avg/Day</th>
-                  <th className="px-3 py-2 text-right">Horizon</th>
-                  <th className="px-3 py-2 text-right">Available</th>
-                  <th className="px-3 py-2 text-right">Incoming</th>
-                  <th className="px-3 py-2 text-right">Reorder</th>
-                  <th className="px-3 py-2 text-right">Est USD</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const reorder = toNum(r.reorder_qty);
-                  const incoming = toNum(r.incoming_qty);
-                  const avail = toNum(r.available_qty);
-                  const wh = whById.get(r.warehouse_id);
-                  return (
-                    <tr key={r.item_id} className="ui-tr-hover align-top">
-                      <td className="px-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={!!selected[r.item_id]}
-                          onChange={(e) => setSelected((prev) => ({ ...prev, [r.item_id]: e.target.checked }))}
-                        />
-                      </td>
-                      <td className="px-3 py-2">
-                        <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
-                          <span className="font-mono text-xs">{r.sku}</span> · {r.name}
-                        </ShortcutLink>
-                        <div className="mt-1 text-[11px] text-fg-muted">
-                          {wh?.name || r.warehouse_id}
-                          {toNum(r.reserved_qty) > 0 ? (
-                            <span className="ml-2">
-                              <span className="ui-chip ui-chip-warning px-2 py-0.5 text-[10px]">reserved {fmt(r.reserved_qty)}</span>
-                            </span>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-xs">
-                        <div>{r.supplier_name || r.supplier_id}</div>
-                        <div className="mt-1 text-[11px] text-fg-muted">
-                          lead {String(r.lead_time_days || 0)}d · MOQ {fmt(r.min_order_qty, 2)}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{fmt(r.avg_daily_qty, 4)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{String(r.horizon_days || "-")}</td>
-                      <td
-                        className={cn(
-                          "px-3 py-2 text-right font-mono text-xs",
-                          avail <= 0 ? "text-danger" : avail < reorder ? "text-warning" : "text-fg-muted"
-                        )}
-                        title={`On hand: ${fmt(r.on_hand_qty)} · Reserved: ${fmt(r.reserved_qty)}`}
-                      >
-                        {fmt(r.available_qty)}
-                      </td>
-                      <td className={cn("px-3 py-2 text-right font-mono text-xs", incoming > 0 ? "text-success" : "text-fg-muted")}>
-                        {fmt(r.incoming_qty)}
-                      </td>
-                      <td className={cn("px-3 py-2 text-right font-mono text-xs", reorder > 0 ? "text-primary" : "text-fg-muted")}>
-                        {fmt(r.reorder_qty)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{fmt(r.est_amount_usd, 2)}</td>
-                    </tr>
-                  );
-                })}
+          <DataTable<SuggestRow>
+            tableId="inventory.reorder_suggestions"
+            rows={rows}
+            columns={columns}
+            getRowId={(r) => r.item_id}
+            emptyText="No suggestions. Try a longer window, or click Refresh (recompute)."
+            globalFilterValue={q}
+            onGlobalFilterValueChange={setQ}
+            globalFilterPlaceholder="Search item / supplier"
+            initialSort={{ columnId: "est_amount_usd", dir: "desc" }}
+            actions={
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const next: Record<string, boolean> = {};
+                    for (const r of rows) next[r.item_id] = true;
+                    setSelected(next);
+                  }}
+                  disabled={!rows.length}
+                >
+                  Select All
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setSelected({})} disabled={!selectedRows.length}>
+                  Clear
+                </Button>
+              </div>
+            }
+          />
 
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-10 text-center text-sm text-fg-muted">
-                      No suggestions. Try a longer window, or click Refresh (recompute).
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="text-xs text-fg-muted">
-            Tip: selections are grouped by supplier to create one draft PO per supplier. Quantities are suggestions only.
-          </div>
+          <div className="text-xs text-fg-muted">Tip: selections are grouped by supplier to create one draft PO per supplier. Quantities are suggestions only.</div>
         </CardContent>
       </Card>
     </div>
