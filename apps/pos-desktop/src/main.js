@@ -465,6 +465,13 @@ function isPosManageError(msg) {
   return x.includes("pos:manage") || x.includes("permission denied") || x.includes("insufficient permission");
 }
 
+function isPermissionCheckUnavailable(err) {
+  const status = typeof err?.status === "number" ? Number(err.status) : Number.NaN;
+  if (Number.isFinite(status) && status === 404) return true;
+  const msg = String(err?.payload?.error || err?.payload?.message || err?.message || "").toLowerCase();
+  return msg.includes("not found") || msg.includes("endpoint") || msg.includes("unsupported");
+}
+
 function humanizeApiError(err) {
   if (err && typeof err === "object") {
     const payload = err.payload || {};
@@ -538,21 +545,36 @@ function getCompanyNameById(id) {
 }
 
 async function quickSetupCheckCompanyPermissions(base, apiBaseUrl, token, companyId, companyLabel) {
-  const response = await jpostJson(base, "/api/setup/check-permissions", {
-    api_base_url: apiBaseUrl,
-    token,
-    company_id: companyId,
-  });
-  if (!response || response.ok !== true) {
-    const msg = response?.error || "Could not verify permissions";
+  try {
+    const response = await jpostJson(base, "/api/setup/check-permissions", {
+      api_base_url: apiBaseUrl,
+      token,
+      company_id: companyId,
+    });
+    if (!response || response.ok !== true) {
+      const msg = response?.error || "Could not verify permissions";
+      return { companyId, companyLabel, hasPermission: false, error: String(msg || "Could not verify permissions") };
+    }
+    return {
+      companyId,
+      companyLabel,
+      hasPermission: !!response.has_pos_manage,
+      error: response.has_pos_manage ? null : (response.error || "permission denied"),
+      permissionEndpointSupported: true,
+    };
+  } catch (e) {
+    if (isPermissionCheckUnavailable(e)) {
+      return {
+        companyId,
+        companyLabel,
+        hasPermission: true,
+        error: "Permission check endpoint unavailable. Continuing and letting registration enforce permissions.",
+        permissionEndpointSupported: false,
+      };
+    }
+    const msg = humanizeApiError(e);
     return { companyId, companyLabel, hasPermission: false, error: String(msg || "Could not verify permissions") };
   }
-  return {
-    companyId,
-    companyLabel,
-    hasPermission: !!response.has_pos_manage,
-    error: response.has_pos_manage ? null : (response.error || "permission denied"),
-  };
 }
 
 async function quickSetupLogin() {
@@ -744,6 +766,13 @@ async function quickSetupApply() {
         setSetupNote(lines);
       }
       return;
+    }
+
+    const unavailable = permissionChecks.filter((r) => r && r.permissionEndpointSupported === false);
+    if (unavailable.length) {
+      setSetupNote(
+        `Permission check endpoint unavailable for ${[...new Set(unavailable.map((x) => x.companyLabel || x.companyId))].join(", ")}. Continuing.`,
+      );
     }
 
     setSetupNote("Registering POS devices…");
