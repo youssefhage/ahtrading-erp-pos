@@ -194,6 +194,7 @@ export function SearchableSelect(props: {
         ? createPortal(
             <div
               ref={menuRef}
+              data-dialog-keepopen="true"
               className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
               style={{
                 position: "fixed",
