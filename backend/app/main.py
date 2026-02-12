@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from psycopg import errors as pg_errors
 import json
 import sys
@@ -186,6 +186,31 @@ def _startup():
 @app.on_event("shutdown")
 def _shutdown():
     close_pools()
+
+@app.get("/")
+def downloads_root_redirect():
+    # When routed via download.melqard.com, keep the landing page fully static.
+    return RedirectResponse(url="/updates/site/index.html", status_code=307)
+
+@app.get("/style.css")
+def downloads_style_redirect():
+    return RedirectResponse(url="/updates/site/style.css", status_code=307)
+
+@app.get("/favicon.ico")
+def downloads_favicon_redirect():
+    return RedirectResponse(url="/updates/site/favicon.ico", status_code=307)
+
+@app.get("/apple-touch-icon.png")
+def downloads_apple_icon_redirect():
+    return RedirectResponse(url="/updates/site/apple-touch-icon.png", status_code=307)
+
+@app.get("/icon-192.png")
+def downloads_icon_192_redirect():
+    return RedirectResponse(url="/updates/site/icon-192.png", status_code=307)
+
+@app.get("/icon-512.png")
+def downloads_icon_512_redirect():
+    return RedirectResponse(url="/updates/site/icon-512.png", status_code=307)
 
 @app.get("/health")
 def health():
