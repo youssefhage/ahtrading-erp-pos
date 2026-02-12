@@ -10,6 +10,7 @@ import { parseNumberInput } from "@/lib/numbers";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
+import { ConfirmButton } from "@/components/confirm-button";
 import { MoneyInput } from "@/components/money-input";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
@@ -331,8 +332,6 @@ function SalesInvoiceShowInner() {
 
   async function voidPayment(paymentId: string) {
     if (!detail) return;
-    const ok = window.confirm("Void this payment? This will create a reversing GL entry.");
-    if (!ok) return;
     setStatus("Voiding payment...");
     try {
       await apiPost(`/sales/payments/${encodeURIComponent(paymentId)}/void`, {});
@@ -793,9 +792,18 @@ function SalesInvoiceShowInner() {
                                 <Button variant="outline" size="sm" onClick={() => recomputePayment(p.id)}>
                                   Fix
                                 </Button>
-                                <Button variant="destructive" size="sm" onClick={() => voidPayment(p.id)}>
+                                <ConfirmButton
+                                  variant="destructive"
+                                  size="sm"
+                                  title="Void Payment?"
+                                  description="This will create a reversing GL entry."
+                                  confirmText="Void"
+                                  confirmVariant="destructive"
+                                  onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+                                  onConfirm={() => voidPayment(p.id)}
+                                >
                                   Void
-                                </Button>
+                                </ConfirmButton>
                               </div>
                             </div>
                           ))}

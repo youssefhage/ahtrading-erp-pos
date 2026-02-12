@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { ConfirmButton } from "@/components/confirm-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -20,6 +21,7 @@ export default function RolesPermissionsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [grantOpen, setGrantOpen] = useState(false);
   const [editRoleOpen, setEditRoleOpen] = useState(false);
+  const [seedingDefaults, setSeedingDefaults] = useState(false);
 
   const [newRoleName, setNewRoleName] = useState("");
   const [creatingRole, setCreatingRole] = useState(false);
@@ -51,6 +53,22 @@ export default function RolesPermissionsPage() {
       setStatus(message);
     }
   }, []);
+
+  const seedDefaults = useCallback(async () => {
+    setSeedingDefaults(true);
+    setStatus("Creating common roles...");
+    try {
+      const res = await apiPost<{ created?: number }>("/users/roles/seed-defaults", {});
+      await load();
+      setStatus(`Common roles ready. Created ${Number(res?.created || 0)} new role(s).`);
+      window.setTimeout(() => setStatus(""), 1600);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSeedingDefaults(false);
+    }
+  }, [load]);
 
   const loadRolePerms = useCallback(async (roleId: string) => {
     if (!roleId) {
@@ -152,24 +170,15 @@ export default function RolesPermissionsPage() {
       setStatus(msg);
       return;
     }
-    const ok = window.confirm(msg);
-    if (!ok) return;
     setStatus("Deleting role...");
-    try {
-      await apiDelete(`/users/roles/${encodeURIComponent(role.id)}`);
-      if (selectedRoleId === role.id) setSelectedRoleId("");
-      await load();
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    }
+    await apiDelete(`/users/roles/${encodeURIComponent(role.id)}`);
+    if (selectedRoleId === role.id) setSelectedRoleId("");
+    await load();
+    setStatus("");
   }, [load, selectedRoleId]);
 
   const revokePermission = useCallback(async (code: string) => {
     if (!selectedRoleId) return;
-    const ok = window.confirm(`Revoke permission "${code}" from this role?`);
-    if (!ok) return;
     setStatus("Revoking permission...");
     try {
       await apiDelete(`/users/roles/${encodeURIComponent(selectedRoleId)}/permissions/${encodeURIComponent(code)}`);
@@ -205,9 +214,18 @@ export default function RolesPermissionsPage() {
         globalSearch: false,
         align: "right",
         cell: (p) => (
-          <Button variant="outline" size="sm" onClick={() => revokePermission(p.code)}>
+          <ConfirmButton
+            variant="outline"
+            size="sm"
+            title={`Revoke "${p.code}"?`}
+            description="This removes the permission from the selected role."
+            confirmText="Revoke"
+            confirmVariant="destructive"
+            onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+            onConfirm={() => revokePermission(p.code)}
+          >
             Revoke
-          </Button>
+          </ConfirmButton>
         ),
       },
     ];
@@ -246,6 +264,9 @@ export default function RolesPermissionsPage() {
           <Button variant="outline" onClick={load}>
             Refresh
           </Button>
+          <Button variant="outline" onClick={seedDefaults} disabled={seedingDefaults}>
+            {seedingDefaults ? "..." : "Create Common Roles"}
+          </Button>
           <Button
             variant="outline"
             disabled={!selectedRoleId}
@@ -259,17 +280,22 @@ export default function RolesPermissionsPage() {
           >
             Rename Role
           </Button>
-          <Button
+          <ConfirmButton
             variant="outline"
             disabled={!selectedRoleId}
-            onClick={() => {
+            title="Delete Role?"
+            description="This deletes the role (and its permissions). Users assigned to this role must be unassigned first."
+            confirmText="Delete"
+            confirmVariant="destructive"
+            onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+            onConfirm={() => {
               const r = roleById.get(selectedRoleId);
               if (!r) return;
-              deleteRole(r);
+              return deleteRole(r);
             }}
           >
             Delete Role
-          </Button>
+          </ConfirmButton>
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
               <Button>New Role</Button>

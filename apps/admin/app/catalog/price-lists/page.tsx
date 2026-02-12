@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { ConfirmButton } from "@/components/confirm-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -147,27 +148,26 @@ export default function PriceListsPage() {
             >
               Edit
             </Button>
-            <Button
+            <ConfirmButton
               variant="outline"
               size="sm"
-              onClick={async () => {
+              title="Delete Price Row?"
+              description="This removes the history row."
+              confirmText="Delete"
+              confirmVariant="destructive"
+              disabled={!itemsListId}
+              onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+              onConfirm={async () => {
                 if (!itemsListId) return;
-                const ok = window.confirm("Delete this price row? (History row will be removed)");
-                if (!ok) return;
                 setStatus("Deleting price row...");
-                try {
-                  await apiDelete(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/${encodeURIComponent(li.id)}`);
-                  const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
-                  setListItems(res.items || []);
-                  setStatus("");
-                } catch (err) {
-                  const message = err instanceof Error ? err.message : String(err);
-                  setStatus(message);
-                }
+                await apiDelete(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/${encodeURIComponent(li.id)}`);
+                const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
+                setListItems(res.items || []);
+                setStatus("");
               }}
             >
               Delete
-            </Button>
+            </ConfirmButton>
           </div>
         ),
       },

@@ -148,6 +148,29 @@ def _role_templates() -> list[RoleTemplateOut]:
             ],
         ),
         RoleTemplateOut(
+            code="manager",
+            name="Manager",
+            description="Broad operational access across items, inventory, sales, purchasing, and configuration. Does not manage users/roles.",
+            permission_codes=[
+                "config:read",
+                "config:write",
+                "items:read",
+                "items:write",
+                "inventory:read",
+                "inventory:write",
+                "sales:read",
+                "sales:write",
+                "purchases:read",
+                "purchases:write",
+                "suppliers:read",
+                "suppliers:write",
+                "customers:read",
+                "customers:write",
+                "reports:read",
+                "pos:manage",
+            ],
+        ),
+        RoleTemplateOut(
             code="cashier",
             name="Cashier",
             description="POS/sales-oriented access. Limited read access to catalog/customers. No write access to configuration or inventory adjustments.",
@@ -157,6 +180,20 @@ def _role_templates() -> list[RoleTemplateOut]:
                 "sales:read",
                 "sales:write",
                 "customers:read",
+                "reports:read",
+            ],
+        ),
+        RoleTemplateOut(
+            code="sales",
+            name="Sales",
+            description="Sales access with customer management. No inventory adjustments or purchasing.",
+            permission_codes=[
+                "items:read",
+                "inventory:read",
+                "sales:read",
+                "sales:write",
+                "customers:read",
+                "customers:write",
                 "reports:read",
             ],
         ),
@@ -185,6 +222,20 @@ def _role_templates() -> list[RoleTemplateOut]:
             ],
         ),
         RoleTemplateOut(
+            code="pos_manager",
+            name="POS Manager",
+            description="Manages POS devices and sales operations. No configuration or accounting.",
+            permission_codes=[
+                "pos:manage",
+                "items:read",
+                "inventory:read",
+                "sales:read",
+                "sales:write",
+                "customers:read",
+                "reports:read",
+            ],
+        ),
+        RoleTemplateOut(
             code="accountant",
             name="Accountant",
             description="Accounting and reporting access, including COA configuration. No sales/purchases document creation.",
@@ -196,6 +247,21 @@ def _role_templates() -> list[RoleTemplateOut]:
                 "accounting:write",
                 "config:read",
                 "config:write",
+            ],
+        ),
+        RoleTemplateOut(
+            code="finance_clerk",
+            name="Finance Clerk",
+            description="Accounting operations and reporting. Can review sales/purchases but does not manage configuration.",
+            permission_codes=[
+                "reports:read",
+                "coa:read",
+                "accounting:read",
+                "accounting:write",
+                "sales:read",
+                "purchases:read",
+                "suppliers:read",
+                "customers:read",
             ],
         ),
         RoleTemplateOut(
@@ -337,6 +403,7 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            created = True
             try:
                 cur.execute(
                     """
@@ -348,8 +415,17 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
                 )
                 uid = cur.fetchone()["id"]
             except UniqueViolation:
-                # Provide a clean API error for the UI.
-                raise HTTPException(status_code=409, detail="email already exists")
+                created = False
+                cur.execute("SELECT id FROM users WHERE email = %s", (email,))
+                row = cur.fetchone()
+                if not row:
+                    # Provide a clean API error for the UI.
+                    raise HTTPException(status_code=409, detail="email already exists")
+                uid = row["id"]
+                # If the user already exists and no role/template was provided, keep the
+                # old behavior (409) so callers don't assume password was updated.
+                if not (data.template_code or data.role_id):
+                    raise HTTPException(status_code=409, detail="email already exists")
 
             # Optional: assign a role immediately.
             role_id: Optional[str] = None
@@ -374,26 +450,41 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
                     """,
                     (uid, role_id, company_id),
                 )
+                if not created:
+                    # Ensure permission changes apply immediately for existing users.
+                    cur.execute(
+                        """
+                        UPDATE auth_sessions
+                        SET is_active = false
+                        WHERE user_id = %s
+                        """,
+                        (uid,),
+                    )
 
             cur.execute(
                 """
                 INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
-                VALUES (gen_random_uuid(), %s, %s, 'users.create', 'user', %s, %s::jsonb)
+                VALUES (gen_random_uuid(), %s, %s, %s, 'user', %s, %s::jsonb)
                 """,
                 (
                     company_id,
                     user["user_id"],
+                    "users.create" if created else "users.grant_access",
                     uid,
                     json.dumps(
                         {
                             "email": email,
                             "assigned_role_id": role_id,
                             "template_code": data.template_code,
+                            "created": created,
                         }
                     ),
                 ),
             )
-            return {"id": uid, "role_id": role_id}
+            note = ""
+            if not created:
+                note = "User already existed. Password was not changed. Access was updated."
+            return {"id": uid, "role_id": role_id, "created": created, "existing": (not created), "access_granted": bool(role_id), "note": note}
 
 
 @router.patch("/{user_id}", dependencies=[Depends(require_permission("users:write"))])
@@ -638,6 +729,43 @@ def create_role(data: RoleIn, company_id: str = Depends(get_company_id), user=De
                 (company_id, user["user_id"], rid, json.dumps({"name": data.name})),
             )
             return {"id": rid}
+
+
+@router.post("/roles/seed-defaults", dependencies=[Depends(require_permission("users:write"))])
+def seed_default_roles(company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    """
+    Ensure common roles exist for a company using the role templates catalog.
+    This is safe to call multiple times (idempotent).
+    """
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                out = []
+                created_n = 0
+                for tmpl in _role_templates():
+                    cur.execute(
+                        """
+                        SELECT id
+                        FROM roles
+                        WHERE company_id = %s AND lower(name) = lower(%s)
+                        LIMIT 1
+                        """,
+                        (company_id, tmpl.name),
+                    )
+                    existed = cur.fetchone() is not None
+                    rid = _ensure_role_from_template(cur, company_id, tmpl)
+                    out.append({"code": tmpl.code, "name": tmpl.name, "role_id": rid, "created": (not existed)})
+                    if not existed:
+                        created_n += 1
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'users.roles.seed_defaults', 'role', NULL, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], json.dumps({"created": created_n, "total": len(out)})),
+                )
+                return {"ok": True, "created": created_n, "roles": out}
 
 
 @router.patch("/roles/{role_id}", dependencies=[Depends(require_permission("users:write"))])

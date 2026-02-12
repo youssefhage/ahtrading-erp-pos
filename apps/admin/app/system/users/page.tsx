@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
+import { ConfirmButton } from "@/components/confirm-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -87,7 +88,7 @@ export default function UsersPage() {
     setCreating(true);
     setStatus("Creating user...");
     try {
-      await apiPost("/users", {
+      const res = await apiPost<{ id?: string; created?: boolean; existing?: boolean; access_granted?: boolean; note?: string }>("/users", {
         email: email.trim().toLowerCase(),
         password,
         template_code: templateCode || undefined,
@@ -98,7 +99,12 @@ export default function UsersPage() {
       setCreateRoleId("");
       setCreateOpen(false);
       await load();
-      setStatus("");
+      if (res && (res.existing || res.created === false)) {
+        setStatus(res.note || "User already existed. Access was updated.");
+        window.setTimeout(() => setStatus(""), 1800);
+      } else {
+        setStatus("");
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
@@ -184,25 +190,23 @@ export default function UsersPage() {
             >
               Edit
             </Button>
-            <Button
+            <ConfirmButton
               variant="outline"
               size="sm"
-              onClick={async () => {
-                const ok = window.confirm(`Remove ${u.email} from this company? This revokes their sessions.`);
-                if (!ok) return;
+              title="Remove Access?"
+              description={`Remove ${u.email} from this company? This revokes their sessions.`}
+              confirmText="Remove"
+              confirmVariant="destructive"
+              onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+              onConfirm={async () => {
                 setStatus("Removing access...");
-                try {
-                  await apiDelete(`/users/${encodeURIComponent(u.id)}`);
-                  await load();
-                  setStatus("");
-                } catch (err) {
-                  const message = err instanceof Error ? err.message : String(err);
-                  setStatus(message);
-                }
+                await apiDelete(`/users/${encodeURIComponent(u.id)}`);
+                await load();
+                setStatus("");
               }}
             >
               Remove Access
-            </Button>
+            </ConfirmButton>
           </div>
         ),
       },

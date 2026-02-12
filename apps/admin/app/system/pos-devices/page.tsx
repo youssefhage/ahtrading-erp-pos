@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 import { SearchableSelect } from "@/components/searchable-select";
+import { ConfirmButton } from "@/components/confirm-button";
 
 type DeviceRow = {
   id: string;
@@ -214,8 +215,6 @@ async function resetToken(device: DeviceRow) {
   }
 
   async function deactivateDevice(device: DeviceRow) {
-    const ok = window.confirm(`Deactivate device "${device.device_code}"? (This revokes its token)`);
-    if (!ok) return;
     setStatus("Deactivating device...");
     setLastSetup(null);
     try {
@@ -229,8 +228,6 @@ async function resetToken(device: DeviceRow) {
   }
 
   async function deleteDevice(device: DeviceRow) {
-    const ok = window.confirm(`Delete device "${device.device_code}"? This is only allowed if it has no linked records.`);
-    if (!ok) return;
     setStatus("Deleting device...");
     setLastSetup(null);
     try {
@@ -390,12 +387,30 @@ async function resetToken(device: DeviceRow) {
                     <Button variant="outline" size="sm" onClick={() => resetToken(d)}>
                       Reset Token & Setup
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => deactivateDevice(d)}>
+                    <ConfirmButton
+                      variant="outline"
+                      size="sm"
+                      title={`Deactivate "${d.device_code}"?`}
+                      description="This revokes its token."
+                      confirmText="Deactivate"
+                      confirmVariant="destructive"
+                      onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+                      onConfirm={() => deactivateDevice(d)}
+                    >
                       Deactivate
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => deleteDevice(d)}>
+                    </ConfirmButton>
+                    <ConfirmButton
+                      variant="outline"
+                      size="sm"
+                      title={`Delete "${d.device_code}"?`}
+                      description="Only allowed if it has no linked records."
+                      confirmText="Delete"
+                      confirmVariant="destructive"
+                      onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+                      onConfirm={() => deleteDevice(d)}
+                    >
                       Delete
-                    </Button>
+                    </ConfirmButton>
                   </div>
                 ),
               },

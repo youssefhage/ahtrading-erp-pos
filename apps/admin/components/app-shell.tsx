@@ -684,6 +684,13 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   }, [pathname, title, companyId]);
 
   useEffect(() => {
+    // Keep companyId state synced with localStorage changes in the same tab.
+    // The native `storage` event only fires in *other* tabs/windows.
+    const cid = getCompanyId();
+    if (cid !== companyId) setCompanyId(cid);
+  }, [pathname, companyId]);
+
+  useEffect(() => {
     // Company context display should be human-friendly.
     let cancelled = false;
     (async () => {

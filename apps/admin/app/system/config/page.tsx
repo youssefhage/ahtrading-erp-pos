@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { ConfirmButton } from "@/components/confirm-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -263,15 +264,20 @@ export default function ConfigPage() {
             >
               Edit
             </Button>
-            <Button
+            <ConfirmButton
               type="button"
               variant="ghost"
               size="sm"
+              title={`Delete tax code "${t.name}"?`}
+              description="This cannot be undone."
+              confirmText="Delete"
+              confirmVariant="destructive"
               disabled={deletingTaxId === t.id}
-              onClick={() => deleteTaxCode(t)}
+              onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+              onConfirm={() => deleteTaxCode(t)}
             >
               {deletingTaxId === t.id ? "Deleting..." : "Delete"}
-            </Button>
+            </ConfirmButton>
           </div>
         ),
       },
@@ -445,8 +451,6 @@ export default function ConfigPage() {
   }
 
   async function deleteTaxCode(taxCode: TaxCode) {
-    const confirmed = window.confirm(`Delete tax code "${taxCode.name}"?`);
-    if (!confirmed) return;
     setDeletingTaxId(taxCode.id);
     setStatus(`Deleting tax code "${taxCode.name}"...`);
     try {
