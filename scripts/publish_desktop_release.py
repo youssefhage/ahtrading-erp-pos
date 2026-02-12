@@ -42,7 +42,13 @@ APP_CONFIG = {
         "tauri_conf": Path("apps/admin-desktop/src-tauri/tauri.conf.json"),
         "stable_installer_win": "MelqardPortal-Setup-latest.msi",
         "stable_installer_mac": "MelqardPortal-Setup-latest.dmg",
-        "title": "Melqard Portal Desktop",
+        "title": "Melqard Admin Desktop",
+    },
+    "setup": {
+        "tauri_conf": Path("apps/setup-desktop/src-tauri/tauri.conf.json"),
+        "stable_installer_win": "MelqardInstaller-Setup-latest.msi",
+        "stable_installer_mac": "MelqardInstaller-Setup-latest.dmg",
+        "title": "Melqard Setup Desktop",
     },
 }
 
@@ -225,7 +231,7 @@ def main() -> int:
                 return p
         return direct
 
-    for app in ("pos", "portal"):
+    for app in ("pos", "portal", "setup"):
         cfg = APP_CONFIG[app]
         version = _read_version(cfg["tauri_conf"])
 

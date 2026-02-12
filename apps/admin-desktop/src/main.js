@@ -60,6 +60,13 @@ async function checkUpdates() {
   }
 }
 
+// Quiet auto-update on launch (helps fast iteration). If offline, do nothing.
+setTimeout(() => {
+  check()
+    .then((update) => update && update.downloadAndInstall().catch(() => {}))
+    .catch(() => {});
+}, 1200);
+
 el("openBtn").addEventListener("click", openAdmin);
 el("resetBtn").addEventListener("click", reset);
 el("updateBtn").addEventListener("click", checkUpdates);

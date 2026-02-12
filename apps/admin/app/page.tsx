@@ -11,7 +11,7 @@ export default function HomePage() {
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-dim">
-              <span className="text-sm font-bold text-primary-foreground">AH</span>
+              <span className="text-sm font-bold text-primary-foreground">AD</span>
             </div>
             <span className="text-sm font-semibold text-foreground">AH Trading</span>
           </div>

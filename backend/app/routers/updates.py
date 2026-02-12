@@ -97,7 +97,7 @@ def _cache_control_for_rel(rel: str) -> str:
 def _find_latest_installer_rel(app: str, platform: str) -> str:
     app_key = (app or "").strip().lower()
     plat = (platform or "").strip().lower()
-    if app_key not in {"pos", "portal"}:
+    if app_key not in {"pos", "portal", "setup"}:
         raise HTTPException(status_code=400, detail="invalid app")
     if plat not in {"windows", "macos"}:
         raise HTTPException(status_code=400, detail="invalid platform")
@@ -107,6 +107,8 @@ def _find_latest_installer_rel(app: str, platform: str) -> str:
         ("pos", "macos"): "MelqardPOS-Setup-latest.dmg",
         ("portal", "windows"): "MelqardPortal-Setup-latest.msi",
         ("portal", "macos"): "MelqardPortal-Setup-latest.dmg",
+        ("setup", "windows"): "MelqardInstaller-Setup-latest.msi",
+        ("setup", "macos"): "MelqardInstaller-Setup-latest.dmg",
     }[(app_key, plat)]
 
     ext_allow = (".msi", ".exe") if plat == "windows" else (".dmg",)
