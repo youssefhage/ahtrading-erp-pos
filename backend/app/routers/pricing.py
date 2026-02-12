@@ -177,7 +177,8 @@ def suggested_price(
 
             cur.execute(
                 """
-                SELECT COALESCE(plp.price_usd, p.price_usd) AS price_usd,
+                SELECT i.standard_cost_usd, i.standard_cost_lbp,
+                       COALESCE(plp.price_usd, p.price_usd) AS price_usd,
                        COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp
                 FROM items i
                 LEFT JOIN LATERAL (
@@ -205,6 +206,8 @@ def suggested_price(
                 (default_pl_id, default_pl_id, company_id, item_id),
             )
             prow = cur.fetchone() or {}
+            standard_cost_usd = Decimal(str(prow.get("standard_cost_usd") or 0))
+            standard_cost_lbp = Decimal(str(prow.get("standard_cost_lbp") or 0))
             price_usd = Decimal(str(prow.get("price_usd") or 0))
             price_lbp = Decimal(str(prow.get("price_lbp") or 0))
 
@@ -252,6 +255,13 @@ def suggested_price(
                     a = cur.fetchone() or {}
                     cost_usd = Decimal(str(a.get("a_cost_usd") or 0))
                     cost_lbp = Decimal(str(a.get("a_cost_lbp") or 0))
+
+            # If we still have no warehouse-derived average cost (common right after go-live import),
+            # fall back to item standard cost so pricing screens remain meaningful.
+            if cost_usd <= 0 and standard_cost_usd > 0:
+                cost_usd = standard_cost_usd
+            if cost_lbp <= 0 and standard_cost_lbp > 0:
+                cost_lbp = standard_cost_lbp
 
             def margin(price: Decimal, cost: Decimal) -> Optional[Decimal]:
                 if price <= 0:
