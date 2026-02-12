@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Unified POS (Pilot)</title>
+    <title>Unified POS (Revamp)</title>
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
@@ -13,13 +13,15 @@
   <body>
     <div class="pageShell">
       <div class="pageGlow" aria-hidden="true"></div>
+
       <header class="top">
         <div class="brand">
           <div class="titleRow">
             <div class="title">Unified POS</div>
             <span class="modePill">Cashier Workspace</span>
           </div>
-          <div class="subtitle">Pilot multi-company mode (Official + Unofficial)</div>
+          <div class="subtitle">Pilot multi-company mode (Official + Unofficial) — speed-first layout</div>
+          <div class="srOnly" id="status" aria-live="polite"></div>
         </div>
         <div class="controls">
           <label class="pill">
@@ -50,6 +52,7 @@
           <span id="statusPill" class="statusPill info" aria-live="polite">Loading…</span>
           <span id="cartSummary" class="factPill">Cart: 0 line(s)</span>
           <span id="activeCustomer" class="factPill">Customer: Walk-in</span>
+          <span id="queueCount" class="factPill">Queue: 0</span>
         </div>
         <div class="opsRight">
           <span class="kbdHint"><kbd>Enter</kbd> add match</span>
@@ -58,19 +61,60 @@
         </div>
       </section>
 
-      <main class="grid">
+      <main class="workspace">
         <section class="panel panelLeft">
+          <div class="panelSection">
+            <div class="panelTitle">Service Mode</div>
+            <div class="modeStrip" role="group" aria-label="Service type">
+              <button id="modeDineIn" class="segBtn" type="button" data-mode="dine-in">Dine-In</button>
+              <button id="modeTakeaway" class="segBtn" type="button" data-mode="takeaway">Takeaway</button>
+              <button id="modeDelivery" class="segBtn" type="button" data-mode="delivery">Delivery</button>
+              <button id="modeWaitlist" class="segBtn" type="button" data-mode="waitlist">Waitlist</button>
+            </div>
+            <div id="serviceModeHint" class="muted smallText">Select service context before taking order.</div>
+            <label class="pill">
+              Counter / Table / Area
+              <input id="serviceTarget" type="text" placeholder="Table 5, Counter 2, Walk-in…" />
+            </label>
+          </div>
+
+          <div class="panelSection">
+            <div class="panelTitle">Order Queue</div>
+            <div id="orderQueue" class="orderQueue" aria-live="polite"></div>
+          </div>
+
+          <div class="panelSection">
+            <div class="panelTitle">Quick Actions</div>
+            <div class="opActions">
+              <button id="holdBtn" class="btn ghost" type="button">Hold</button>
+              <button id="sendToKitchenBtn" class="btn" type="button">Send to Kitchen</button>
+              <button id="openCartBtn" class="btn ghost" type="button">Open Cart</button>
+              <button id="clearCartBtn" class="btn ghost" type="button">Clear</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel panelCenter">
           <div class="panelHead">
-            <div class="panelTitle">Scan / Search</div>
+            <div class="panelTitle">Scan / Search Menu</div>
             <div class="panelHeadActions">
               <button id="focusScanBtn" class="btn ghost tiny" type="button">Focus Scan</button>
               <button id="clearSearchBtn" class="btn ghost tiny" type="button">Clear</button>
             </div>
           </div>
+
           <div class="scanRow">
-            <input id="scan" type="text" placeholder="Scan barcode or type and press Enter" autocomplete="off" />
+            <input id="scan" type="text" placeholder="Scan barcode or type item name/SKU" autocomplete="off" />
             <button id="addBtn" class="btn">Add</button>
           </div>
+
+          <div class="chipRow" id="searchChips">
+            <button class="chip active" type="button" data-filter="all">All</button>
+            <button class="chip" type="button" data-filter="quick">Quick add</button>
+            <button class="chip" type="button" data-filter="recent">Recent</button>
+            <button class="chip" type="button" data-filter="popular">Popular</button>
+          </div>
+
           <div id="scanMeta" class="scanMeta" aria-live="polite">Waiting for input…</div>
           <div class="hint">Tip: scans work anywhere on the screen (no need to click the field).</div>
           <div id="results" class="results"></div>
@@ -78,14 +122,12 @@
 
         <section class="panel panelRight">
           <div class="panelHead">
-            <div class="panelTitle">Cart</div>
+            <div class="panelTitle">Active Ticket</div>
             <div class="cartMeta">
               <label class="check">
                 <input id="flagOfficial" type="checkbox" />
                 Issue as Official (review later)
               </label>
-              <button id="openCartBtn" class="btn ghost tiny" type="button">View</button>
-              <button id="clearCartBtn" class="btn ghost tiny" type="button">Clear Cart</button>
             </div>
           </div>
 
@@ -104,41 +146,43 @@
           </div>
 
           <div class="pay">
-            <div class="cust">
-              <label class="pill">
-                Customer ID (optional)
-                <input id="customerId" type="text" placeholder="Leave blank for walk-in" />
-              </label>
-              <div class="custLookup">
-                <input id="customerQuery" type="text" placeholder="Search customer name/phone…" />
-                <button id="customerSearchBtn" class="btn ghost">Find</button>
-                <button id="customerCreateToggleBtn" class="btn ghost" type="button">New Customer</button>
-              </div>
-              <div id="customerCreatePanel" class="custCreate hidden">
-                <div class="custCreateGrid">
-                  <input id="customerCreateName" type="text" placeholder="Customer name *" />
-                  <input id="customerCreatePhone" type="text" placeholder="Phone (optional)" />
-                  <input id="customerCreateEmail" type="email" placeholder="Email (optional)" />
-                </div>
-                <div class="custCreateActions">
-                  <button id="customerCreateBtn" class="btn" type="button">Create Customer</button>
-                  <button id="customerCreateCancelBtn" class="btn ghost" type="button">Cancel</button>
-                </div>
-                <div id="customerCreateStatus" class="custCreateStatus" aria-live="polite"></div>
-              </div>
-              <div id="customerResults" class="custResults"></div>
-            </div>
             <label class="pill">
-              Payment
-              <select id="payment">
-                <option value="cash" selected>Cash</option>
-                <option value="card">Card</option>
-                <option value="transfer">Transfer</option>
-                <option value="credit">Credit</option>
-              </select>
+              Customer ID (optional)
+              <input id="customerId" type="text" placeholder="Leave blank for walk-in" />
             </label>
-            <button id="payBtn" class="btn primary">Pay + Print</button>
-            <button id="receiptBtn" class="btn ghost">Last Receipt</button>
+            <div class="custLookup">
+              <input id="customerQuery" type="text" placeholder="Search customer name/phone…" />
+              <button id="customerSearchBtn" class="btn ghost">Find</button>
+              <button id="customerCreateToggleBtn" class="btn ghost" type="button">New Customer</button>
+            </div>
+            <div id="customerCreatePanel" class="custCreate hidden">
+              <div class="custCreateGrid">
+                <input id="customerCreateName" type="text" placeholder="Customer name *" />
+                <input id="customerCreatePhone" type="text" placeholder="Phone (optional)" />
+                <input id="customerCreateEmail" type="email" placeholder="Email (optional)" />
+              </div>
+              <div class="custCreateActions">
+                <button id="customerCreateBtn" class="btn" type="button">Create Customer</button>
+                <button id="customerCreateCancelBtn" class="btn ghost" type="button">Cancel</button>
+              </div>
+              <div id="customerCreateStatus" class="custCreateStatus" aria-live="polite"></div>
+            </div>
+            <div id="customerResults" class="custResults"></div>
+
+            <div class="paymentRow">
+              <label class="pill">Payment
+                <select id="payment">
+                  <option value="cash" selected>Cash</option>
+                  <option value="card">Card</option>
+                  <option value="transfer">Transfer</option>
+                  <option value="credit">Credit</option>
+                </select>
+              </label>
+              <div class="payActions">
+                <button id="payBtn" class="btn primary">Pay + Print</button>
+                <button id="receiptBtn" class="btn ghost">Last Receipt</button>
+              </div>
+            </div>
           </div>
         </section>
       </main>
@@ -292,5 +336,292 @@
     </div>
 
     <script src="/unified.js"></script>
+    <script>
+      (function uiShellRevamp() {
+        if (typeof state === "undefined" || typeof el === "undefined") return;
+
+        const serviceModeKey = "unified.pos.serviceMode";
+        const orderQueueLimit = 12;
+        const serviceModeButtons = [
+          { id: "modeDineIn", value: "dine-in" },
+          { id: "modeTakeaway", value: "takeaway" },
+          { id: "modeDelivery", value: "delivery" },
+          { id: "modeWaitlist", value: "waitlist" },
+        ];
+
+        if (!Array.isArray(state.ui?.orderQueue)) state.ui.orderQueue = [];
+        state.ui.serviceMode = state.ui.serviceMode || "dine-in";
+        state.ui.lastOrderSeq = Number(state.ui.lastOrderSeq || 0);
+
+        function safeMode(raw) {
+          const v = String(raw || "").trim().toLowerCase().replace(/[^a-z-]/g, "");
+          if (v === "dine-in" || v === "dinein") return "dine-in";
+          if (v === "takeaway") return "takeaway";
+          if (v === "delivery") return "delivery";
+          if (v === "waitlist") return "waitlist";
+          return "dine-in";
+        }
+
+        function modeLabel(mode) {
+          if (mode === "dine-in") return "Dine-In";
+          if (mode === "takeaway") return "Takeaway";
+          if (mode === "delivery") return "Delivery";
+          if (mode === "waitlist") return "Waitlist";
+          return "Dine-In";
+        }
+
+        function getModeHint() {
+          const target = String(el("serviceTarget")?.value || "").trim();
+          const targetLabel = target ? `${target}` : "Walk-in";
+          return `${modeLabel(getServiceMode())} · ${targetLabel}`;
+        }
+
+        function getServiceMode() {
+          return safeMode(state.ui.serviceMode);
+        }
+
+        function setServiceMode(mode) {
+          const next = safeMode(mode);
+          state.ui.serviceMode = next;
+          serviceModeButtons.forEach((btn) => {
+            const n = el(btn.id);
+            if (!n) return;
+            const active = safeMode(btn.value) === next;
+            n.classList.toggle("active", active);
+            n.setAttribute("aria-pressed", active ? "true" : "false");
+          });
+          const hint = el("serviceModeHint");
+          if (hint) hint.textContent = getModeHint();
+          try {
+            localStorage.setItem(serviceModeKey, next);
+          } catch (_e) {
+            // ignore
+          }
+        }
+
+        function applySavedServiceMode() {
+          let saved = "";
+          try {
+            saved = localStorage.getItem(serviceModeKey) || "";
+          } catch (_e) {
+            saved = "";
+          }
+          setServiceMode(safeMode(saved || state.ui.serviceMode));
+        }
+
+        function cloneTicketLine(line) {
+          return {
+            key: line?.key || "",
+            companyKey: line?.companyKey || "unofficial",
+            agentBase: line?.agentBase || "",
+            id: line?.id || "",
+            sku: line?.sku || "",
+            name: line?.name || "",
+            barcode: line?.barcode || "",
+            price_usd: Number(line?.price_usd || 0),
+            price_lbp: Number(line?.price_lbp || 0),
+            qty: Number(line?.qty || 0),
+          };
+        }
+
+        function fmtMoney(v) {
+          return Number(v || 0).toFixed(2);
+        }
+
+        function formatTicketTime(ts) {
+          const d = new Date(Number(ts || Date.now()));
+          return `${String(d.getHours()).padStart(2, "0")} : ${String(d.getMinutes()).padStart(2, "0")}`;
+        }
+
+        function renderQueueSummary() {
+          const queueBadge = el("queueCount");
+          if (queueBadge) {
+            const len = Array.isArray(state.ui.orderQueue) ? state.ui.orderQueue.length : 0;
+            queueBadge.textContent = `Queue: ${len}`;
+          }
+        }
+
+        function renderOrderQueue() {
+          const root = el("orderQueue");
+          if (!root) return;
+
+          const list = Array.isArray(state.ui.orderQueue) ? state.ui.orderQueue : [];
+          state.ui.orderQueue = list;
+          root.innerHTML = "";
+          if (!list.length) {
+            root.innerHTML = `<div class="queueEmpty">No queued or completed tickets.</div>`;
+            return;
+          }
+
+          for (const t of list.slice(0, orderQueueLimit)) {
+            const row = document.createElement("div");
+            const linesCount = Array.isArray(t.lines) ? t.lines.reduce((sum, line) => sum + Number(line.qty || 0), 0) : 0;
+            row.className = `queueItem ${t.status === "Paid" ? "ticketDone" : ""}`;
+            row.innerHTML = `
+              <div class="queueInfo">
+                <div class="queueRowTitle">${escapeHtml(t.code || "Ticket")} · ${escapeHtml(t.mode || "")}</div>
+                <div class="queueMeta">${escapeHtml(t.target || "Walk-in")} · ${escapeHtml(t.status || "")}</div>
+                <div class="queueMeta">${formatTicketTime(t.createdAt)} · ${linesCount} item(s) · $${fmtMoney(t.total)}</div>
+              </div>
+              <div class="queueActions">
+                <button type="button" class="btn ghost tiny" data-ticket="${escapeHtml(String(t.id || ""))}" data-action="resume">Resume</button>
+                <button type="button" class="btn ghost tiny" data-ticket="${escapeHtml(String(t.id || ""))}" data-action="close">Close</button>
+              </div>
+            `;
+            root.appendChild(row);
+          }
+
+          root.querySelectorAll("[data-action]").forEach((btn) => {
+            btn.addEventListener("click", (event) => {
+              const ticketId = String(event.currentTarget?.getAttribute("data-ticket") || "");
+              const action = String(event.currentTarget?.getAttribute("data-action") || "");
+              if (!ticketId) return;
+              if (action === "resume") return resumeQueuedTicket(ticketId);
+              if (action === "close") return closeQueuedTicket(ticketId);
+            });
+          });
+        }
+
+        function makeQueueTicket(status, lines) {
+          state.ui.lastOrderSeq = Number(state.ui.lastOrderSeq || 0) + 1;
+          const mode = getServiceMode();
+          const target = String(el("serviceTarget")?.value || "").trim() || "Walk-in";
+          const total = lines.reduce((sum, line) => sum + Number(line.price_usd || 0) * Number(line.qty || 0), 0);
+          return {
+            id: `${Date.now()}-${state.ui.lastOrderSeq}`,
+            code: `T-${String(state.ui.lastOrderSeq).padStart(3, "0")}`,
+            mode,
+            status,
+            target,
+            createdAt: Date.now(),
+            total,
+            lines: lines.map(cloneTicketLine),
+            customer: state.ui.customerLabel || "Walk-in",
+            invoiceMode: getInvoiceCompany(),
+          };
+        }
+
+        function queueCurrentOrder(status, clearCart = false) {
+          if (!state.cart.length) {
+            setStatus("Cart is empty.", "warn");
+            return;
+          }
+          const snapshot = state.cart.map(cloneTicketLine);
+          const ticket = makeQueueTicket(status, snapshot);
+          state.ui.orderQueue = [ticket, ...state.ui.orderQueue];
+          if (state.ui.orderQueue.length > orderQueueLimit) {
+            state.ui.orderQueue.length = orderQueueLimit;
+          }
+          if (clearCart) {
+            state.cart = [];
+            renderCart();
+          }
+          renderOrderQueue();
+          renderQueueSummary();
+          setStatus(`Ticket ${ticket.code} ${status.toLowerCase()}.`, status === "Kitchen" ? "warn" : "ok");
+          return ticket;
+        }
+
+        function resolveQueueIndex(ticketId) {
+          if (!Array.isArray(state.ui.orderQueue)) return -1;
+          return state.ui.orderQueue.findIndex((item) => String(item.id || "") === String(ticketId || ""));
+        }
+
+        function closeQueuedTicket(ticketId) {
+          const i = resolveQueueIndex(ticketId);
+          if (i < 0) return;
+          state.ui.orderQueue.splice(i, 1);
+          renderOrderQueue();
+          renderQueueSummary();
+          setStatus("Ticket closed.", "warn");
+        }
+
+        function resumeQueuedTicket(ticketId) {
+          const i = resolveQueueIndex(ticketId);
+          if (i < 0) return;
+          if (state.cart.length) {
+            const ok = window.confirm("Replace current cart with this ticket?");
+            if (!ok) return;
+          }
+          const ticket = state.ui.orderQueue.splice(i, 1)[0];
+          const lines = Array.isArray(ticket?.lines) ? ticket.lines : [];
+          state.cart = lines.map(cloneTicketLine);
+          renderCart();
+          renderOrderQueue();
+          renderQueueSummary();
+          setStatus(`Loaded ${ticket.code} into cart.`, "ok");
+        }
+
+        function wrapRenderCart() {
+          const originalRenderCart = window.renderCart;
+          if (typeof originalRenderCart !== "function") return;
+          window.renderCart = function() {
+            const r = originalRenderCart.apply(this, arguments);
+            renderOrderQueue();
+            renderQueueSummary();
+            return r;
+          };
+        }
+
+        function wrapPay() {
+          const originalPay = window.pay;
+          if (typeof originalPay !== "function") return;
+          window.pay = async function() {
+            const linesBefore = state.cart.map(cloneTicketLine);
+            const totalBefore = linesBefore.reduce((sum, c) => sum + Number(c.price_usd || 0) * Number(c.qty || 0), 0);
+            try {
+              const res = await originalPay.apply(this, arguments);
+              const paid = makeQueueTicket("Paid", linesBefore);
+              paid.total = totalBefore;
+              paid.status = "Paid";
+              state.ui.orderQueue = [paid, ...state.ui.orderQueue];
+              if (state.ui.orderQueue.length > orderQueueLimit) {
+                state.ui.orderQueue.length = orderQueueLimit;
+              }
+              renderOrderQueue();
+              renderQueueSummary();
+              return res;
+            } catch (e) {
+              throw e;
+            }
+          };
+        }
+
+        function updateModeFromTargetInput() {
+          const hint = el("serviceModeHint");
+          if (!hint) return;
+          hint.textContent = getModeHint();
+        }
+
+        function wireRevampControls() {
+          serviceModeButtons.forEach((b) => {
+            const node = el(b.id);
+            if (!node) return;
+            node.addEventListener("click", () => {
+              setServiceMode(b.value);
+            });
+          });
+
+          el("holdBtn")?.addEventListener("click", () => {
+            queueCurrentOrder("Hold", true);
+          });
+          el("sendToKitchenBtn")?.addEventListener("click", () => {
+            queueCurrentOrder("Kitchen", true);
+          });
+
+          el("serviceTarget")?.addEventListener("input", () => {
+            updateModeFromTargetInput();
+          });
+        }
+
+        wireRevampControls();
+        applySavedServiceMode();
+        renderOrderQueue();
+        renderQueueSummary();
+        updateModeFromTargetInput();
+        wrapRenderCart();
+        wrapPay();
+      })();
+    </script>
   </body>
 </html>
