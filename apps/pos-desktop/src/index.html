@@ -15,6 +15,7 @@
           <p>Connects to your POS server, queues sales offline</p>
         </div>
       </header>
+      <div id="appVersion" class="app-version muted"></div>
 
       <section class="card">
         <h2>Setup</h2>
@@ -161,9 +162,15 @@
           <button id="startBtn" class="primary">Start POS</button>
           <button id="openBtn" class="ghost">Open POS (if already running)</button>
           <button id="updateBtn" class="ghost">Check Updates</button>
+          <button id="updateDownloadBtn" class="ghost update-download" type="button" disabled>
+            <span>Download Update</span>
+            <span id="updateBadge" class="update-pill">No update available</span>
+          </button>
         </div>
         <div class="row" style="margin-top: 6px;">
           <button id="diagBtn" class="ghost">Connection Diagnostics</button>
+          <button id="showDesktopLogsBtn" class="ghost" type="button">Show Desktop Logs</button>
+          <button id="copyDebugBtn" class="ghost" type="button">Copy Debug Report</button>
         </div>
         <div id="status" class="status"></div>
         <div id="diag" class="status muted" style="white-space: pre-wrap; margin-top: 6px;"></div>

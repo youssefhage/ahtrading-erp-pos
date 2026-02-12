@@ -1,6 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
-import { check } from "@tauri-apps/plugin-updater";
-
 const KEY_EDGE = "ahtrading.posDesktop.edgeUrl";
 const KEY_PACK = "ahtrading.posDesktop.setupPack";
 const KEY_PORT_OFFICIAL = "ahtrading.posDesktop.portOfficial";
@@ -12,20 +9,36 @@ const KEY_DEV_TOK_OFFICIAL = "ahtrading.posDesktop.deviceTokenOfficial";
 const KEY_DEV_ID_UNOFFICIAL = "ahtrading.posDesktop.deviceIdUnofficial";
 const KEY_DEV_TOK_UNOFFICIAL = "ahtrading.posDesktop.deviceTokenUnofficial";
 const KEY_SETUP_EMAIL = "ahtrading.posDesktop.setupEmail";
+const DEBUG_MAX_LINES = 320;
+let APP_VERSION = "unknown";
+
+const debugState = {
+  lines: [],
+};
+
+let availableUpdate = null;
+
+async function tauriInvoke(cmd, args = {}) {
+  const fn = globalThis?.__TAURI_INTERNALS__?.invoke;
+  if (typeof fn !== "function") {
+    throw new Error("Tauri bridge unavailable. Please open this screen from Melqard POS Desktop app.");
+  }
+  return await fn(String(cmd || ""), args || {});
+}
 
 // Surface unexpected errors in the UI, otherwise the user experiences "nothing happens".
 window.addEventListener("error", (ev) => {
   try {
-    const msg = ev?.error?.message || ev?.message || "Unknown error";
-    reportFatal(msg, "UI error");
+    const payload = ev?.error || ev?.message || "Unknown error";
+    reportFatal(payload, "UI error");
   } catch {
     // ignore
   }
 });
 window.addEventListener("unhandledrejection", (ev) => {
   try {
-    const msg = ev?.reason?.message || String(ev?.reason || "Unknown rejection");
-    reportFatal(msg, "UI error");
+    const payload = ev?.reason || "Unknown rejection";
+    reportFatal(payload, "Unhandled rejection");
   } catch {
     // ignore
   }
@@ -35,7 +48,7 @@ window.addEventListener("unhandledrejection", (ev) => {
 // We keep non-sensitive fields (URLs/ports/ids) in localStorage for convenience.
 async function secureGet(k) {
   try {
-    return await invoke("secure_get", { key: String(k || "") });
+    return await tauriInvoke("secure_get", { key: String(k || "") });
   } catch {
     return null;
   }
@@ -43,7 +56,7 @@ async function secureGet(k) {
 
 async function secureSet(k, v) {
   try {
-    await invoke("secure_set", { key: String(k || ""), value: String(v ?? "") });
+    await tauriInvoke("secure_set", { key: String(k || ""), value: String(v ?? "") });
     return true;
   } catch {
     return false;
@@ -52,7 +65,7 @@ async function secureSet(k, v) {
 
 async function secureDelete(k) {
   try {
-    await invoke("secure_delete", { key: String(k || "") });
+    await tauriInvoke("secure_delete", { key: String(k || "") });
   } catch {
     // ignore
   }
@@ -78,6 +91,65 @@ function setDiag(msg) {
   if (n) n.textContent = msg || "";
 }
 
+function setVersionLabel() {
+  const v = el("appVersion");
+  if (!v) return;
+  v.textContent = APP_VERSION;
+}
+
+async function loadAppVersion() {
+  try {
+    const current = await tauriInvoke("app_version");
+    if (typeof current === "string" && current.trim()) {
+      APP_VERSION = current.trim();
+    }
+  } catch {
+    // keep fallback until native command responds
+  }
+}
+
+function fmtNow() {
+  try {
+    return new Date().toISOString();
+  } catch {
+    return String(Date.now());
+  }
+}
+
+function stringifyError(err) {
+  if (err instanceof Error) {
+    const stack = String(err.stack || "").trim();
+    return {
+      message: err.message || "Error",
+      stack,
+    };
+  }
+  const msg = typeof err === "string" ? err : JSON.stringify(err);
+  return { message: msg || "Unknown error", stack: "" };
+}
+
+function appendDebugLine(line) {
+  const text = String(line || "").trim();
+  if (!text) return;
+  debugState.lines.push(text);
+  if (debugState.lines.length > DEBUG_MAX_LINES) {
+    debugState.lines = debugState.lines.slice(debugState.lines.length - DEBUG_MAX_LINES);
+  }
+  setDiag(debugState.lines.join("\n"));
+}
+
+async function persistDesktopLog(level, message, stack = "") {
+  try {
+    await tauriInvoke("frontend_log", {
+      level: String(level || "info"),
+      message: String(message || ""),
+      stack: String(stack || ""),
+    });
+  } catch {
+    // ignore
+  }
+}
+
 function setSetupNote(msg) {
   const n = el("setupNote");
   if (n) n.textContent = msg || "";
@@ -98,11 +170,40 @@ function setBtnBusy(btnId, busy, label = "Working…") {
 }
 
 function reportFatal(err, ctx = "Error") {
-  const msg = err instanceof Error ? err.message : String(err);
+  const p = stringifyError(err);
+  const msg = p.message;
   setStatus(`${ctx}: ${msg}`);
   setSetupNote(`${ctx}: ${msg}`);
+  appendDebugLine(`[${fmtNow()}] [error] ${ctx}: ${msg}`);
+  if (p.stack) appendDebugLine(p.stack);
+  persistDesktopLog("error", `${ctx}: ${msg}`, p.stack);
   try { console.error(err); } catch {}
 }
+
+function reportInfo(msg, ctx = "Info") {
+  const text = `${ctx}: ${String(msg || "").trim()}`;
+  appendDebugLine(`[${fmtNow()}] [info] ${text}`);
+  persistDesktopLog("info", text, "");
+}
+
+const _consoleError = console.error?.bind(console);
+const _consoleWarn = console.warn?.bind(console);
+console.error = (...args) => {
+  try { if (_consoleError) _consoleError(...args); } catch {}
+  try {
+    const text = args.map((x) => (x instanceof Error ? (x.stack || x.message) : String(x))).join(" ");
+    appendDebugLine(`[${fmtNow()}] [console.error] ${text}`);
+    persistDesktopLog("error", text, "");
+  } catch {}
+};
+console.warn = (...args) => {
+  try { if (_consoleWarn) _consoleWarn(...args); } catch {}
+  try {
+    const text = args.map((x) => (x instanceof Error ? (x.stack || x.message) : String(x))).join(" ");
+    appendDebugLine(`[${fmtNow()}] [console.warn] ${text}`);
+    persistDesktopLog("warn", text, "");
+  } catch {}
+};
 
 function parsePack(raw) {
   const text = String(raw || "").trim();
@@ -213,6 +314,7 @@ async function load() {
   el("deviceIdUnofficial").value = localStorage.getItem(KEY_DEV_ID_UNOFFICIAL) || "";
   el("deviceTokenUnofficial").value = (await secureGet(KEY_DEV_TOK_UNOFFICIAL)) || "";
   if (el("setupEmail")) el("setupEmail").value = localStorage.getItem(KEY_SETUP_EMAIL) || "";
+  setVersionLabel();
   setStatus("");
   setDiag("");
   setSetupNote("");
@@ -267,6 +369,18 @@ function fmtEdgeDiag(label, res) {
   return `${label}: OFFLINE${err} · queued ${pend}`;
 }
 
+function edgeAuthNotice(label, res) {
+  if (!res || !res.ok) return null;
+  const d = res.data || {};
+  if (d.edge_auth_ok !== false) return null;
+  const code = d.edge_auth_status ? ` (${d.edge_auth_status})` : "";
+  const rawErr = String(d.edge_auth_error || "").trim() || "Device token is missing or invalid.";
+  const cfgPart = label.toLowerCase() === "unofficial"
+    ? "unofficial device token or company mapping"
+    : "official device token or company mapping";
+  return `${label}: auth failed${code}. ${rawErr} Verify ${cfgPart} in Advanced settings, then restart POS agents.`;
+}
+
 function fillSelect(selectEl, items, { placeholder = "Select…" } = {}) {
   if (!selectEl) return;
   selectEl.innerHTML = "";
@@ -286,6 +400,16 @@ function agentBase(port) {
   return `http://127.0.0.1:${Number(port || 7070)}`;
 }
 
+class ApiError extends Error {
+  constructor(message, status, payload = null, path = "") {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+    this.path = path;
+  }
+}
+
 async function jpostJson(base, path, payload) {
   const url = `${String(base || "").replace(/\/+$/, "")}${path}`;
   const res = await fetch(url, {
@@ -295,9 +419,11 @@ async function jpostJson(base, path, payload) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = data?.error || data?.detail || `HTTP ${res.status}`;
+    const err = data?.error || data?.detail || data?.hint || `HTTP ${res.status}`;
+    const hint = data?.hint;
     const msg = typeof err === "string" ? err : JSON.stringify(err);
-    throw new Error(msg);
+    const full = hint ? `${msg}. Hint: ${hint}` : msg;
+    throw new ApiError(full, res.status, data, path);
   }
   return data;
 }
@@ -307,11 +433,38 @@ async function jgetJson(base, path) {
   const res = await fetch(url, { method: "GET" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = data?.error || data?.detail || `HTTP ${res.status}`;
+    const err = data?.error || data?.detail || data?.hint || `HTTP ${res.status}`;
+    const hint = data?.hint;
     const msg = typeof err === "string" ? err : JSON.stringify(err);
-    throw new Error(msg);
+    const full = hint ? `${msg}. Hint: ${hint}` : msg;
+    throw new ApiError(full, res.status, data, path);
   }
   return data;
+}
+
+function isPosManageError(msg) {
+  const x = String(msg || "").toLowerCase();
+  return x.includes("pos:manage") || x.includes("permission denied") || x.includes("insufficient permission");
+}
+
+function humanizeApiError(err) {
+  if (err && typeof err === "object") {
+    const payload = err.payload || {};
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      const errMsg = payload.error || payload.detail || payload.hint || payload.message;
+      const hint = payload.hint;
+      const extras = [];
+      if (hint && hint !== errMsg) extras.push(`Hint: ${hint}`);
+      if (payload.company_id) extras.push(`company_id: ${payload.company_id}`);
+      const base = typeof errMsg === "string" && errMsg.trim() ? errMsg : err.message;
+      return `${base}${extras.length ? ` (${extras.join(", ")})` : ""}`;
+    }
+  }
+  return err instanceof Error ? err.message : String(err || "Load failed");
+}
+
+function permissionHintForError(msg) {
+  return isPosManageError(msg) ? "\nHint: your account must have permission pos:manage for each company." : "";
 }
 
 let quickSetup = {
@@ -327,29 +480,20 @@ async function ensureAgentsRunningForSetup() {
   const portUnofficial = Number(el("portUnofficial").value || 7072);
   if (!edgeUrl) throw new Error("Please enter the API URL first.");
 
-  // Try to start agents best-effort. If they are already running, the ports may be in use;
-  // we'll proceed as long as the agent responds on /api/health.
-  try {
-    await invoke("start_agents", {
-      edgeUrl,
-      portOfficial,
-      portUnofficial,
-      companyOfficial: null,
-      companyUnofficial: null,
-      deviceIdOfficial: null,
-      deviceTokenOfficial: null,
-      deviceIdUnofficial: null,
-      deviceTokenUnofficial: null,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    // If the port is already in use, we can't tell if it's the agent or something else.
-    // We'll check /api/health below and only fail if it isn't reachable.
-    setSetupNote(`Agent start note: ${msg}`);
-  }
+  await tauriInvoke("start_setup_agent", {
+    edgeUrl,
+    portOfficial,
+    companyOfficial: null,
+    deviceIdOfficial: null,
+    deviceTokenOfficial: null,
+  });
 
   const ok = await waitForAgent(portOfficial, 8000);
-  if (!ok) throw new Error("Local agent is not reachable on the Official port. Try Start POS first.");
+  if (!ok) {
+    throw new Error(
+      "Local official agent did not become reachable. If port 7070 is already used, stop external pos-desktop/agent.py processes and retry."
+    );
+  }
   return { edgeUrl, portOfficial, portUnofficial };
 }
 
@@ -362,6 +506,35 @@ function normalizeCompanyList(companies) {
     out.push({ value: id, label: name });
   }
   return out;
+}
+
+function getCompanyNameById(id) {
+  const target = String(id || "").trim().toLowerCase();
+  if (!target) return "Unknown";
+  for (const c of quickSetup.companies || []) {
+    if (String(c?.id || "").trim().toLowerCase() === target) {
+      return String(c?.name || c?.legal_name || target).trim() || "Unknown";
+    }
+  }
+  return "Unknown";
+}
+
+async function quickSetupCheckCompanyPermissions(base, apiBaseUrl, token, companyId, companyLabel) {
+  const response = await jpostJson(base, "/api/setup/check-permissions", {
+    api_base_url: apiBaseUrl,
+    token,
+    company_id: companyId,
+  });
+  if (!response || response.ok !== true) {
+    const msg = response?.error || "Could not verify permissions";
+    return { companyId, companyLabel, hasPermission: false, error: String(msg || "Could not verify permissions") };
+  }
+  return {
+    companyId,
+    companyLabel,
+    hasPermission: !!response.has_pos_manage,
+    error: response.has_pos_manage ? null : (response.error || "permission denied"),
+  };
 }
 
 async function quickSetupLogin() {
@@ -524,24 +697,62 @@ async function quickSetupApply() {
       return;
     }
 
+    setSetupNote("Checking pos:manage permission for selected companies…");
+    setStatus("Quick Setup: checking permissions…");
+    const officialName = getCompanyNameById(companyOfficial);
+    const unofficialName = getCompanyNameById(companyUnofficial);
+    const permissionChecks = await Promise.all([
+      quickSetupCheckCompanyPermissions(base, edgeUrl, quickSetup.token, companyOfficial, officialName),
+    ]);
+
+    if (companyOfficial !== companyUnofficial) {
+      permissionChecks.push(
+        quickSetupCheckCompanyPermissions(base, edgeUrl, quickSetup.token, companyUnofficial, unofficialName),
+      );
+    }
+
+    const missing = permissionChecks.filter((x) => !x.hasPermission);
+    if (missing.length) {
+      const names = [...new Set(missing.map((m) => m.companyLabel || m.companyId))];
+      setSetupNote(`Permission missing on ${names.join(", ")}.`);
+      setStatus(`Quick Setup: permission check failed for ${names.join(", ")}.`);
+      if (companyOfficial === companyUnofficial) {
+        const label = names[0] || "selected company";
+        setSetupNote(`Quick Setup: ${label} lacks pos:manage. Grant pos:manage to this account, then retry.`);
+      } else {
+        const lines = names
+          .map((n) => `${n} missing pos:manage. Grant permission and retry.`)
+          .join(" | ");
+        setSetupNote(lines);
+      }
+      return;
+    }
+
     setSetupNote("Registering POS devices…");
     setStatus("Quick Setup: registering devices…");
-    const officialReg = await jpostJson(base, "/api/setup/register-device", {
-      api_base_url: edgeUrl,
-      token: quickSetup.token,
-      company_id: companyOfficial,
-      branch_id: branchId,
-      device_code: deviceCodeOfficial,
-      reset_token: true,
-    });
-    const unofficialReg = await jpostJson(base, "/api/setup/register-device", {
-      api_base_url: edgeUrl,
-      token: quickSetup.token,
-      company_id: companyUnofficial,
-      branch_id: branchId,
-      device_code: deviceCodeUnofficial,
-      reset_token: true,
-    });
+    const registerDevice = async (kind, companyId, branchId, deviceCode) => {
+      try {
+        return await jpostJson(base, "/api/setup/register-device", {
+          api_base_url: edgeUrl,
+          token: quickSetup.token,
+          company_id: companyId,
+          branch_id: branchId,
+          device_code: deviceCode,
+          reset_token: true,
+        });
+      } catch (e) {
+        const msg = humanizeApiError(e);
+        throw new Error(`${kind} company register-device failed: ${msg}`);
+      }
+    };
+
+    const officialReg = await registerDevice("Official", companyOfficial, branchId, deviceCodeOfficial);
+    const unofficialReg = await registerDevice(
+      "Unofficial",
+      companyUnofficial,
+      branchId,
+      deviceCodeUnofficial,
+    );
 
     const deviceIdOfficial = String(officialReg?.device_id || "").trim();
     const deviceTokenOfficial = String(officialReg?.device_token || "").trim();
@@ -592,11 +803,11 @@ async function quickSetupApply() {
     setStatus("Quick Setup: starting POS…");
     await start();
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    setSetupNote(`Quick Setup failed: ${msg}\nHint: your account must have permission pos:manage for each company.`);
+    const msg = humanizeApiError(e);
+    setSetupNote(`Quick Setup failed: ${msg}${permissionHintForError(msg)}`);
     setStatus(`Quick Setup failed: ${msg}`);
     try {
-      const logs = await invoke("tail_agent_logs", { maxLines: 120 });
+      const logs = await tauriInvoke("tail_agent_logs", { maxLines: 120 });
       const a = String(logs?.official || "").trim();
       const b = String(logs?.unofficial || "").trim();
       const parts = [];
@@ -651,7 +862,7 @@ async function start() {
   setStatus("Starting local agents…");
   setDiag("");
   try {
-    await invoke("start_agents", {
+    await tauriInvoke("start_agents", {
       edgeUrl,
       portOfficial,
       portUnofficial,
@@ -665,7 +876,7 @@ async function start() {
   } catch (e) {
     setStatus(`Failed to start agents: ${e instanceof Error ? e.message : String(e)}`);
     try {
-      const logs = await invoke("tail_agent_logs", { maxLines: 120 });
+      const logs = await tauriInvoke("tail_agent_logs", { maxLines: 120 });
       const a = String(logs?.official || "").trim();
       const b = String(logs?.unofficial || "").trim();
       const parts = [];
@@ -686,7 +897,7 @@ async function start() {
   if (!okA || !okB) {
     setStatus(`Agent startup incomplete. Official=${okA ? "ok" : "missing"} Unofficial=${okB ? "ok" : "missing"}`);
     try {
-      const logs = await invoke("tail_agent_logs", { maxLines: 120 });
+      const logs = await tauriInvoke("tail_agent_logs", { maxLines: 120 });
       const a = String(logs?.official || "").trim();
       const b = String(logs?.unofficial || "").trim();
       const parts = [];
@@ -704,9 +915,18 @@ async function start() {
     fetchEdgeStatus(portOfficial),
     fetchEdgeStatus(portUnofficial),
   ]);
-  setDiag([fmtEdgeDiag("Official", stA), fmtEdgeDiag("Unofficial", stB)].join("\n"));
-
-  setStatus("Opening POS…");
+  const diagLines = [fmtEdgeDiag("Official", stA), fmtEdgeDiag("Unofficial", stB)];
+  const authWarnings = [edgeAuthNotice("Official", stA), edgeAuthNotice("Unofficial", stB)].filter(Boolean);
+  if (authWarnings.length > 0) {
+    diagLines.push("", "AUTH warning:", ...authWarnings);
+  }
+  setDiag(diagLines.join("\n"));
+  if (authWarnings.length > 0) {
+    setStatus("Edge auth issue detected. See diagnostics below.");
+    setSetupNote(`Auth issue: ${authWarnings.join(" | ")}`);
+  } else {
+    setStatus("Opening POS…");
+  }
   window.location.href = `http://127.0.0.1:${portOfficial}/unified.html`;
 }
 
@@ -715,19 +935,106 @@ function openPos() {
   window.location.href = `http://127.0.0.1:${portOfficial}/unified.html`;
 }
 
-async function checkUpdates() {
-  setStatus("Checking for updates...");
+function getUpdateVersion(update) {
+  return String(update?.version || "").trim();
+}
+
+function clearUpdateNotification() {
+  availableUpdate = null;
+  const btn = el("updateDownloadBtn");
+  const badge = el("updateBadge");
+  if (btn) {
+    btn.disabled = true;
+  }
+  if (badge) {
+    badge.textContent = "No update available";
+  }
+}
+
+function showUpdateNotification(update) {
+  const version = getUpdateVersion(update);
+  if (!version) {
+    clearUpdateNotification();
+    return;
+  }
+  availableUpdate = update;
+  const btn = el("updateDownloadBtn");
+  const badge = el("updateBadge");
+  if (!btn) return;
+  if (badge) {
+    badge.textContent = `Update available (${version})`;
+  }
+  btn.disabled = false;
+}
+
+async function checkForUpdates({ silent = false } = {}) {
+  if (!silent) {
+    setStatus("Checking for updates…");
+  }
   try {
-    const update = await check();
-    if (!update) {
-      setStatus("You are up to date.");
+    const update = await tauriInvoke("plugin:updater|check", {});
+    const version = getUpdateVersion(update);
+    if (!version) {
+      clearUpdateNotification();
+      if (!silent) {
+        setStatus("You are up to date.");
+      }
+      return null;
+    }
+    showUpdateNotification(update);
+    if (!silent) {
+      setStatus(`Update available: ${version}. Click Download Update.`);
+    }
+    return update;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/unknown command|plugin/i.test(String(msg || ""))) {
+      if (!silent) {
+        setStatus("Updater is not available in this build.");
+      }
       return;
     }
-    setStatus(`Update available: ${update.version}. Downloading...`);
-    await update.downloadAndInstall();
-    setStatus("Update installed. Please restart the app.");
+    if (!silent) {
+      setStatus(`Update check failed: ${msg}`);
+    }
+  }
+}
+
+async function downloadUpdateNow() {
+  const btn = el("updateDownloadBtn");
+  if (!btn) {
+    return;
+  }
+  if (!availableUpdate || !getUpdateVersion(availableUpdate)) {
+    setStatus("Checking for updates first…");
+    await checkForUpdates({ silent: false });
+    if (!availableUpdate || !getUpdateVersion(availableUpdate)) {
+      setStatus("No update available.");
+      return;
+    }
+  }
+  const version = getUpdateVersion(availableUpdate);
+  const previousLabel = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = version ? `Downloading ${version}…` : "Downloading…";
+  try {
+    await tauriInvoke("plugin:updater|download_and_install", { update: availableUpdate });
+    setStatus("Update downloaded. Please restart the app.");
+    clearUpdateNotification();
   } catch (e) {
-    setStatus(`Update check failed: ${e instanceof Error ? e.message : String(e)}`);
+    reportFatal(e, "Update download failed");
+    if (availableUpdate && getUpdateVersion(availableUpdate)) {
+      showUpdateNotification(availableUpdate);
+      btn.innerHTML = previousLabel;
+      btn.disabled = false;
+    }
+  } finally {
+    if (btn && btn.disabled) {
+      btn.disabled = false;
+    }
+    if (btn && !btn.hidden && availableUpdate && getUpdateVersion(availableUpdate) && btn.innerHTML !== previousLabel) {
+      showUpdateNotification(availableUpdate);
+    }
   }
 }
 
@@ -749,21 +1056,100 @@ async function runDiagnostics() {
     fetchEdgeStatus(portOfficial),
     fetchEdgeStatus(portUnofficial),
   ]);
-  setDiag([fmtEdgeDiag("Official", stA), fmtEdgeDiag("Unofficial", stB)].join("\n"));
-  setStatus("Diagnostics complete.");
+  const diagLines = [fmtEdgeDiag("Official", stA), fmtEdgeDiag("Unofficial", stB)];
+  const authWarnings = [edgeAuthNotice("Official", stA), edgeAuthNotice("Unofficial", stB)].filter(Boolean);
+  if (authWarnings.length > 0) {
+    diagLines.push("", "AUTH warning:", ...authWarnings);
+  }
+  setDiag(diagLines.join("\n"));
+  if (authWarnings.length > 0) {
+    setStatus("Diagnostics found auth failures. Update device token/ID for the flagged agent.");
+  } else {
+    setStatus("Diagnostics complete.");
+  }
 }
 
-// Quiet auto-update on launch (helps fast iteration). If offline, do nothing.
+async function showDesktopLogs() {
+  setStatus("Loading desktop logs…");
+  try {
+    const logs = await tauriInvoke("tail_desktop_log", { maxLines: 300 });
+    const text = String(logs || "").trim() || "(No desktop UI logs yet)";
+    const current = String(el("diag")?.textContent || "").trim();
+    const merged = current ? `${current}\n\n=== Desktop UI Log ===\n${text}` : `=== Desktop UI Log ===\n${text}`;
+    setDiag(merged);
+    setStatus("Desktop logs loaded.");
+  } catch (e) {
+    reportFatal(e, "Desktop log read failed");
+  }
+}
+
+async function copyDebugReport() {
+  setStatus("Preparing debug report…");
+  try {
+    const status = String(el("status")?.textContent || "").trim();
+    const setup = String(el("setupNote")?.textContent || "").trim();
+    const diag = String(el("diag")?.textContent || "").trim();
+    const edgeUrl = String(el("edgeUrl")?.value || "").trim();
+    const portOfficial = String(el("portOfficial")?.value || "").trim();
+    const portUnofficial = String(el("portUnofficial")?.value || "").trim();
+    const appVersion = APP_VERSION;
+
+    let agentLogs = {};
+    let desktopLogs = "";
+    try {
+      agentLogs = await tauriInvoke("tail_agent_logs", { maxLines: 220 });
+    } catch {}
+    try {
+      desktopLogs = String(await tauriInvoke("tail_desktop_log", { maxLines: 400 }) || "");
+    } catch {}
+
+    const report = [
+      `Melqard POS Desktop Debug Report`,
+      `generated_at=${fmtNow()}`,
+      `app_version=${appVersion}`,
+      `user_agent=${navigator.userAgent}`,
+      ``,
+      `status=${status}`,
+      `setup_note=${setup}`,
+      `api_url=${edgeUrl}`,
+      `ports=official:${portOfficial}, unofficial:${portUnofficial}`,
+      ``,
+      `=== UI Diagnostics ===`,
+      diag || "(empty)",
+      ``,
+      `=== Desktop UI Log ===`,
+      desktopLogs.trim() || "(empty)",
+      ``,
+      `=== Official Agent Log ===`,
+      String(agentLogs?.official || "").trim() || "(empty)",
+      ``,
+      `=== Unofficial Agent Log ===`,
+      String(agentLogs?.unofficial || "").trim() || "(empty)",
+      ``,
+    ].join("\n");
+
+    await navigator.clipboard.writeText(report);
+    setStatus("Debug report copied to clipboard.");
+    reportInfo("Debug report copied.", "Diagnostics");
+  } catch (e) {
+    reportFatal(e, "Copy debug report failed");
+  }
+}
+
+// Quiet update check on launch (best-effort). If unavailable/offline, ignore.
 setTimeout(() => {
-  check()
-    .then((update) => update && update.downloadAndInstall().catch(() => {}))
-    .catch(() => {});
+  checkForUpdates({ silent: true })
+    .then(() => null)
+    .catch(() => null);
 }, 1200);
 
 el("startBtn").addEventListener("click", start);
 el("openBtn").addEventListener("click", openPos);
-el("updateBtn").addEventListener("click", checkUpdates);
+el("updateBtn").addEventListener("click", () => checkForUpdates({ silent: false }));
+if (el("updateDownloadBtn")) el("updateDownloadBtn").addEventListener("click", downloadUpdateNow);
 el("diagBtn").addEventListener("click", runDiagnostics);
+if (el("showDesktopLogsBtn")) el("showDesktopLogsBtn").addEventListener("click", showDesktopLogs);
+if (el("copyDebugBtn")) el("copyDebugBtn").addEventListener("click", copyDebugReport);
 if (el("setupCompanyOfficial")) {
   fillSelect(el("setupCompanyOfficial"), [], { placeholder: "Login to load companies…" });
   fillSelect(el("setupCompanyUnofficial"), [], { placeholder: "Login to load companies…" });
@@ -808,3 +1194,6 @@ el("clearPackBtn").addEventListener("click", () => {
 });
 installReplaceOnTypeBehavior();
 load().catch(() => {});
+loadAppVersion().then(() => {
+  setVersionLabel();
+}).catch(() => {});

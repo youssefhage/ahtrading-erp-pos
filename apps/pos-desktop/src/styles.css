@@ -187,6 +187,32 @@ button.ghost:hover {
   color: rgba(255, 255, 255, 0.86);
 }
 
+.app-version {
+  margin-top: -8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.app-version::before {
+  content: "Version ";
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.update-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-pill {
+  font-size: 11px;
+  color: var(--text);
+  background: rgba(53, 192, 122, 0.24);
+  border: 1px solid rgba(53, 192, 122, 0.45);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
 details.advanced {
   margin-top: 8px;
   border: 1px dashed rgba(255, 255, 255, 0.18);

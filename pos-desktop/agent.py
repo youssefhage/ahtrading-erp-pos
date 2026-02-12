@@ -2005,6 +2005,56 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {"ok": True, "branches": list(res.get("branches") or [])})
             return
 
+        if parsed.path == "/api/setup/check-permissions":
+            data = self.read_json()
+            api_base = _normalize_api_base_url(data.get("api_base_url"))
+            token = str(data.get("token") or "").strip()
+            company_id = str(data.get("company_id") or "").strip()
+            if not api_base:
+                json_response(self, {"error": "api_base_url is required"}, status=400)
+                return
+            if not token:
+                json_response(self, {"error": "token is required"}, status=400)
+                return
+            if not company_id:
+                json_response(self, {"error": "company_id is required"}, status=400)
+                return
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "X-Company-Id": company_id,
+            }
+            _perm_res, perm_status, perm_err = _setup_req_json_safe(
+                f"{api_base}/pos/devices?limit=1",
+                method="GET",
+                headers=headers,
+            )
+            if perm_status:
+                if perm_status in (401, 403):
+                    json_response(
+                        self,
+                        {
+                            "ok": True,
+                            "company_id": company_id,
+                            "has_pos_manage": False,
+                            "error": perm_err or "permission denied",
+                            "status_code": perm_status,
+                        },
+                    )
+                    return
+                json_response(self, {"error": perm_err or f"permission check failed ({perm_status})"}, status=perm_status)
+                return
+
+            json_response(
+                self,
+                {
+                    "ok": True,
+                    "company_id": company_id,
+                    "has_pos_manage": True,
+                },
+            )
+            return
+
         if parsed.path == "/api/setup/register-device":
             data = self.read_json()
             api_base = _normalize_api_base_url(data.get("api_base_url"))

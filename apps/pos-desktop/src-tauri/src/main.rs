@@ -3,10 +3,12 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::fs::OpenOptions;
-use std::io::Read;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 
 const KEYRING_SERVICE: &str = "MelqardPOSDesktop";
@@ -44,6 +46,57 @@ fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
 
 fn is_port_available(port: u16) -> bool {
   std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+fn http_status_for_local_path(port: u16, path: &str, origin: Option<&str>) -> Option<u16> {
+  let addr: SocketAddr = match format!("127.0.0.1:{port}").parse() {
+    Ok(v) => v, Err(_) => return None,
+  };
+  let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(350)) {
+    Ok(v) => v, Err(_) => return None,
+  };
+  let _ = stream.set_read_timeout(Some(Duration::from_millis(350)));
+  let _ = stream.set_write_timeout(Some(Duration::from_millis(350)));
+  let mut req = format!(
+    "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n",
+    if path.trim().is_empty() { "/" } else { path.trim() }
+  );
+  if let Some(o) = origin {
+    if !o.trim().is_empty() {
+      req.push_str(&format!("Origin: {}\r\n", o.trim()));
+    }
+  }
+  req.push_str("\r\n");
+  if stream.write_all(req.as_bytes()).is_err() {
+    return None;
+  }
+  let mut buf = [0u8; 256];
+  let n = match stream.read(&mut buf) {
+    Ok(v) => v, Err(_) => return None,
+  };
+  if n == 0 {
+    return None;
+  }
+  let head = String::from_utf8_lossy(&buf[..n]);
+  let mut it = head.lines();
+  let first = it.next().unwrap_or("");
+  let parts: Vec<&str> = first.split_whitespace().collect();
+  if parts.len() < 2 {
+    return None;
+  }
+  parts[1].parse::<u16>().ok()
+}
+
+fn is_agent_health_ok(port: u16) -> bool {
+  matches!(http_status_for_local_path(port, "/api/health", None), Some(200))
+}
+
+fn is_agent_tauri_compatible(port: u16) -> bool {
+  // Simulate the desktop webview origin. Old/manual agents may reject this with 403.
+  matches!(
+    http_status_for_local_path(port, "/api/health", Some("tauri://localhost")),
+    Some(200)
+  )
 }
 
 fn patch_config(
@@ -227,11 +280,24 @@ fn start_agents(
   let official_log = logs_dir.join("official.log");
   let unofficial_log = logs_dir.join("unofficial.log");
 
-  if !is_port_available(port_official) {
+  let official_busy = !is_port_available(port_official);
+  let unofficial_busy = !is_port_available(port_unofficial);
+
+  if official_busy && !is_agent_health_ok(port_official) {
     return Err(format!("port {port_official} is already in use on this machine"));
   }
-  if !is_port_available(port_unofficial) {
+  if official_busy && !is_agent_tauri_compatible(port_official) {
+    return Err(format!(
+      "port {port_official} is occupied by an older/manual POS agent that blocks desktop access (tauri origin). Stop external pos-desktop/agent.py and retry."
+    ));
+  }
+  if unofficial_busy && !is_agent_health_ok(port_unofficial) {
     return Err(format!("port {port_unofficial} is already in use on this machine"));
+  }
+  if unofficial_busy && !is_agent_tauri_compatible(port_unofficial) {
+    return Err(format!(
+      "port {port_unofficial} is occupied by an older/manual POS agent that blocks desktop access (tauri origin). Stop external pos-desktop/agent.py and retry."
+    ));
   }
 
   patch_config(
@@ -258,12 +324,12 @@ fn start_agents(
     .map_err(|e| format!("Unofficial agent DB init failed: {e}"))?;
 
   let mut st = state.lock().unwrap();
-  if st.official.is_none() {
+  if st.official.is_none() && !official_busy {
     let child = spawn_agent(&app, port_official, &official_cfg, &official_db, &official_log)
       .map_err(|e| e.to_string())?;
     st.official = Some(child);
   }
-  if st.unofficial.is_none() {
+  if st.unofficial.is_none() && !unofficial_busy {
     let child = spawn_agent(&app, port_unofficial, &unofficial_cfg, &unofficial_db, &unofficial_log)
       .map_err(|e| e.to_string())?;
     st.unofficial = Some(child);
@@ -281,6 +347,67 @@ fn start_agents(
     if let Ok(Some(status)) = c.try_wait() {
       let tail = tail_file(&unofficial_log, 120_000, 80);
       return Err(format!("Unofficial agent exited ({status}).\n{tail}").trim().to_string());
+    }
+  }
+
+  Ok(())
+}
+
+#[tauri::command]
+fn start_setup_agent(
+  app: tauri::AppHandle,
+  state: tauri::State<'_, Mutex<AgentsState>>,
+  edge_url: String,
+  port_official: u16,
+  company_official: Option<String>,
+  device_id_official: Option<String>,
+  device_token_official: Option<String>,
+) -> Result<(), String> {
+  let edge = edge_url.trim().trim_end_matches('/').to_string();
+  if edge.is_empty() {
+    return Err("edge_url is empty".to_string());
+  }
+
+  let data = app_data_dir(&app);
+  let official_cfg = data.join("official").join("config.json");
+  let official_db = data.join("official").join("pos.sqlite");
+  let logs_dir = data.join("logs");
+  let official_log = logs_dir.join("official.log");
+
+  let official_busy = !is_port_available(port_official);
+  if official_busy && !is_agent_health_ok(port_official) {
+    return Err(format!("port {port_official} is already in use on this machine"));
+  }
+  if official_busy && !is_agent_tauri_compatible(port_official) {
+    return Err(format!(
+      "port {port_official} is occupied by an older/manual POS agent that blocks desktop access (tauri origin). Stop external pos-desktop/agent.py and retry."
+    ));
+  }
+
+  patch_config(
+    &official_cfg,
+    &edge,
+    company_official.as_deref(),
+    device_id_official.as_deref(),
+    device_token_official.as_deref(),
+  )
+  .map_err(|e| e.to_string())?;
+
+  init_db_with_sidecar(&app, &official_cfg, &official_db)
+    .map_err(|e| format!("Official agent DB init failed: {e}"))?;
+
+  let mut st = state.lock().unwrap();
+  if st.official.is_none() && !official_busy {
+    let child = spawn_agent(&app, port_official, &official_cfg, &official_db, &official_log)
+      .map_err(|e| e.to_string())?;
+    st.official = Some(child);
+  }
+
+  std::thread::sleep(std::time::Duration::from_millis(250));
+  if let Some(c) = st.official.as_mut() {
+    if let Ok(Some(status)) = c.try_wait() {
+      let tail = tail_file(&official_log, 120_000, 80);
+      return Err(format!("Official agent exited ({status}).\n{tail}").trim().to_string());
     }
   }
 
@@ -322,6 +449,34 @@ fn tail_file(path: &Path, max_bytes: usize, max_lines: usize) -> String {
   lines.join("\n")
 }
 
+fn desktop_log_path(app: &tauri::AppHandle) -> PathBuf {
+  app_data_dir(app).join("logs").join("desktop-ui.log")
+}
+
+fn append_desktop_log(app: &tauri::AppHandle, level: &str, message: &str, stack: Option<&str>) -> Result<(), String> {
+  let path = desktop_log_path(app);
+  ensure_parent_dir(&path).map_err(|e| e.to_string())?;
+  let mut f = OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(&path)
+    .map_err(|e| e.to_string())?;
+  let ts = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .map(|d| d.as_secs())
+    .unwrap_or(0);
+  let mut line = format!("[{}][{}] {}", ts, level, message.trim());
+  if let Some(s) = stack {
+    let st = s.trim();
+    if !st.is_empty() {
+      line.push_str("\n");
+      line.push_str(st);
+    }
+  }
+  line.push_str("\n");
+  f.write_all(line.as_bytes()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn tail_agent_logs(app: tauri::AppHandle, max_lines: Option<usize>) -> Result<serde_json::Value, String> {
   let data = app_data_dir(&app);
@@ -335,17 +490,47 @@ fn tail_agent_logs(app: tauri::AppHandle, max_lines: Option<usize>) -> Result<se
   }))
 }
 
+#[tauri::command]
+fn frontend_log(
+  app: tauri::AppHandle,
+  level: String,
+  message: String,
+  stack: Option<String>,
+) -> Result<(), String> {
+  let lvl = {
+    let x = level.trim().to_lowercase();
+    if x.is_empty() { "info".to_string() } else { x }
+  };
+  append_desktop_log(&app, &lvl, &message, stack.as_deref())
+}
+
+#[tauri::command]
+fn tail_desktop_log(app: tauri::AppHandle, max_lines: Option<usize>) -> Result<String, String> {
+  let n = max_lines.unwrap_or(200).min(1000);
+  let p = desktop_log_path(&app);
+  Ok(tail_file(&p, 500_000, n))
+}
+
+#[tauri::command]
+fn app_version() -> String {
+  env!("CARGO_PKG_VERSION").to_string()
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_updater::Builder::new().build())
     .manage(Mutex::new(AgentsState::default()))
     .invoke_handler(tauri::generate_handler![
       start_agents,
+      start_setup_agent,
       stop_agents,
       tail_agent_logs,
+      frontend_log,
+      tail_desktop_log,
       secure_get,
       secure_set,
-      secure_delete
+      secure_delete,
+      app_version
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
