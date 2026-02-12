@@ -16,50 +16,99 @@
         <div class="logo">AH</div>
         <div>
           <h1>Melqard Apps</h1>
-          <p class="muted">Desktop downloads and update endpoints.</p>
+          <p class="muted">Desktop downloads.</p>
         </div>
       </header>
 
       <section class="card">
-        <h2>Desktop Apps</h2>
+        <h2>What To Install</h2>
         <p class="muted">
-          These are Tauri desktop apps (fast, low-latency). They keep working on LAN even if the internet is down,
-          as long as the Edge server is reachable.
+          Simple rule: Setup is for onboarding, POS is for cashiers, Admin is for managers.
+          Download once. Apps auto-update in the background (when internet is available).
         </p>
 
-        <div class="grid">
-          <div class="tile">
-            <div class="tileTitle">POS Desktop</div>
-            <div class="tileDesc">Cashiers (unified POS for both companies).</div>
-            <div class="tileLinks">
-              <a class="btn" href="/updates/latest-installer/pos/windows">Windows</a>
-              <a class="btn" href="/updates/latest-installer/pos/macos">macOS</a>
-              <a class="btn ghost" href="/updates/pos/">All files</a>
-              <a class="btn ghost" href="/updates/pos/latest.json">Updater manifest</a>
+        <div class="apps">
+          <article class="app appSetup">
+            <div class="appHead">
+              <div class="appMark">SU</div>
+              <div class="appTitleBlock">
+                <div class="appTitleRow">
+                  <div class="appTitle">Setup Desktop</div>
+                  <span class="tag required">Required</span>
+                </div>
+                <div class="appMeta muted">Install on: your laptop or the on-prem server machine</div>
+              </div>
             </div>
-          </div>
-          <div class="tile">
-            <div class="tileTitle">Portal Desktop</div>
-            <div class="tileDesc">Accountants, managers, back-office.</div>
-            <div class="tileLinks">
-              <a class="btn" href="/updates/latest-installer/portal/windows">Windows</a>
-              <a class="btn" href="/updates/latest-installer/portal/macos">macOS</a>
-              <a class="btn ghost" href="/updates/portal/">All files</a>
-              <a class="btn ghost" href="/updates/portal/latest.json">Updater manifest</a>
+            <p class="appDesc">
+              Starts the on-prem Edge server (Docker) and generates POS setup packs for terminals.
+            </p>
+            <div class="appLinks">
+              <a class="btn" href="/updates/latest-installer/setup/windows">Download for Windows</a>
+              <a class="btn ghost" href="/updates/latest-installer/setup/macos">Download for macOS</a>
             </div>
-          </div>
+          </article>
+
+          <article class="app appPos">
+            <div class="appHead">
+              <div class="appMark">POS</div>
+              <div class="appTitleBlock">
+                <div class="appTitleRow">
+                  <div class="appTitle">POS Desktop</div>
+                  <span class="tag required">Required</span>
+                </div>
+                <div class="appMeta muted">Install on: every cashier terminal</div>
+              </div>
+            </div>
+            <p class="appDesc">
+              Runs the local POS agents and opens the cashier UI. Works on LAN during internet outages.
+            </p>
+            <div class="appLinks">
+              <a class="btn" href="/updates/latest-installer/pos/windows">Download for Windows</a>
+              <a class="btn ghost" href="/updates/latest-installer/pos/macos">Download for macOS</a>
+            </div>
+          </article>
+
+          <article class="app appAdmin">
+            <div class="appHead">
+              <div class="appMark">AD</div>
+              <div class="appTitleBlock">
+                <div class="appTitleRow">
+                  <div class="appTitle">Admin Desktop</div>
+                  <span class="tag optional">Optional</span>
+                </div>
+                <div class="appMeta muted">Install on: manager computers (or a POS terminal if needed)</div>
+              </div>
+            </div>
+            <p class="appDesc">
+              Dedicated Admin app wrapper. You can also open Admin from POS via the Manager button.
+            </p>
+            <div class="appLinks">
+              <a class="btn" href="/updates/latest-installer/portal/windows">Download for Windows</a>
+              <a class="btn ghost" href="/updates/latest-installer/portal/macos">Download for macOS</a>
+            </div>
+          </article>
         </div>
       </section>
 
       <section class="card">
-        <h2>Publishing New Versions</h2>
+        <h2>New Store Checklist</h2>
+        <ol class="steps">
+          <li>Install <strong>Setup Desktop</strong> on the on-prem/server machine (or your laptop) and run onboarding.</li>
+          <li>Install <strong>POS Desktop</strong> on each POS terminal and paste the generated Setup Pack.</li>
+          <li>(Optional) Install <strong>Admin Desktop</strong> for managers, or use the Manager button inside POS.</li>
+        </ol>
+      </section>
+
+      <section class="card">
+        <h2>Advanced (Updates)</h2>
         <ol class="steps">
           <li>Bump desktop app versions and push a <code>desktop-v*</code> git tag.</li>
           <li>GitHub Actions builds Windows + macOS installers and updater bundles.</li>
-          <li>CI publishes files into <code>/updates/pos/</code> and <code>/updates/portal/</code> and updates <code>latest.json</code>.</li>
+          <li>CI publishes files into <code>/updates/pos/</code>, <code>/updates/portal/</code>, <code>/updates/setup/</code> and updates <code>latest.json</code>.</li>
         </ol>
         <p class="muted">
-          This page hosts the live installer links and updater manifests consumed by both desktop apps.
+          File listings and updater manifests:
+          <code>/updates/pos/</code>, <code>/updates/portal/</code>, <code>/updates/setup/</code>.
         </p>
       </section>
     </main>

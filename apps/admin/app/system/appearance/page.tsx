@@ -6,12 +6,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { cn } from "@/lib/utils";
 
 type ColorTheme = "light" | "dark";
-type AccentTheme = "sky" | "emerald" | "teal" | "rose" | "slate";
+type AccentTheme = "cobalt" | "sky" | "emerald" | "teal" | "rose" | "slate";
 
 const ACCENT_THEME_VARS: Record<
   AccentTheme,
   { primary: string; primaryFg: string; primaryDim: string; primaryGlow: string; ring: string }
 > = {
+  cobalt: {
+    primary: "37 99 235",
+    primaryFg: "255 255 255",
+    primaryDim: "29 78 216",
+    primaryGlow: "37 99 235",
+    ring: "37 99 235"
+  },
   sky: {
     primary: "14 165 233",
     primaryFg: "0 0 0",
@@ -55,6 +62,7 @@ const ACCENT_THEMES: {
   primary: string; // "r g b"
   dim: string; // "r g b"
 }[] = [
+  { key: "cobalt", label: "Cobalt", primary: "37 99 235", dim: "29 78 216" },
   { key: "sky", label: "Sky", primary: "14 165 233", dim: "3 105 161" },
   { key: "emerald", label: "Emerald", primary: "16 185 129", dim: "4 120 87" },
   { key: "teal", label: "Teal", primary: "20 184 166", dim: "15 118 110" },
@@ -108,10 +116,12 @@ function safeReadTheme(): { color: ColorTheme; accent: AccentTheme } {
     const aRaw = localStorage.getItem("admin.accentTheme");
     const color: ColorTheme = cRaw === "dark" ? "dark" : "light";
     const accent: AccentTheme =
-      aRaw === "emerald" || aRaw === "teal" || aRaw === "rose" || aRaw === "slate" ? aRaw : "sky";
+      aRaw === "cobalt" || aRaw === "emerald" || aRaw === "teal" || aRaw === "rose" || aRaw === "slate" || aRaw === "sky"
+        ? aRaw
+        : "cobalt";
     return { color, accent };
   } catch {
-    return { color: "light", accent: "sky" };
+    return { color: "light", accent: "cobalt" };
   }
 }
 
@@ -121,7 +131,7 @@ function swatchBg(primary: string, dim: string) {
 
 export default function AppearanceSettingsPage() {
   const [colorTheme, setColorTheme] = useState<ColorTheme>("light");
-  const [accentTheme, setAccentTheme] = useState<AccentTheme>("sky");
+  const [accentTheme, setAccentTheme] = useState<AccentTheme>("cobalt");
 
   useEffect(() => {
     const t = safeReadTheme();

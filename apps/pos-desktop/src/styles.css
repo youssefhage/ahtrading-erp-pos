@@ -108,7 +108,24 @@ input {
   outline: none;
 }
 
+textarea {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 10px 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  outline: none;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 input:focus {
+  border-color: rgba(53, 192, 122, 0.6);
+  box-shadow: 0 0 0 3px rgba(53, 192, 122, 0.12);
+}
+
+textarea:focus {
   border-color: rgba(53, 192, 122, 0.6);
   box-shadow: 0 0 0 3px rgba(53, 192, 122, 0.12);
 }

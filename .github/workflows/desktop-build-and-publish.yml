@@ -1,4 +1,4 @@
-name: Desktop build & publish (POS + Portal)
+name: Desktop build & publish (POS + Admin + Setup)
 
 on:
   workflow_dispatch:
@@ -29,27 +29,134 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Preflight secrets (updater signing)
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "Missing GitHub secret: TAURI_SIGNING_PRIVATE_KEY" >&2
+            exit 1
+          fi
+          # password may be empty if the key has no password; keep it optional.
+
+      - name: Install Apple certificate (macOS)
+        if: ${{ startsWith(matrix.os, 'macos') && secrets.APPLE_CERTIFICATE != '' }}
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CERTIFICATE_PASSWORD:-}" ]; then
+            echo "Missing GitHub secret: APPLE_CERTIFICATE_PASSWORD" >&2
+            exit 1
+          fi
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+
+          # `base64` differs between GNU/BSD; support both.
+          (echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH") 2>/dev/null || (echo "$APPLE_CERTIFICATE" | base64 -D > "$CERT_PATH")
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          # Ensure codesign can access the key without UI prompts.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+          # Sanity-check that a Developer ID identity is present (required for distribution).
+          if ! security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
+            echo "Developer ID Application identity not found after import." >&2
+            echo "Make sure APPLE_CERTIFICATE is a Developer ID Application .p12 (not Apple Development)." >&2
+            security find-identity -v -p codesigning || true
+            exit 1
+          fi
+
       - name: Build POS Desktop
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code signing + notarization (required to avoid 'app is damaged' warnings).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           cd apps/pos-desktop
           npm ci
           npm run build
 
-      - name: Build Portal Desktop
+      - name: Build Admin Desktop
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           cd apps/admin-desktop
           npm ci
           npm run build
 
+      - name: Build Setup Desktop
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          cd apps/setup-desktop
+          npm ci
+          npm run build
+
+      - name: Notarize + staple DMGs (macOS)
+        if: ${{ startsWith(matrix.os, 'macos') && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_CERTIFICATE != '' }}
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          # Submit any DMGs produced by our apps.
+          mapfile -t DMGS < <(find apps -path '*/src-tauri/target/release/bundle/dmg/*.dmg' -type f | sort)
+          if [ "${#DMGS[@]}" -eq 0 ]; then
+            echo "No DMGs found to notarize." >&2
+            exit 1
+          fi
+
+          for dmg in "${DMGS[@]}"; do
+            echo "Notarizing: $dmg"
+            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+            echo "Stapling: $dmg"
+            xcrun stapler staple "$dmg"
+          done
+
       - name: Collect artifacts
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "dist/${{ matrix.os }}/pos" "dist/${{ matrix.os }}/portal"
+          mkdir -p "dist/${{ matrix.os }}/pos" "dist/${{ matrix.os }}/portal" "dist/${{ matrix.os }}/setup"
 
           collect() {
             local src="$1"
@@ -65,6 +172,7 @@ jobs:
 
           collect "apps/pos-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/pos"
           collect "apps/admin-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/portal"
+          collect "apps/setup-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/setup"
 
           # Help the publish step detect which runner produced which folder.
           echo "${{ matrix.os }}" > "dist/${{ matrix.os }}/_runner_os.txt"

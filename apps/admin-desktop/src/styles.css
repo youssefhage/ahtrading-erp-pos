@@ -4,8 +4,8 @@
   --text: rgba(255, 255, 255, 0.92);
   --muted: rgba(255, 255, 255, 0.64);
   --border: rgba(255, 255, 255, 0.12);
-  --primary: #ffd166;
-  --primaryText: #1a1408;
+  --primary: #2563eb;
+  --primaryText: rgba(255, 255, 255, 0.96);
 }
 
 * { box-sizing: border-box; }
@@ -13,7 +13,7 @@
 body {
   margin: 0;
   font-family: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-  background: radial-gradient(1200px 600px at 20% 10%, rgba(255, 209, 102, 0.18), transparent 60%),
+  background: radial-gradient(1150px 650px at 16% 10%, rgba(37, 99, 235, 0.18), transparent 60%),
               radial-gradient(1000px 600px at 80% 30%, rgba(84, 160, 255, 0.12), transparent 55%),
               var(--bg);
   color: var(--text);
@@ -35,11 +35,33 @@ body {
   backdrop-filter: blur(10px);
 }
 
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.95), rgba(37, 99, 235, 0.68));
+  color: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
 h1 {
-  margin: 0 0 8px 0;
+  margin: 0;
   letter-spacing: -0.02em;
   font-size: 22px;
 }
+
+.sub { margin: 4px 0 0; font-size: 12.5px; }
 
 .muted { color: var(--muted); }
 .status { margin: 14px 0 0; min-height: 18px; }
@@ -63,8 +85,8 @@ h1 {
 }
 
 .input:focus {
-  border-color: rgba(255, 209, 102, 0.6);
-  box-shadow: 0 0 0 4px rgba(255, 209, 102, 0.12);
+  border-color: rgba(37, 99, 235, 0.62);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.14);
 }
 
 .row {

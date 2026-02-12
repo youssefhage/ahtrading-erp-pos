@@ -60,12 +60,23 @@ const state = {
     statusText: "Loading…",
     statusKind: "info",
     theme: "light",
+    densityMode: "auto",
     cashierId: "",
     cashierName: "",
     customerLabel: "Walk-in",
     customerLookupSeq: 0,
     customerResults: [],
-    customerActiveIndex: -1
+    customerActiveIndex: -1,
+    // Optional callback to refresh the current lookup UI after caches are refreshed.
+    refreshLookup: null,
+    edgePollTimer: null,
+    edgePollBackoff: {
+      official: { failures: 0, nextAtMs: 0 },
+      unofficial: { failures: 0, nextAtMs: 0 }
+    },
+    autoSyncTimer: null,
+    autoSyncBusy: false,
+    autoSyncBackoff: { failures: 0, nextAtMs: 0 }
   }
 };
 
@@ -74,6 +85,8 @@ const state = {
 const UI_THEME_STORAGE_KEY_LEGACY = "unified.pos.theme";
 const UI_THEME_STORAGE_KEY_ANON = "unified.pos.theme.anonymous";
 const UI_THEME_STORAGE_KEY_CASHIER_PREFIX = "unified.pos.theme.cashier.";
+const UI_DENSITY_STORAGE_KEY_ANON = "unified.pos.density.anonymous";
+const UI_DENSITY_STORAGE_KEY_CASHIER_PREFIX = "unified.pos.density.cashier.";
 
 const CONFIG_FIELD_SUFFIX = {
   api_base_url: "ApiBaseUrl",
@@ -225,6 +238,70 @@ function toggleTheme() {
   applyTheme(next, true);
 }
 
+function normalizeDensityMode(mode) {
+  const m = String(mode || "").toLowerCase();
+  if (m === "compact" || m === "ultra") return m;
+  return "auto";
+}
+
+function densityStorageKeyForCashier(cashierId) {
+  const cid = String(cashierId || "").trim();
+  if (cid) return `${UI_DENSITY_STORAGE_KEY_CASHIER_PREFIX}${cid}`;
+  return UI_DENSITY_STORAGE_KEY_ANON;
+}
+
+function loadStoredDensityMode(key) {
+  try {
+    const raw = window.localStorage.getItem(String(key || ""));
+    if (raw == null) return "";
+    return normalizeDensityMode(raw);
+  } catch (_e) {
+    return "";
+  }
+}
+
+function storeDensityMode(key, mode) {
+  try {
+    window.localStorage.setItem(String(key || ""), normalizeDensityMode(mode));
+  } catch (_e) {
+    // Ignore storage failures.
+  }
+}
+
+function applyDensityMode(mode, persist = false) {
+  const next = normalizeDensityMode(mode);
+  state.ui.densityMode = next;
+  const btn = el("densityToggle");
+  if (btn) {
+    const label = next === "auto" ? "Auto" : (next === "compact" ? "Compact" : "Ultra");
+    btn.textContent = `Density: ${label}`;
+    btn.setAttribute("aria-label", `Density mode ${label}`);
+    btn.title = "Cycle density: Auto -> Compact -> Ultra";
+  }
+  if (!persist) return;
+  storeDensityMode(densityStorageKeyForCashier(state.ui.cashierId), next);
+}
+
+function initDensityMode() {
+  const cashierKey = densityStorageKeyForCashier(state.ui.cashierId);
+  let stored = loadStoredDensityMode(cashierKey);
+  if (!stored && state.ui.cashierId) {
+    const anon = loadStoredDensityMode(UI_DENSITY_STORAGE_KEY_ANON);
+    if (anon) {
+      stored = anon;
+      storeDensityMode(cashierKey, stored);
+    }
+  }
+  applyDensityMode(stored || "auto", false);
+}
+
+function toggleDensityMode() {
+  const cur = normalizeDensityMode(state.ui.densityMode);
+  const next = cur === "auto" ? "compact" : (cur === "compact" ? "ultra" : "auto");
+  applyDensityMode(next, true);
+  applyResponsiveLayout();
+}
+
 function setCashierContextFromConfig(cfg) {
   const c = cfg || {};
   const nextId = String(c.cashier_id || "").trim();
@@ -371,6 +448,54 @@ function setOtherAgentBase() {
   state.agents.unofficial.base = otherAgentUrl();
 }
 
+function recordEdgePollSuccess(key) {
+  const b = state.ui.edgePollBackoff[key];
+  if (!b) return;
+  b.failures = 0;
+  b.nextAtMs = 0;
+}
+
+function recordEdgePollFailure(key) {
+  const b = state.ui.edgePollBackoff[key];
+  if (!b) return;
+  b.failures = Math.min(8, Number(b.failures || 0) + 1);
+  const delayMs = Math.min(60000, 3000 * (2 ** Math.max(0, b.failures - 1)));
+  b.nextAtMs = Date.now() + delayMs;
+}
+
+function canEdgePollNow(key) {
+  const b = state.ui.edgePollBackoff[key];
+  if (!b) return true;
+  return Date.now() >= Number(b.nextAtMs || 0);
+}
+
+function stopEdgePolling() {
+  if (!state.ui.edgePollTimer) return;
+  clearInterval(state.ui.edgePollTimer);
+  state.ui.edgePollTimer = null;
+}
+
+function startEdgePolling() {
+  stopEdgePolling();
+  refreshEdgeStatusBoth();
+  state.ui.edgePollTimer = setInterval(refreshEdgeStatusBoth, 3000);
+}
+
+async function ensureOfficialAgentApiAvailable() {
+  try {
+    await jget(state.agents.official.base, "/api/config");
+    return true;
+  } catch (_e) {
+    stopEdgePolling();
+    setStatus(
+      "POS API is not available on this host. Open http://127.0.0.1:7070/unified.html from the local POS agent.",
+      "error"
+    );
+    setScanMeta("Local agent is not serving /api endpoints on this page.");
+    return false;
+  }
+}
+
 function settingsFieldId(agentKey, suffix) {
   return `${agentKey}${suffix}`;
 }
@@ -500,6 +625,236 @@ function closeSettingsModal() {
   el("settingsBackdrop").classList.add("hidden");
   setSettingsStatus("");
   setQuickStatus("");
+}
+
+// Manager modal (PIN-gated "open Admin" shortcut)
+const MANAGER_PIN_HASH_KEY = "unified.pos.manager.pinHash";
+const MANAGER_ADMIN_URL_KEY = "unified.pos.manager.adminUrl";
+let managerUnlockedUntilMs = 0;
+
+function isManagerModalOpen() {
+  const modal = el("managerModal");
+  return !!modal && !modal.classList.contains("hidden");
+}
+
+function setManagerStatus(msg, isErr = false) {
+  const node = el("managerStatus");
+  if (!node) return;
+  node.textContent = String(msg || "");
+  node.style.color = isErr ? "var(--danger)" : "";
+}
+
+function managerUnlocked() {
+  return Date.now() < managerUnlockedUntilMs;
+}
+
+function updateManagerUi() {
+  const openBtn = el("adminOpenBtn");
+  if (openBtn) openBtn.disabled = !managerUnlocked();
+}
+
+function openManagerModal() {
+  const back = el("managerBackdrop");
+  const modal = el("managerModal");
+  if (back) back.classList.remove("hidden");
+  if (modal) modal.classList.remove("hidden");
+  updateManagerUi();
+}
+
+function closeManagerModal() {
+  const back = el("managerBackdrop");
+  const modal = el("managerModal");
+  if (modal) modal.classList.add("hidden");
+  if (back) back.classList.add("hidden");
+  setManagerStatus("");
+}
+
+function normalizeUrl(raw) {
+  const v = String(raw || "").trim().replace(/\/+$/, "");
+  if (!v) return "";
+  if (!/^https?:\/\//i.test(v)) return `http://${v}`;
+  return v;
+}
+
+async function sha256Hex(text) {
+  const enc = new TextEncoder().encode(String(text || ""));
+  const hash = await crypto.subtle.digest("SHA-256", enc);
+  const bytes = new Uint8Array(hash);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function suggestAdminUrlFromApiBase(apiBaseUrl) {
+  const api = normalizeUrl(apiBaseUrl);
+  if (!api) return "https://app.melqard.com";
+  try {
+    const u = new URL(api);
+    // For cloud, admin lives on a separate host.
+    if (u.hostname.endsWith("melqard.com")) return "https://app.melqard.com";
+    u.port = "3000";
+    u.pathname = "";
+    u.search = "";
+    u.hash = "";
+    return String(u.toString()).replace(/\/$/, "");
+  } catch {
+    return "https://app.melqard.com";
+  }
+}
+
+async function loadAdminUrlDefault() {
+  const saved = String(localStorage.getItem(MANAGER_ADMIN_URL_KEY) || "").trim();
+  if (saved) return saved;
+  try {
+    const cfg = state.configs?.official || (await jget(state.agents.official.base, "/api/config"));
+    const apiBase = String(cfg?.api_base_url || "").trim();
+    return suggestAdminUrlFromApiBase(apiBase);
+  } catch {
+    return "https://app.melqard.com";
+  }
+}
+
+async function openManagerDialog() {
+  const admin = el("adminUrl");
+  if (admin && !String(admin.value || "").trim()) {
+    admin.value = await loadAdminUrlDefault();
+  }
+  openManagerModal();
+  // Focus PIN for quick usage.
+  const pin = el("managerPin");
+  if (pin) pin.focus();
+}
+
+async function managerUnlock() {
+  const stored = String(localStorage.getItem(MANAGER_PIN_HASH_KEY) || "").trim();
+  if (!stored) {
+    setManagerStatus("No manager PIN set on this terminal yet. Set a PIN first.", true);
+    return;
+  }
+  const pin = String(el("managerPin")?.value || "");
+  if (!pin.trim()) {
+    setManagerStatus("Enter the manager PIN.", true);
+    return;
+  }
+  const h = await sha256Hex(pin);
+  if (h !== stored) {
+    setManagerStatus("Wrong PIN.", true);
+    return;
+  }
+  managerUnlockedUntilMs = Date.now() + 10 * 60 * 1000;
+  setManagerStatus("Unlocked for 10 minutes.");
+  updateManagerUi();
+}
+
+async function managerSetPin() {
+  const a = String(el("managerPinNew")?.value || "");
+  const b = String(el("managerPinNew2")?.value || "");
+  if (!a.trim() || a.length < 4) {
+    setManagerStatus("PIN must be at least 4 characters.", true);
+    return;
+  }
+  if (a !== b) {
+    setManagerStatus("PIN confirmation does not match.", true);
+    return;
+  }
+  localStorage.setItem(MANAGER_PIN_HASH_KEY, await sha256Hex(a));
+  setManagerStatus("Manager PIN set. You can unlock now.");
+  el("managerPinNew").value = "";
+  el("managerPinNew2").value = "";
+  el("managerPin").focus();
+}
+
+function managerLock() {
+  managerUnlockedUntilMs = 0;
+  updateManagerUi();
+  setManagerStatus("Locked.");
+}
+
+function managerResetPin() {
+  const ok = window.confirm("Reset manager PIN on this terminal?");
+  if (!ok) return;
+  localStorage.removeItem(MANAGER_PIN_HASH_KEY);
+  managerLock();
+  setManagerStatus("PIN reset. Set a new PIN to enable manager unlock.");
+}
+
+async function managerOpenAdmin() {
+  if (!managerUnlocked()) {
+    setManagerStatus("Unlock with PIN first.", true);
+    return;
+  }
+  const url = normalizeUrl(el("adminUrl")?.value || "");
+  if (!url) {
+    setManagerStatus("Enter the Admin URL first.", true);
+    return;
+  }
+  localStorage.setItem(MANAGER_ADMIN_URL_KEY, url);
+  // Works both in browser and inside the POS Desktop app.
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  if (!w) {
+    setManagerStatus("Popup blocked. Copy the Admin URL and open it manually.", true);
+    return;
+  }
+  setManagerStatus("Opened Admin.");
+}
+
+function openCartModal() {
+  const back = el("cartBackdrop");
+  const modal = el("cartModal");
+  if (back) back.classList.remove("hidden");
+  if (modal) modal.classList.remove("hidden");
+  renderCart();
+}
+
+function closeCartModal() {
+  const back = el("cartBackdrop");
+  const modal = el("cartModal");
+  if (modal) modal.classList.add("hidden");
+  if (back) back.classList.add("hidden");
+}
+
+function isCartModalOpen() {
+  const modal = el("cartModal");
+  return !!modal && !modal.classList.contains("hidden");
+}
+
+function applyViewportDensity() {
+  const mode = normalizeDensityMode(state.ui.densityMode);
+  if (mode === "compact") {
+    document.documentElement.setAttribute("data-density", "sm");
+    return;
+  }
+  if (mode === "ultra") {
+    document.documentElement.setAttribute("data-density", "xs");
+    return;
+  }
+  const h = Math.max(0, Number(window.innerHeight || 0));
+  const d = h <= 760 ? "xs" : (h <= 900 ? "sm" : "md");
+  document.documentElement.setAttribute("data-density", d);
+}
+
+function applyDynamicStickyOffset() {
+  const top = document.querySelector(".top");
+  const h = top ? Math.ceil(top.getBoundingClientRect().height) : 52;
+  document.documentElement.style.setProperty("--top-offset", `${Math.max(40, h)}px`);
+}
+
+function calcCartPreviewLimit() {
+  const panel = document.querySelector(".panelRight");
+  if (!panel) return 7;
+  const ph = Number(panel.clientHeight || 0);
+  if (!Number.isFinite(ph) || ph <= 0) return 7;
+  // Reserve space for panel header + totals + pay/customer block.
+  const reserved = 300;
+  const available = Math.max(70, ph - reserved);
+  // Approx line height for compact cart row.
+  const perLine = 54;
+  return Math.max(3, Math.min(12, Math.floor(available / perLine)));
+}
+
+function applyResponsiveLayout() {
+  applyViewportDensity();
+  applyDynamicStickyOffset();
+  // Re-render cart so preview line count matches current viewport height.
+  renderCart();
 }
 
 function setSettingsBusy(busy) {
@@ -765,7 +1120,12 @@ function renderEdgeBadges() {
 
 async function refreshEdgeStatusBoth() {
   setOtherAgentBase();
+  const prev = {
+    official: state.edge.official?.ok,
+    unofficial: state.edge.unofficial?.ok
+  };
   for (const key of ["official", "unofficial"]) {
+    if (!canEdgePollNow(key)) continue;
     const base = state.agents[key].base;
     try {
       const res = await jget(base, "/api/edge/status");
@@ -774,15 +1134,82 @@ async function refreshEdgeStatusBoth() {
         latency_ms: res.edge_latency_ms ?? null,
         pending: Number(res.outbox_pending || 0)
       };
+      recordEdgePollSuccess(key);
     } catch (e) {
       state.edge[key] = {
         ok: false,
         latency_ms: null,
         pending: state.edge[key]?.pending || 0
       };
+      recordEdgePollFailure(key);
     }
   }
   renderEdgeBadges();
+  if ((prev.official === false && state.edge.official?.ok === true) ||
+      (prev.unofficial === false && state.edge.unofficial?.ok === true)) {
+    maybeAutoSyncPullBoth({ reason: "edge-online" });
+  }
+}
+
+function recordAutoSyncSuccess() {
+  state.ui.autoSyncBackoff.failures = 0;
+  state.ui.autoSyncBackoff.nextAtMs = 0;
+}
+
+function recordAutoSyncFailure() {
+  state.ui.autoSyncBackoff.failures = Math.min(8, Number(state.ui.autoSyncBackoff.failures || 0) + 1);
+  const delayMs = Math.min(5 * 60_000, 10_000 * (2 ** Math.max(0, state.ui.autoSyncBackoff.failures - 1)));
+  state.ui.autoSyncBackoff.nextAtMs = Date.now() + delayMs;
+}
+
+function canAutoSyncNow() {
+  return Date.now() >= Number(state.ui.autoSyncBackoff.nextAtMs || 0);
+}
+
+function isUiBusyForAutoSync() {
+  // Avoid syncing while high-risk actions are in flight.
+  const ids = ["payBtn", "syncBtn", "pushBtn", "reconnectBothBtn"];
+  return ids.some((id) => el(id)?.classList?.contains("isBusy"));
+}
+
+async function maybeAutoSyncPullBoth(_opts = {}) {
+  if (document.hidden) return;
+  if (state.ui.autoSyncBusy) return;
+  if (!canAutoSyncNow()) return;
+  if (isUiBusyForAutoSync()) return;
+
+  // Only pull on agents whose edge is currently reachable.
+  const targets = ["official", "unofficial"].filter((k) => state.edge[k]?.ok !== false);
+  if (!targets.length) return;
+
+  state.ui.autoSyncBusy = true;
+  try {
+    const pulls = await Promise.allSettled(
+      targets.map((k) => jpost(state.agents[k].base, "/api/sync/pull", {}))
+    );
+    const anyOk = pulls.some((r) => r.status === "fulfilled");
+    if (!anyOk) throw new Error("auto-sync failed");
+    await loadCaches({ silent: true });
+    recordAutoSyncSuccess();
+  } catch (_e) {
+    recordAutoSyncFailure();
+  } finally {
+    state.ui.autoSyncBusy = false;
+  }
+}
+
+function stopAutoSyncPullBoth() {
+  if (!state.ui.autoSyncTimer) return;
+  clearInterval(state.ui.autoSyncTimer);
+  state.ui.autoSyncTimer = null;
+}
+
+function startAutoSyncPullBoth() {
+  stopAutoSyncPullBoth();
+  state.ui.autoSyncTimer = setInterval(() => maybeAutoSyncPullBoth({ reason: "interval" }), 30_000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) maybeAutoSyncPullBoth({ reason: "tab-visible" });
+  });
 }
 
 function findByBarcode(companyKey, barcode) {
@@ -951,11 +1378,24 @@ function renderSplitTotals() {
 
 function renderCart() {
   const root = el("cart");
-  root.innerHTML = "";
-  if (!state.cart.length) {
-    root.innerHTML = `<div class="hint">Cart is empty.</div>`;
-  } else {
-    for (const c of state.cart) {
+  const fullRoot = el("cartFull");
+  const MAIN_MAX = calcCartPreviewLimit();
+
+  function renderInto(node, lines, opts = {}) {
+    if (!node) return;
+    node.innerHTML = "";
+    const list = Array.isArray(lines) ? lines : [];
+    if (!list.length) {
+      node.innerHTML = `<div class="hint">Cart is empty.</div>`;
+      return;
+    }
+    if (opts.truncated) {
+      const note = document.createElement("div");
+      note.className = "hint";
+      note.textContent = `Showing last ${MAIN_MAX} lines. Use View for full cart.`;
+      node.appendChild(note);
+    }
+    for (const c of list) {
       const tagClass = c.companyKey === "official" ? "official" : "unofficial";
       const tagText = c.companyKey === "official" ? "Official" : "Unofficial";
       const line = toNum(c.price_usd) * toNum(c.qty);
@@ -964,25 +1404,32 @@ function renderCart() {
       div.innerHTML = `
         <div>
           <div class="title">${escapeHtml(c.name || c.sku || c.id)}</div>
-          <div class="small mono">SKU: ${escapeHtml(c.sku || "-")} · USD ${fmtUsd(c.price_usd)} · Line ${fmtUsd(line)}</div>
+          <div class="small mono">${escapeHtml(c.sku || "-")} · USD ${fmtUsd(c.price_usd)} · Line ${fmtUsd(line)}</div>
         </div>
         <div class="tag ${tagClass}">${tagText}</div>
         <div class="qty">
-          <button data-k="${c.key}" data-d="-1">-</button>
+          <button data-k="${c.key}" data-d="-1" aria-label="Decrease qty">-</button>
           <div class="n">${escapeHtml(c.qty)}</div>
-          <button data-k="${c.key}" data-d="1">+</button>
+          <button data-k="${c.key}" data-d="1" aria-label="Increase qty">+</button>
         </div>
-        <div class="remove" data-r="${c.key}">DEL</div>
+        <div class="remove" data-r="${c.key}" title="Remove line">DEL</div>
       `;
-      root.appendChild(div);
+      node.appendChild(div);
     }
-    root.querySelectorAll("button[data-k]").forEach((b) => {
+    node.querySelectorAll("button[data-k]").forEach((b) => {
       b.addEventListener("click", () => changeQty(b.getAttribute("data-k"), Number(b.getAttribute("data-d") || 0)));
     });
-    root.querySelectorAll(".remove").forEach((d) => {
+    node.querySelectorAll(".remove").forEach((d) => {
       d.addEventListener("click", () => removeFromCart(d.getAttribute("data-r")));
     });
   }
+
+  const totalLines = state.cart.length;
+  const mainLines = totalLines > MAIN_MAX ? state.cart.slice(-MAIN_MAX) : state.cart;
+  renderInto(root, mainLines, { truncated: totalLines > MAIN_MAX });
+
+  // Full cart is only needed when the modal is open, but rendering it is cheap and keeps it in sync.
+  renderInto(fullRoot, state.cart, { truncated: false });
 
   const t = computeTotals();
   el("tSubtotal").textContent = fmtUsd(t.subtotal);
@@ -1058,23 +1505,39 @@ async function reconnectBoth() {
   }
 }
 
-async function loadCaches() {
+async function loadCaches(opts = {}) {
   setOtherAgentBase();
   const a = state.agents.official.base;
   const b = state.agents.unofficial.base;
 
-  const [ai, ab, bi, bb] = await Promise.all([
+  const results = await Promise.allSettled([
     jget(a, "/api/items"),
     jget(a, "/api/barcodes"),
     jget(b, "/api/items"),
     jget(b, "/api/barcodes")
   ]);
-  state.items.official = ai.items || [];
-  state.barcodes.official = ab.barcodes || [];
-  state.items.unofficial = bi.items || [];
-  state.barcodes.unofficial = bb.barcodes || [];
 
-  setStatus(`Ready. Official: ${state.items.official.length} item(s), Unofficial: ${state.items.unofficial.length} item(s).`, "ok");
+  const failures = [];
+  if (results[0].status === "fulfilled") state.items.official = results[0].value.items || [];
+  else failures.push("Official items");
+  if (results[1].status === "fulfilled") state.barcodes.official = results[1].value.barcodes || [];
+  else failures.push("Official barcodes");
+  if (results[2].status === "fulfilled") state.items.unofficial = results[2].value.items || [];
+  else failures.push("Unofficial items");
+  if (results[3].status === "fulfilled") state.barcodes.unofficial = results[3].value.barcodes || [];
+  else failures.push("Unofficial barcodes");
+
+  if (!opts.silent) {
+    if (failures.length) {
+      setStatus(`Loaded with warnings: ${failures.join(", ")}.`, "warn");
+    } else {
+      setStatus(
+        `Ready. Official: ${state.items.official.length} item(s), Unofficial: ${state.items.unofficial.length} item(s).`,
+        "ok"
+      );
+    }
+  }
+  if (typeof state.ui.refreshLookup === "function") state.ui.refreshLookup();
 }
 
 async function cashierPinBoth() {
@@ -1097,9 +1560,13 @@ async function cashierPinBoth() {
       throw new Error(`login failed: ${ea || ""} ${eb || ""}`.trim());
     }
 
-    // Update cashier context and immediately apply that cashier's preferred theme (if any).
+    // Update cashier context and immediately apply that cashier's preferred UI preferences.
     const changed = setCashierContextFromLogin(ra.value) || setCashierContextFromLogin(rb.value);
-    if (changed) initTheme();
+    if (changed) {
+      initTheme();
+      initDensityMode();
+      applyResponsiveLayout();
+    }
     setStatus("Cashier logged in on both.", "ok");
   } finally {
     setButtonBusy("loginBtn", false);
@@ -1110,10 +1577,13 @@ function renderCustomerResults(rows, companyKey) {
   const root = el("customerResults");
   if (!root) return;
   root.innerHTML = "";
-  const list = Array.isArray(rows) ? rows : [];
+  const all = Array.isArray(rows) ? rows : [];
+  const MAX = 6;
+  const list = all.slice(0, MAX);
+  const truncated = all.length > list.length;
   state.ui.customerResults = list;
   state.ui.customerActiveIndex = list.length ? 0 : -1;
-  if (!list.length) {
+  if (!all.length) {
     root.innerHTML = `<div class="hint">No customer matches.</div>`;
     return;
   }
@@ -1136,6 +1606,12 @@ function renderCustomerResults(rows, companyKey) {
     });
     root.appendChild(div);
   }
+  if (truncated) {
+    const note = document.createElement("div");
+    note.className = "hint";
+    note.textContent = `Showing ${MAX} of ${all.length}. Refine search to narrow.`;
+    root.appendChild(note);
+  }
 }
 
 function selectTopCustomerMatch() {
@@ -1146,7 +1622,7 @@ async function customerSearch(opts = {}) {
   setOtherAgentBase();
   const q = String(opts.query ?? el("customerQuery")?.value ?? "").trim();
   const live = !!opts.live;
-  const limit = Number(opts.limit || 30);
+  const limit = Number(opts.limit || 6);
   if (!q) {
     state.ui.customerLookupSeq += 1;
     clearCustomerResults();
@@ -1411,6 +1887,15 @@ async function pay() {
 }
 
 function wire() {
+  let resizeRaf = 0;
+  function onViewportResize() {
+    if (resizeRaf) window.cancelAnimationFrame(resizeRaf);
+    resizeRaf = window.requestAnimationFrame(() => {
+      resizeRaf = 0;
+      applyResponsiveLayout();
+    });
+  }
+
   el("otherAgentUrl").addEventListener("change", async () => {
     try {
       await loadCaches();
@@ -1446,13 +1931,31 @@ function wire() {
       setStatus(`Login error: ${e.message}`);
     }
   });
+  const managerBtn = el("managerBtn");
+  if (managerBtn) {
+    managerBtn.addEventListener("click", () => {
+      openManagerDialog().catch((e) => setManagerStatus(`Error: ${e.message}`, true));
+    });
+  }
   el("settingsBtn").addEventListener("click", () => {
     openSettingsDialog().catch((e) => setSettingsStatus(`Error: ${e.message}`, true));
   });
+  const openCartBtn = el("openCartBtn");
+  if (openCartBtn) openCartBtn.addEventListener("click", openCartModal);
+  const cartCloseBtn = el("cartCloseBtn");
+  if (cartCloseBtn) cartCloseBtn.addEventListener("click", closeCartModal);
+  const cartBackdrop = el("cartBackdrop");
+  if (cartBackdrop) cartBackdrop.addEventListener("click", closeCartModal);
   const themeToggleBtn = el("themeToggle");
   if (themeToggleBtn) {
     themeToggleBtn.addEventListener("click", () => {
       toggleTheme();
+    });
+  }
+  const densityToggleBtn = el("densityToggle");
+  if (densityToggleBtn) {
+    densityToggleBtn.addEventListener("click", () => {
+      toggleDensityMode();
     });
   }
   el("settingsCancel").addEventListener("click", closeSettingsModal);
@@ -1460,6 +1963,31 @@ function wire() {
   el("settingsSave").addEventListener("click", () => {
     saveSettingsDialog().catch((e) => setSettingsStatus(`Save failed: ${e.message}`, true));
   });
+  const managerBackdrop = el("managerBackdrop");
+  if (managerBackdrop) managerBackdrop.addEventListener("click", closeManagerModal);
+  const adminSuggestBtn = el("adminSuggestBtn");
+  if (adminSuggestBtn) {
+    adminSuggestBtn.addEventListener("click", async () => {
+      try {
+        const cfg = state.configs?.official || (await jget(state.agents.official.base, "/api/config"));
+        const apiBase = String(cfg?.api_base_url || "").trim();
+        el("adminUrl").value = suggestAdminUrlFromApiBase(apiBase);
+        setManagerStatus("Suggested Admin URL.");
+      } catch (e) {
+        setManagerStatus(`Suggest failed: ${e.message}`, true);
+      }
+    });
+  }
+  const adminOpenBtn = el("adminOpenBtn");
+  if (adminOpenBtn) adminOpenBtn.addEventListener("click", () => managerOpenAdmin().catch((e) => setManagerStatus(`Open failed: ${e.message}`, true)));
+  const managerUnlockBtn = el("managerUnlockBtn");
+  if (managerUnlockBtn) managerUnlockBtn.addEventListener("click", () => managerUnlock().catch((e) => setManagerStatus(`Unlock failed: ${e.message}`, true)));
+  const managerSetPinBtn = el("managerSetPinBtn");
+  if (managerSetPinBtn) managerSetPinBtn.addEventListener("click", () => managerSetPin().catch((e) => setManagerStatus(`Set PIN failed: ${e.message}`, true)));
+  const managerLockBtn = el("managerLockBtn");
+  if (managerLockBtn) managerLockBtn.addEventListener("click", managerLock);
+  const managerResetPinBtn = el("managerResetPinBtn");
+  if (managerResetPinBtn) managerResetPinBtn.addEventListener("click", managerResetPin);
   el("focusScanBtn").addEventListener("click", () => {
     el("scan").focus();
     setScanMeta("Scan field focused.");
@@ -1548,7 +2076,7 @@ function wire() {
         return;
       }
       timer = setTimeout(() => {
-        customerSearch({ query: q, live: true, limit: 12 }).catch((e) => {
+        customerSearch({ query: q, live: true, limit: 6 }).catch((e) => {
           setStatus(`Customer search error: ${e.message}`, "warn");
         });
       }, 220);
@@ -1606,6 +2134,8 @@ function wire() {
       if (isTextInputTarget(e.target)) return;
       const settingsOpen = !el("settingsModal")?.classList.contains("hidden");
       if (settingsOpen) return;
+      const managerOpen = isManagerModalOpen();
+      if (managerOpen) return;
 
       const k = String(e.key || "");
       if (k === "Enter") {
@@ -1650,6 +2180,11 @@ function wire() {
       setScanMeta("No result for current input.");
     }
   }
+
+  // Keep the result panel in sync when item caches refresh (e.g., after auto-sync).
+  state.ui.refreshLookup = () => {
+    doLookupAndRender({ live: true, silent: true });
+  };
 
   const liveScanLookup = (() => {
     let timer = null;
@@ -1703,6 +2238,13 @@ function wire() {
 
   document.addEventListener("keydown", scanCapture.onKeyDown);
   document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (isManagerModalOpen()) {
+      closeManagerModal();
+      return;
+    }
+  });
+  document.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
     const k = String(e.key || "").toLowerCase();
@@ -1715,13 +2257,17 @@ function wire() {
     if (e.key === "Enter") {
       const settingsOpen = !el("settingsModal").classList.contains("hidden");
       if (settingsOpen) return;
+      const managerOpen = isManagerModalOpen();
+      if (managerOpen) return;
       e.preventDefault();
       pay().catch((err) => setStatus(`Pay error: ${err.message}`, "error"));
     }
   });
   // Start edge polling.
-  refreshEdgeStatusBoth();
-  setInterval(refreshEdgeStatusBoth, 3000);
+  window.addEventListener("resize", onViewportResize);
+  window.addEventListener("orientationchange", onViewportResize);
+  applyResponsiveLayout();
+  startEdgePolling();
 }
 
 async function main() {
@@ -1737,8 +2283,13 @@ async function main() {
       // Ignore cashier hydration failures; default theme still applies.
     }
     initTheme();
+    initDensityMode();
     wire();
+    const apiReady = await ensureOfficialAgentApiAvailable();
+    if (!apiReady) return;
     await loadCaches();
+    startAutoSyncPullBoth();
+    maybeAutoSyncPullBoth({ reason: "boot" });
     renderCart();
     setCustomerSelection(String(el("customerId")?.value || "").trim(), String(el("customerId")?.value || "").trim());
     setScanMeta("Waiting for input…");

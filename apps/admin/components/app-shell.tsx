@@ -339,12 +339,19 @@ const LITE_NAV_SECTIONS: NavSection[] = [
 
 type UiVariant = "full" | "lite";
 type ColorTheme = "light" | "dark";
-type AccentTheme = "sky" | "emerald" | "teal" | "rose" | "slate";
+type AccentTheme = "cobalt" | "sky" | "emerald" | "teal" | "rose" | "slate";
 
 const ACCENT_THEME_VARS: Record<
   AccentTheme,
   { primary: string; primaryFg: string; primaryDim: string; primaryGlow: string; ring: string }
 > = {
+  cobalt: {
+    primary: "37 99 235",
+    primaryFg: "255 255 255",
+    primaryDim: "29 78 216",
+    primaryGlow: "37 99 235",
+    ring: "37 99 235"
+  },
   sky: {
     primary: "14 165 233",
     primaryFg: "0 0 0",
@@ -394,9 +401,11 @@ function readColorTheme(): ColorTheme {
 function readAccentTheme(): AccentTheme {
   try {
     const raw = localStorage.getItem("admin.accentTheme");
-    return raw === "emerald" || raw === "teal" || raw === "rose" || raw === "slate" ? raw : "sky";
+    return raw === "cobalt" || raw === "emerald" || raw === "teal" || raw === "rose" || raw === "slate" || raw === "sky"
+      ? raw
+      : "cobalt";
   } catch {
-    return "sky";
+    return "cobalt";
   }
 }
 
@@ -1013,7 +1022,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
         <div className="flex h-14 items-center border-b border-border-subtle px-4">
             <div className={cn("flex items-center gap-3", collapsed && "justify-center")}>
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-dim">
-              <span className="text-sm font-bold text-primary-foreground">AH</span>
+              <span className="text-sm font-bold text-primary-foreground">AD</span>
             </div>
             {!collapsed && (
               <div className="flex flex-col">
@@ -1422,7 +1431,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           <DialogHeader className="border-b border-border-subtle p-4">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-dim">
-                <span className="text-sm font-bold text-primary-foreground">AH</span>
+                <span className="text-sm font-bold text-primary-foreground">AD</span>
               </div>
               <div className="flex flex-col">
                 <DialogTitle className="text-sm font-semibold text-foreground">AH Trading</DialogTitle>

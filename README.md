@@ -53,6 +53,13 @@ python3 pos-desktop/agent.py
 ```
 Open: http://localhost:7070
 
+## On-Prem Onboarding Runner
+For guided EDGE + POS provisioning:
+```bash
+./scripts/setup_installer.sh
+```
+Details: `docs/deploy/onprem-onboarding.md`
+
 ## Notes
 - Migrations + seeds are applied via `backend/scripts/init_db.sh`.
 - Master data is bootstrapped for usability (default warehouse, VAT code, account defaults).
