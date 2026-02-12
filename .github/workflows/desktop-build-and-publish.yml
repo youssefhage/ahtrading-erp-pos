@@ -13,8 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep installer publishing deterministic for warehouse rollout.
-        os: [windows-latest]
+        # Build all end-user desktop targets we publish today.
+        os: [windows-latest, macos-13, macos-14]
 
     steps:
       - uses: actions/checkout@v4
@@ -23,21 +23,27 @@ jobs:
         with:
           node-version: "20"
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Build POS Desktop
         shell: bash
         run: |
+          set -euo pipefail
           cd apps/pos-desktop
           npm ci
           npm run build
 
-      - name: Build Portal Desktop (optional)
+      - name: Build Portal Desktop
         shell: bash
         run: |
+          set -euo pipefail
           cd apps/admin-desktop
           npm ci
-          npm run build || echo "Portal build failed; continuing POS release."
+          npm run build
 
       - name: Collect artifacts
         shell: bash
@@ -45,15 +51,20 @@ jobs:
           set -euo pipefail
           mkdir -p "dist/${{ matrix.os }}/pos" "dist/${{ matrix.os }}/portal"
 
-          # POS
-          find apps/pos-desktop/src-tauri/target/release/bundle -maxdepth 5 -type f \
-            \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) \
-            -print0 | xargs -0 -I{} cp "{}" "dist/${{ matrix.os }}/pos/" || true
+          collect() {
+            local src="$1"
+            local dst="$2"
+            if [ ! -d "$src" ]; then
+              echo "missing bundle dir: $src" >&2
+              return 1
+            fi
+            find "$src" -maxdepth 6 -type f \
+              \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.tar.gz' -o -name '*.sig' \) \
+              -print0 | xargs -0 -I{} cp "{}" "$dst/" || true
+          }
 
-          # Portal
-          find apps/admin-desktop/src-tauri/target/release/bundle -maxdepth 5 -type f \
-            \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) \
-            -print0 | xargs -0 -I{} cp "{}" "dist/${{ matrix.os }}/portal/" || true
+          collect "apps/pos-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/pos"
+          collect "apps/admin-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/portal"
 
           # Help the publish step detect which runner produced which folder.
           echo "${{ matrix.os }}" > "dist/${{ matrix.os }}/_runner_os.txt"
@@ -71,11 +82,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
 
-      - name: Publish stable installers
+      - name: Publish installers + updater manifests
         shell: bash
         env:
           UPDATES_PUBLISH_KEY: ${{ secrets.UPDATES_PUBLISH_KEY }}
@@ -87,35 +102,7 @@ jobs:
             exit 1
           fi
 
-          api_url="https://app.melqard.com/api/updates/upload"
-
-          upload_file() {
-            local rel="$1"
-            local file="$2"
-            echo "Uploading $file -> $rel"
-            curl -fsS -X POST \
-              -H "X-Updates-Key: ${UPDATES_PUBLISH_KEY}" \
-              -F "rel_path=${rel}" \
-              -F "file=@${file}" \
-              "${api_url}" >/dev/null
-          }
-
-          pos_win="$(find dist -type f \( -name '*.msi' -o -name '*.exe' \) | rg '/pos/' | head -n1 || true)"
-          pos_mac="$(find dist -type f -name '*.dmg' | rg '/pos/' | head -n1 || true)"
-          portal_win="$(find dist -type f \( -name '*.msi' -o -name '*.exe' \) | rg '/portal/' | head -n1 || true)"
-          portal_mac="$(find dist -type f -name '*.dmg' | rg '/portal/' | head -n1 || true)"
-
-          [ -n "$pos_win" ] || { echo "missing POS windows installer" >&2; exit 1; }
-
-          upload_file "pos/MelqardPOS-Setup-latest.msi" "$pos_win"
-
-          if [ -n "$portal_win" ]; then
-            upload_file "portal/MelqardPortal-Setup-latest.msi" "$portal_win"
-          fi
-
-          if [ -n "$pos_mac" ]; then
-            upload_file "pos/MelqardPOS-Setup-latest.dmg" "$pos_mac"
-          fi
-          if [ -n "$portal_mac" ]; then
-            upload_file "portal/MelqardPortal-Setup-latest.dmg" "$portal_mac"
-          fi
+          python3 scripts/publish_desktop_release.py \
+            --api-base "https://app.melqard.com/api/" \
+            --download-base "https://download.melqard.com" \
+            --dist-dir dist

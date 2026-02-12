@@ -59,12 +59,21 @@ const state = {
   ui: {
     statusText: "Loading…",
     statusKind: "info",
+    theme: "light",
+    cashierId: "",
+    cashierName: "",
     customerLabel: "Walk-in",
     customerLookupSeq: 0,
     customerResults: [],
     customerActiveIndex: -1
   }
 };
+
+// Theme storage is per-cashier by default (so each cashier can keep their preference).
+// We keep a legacy key as read-only fallback for migration.
+const UI_THEME_STORAGE_KEY_LEGACY = "unified.pos.theme";
+const UI_THEME_STORAGE_KEY_ANON = "unified.pos.theme.anonymous";
+const UI_THEME_STORAGE_KEY_CASHIER_PREFIX = "unified.pos.theme.cashier.";
 
 const CONFIG_FIELD_SUFFIX = {
   api_base_url: "ApiBaseUrl",
@@ -140,6 +149,110 @@ function setButtonBusy(id, busy, labelWhenBusy = "Working...") {
   delete node.dataset.origLabel;
   node.disabled = false;
   node.classList.remove("isBusy");
+}
+
+function normalizeTheme(theme) {
+  return String(theme || "").toLowerCase() === "dark" ? "dark" : "light";
+}
+
+function themeStorageKeyForCashier(cashierId) {
+  const cid = String(cashierId || "").trim();
+  if (cid) return `${UI_THEME_STORAGE_KEY_CASHIER_PREFIX}${cid}`;
+  return UI_THEME_STORAGE_KEY_ANON;
+}
+
+function loadStoredTheme(key) {
+  try {
+    return normalizeTheme(window.localStorage.getItem(String(key || "")) || "");
+  } catch (_e) {
+    return "";
+  }
+}
+
+function storeTheme(key, theme) {
+  try {
+    window.localStorage.setItem(String(key || ""), normalizeTheme(theme));
+  } catch (_e) {
+    // Ignore storage failures (private mode / locked storage).
+  }
+}
+
+function applyTheme(theme, persist = false) {
+  const next = normalizeTheme(theme);
+  state.ui.theme = next;
+  document.documentElement.setAttribute("data-theme", next);
+  const toggle = el("themeToggle");
+  if (toggle) {
+    const switchTo = next === "dark" ? "Light" : "Dark";
+    toggle.textContent = `${switchTo} Theme`;
+    toggle.setAttribute("aria-label", `Switch to ${switchTo.toLowerCase()} theme`);
+  }
+  if (!persist) return;
+  storeTheme(themeStorageKeyForCashier(state.ui.cashierId), next);
+}
+
+function initTheme() {
+  // Priority:
+  // 1) Cashier-specific theme (if cashierId is known)
+  // 2) Anonymous theme (shared on this device before login)
+  // 3) Legacy device-wide theme key (migration)
+  // 4) Default light
+  const cashierKey = themeStorageKeyForCashier(state.ui.cashierId);
+  let storedTheme = loadStoredTheme(cashierKey);
+
+  if (!storedTheme && state.ui.cashierId) {
+    const anon = loadStoredTheme(UI_THEME_STORAGE_KEY_ANON);
+    if (anon) {
+      storedTheme = anon;
+      storeTheme(cashierKey, storedTheme);
+    }
+  }
+
+  if (!storedTheme) {
+    const legacy = loadStoredTheme(UI_THEME_STORAGE_KEY_LEGACY);
+    if (legacy) {
+      storedTheme = legacy;
+      // Best-effort migrate legacy preference to the current scope.
+      storeTheme(cashierKey, storedTheme);
+    }
+  }
+
+  applyTheme(storedTheme || "light", false);
+}
+
+function toggleTheme() {
+  const next = state.ui.theme === "dark" ? "light" : "dark";
+  applyTheme(next, true);
+}
+
+function setCashierContextFromConfig(cfg) {
+  const c = cfg || {};
+  const nextId = String(c.cashier_id || "").trim();
+  if (!nextId) return false;
+  if (state.ui.cashierId === nextId) return false;
+  state.ui.cashierId = nextId;
+  return true;
+}
+
+function setCashierContextFromLogin(res) {
+  const cashier = res?.cashier || {};
+  const nextId = String(cashier.id || "").trim();
+  if (!nextId) return false;
+  state.ui.cashierId = nextId;
+  state.ui.cashierName = String(cashier.name || "").trim();
+  return true;
+}
+
+async function hydrateCashierContext() {
+  setOtherAgentBase();
+  const a = state.agents.official.base;
+  const b = state.agents.unofficial.base;
+  const results = await Promise.allSettled([jget(a, "/api/config"), jget(b, "/api/config")]);
+  const cfgA = results[0].status === "fulfilled" ? results[0].value : null;
+  const cfgB = results[1].status === "fulfilled" ? results[1].value : null;
+  // Prefer Official config if it has a cashier; otherwise take Unofficial.
+  const changed = setCashierContextFromConfig(cfgA) || setCashierContextFromConfig(cfgB);
+  return changed;
 }
 
 function setCustomerSelection(id, label = "") {
@@ -974,12 +1087,19 @@ async function cashierPinBoth() {
   const b = state.agents.unofficial.base;
   const payload = { pin: String(pin).trim() };
   try {
-    const [ra, rb] = await Promise.allSettled([jpost(a, "/api/cashiers/login", payload), jpost(b, "/api/cashiers/login", payload)]);
+    const [ra, rb] = await Promise.allSettled([
+      jpost(a, "/api/cashiers/login", payload),
+      jpost(b, "/api/cashiers/login", payload)
+    ]);
     if (ra.status === "rejected" || rb.status === "rejected") {
       const ea = ra.status === "rejected" ? ra.reason?.message : null;
       const eb = rb.status === "rejected" ? rb.reason?.message : null;
       throw new Error(`login failed: ${ea || ""} ${eb || ""}`.trim());
     }
+
+    // Update cashier context and immediately apply that cashier's preferred theme (if any).
+    const changed = setCashierContextFromLogin(ra.value) || setCashierContextFromLogin(rb.value);
+    if (changed) initTheme();
     setStatus("Cashier logged in on both.", "ok");
   } finally {
     setButtonBusy("loginBtn", false);
@@ -1329,6 +1449,12 @@ function wire() {
   el("settingsBtn").addEventListener("click", () => {
     openSettingsDialog().catch((e) => setSettingsStatus(`Error: ${e.message}`, true));
   });
+  const themeToggleBtn = el("themeToggle");
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener("click", () => {
+      toggleTheme();
+    });
+  }
   el("settingsCancel").addEventListener("click", closeSettingsModal);
   el("settingsBackdrop").addEventListener("click", closeSettingsModal);
   el("settingsSave").addEventListener("click", () => {
@@ -1454,6 +1580,59 @@ function wire() {
     setCustomerSelection(raw, raw);
   });
 
+  // Barcode scanners behave like a very fast keyboard + trailing Enter.
+  // This lets scanning work even if the cursor isn't in the Scan field,
+  // as long as the user isn't currently typing in another input.
+  const scanCapture = (() => {
+    let buf = "";
+    let resetTimer = null;
+    function reset() {
+      buf = "";
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = null;
+    }
+    function isTextInputTarget(t) {
+      const eln = t && t.nodeType === 1 ? t : null;
+      if (!eln) return false;
+      const tag = String(eln.tagName || "").toUpperCase();
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if (eln.isContentEditable) return true;
+      return false;
+    }
+    function onKeyDown(e) {
+      if (!e) return;
+      if (e.defaultPrevented) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTextInputTarget(e.target)) return;
+      const settingsOpen = !el("settingsModal")?.classList.contains("hidden");
+      if (settingsOpen) return;
+
+      const k = String(e.key || "");
+      if (k === "Enter") {
+        const q = String(buf || "").trim();
+        if (!q) return;
+        e.preventDefault();
+        try {
+          el("scan").value = q;
+          doLookupAndRender({ query: q, live: false, silent: false });
+          if (state.lastLookup?.item) addToCart(state.lastLookup.companyKey, state.lastLookup.item);
+        } finally {
+          reset();
+        }
+        return;
+      }
+
+      // Only capture normal printable characters.
+      if (k.length !== 1) return;
+      if (/\s/.test(k)) return;
+
+      buf += k;
+      if (resetTimer) clearTimeout(resetTimer);
+      resetTimer = setTimeout(reset, 260);
+    }
+    return { onKeyDown, reset };
+  })();
+
   function doLookupAndRender(opts = {}) {
     const q = String(opts.query ?? el("scan")?.value ?? "").trim();
     if (!q) {
@@ -1521,6 +1700,8 @@ function wire() {
     // Update badges quickly when the other agent URL is changed.
     refreshEdgeStatusBoth();
   });
+
+  document.addEventListener("keydown", scanCapture.onKeyDown);
   document.addEventListener("keydown", (e) => {
     const mod = e.metaKey || e.ctrlKey;
     if (!mod) return;
@@ -1546,6 +1727,16 @@ function wire() {
 async function main() {
   try {
     setOtherAgentBase();
+    // Determine cashier_id first so theme can be loaded per cashier on startup.
+    try {
+      const changed = await hydrateCashierContext();
+      if (changed) {
+        // no-op; initTheme below will pick up the cashierId
+      }
+    } catch (_e) {
+      // Ignore cashier hydration failures; default theme still applies.
+    }
+    initTheme();
     wire();
     await loadCaches();
     renderCart();

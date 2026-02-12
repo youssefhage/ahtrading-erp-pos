@@ -94,6 +94,10 @@ export function ItemTypeahead(props: {
   placeholder?: string;
   className?: string;
   endpoint?: string;
+  // When enabled, barcode scans (fast keyboard input + Enter) will be captured at the document level
+  // so the cashier doesn't need to focus this field first. We intentionally do NOT capture while
+  // the user is typing in any other input/select/textarea/contenteditable element.
+  globalScan?: boolean;
   onSelect: (item: ItemTypeaheadItem) => void;
   onClear?: () => void;
 }) {
@@ -109,6 +113,8 @@ export function ItemTypeahead(props: {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const scanBufRef = useRef<{ buf: string; timer: number | null }>({ buf: "", timer: null });
+  const pendingScanRef = useRef<string>("");
 
   useEffect(() => {
     if (!open) return;
@@ -134,6 +140,62 @@ export function ItemTypeahead(props: {
       document.removeEventListener("keydown", onDocKeyDown);
     };
   }, [open]);
+
+  // Optional global barcode scan capture (invoice screens, etc.).
+  useEffect(() => {
+    if (!props.globalScan) return;
+    if (props.disabled) return;
+    const scanState = scanBufRef.current;
+
+    function isTypingTarget(t: EventTarget | null) {
+      if (!(t instanceof HTMLElement)) return false;
+      const tag = String(t.tagName || "").toUpperCase();
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if (t.isContentEditable) return true;
+      return false;
+    }
+
+    function reset() {
+      scanState.buf = "";
+      if (scanState.timer) window.clearTimeout(scanState.timer);
+      scanState.timer = null;
+    }
+
+    function onDocKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTypingTarget(e.target)) return;
+
+      const key = String(e.key || "");
+      if (key === "Enter") {
+        const token = scanState.buf.trim();
+        if (!token) return;
+        e.preventDefault();
+        pendingScanRef.current = token;
+        setQ(token);
+        setOpen(true);
+        setActive(0);
+        reset();
+        return;
+      }
+
+      if (key.length !== 1) return;
+      if (/\s/.test(key)) return;
+
+      scanState.buf += key;
+      if (scanState.timer) window.clearTimeout(scanState.timer);
+      scanState.timer = window.setTimeout(reset, 280);
+    }
+
+    document.addEventListener("keydown", onDocKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onDocKeyDown);
+      // Clear any buffered characters on unmount.
+      scanState.buf = "";
+      if (scanState.timer) window.clearTimeout(scanState.timer);
+      scanState.timer = null;
+    };
+  }, [props.globalScan, props.disabled]);
 
   useEffect(() => {
     if (open) return;
@@ -233,6 +295,20 @@ export function ItemTypeahead(props: {
   const results = q.trim() ? rankedRemote : localResults;
 
   useEffect(() => setActive(0), [q]);
+
+  // If a scan initiated a search, auto-select the exact match as soon as remote results arrive.
+  useEffect(() => {
+    const token = pendingScanRef.current;
+    if (!token) return;
+    if (norm(q) !== norm(token)) {
+      pendingScanRef.current = "";
+      return;
+    }
+    const exact = (remoteItems || []).find((it) => exactMatches(it, token));
+    if (!exact) return;
+    pendingScanRef.current = "";
+    select(exact);
+  }, [remoteItems, q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function select(it: ItemTypeaheadItem) {
     pushRecent(it);

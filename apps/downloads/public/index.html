@@ -54,12 +54,12 @@
       <section class="card">
         <h2>Publishing New Versions</h2>
         <ol class="steps">
-          <li>Build installers (Windows + macOS) and updater artifacts.</li>
-          <li>Upload artifacts into <code>/updates/pos/</code> and <code>/updates/portal/</code>.</li>
-          <li>Update <code>latest.json</code> for each app.</li>
+          <li>Bump desktop app versions and push a <code>desktop-v*</code> git tag.</li>
+          <li>GitHub Actions builds Windows + macOS installers and updater bundles.</li>
+          <li>CI publishes files into <code>/updates/pos/</code> and <code>/updates/portal/</code> and updates <code>latest.json</code>.</li>
         </ol>
         <p class="muted">
-          For now, this page is just a safe place to host artifacts. The auto-updater wiring lives in each desktop app.
+          This page hosts the live installer links and updater manifests consumed by both desktop apps.
         </p>
       </section>
     </main>

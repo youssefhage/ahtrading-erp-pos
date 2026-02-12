@@ -1101,7 +1101,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
                   <div className={`space-y-1 ${showSecondaryCurrency ? "md:col-span-5" : "md:col-span-7"}`}>
                     <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
-                    <ItemTypeahead disabled={loading} onSelect={(it) => void onPickItem(it)} />
+                    <ItemTypeahead globalScan disabled={loading} onSelect={(it) => void onPickItem(it)} />
                     {addItem ? (
                       <p className="text-[11px] text-fg-subtle">
                         Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}

@@ -8,6 +8,7 @@ This repo is designed to be deployed to Dokploy as a Docker Compose app.
 - `api` (FastAPI)
 - `worker` (background workers: outbox processing, AI tasks, etc.)
 - `admin` (Next.js Admin UI)
+- `downloads` (NGINX host for desktop installers + updater manifests)
 
 POS registers run **locally** (POS agent + local SQLite) and sync to the backend when online.
 
@@ -28,6 +29,34 @@ POS registers run **locally** (POS agent + local SQLite) and sync to the backend
 5. Domains:
    - Admin UI: map to service `admin` port `3000`
    - API: map to service `api` port `8000`
+   - Downloads: map to service `downloads` port `80` (for `download.melqard.com`)
+
+## Desktop Updater Hosting (`download.melqard.com`)
+
+This stack already supports Tauri desktop publishing through the API + shared volume model:
+
+- CI uploads artifacts to `POST /api/updates/upload` on `app.melqard.com`.
+- API writes files into shared volume `/updates`.
+- `download.melqard.com` serves `/updates/*` through the `downloads` service.
+
+Required env vars in Dokploy:
+
+- `UPDATES_PUBLISH_KEY`: shared secret used by CI when calling `/api/updates/upload`.
+- `UPDATES_DIR=/updates` (default in code, keep explicit in production).
+
+GitHub Actions secret required:
+
+- `UPDATES_PUBLISH_KEY` (must match Dokploy env).
+
+Release flow:
+
+1. Bump desktop app version in both Tauri configs.
+2. Push a tag matching `desktop-v*` (example: `desktop-v0.0.2`).
+3. Workflow `.github/workflows/desktop-build-and-publish.yml` builds desktop installers + updater bundles.
+4. Workflow runs `scripts/publish_desktop_release.py`, uploading:
+   - versioned bundles under `/updates/pos/<version>/` and `/updates/portal/<version>/`
+   - stable installers (`*-latest.*`)
+   - updater manifests (`/updates/pos/latest.json`, `/updates/portal/latest.json`)
 
 ## One-Time Bootstrap (Admin User)
 

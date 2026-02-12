@@ -764,6 +764,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                     <label className="text-xs font-medium text-fg-muted">Item (search by name or barcode)</label>
                     <ItemTypeahead
                       endpoint="/pricing/catalog/typeahead"
+                      globalScan
                       onSelect={(it) => onPickItem(it)}
                       disabled={loading}
                       placeholder="Search item name / barcode..."

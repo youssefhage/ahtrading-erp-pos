@@ -97,7 +97,7 @@ class PlatformBundle:
 
 
 def _find_one(root: Path, suffixes: Tuple[str, ...]) -> Optional[Path]:
-    for p in root.rglob("*"):
+    for p in sorted(root.rglob("*")):
         if not p.is_file():
             continue
         n = p.name.lower()
@@ -108,17 +108,25 @@ def _find_one(root: Path, suffixes: Tuple[str, ...]) -> Optional[Path]:
 
 def _bundle_for_platform(root: Path, platform: str) -> PlatformBundle:
     if platform.startswith("windows"):
-        update = _find_one(root, (".msi.zip", ".exe.zip", ".zip"))
+        update = _find_one(root, (".msi.zip",))
+        if not update:
+            update = _find_one(root, (".exe.zip",))
+        if not update:
+            update = _find_one(root, (".zip",))
         if not update:
             _die(f"missing windows update bundle under {root}")
         sig = Path(str(update) + ".sig")
         if not sig.exists():
             _die(f"missing signature: {sig}")
-        installer = _find_one(root, (".msi", ".exe"))
+        installer = _find_one(root, (".msi",))
+        if not installer:
+            installer = _find_one(root, (".exe",))
         return PlatformBundle(platform=platform, update_bundle=update, signature=sig, installer=installer)
 
     if platform.startswith("darwin"):
-        update = _find_one(root, (".app.tar.gz", ".tar.gz"))
+        update = _find_one(root, (".app.tar.gz",))
+        if not update:
+            update = _find_one(root, (".tar.gz",))
         if not update:
             _die(f"missing macOS update bundle under {root}")
         sig = Path(str(update) + ".sig")

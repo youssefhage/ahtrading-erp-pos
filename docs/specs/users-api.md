@@ -5,9 +5,11 @@ All endpoints require header:
 
 ## Users
 - GET /users
+- GET /users/directory
 - POST /users
 
 ## Roles
 - GET /users/roles
+- GET /users/role-templates
 - POST /users/roles
 - POST /users/roles/assign

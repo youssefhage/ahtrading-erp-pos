@@ -26,6 +26,37 @@ function setStatus(msg) {
   el("status").textContent = msg || "";
 }
 
+function isEditableTextInput(node) {
+  if (!(node instanceof HTMLInputElement)) return false;
+  const type = String(node.type || "text").toLowerCase();
+  if (node.disabled || node.readOnly) return false;
+  return !["checkbox", "radio", "button", "submit", "reset", "file", "hidden"].includes(type);
+}
+
+function installReplaceOnTypeBehavior() {
+  const inputs = Array.from(document.querySelectorAll("input"));
+  for (const input of inputs) {
+    if (!isEditableTextInput(input)) continue;
+
+    input.addEventListener("pointerdown", (e) => {
+      // First click/tap focuses and arms "replace on type" by selecting all text.
+      if (e.defaultPrevented || e.button !== 0) return;
+      if (document.activeElement !== input) {
+        e.preventDefault();
+        input.focus();
+      }
+    });
+
+    input.addEventListener("focus", () => {
+      try {
+        queueMicrotask(() => input.select());
+      } catch {
+        // ignore
+      }
+    });
+  }
+}
+
 function load() {
   // Cloud pilot default: POS subdomain routes /api to the same backend.
   el("edgeUrl").value = localStorage.getItem(KEY_EDGE) || "https://pos.melqard.com/api";
@@ -114,4 +145,5 @@ async function checkUpdates() {
 el("startBtn").addEventListener("click", start);
 el("openBtn").addEventListener("click", openPos);
 el("updateBtn").addEventListener("click", checkUpdates);
+installReplaceOnTypeBehavior();
 load();
