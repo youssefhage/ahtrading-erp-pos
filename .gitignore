@@ -15,9 +15,13 @@ venv/
 # Local databases / runtime state
 pos-desktop/pos.sqlite
 pos-desktop/config.json
+pos-desktop/pos.unofficial.sqlite
+pos-desktop/config.unofficial.json
 backend/.env
 .env
 *.tsbuildinfo
+deploy/edge/.env.edge
+deploy/edge/onboarding/
 
 # Local ERPNext export data (pilot import)
 Data AH Trading/

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Melqard Setup Desktop</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="topbar">
+        <div class="brand">
+          <div class="mark">SU</div>
+          <div>
+            <div class="title">Melqard Setup</div>
+            <div class="subtitle muted">Hybrid on-prem + POS onboarding (Windows/macOS)</div>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button id="checkBtn" class="btn">Preflight Check</button>
+          <button id="stopBtn" class="btn danger" disabled>Stop</button>
+          <button id="runBtn" class="btn primary">Run Setup</button>
+        </div>
+      </header>
+
+      <section class="grid">
+        <div class="panel card">
+          <h2>Mode</h2>
+          <label class="label" for="mode">Setup mode</label>
+          <select id="mode" class="input">
+            <option value="hybrid" selected>Hybrid (On-Prem + POS) [Recommended]</option>
+            <option value="onprem">On-Prem only (install Edge)</option>
+            <option value="pos">POS only (provision packs against existing Edge)</option>
+          </select>
+
+          <h2 class="mt">Project</h2>
+          <label class="label" for="repoPath">Repo folder path</label>
+          <input
+            id="repoPath"
+            class="input"
+            placeholder="/path/to/Codex POS (must contain scripts/onboard_onprem_pos.py)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <p class="help muted">
+            This installer currently runs the onboarding runner from the repo. Later we can package a standalone “Edge
+            distro” (prebuilt images) so you don’t need the repo on the server.
+          </p>
+
+          <h2 class="mt">Edge</h2>
+          <div class="two">
+            <div>
+              <label class="label" for="apiPort">Edge API port (on server)</label>
+              <input id="apiPort" class="input" inputmode="numeric" placeholder="8001" />
+            </div>
+            <div>
+              <label class="label" for="adminPort">Admin UI port (on server)</label>
+              <input id="adminPort" class="input" inputmode="numeric" placeholder="3000" />
+            </div>
+          </div>
+
+          <label class="label" for="edgeApiUrlForPos">POS Edge API URL (what cashiers will use)</label>
+          <input
+            id="edgeApiUrlForPos"
+            class="input"
+            placeholder="http://192.168.1.50:8001"
+            autocomplete="off"
+            spellcheck="false"
+          />
+
+          <div id="posOnlyBlock" class="block mt" hidden>
+            <h3>POS-only (remote Edge)</h3>
+            <p class="muted">
+              Use this when Edge is already running on a server, and you just want to register devices and export packs
+              from this machine.
+            </p>
+            <label class="label" for="apiBaseUrl">Remote Edge API base URL</label>
+            <input
+              id="apiBaseUrl"
+              class="input"
+              placeholder="http://192.168.1.50:8001"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+
+          <h2 class="mt">POS Provisioning</h2>
+          <div class="two">
+            <div>
+              <label class="label" for="deviceCount">Devices per company</label>
+              <input id="deviceCount" class="input" inputmode="numeric" placeholder="1" />
+            </div>
+            <div>
+              <label class="label" for="updateEnv">Update `.env.edge`</label>
+              <select id="updateEnv" class="input">
+                <option value="no" selected>No (reuse existing)</option>
+                <option value="yes">Yes (apply ports/sync/bootstrap)</option>
+              </select>
+            </div>
+          </div>
+
+          <label class="label" for="companies">Companies (optional)</label>
+          <input
+            id="companies"
+            class="input"
+            placeholder="comma-separated company UUIDs (leave empty = all)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+
+          <h2 class="mt">Admin Login</h2>
+          <div class="two">
+            <div>
+              <label class="label" for="adminEmail">Admin email</label>
+              <input id="adminEmail" class="input" placeholder="admin@ahtrading.local" autocomplete="off" />
+            </div>
+            <div>
+              <label class="label" for="adminPassword">Admin password (optional)</label>
+              <input id="adminPassword" class="input" type="password" placeholder="leave empty to auto-generate" />
+            </div>
+          </div>
+
+          <h2 class="mt">Cloud Sync (Optional)</h2>
+          <div class="two">
+            <div>
+              <label class="label" for="syncEnabled">Enable sync</label>
+              <select id="syncEnabled" class="input">
+                <option value="no" selected>No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </div>
+            <div>
+              <label class="label" for="edgeNodeId">Edge node id</label>
+              <input id="edgeNodeId" class="input" placeholder="store-1" autocomplete="off" />
+            </div>
+          </div>
+          <label class="label" for="cloudApiUrl">Cloud API URL</label>
+          <input id="cloudApiUrl" class="input" placeholder="https://pos.melqard.com/api" autocomplete="off" />
+          <label class="label" for="edgeSyncKey">EDGE_SYNC_KEY</label>
+          <input id="edgeSyncKey" class="input" type="password" placeholder="shared secret" autocomplete="off" />
+
+          <p id="status" class="status muted"></p>
+        </div>
+
+        <div class="panel card">
+          <h2>Logs</h2>
+          <p class="muted">
+            The runner will export device packs under <code>deploy/edge/onboarding/...</code>. You can paste the
+            <code>tauri-launcher-prefill.json</code> into the POS Desktop app’s “Setup Pack” box.
+          </p>
+          <textarea id="logs" class="logs" readonly></textarea>
+          <div class="row mt">
+            <button id="clearLogsBtn" class="btn">Clear Logs</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
