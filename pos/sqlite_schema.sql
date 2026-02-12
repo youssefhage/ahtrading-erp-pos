@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS local_item_barcodes_cache (
   barcode TEXT,
   uom_code TEXT,
   qty_factor REAL DEFAULT 1,
-  uom_code TEXT,
   label TEXT,
   is_primary INTEGER DEFAULT 0,
   updated_at TEXT

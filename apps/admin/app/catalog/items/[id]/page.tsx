@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Check, Copy } from "lucide-react";
 
 import { apiGet, apiUrl } from "@/lib/api";
+import { fmtLbp, fmtUsd } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
@@ -64,6 +65,39 @@ type ItemSupplierLinkRow = {
   last_cost_lbp: string | number;
 };
 
+type PriceSuggest = {
+  item_id: string;
+  target_margin_pct: string;
+  rounding: { usd_step: string; lbp_step: string };
+  current: {
+    price_usd: string;
+    price_lbp: string;
+    avg_cost_usd: string;
+    avg_cost_lbp: string;
+    margin_usd: string | null;
+    margin_lbp: string | null;
+  };
+  suggested: { price_usd: string | null; price_lbp: string | null };
+};
+
+type PriceListRow = {
+  id: string;
+  code: string;
+  name: string;
+  currency: "USD" | "LBP";
+  is_default: boolean;
+};
+
+type PriceListItemRow = {
+  id: string;
+  item_id: string;
+  price_usd: string | number;
+  price_lbp: string | number;
+  effective_from: string;
+  effective_to: string | null;
+  created_at: string;
+};
+
 function shortId(v: string, head = 8, tail = 4) {
   const s = (v || "").trim();
   if (!s) return "-";
@@ -83,6 +117,13 @@ function fmtRate(v: string | number) {
   // Most rates are stored as "11" for 11%, so keep it simple and readable.
   const s = String(n);
   return `${s.replace(/\.0+$/, "")}%`;
+}
+
+function fmtPctFrac(v: string | number | null | undefined) {
+  if (v == null) return "-";
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return "-";
+  return `${(n * 100).toFixed(1)}%`;
 }
 
 function CopyIconButton(props: { text: string; label?: string; className?: string }) {
@@ -147,27 +188,66 @@ export default function ItemViewPage() {
   const [barcodes, setBarcodes] = useState<ItemBarcode[]>([]);
   const [suppliers, setSuppliers] = useState<ItemSupplierLinkRow[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
+  const [priceSuggest, setPriceSuggest] = useState<PriceSuggest | null>(null);
+  const [priceLists, setPriceLists] = useState<PriceListRow[]>([]);
+  const [defaultPriceListId, setDefaultPriceListId] = useState<string>("");
+  const [wholesaleEffective, setWholesaleEffective] = useState<PriceListItemRow | null>(null);
+  const [retailEffective, setRetailEffective] = useState<PriceListItemRow | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setErr(null);
     try {
-      const [it, bc, sup, tc] = await Promise.all([
+      const [it, bc, sup, tc, ps, pls, settings] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
         apiGet<{ barcodes: ItemBarcode[] }>(`/items/${encodeURIComponent(id)}/barcodes`).catch(() => ({ barcodes: [] as ItemBarcode[] })),
         apiGet<{ suppliers: ItemSupplierLinkRow[] }>(`/suppliers/items/${encodeURIComponent(id)}`).catch(() => ({ suppliers: [] as ItemSupplierLinkRow[] })),
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
+        apiGet<PriceSuggest>(`/pricing/items/${encodeURIComponent(id)}/suggested-price`).catch(() => null),
+        apiGet<{ lists: PriceListRow[] }>("/pricing/lists").catch(() => ({ lists: [] as PriceListRow[] })),
+        apiGet<{ settings: Array<{ key: string; value_json: any }> }>("/pricing/company-settings").catch(() => ({ settings: [] as any[] })),
       ]);
       setItem(it.item || null);
       setBarcodes(bc.barcodes || []);
       setSuppliers(sup.suppliers || []);
       setTaxCodes(tc.tax_codes || []);
+      setPriceSuggest((ps as any) || null);
+      const lists = pls?.lists || [];
+      setPriceLists(lists);
+      const settingDefault = (settings?.settings || []).find((s) => String(s?.key || "") === "default_price_list_id");
+      const defIdFromSetting = String(settingDefault?.value_json?.id || "");
+      const defIdFromFlag = String((lists.find((l) => l.is_default)?.id as any) || "");
+      const defId = defIdFromSetting || defIdFromFlag || "";
+      setDefaultPriceListId(defId);
+
+      // Optional: show effective WHOLESALE/RETAIL overrides for this item.
+      const w = lists.find((l) => String(l.code || "").toUpperCase() === "WHOLESALE");
+      const r = lists.find((l) => String(l.code || "").toUpperCase() === "RETAIL");
+      const [wEff, rEff] = await Promise.all([
+        w
+          ? apiGet<{ effective: PriceListItemRow | null }>(
+              `/pricing/lists/${encodeURIComponent(w.id)}/items/by-item/${encodeURIComponent(id)}`
+            ).catch(() => ({ effective: null as any }))
+          : Promise.resolve({ effective: null as any }),
+        r
+          ? apiGet<{ effective: PriceListItemRow | null }>(
+              `/pricing/lists/${encodeURIComponent(r.id)}/items/by-item/${encodeURIComponent(id)}`
+            ).catch(() => ({ effective: null as any }))
+          : Promise.resolve({ effective: null as any }),
+      ]);
+      setWholesaleEffective((wEff as any)?.effective || null);
+      setRetailEffective((rEff as any)?.effective || null);
     } catch (e) {
       setItem(null);
       setBarcodes([]);
       setSuppliers([]);
       setTaxCodes([]);
+      setPriceSuggest(null);
+      setPriceLists([]);
+      setDefaultPriceListId("");
+      setWholesaleEffective(null);
+      setRetailEffective(null);
       setErr(e);
     } finally {
       setLoading(false);
@@ -186,6 +266,10 @@ export default function ItemViewPage() {
 
   const taxById = useMemo(() => new Map(taxCodes.map((t) => [t.id, t])), [taxCodes]);
   const taxMeta = useMemo(() => (item?.tax_code_id ? taxById.get(item.tax_code_id) : undefined), [item?.tax_code_id, taxById]);
+  const defaultListLabel = useMemo(() => {
+    const pl = priceLists.find((l) => l.id === defaultPriceListId) || priceLists.find((l) => l.is_default) || null;
+    return pl ? `${pl.code} · ${pl.name}` : "-";
+  }, [priceLists, defaultPriceListId]);
   const barcodeColumns = useMemo((): Array<DataTableColumn<ItemBarcode>> => {
     return [
       {
@@ -351,6 +435,51 @@ export default function ItemViewPage() {
 
       {item ? (
         <>
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <CardTitle>Pricing</CardTitle>
+                  <CardDescription>Read-only pricing details. Edit prices from the Edit screen.</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button asChild variant="outline" size="sm" disabled={loading}>
+                    <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Edit Prices</Link>
+                  </Button>
+                  <Button asChild variant="outline" size="sm" disabled={loading}>
+                    <Link href="/catalog/price-lists">Price Lists</Link>
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <SummaryField
+                label="Effective Sell Price"
+                value={`${fmtUsd(priceSuggest?.current?.price_usd || 0)} · ${fmtLbp(priceSuggest?.current?.price_lbp || 0)}`}
+                hint={`Default list: ${defaultListLabel}`}
+              />
+              <SummaryField
+                label="Average Cost"
+                value={`${fmtUsd(priceSuggest?.current?.avg_cost_usd || 0)} · ${fmtLbp(priceSuggest?.current?.avg_cost_lbp || 0)}`}
+              />
+              <SummaryField
+                label="Margin"
+                value={`${fmtPctFrac(priceSuggest?.current?.margin_usd)} (USD) · ${fmtPctFrac(priceSuggest?.current?.margin_lbp)} (LL)`}
+                hint={priceSuggest ? `Target: ${fmtPctFrac(priceSuggest.target_margin_pct)}` : undefined}
+              />
+              <SummaryField
+                label="WHOLESALE (Effective)"
+                value={`${fmtUsd(wholesaleEffective?.price_usd || 0)} · ${fmtLbp(wholesaleEffective?.price_lbp || 0)}`}
+                hint={wholesaleEffective?.effective_from ? `From: ${String(wholesaleEffective.effective_from).slice(0, 10)}` : "No override row"}
+              />
+              <SummaryField
+                label="RETAIL (Effective)"
+                value={`${fmtUsd(retailEffective?.price_usd || 0)} · ${fmtLbp(retailEffective?.price_lbp || 0)}`}
+                hint={retailEffective?.effective_from ? `From: ${String(retailEffective.effective_from).slice(0, 10)}` : "No override row"}
+              />
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Summary</CardTitle>

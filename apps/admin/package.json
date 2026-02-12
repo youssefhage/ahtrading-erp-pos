@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint:tokens": "node scripts/check-design-tokens.mjs",
-    "lint": "node scripts/check-design-tokens.mjs && eslint . --max-warnings 0",
+    "lint": "node scripts/check-design-tokens.mjs && node scripts/lint-chunked.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

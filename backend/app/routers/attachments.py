@@ -31,6 +31,17 @@ def _permission_for_entity(entity_type: str, write: bool) -> str:
     # Default to config read/write if unknown.
     return "config:write" if write else "config:read"
 
+def _safe_filename_for_header(name: str) -> str:
+    """
+    Prevent header injection / broken Content-Disposition due to untrusted filenames.
+    """
+    n = (name or "").strip() or "attachment"
+    n = n.replace("\r", "").replace("\n", "")
+    n = n.replace('"', "")
+    if len(n) > 180:
+        n = n[:180]
+    return n or "attachment"
+
 
 @router.get("")
 def list_attachments(
@@ -81,7 +92,7 @@ def upload_attachment(
     if len(raw) > max_bytes:
         raise HTTPException(status_code=413, detail=f"attachment too large (max {max_mb}MB)")
     sha = hashlib.sha256(raw).hexdigest() if raw else None
-    filename = (file.filename or "attachment").strip() or "attachment"
+    filename = _safe_filename_for_header(file.filename or "attachment")
     content_type = (file.content_type or "application/octet-stream").strip() or "application/octet-stream"
 
     # Default: store in Postgres (v1). If S3/MinIO is configured, store bytes there.
@@ -185,13 +196,13 @@ def download_attachment(
             if (row.get("storage_backend") or "db") == "s3" and row.get("object_key"):
                 url = presign_get(
                     key=row["object_key"],
-                    filename=row["filename"],
+                    filename=_safe_filename_for_header(row["filename"]),
                     content_type=row["content_type"],
                     disposition="attachment",
                 )
                 return RedirectResponse(url=url, status_code=302)
             data = row["bytes"] or b""
-            headers = {"Content-Disposition": f'attachment; filename="{row["filename"]}"'}
+            headers = {"Content-Disposition": f'attachment; filename="{_safe_filename_for_header(row["filename"])}"'}
             return Response(content=data, media_type=row["content_type"], headers=headers)
 
 
@@ -223,11 +234,11 @@ def view_attachment(
             if (row.get("storage_backend") or "db") == "s3" and row.get("object_key"):
                 url = presign_get(
                     key=row["object_key"],
-                    filename=row["filename"],
+                    filename=_safe_filename_for_header(row["filename"]),
                     content_type=row["content_type"],
                     disposition="inline",
                 )
                 return RedirectResponse(url=url, status_code=302)
             data = row["bytes"] or b""
-            headers = {"Content-Disposition": f'inline; filename="{row["filename"]}"'}
+            headers = {"Content-Disposition": f'inline; filename="{_safe_filename_for_header(row["filename"])}"'}
             return Response(content=data, media_type=row["content_type"], headers=headers)

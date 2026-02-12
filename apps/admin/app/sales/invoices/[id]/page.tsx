@@ -20,6 +20,8 @@ import { StatusChip } from "@/components/ui/status-chip";
 
 type PaymentMethodMapping = { method: string; role_code: string; created_at: string };
 
+type TaxCode = { id: string; name: string; rate: string | number; tax_type: string; reporting_currency: string };
+
 type InvoiceRow = {
   id: string;
   invoice_no: string | null;
@@ -99,6 +101,12 @@ function n(v: unknown) {
   return Number.isFinite(x) ? x : 0;
 }
 
+function taxRateToPercent(raw: unknown): number {
+  const x = Number(raw || 0);
+  if (!Number.isFinite(x)) return 0;
+  return x <= 1 ? x * 100 : x;
+}
+
 function hasTender(p: SalesPayment) {
   return n(p.tender_usd) !== 0 || n(p.tender_lbp) !== 0;
 }
@@ -113,6 +121,8 @@ function SalesInvoiceShowInner() {
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodMapping[]>([]);
+  const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
+  const [taxPreview, setTaxPreview] = useState<{ tax_usd: number; tax_lbp: number } | null>(null);
 
   const [postOpen, setPostOpen] = useState(false);
   const [postApplyingVat, setPostApplyingVat] = useState(true);
@@ -141,6 +151,11 @@ function SalesInvoiceShowInner() {
     merged.sort();
     return merged;
   }, [paymentMethods]);
+
+  const taxById = useMemo(() => {
+    return new Map((taxCodes || []).map((t) => [String(t.id), t]));
+  }, [taxCodes]);
+
   const invoiceLineColumns = useMemo((): Array<DataTableColumn<InvoiceLine>> => {
     return [
       {
@@ -207,12 +222,24 @@ function SalesInvoiceShowInner() {
     if (!id) return;
     setLoading(true);
     try {
-      const [det, pm] = await Promise.all([
+      const [det, pm, tc] = await Promise.all([
         apiGet<InvoiceDetail>(`/sales/invoices/${id}`),
-        apiGet<{ methods: PaymentMethodMapping[] }>("/config/payment-methods").catch(() => ({ methods: [] as PaymentMethodMapping[] }))
+        apiGet<{ methods: PaymentMethodMapping[] }>("/config/payment-methods").catch(() => ({ methods: [] as PaymentMethodMapping[] })),
+        apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] }))
       ]);
       setDetail(det);
       setPaymentMethods(pm.methods || []);
+      setTaxCodes(tc.tax_codes || []);
+      setTaxPreview(null);
+      if (det?.invoice?.status === "draft") {
+        // Drafts don't have persisted tax_lines yet; show a VAT preview so the "Tax Lines" card isn't misleading.
+        const prev = await apiGet<{ tax_usd: string | number; tax_lbp: string | number }>(
+          `/sales/invoices/${encodeURIComponent(det.invoice.id)}/post-preview?apply_vat=1`
+        ).catch(() => null);
+        if (prev) {
+          setTaxPreview({ tax_usd: Number(prev.tax_usd || 0), tax_lbp: Number(prev.tax_lbp || 0) });
+        }
+      }
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -658,91 +685,196 @@ function SalesInvoiceShowInner() {
                           </div>
                         </div>
                       </div>
+
+                      <div className="ui-panel p-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-foreground">Payments</p>
+                          {detail.invoice.status === "posted" ? (
+                            <Button asChild variant="outline" size="sm">
+                              <Link href={`/sales/payments?invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`}>
+                                Record Payment
+                              </Link>
+                            </Button>
+                          ) : (
+                            <Button variant="outline" size="sm" disabled>
+                              Record Payment
+                            </Button>
+                          )}
+                        </div>
+                        {detail.invoice.status !== "posted" ? (
+                          <p className="mt-2 text-xs text-fg-subtle">Payments are recorded after posting.</p>
+                        ) : null}
+                        <div className="mt-2 space-y-1 text-xs text-fg-muted">
+                          {detail.payments.map((p) => (
+                            <div key={p.id} className="flex items-center justify-between gap-2">
+                              <span className="data-mono">{p.method}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="data-mono text-right">
+                                  {hasTender(p) ? (
+                                    <>
+                                      <span className="text-foreground">
+                                        Tender {fmtUsd(n(p.tender_usd))} / {fmtLbp(n(p.tender_lbp))}
+                                      </span>
+                                      <span className="text-fg-subtle"> · </span>
+                                      <span className="text-fg-muted">
+                                        Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="text-foreground">
+                                        Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
+                                      </span>
+                                    </>
+                                  )}
+                                </span>
+                                <Button variant="outline" size="sm" onClick={() => recomputePayment(p.id)}>
+                                  Fix
+                                </Button>
+                                <Button variant="destructive" size="sm" onClick={() => voidPayment(p.id)}>
+                                  Void
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                          {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="ui-panel p-5 md:col-span-4">
-                      <p className="ui-panel-title">Totals</p>
+                    <div className="space-y-3 md:col-span-4">
+                      <div className="ui-panel p-5">
+                        <p className="ui-panel-title">Totals</p>
 
-                      <div className="mt-3">
-                        <div className="text-xs text-fg-muted">Balance</div>
-                        <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${primaryTone}`}>{primaryFmt(primaryBal)}</div>
-                        <div className="data-mono mt-1 text-sm text-fg-muted">{secondaryFmt(secondaryBal)}</div>
+                        <div className="mt-3">
+                          <div className="text-xs text-fg-muted">Balance</div>
+                          <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${primaryTone}`}>{primaryFmt(primaryBal)}</div>
+                          <div className="data-mono mt-1 text-sm text-fg-muted">{secondaryFmt(secondaryBal)}</div>
+                        </div>
+
+                        <div className="mt-4 space-y-2">
+                          <div className="ui-kv ui-kv-strong">
+                            <span className="ui-kv-label">Total</span>
+                            <span className="ui-kv-value">{primaryFmt(primaryTotal)}</span>
+                          </div>
+                          <div className="ui-kv ui-kv-sub">
+                            <span className="ui-kv-label">Total (other)</span>
+                            <span className="ui-kv-value">{secondaryFmt(secondaryTotal)}</span>
+                          </div>
+
+                          <div className="section-divider my-3" />
+
+                          <div className="ui-kv">
+                            <span className="ui-kv-label">Applied (settles invoice)</span>
+                            <span className="ui-kv-value">{primaryFmt(primaryPaid)}</span>
+                          </div>
+                          <div className="ui-kv ui-kv-sub">
+                            <span className="ui-kv-label">Applied (other)</span>
+                            <span className="ui-kv-value">{secondaryFmt(secondaryPaid)}</span>
+                          </div>
+
+                          {hasAnyTender ? (
+                            <>
+                              <div className="section-divider my-3" />
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Tender received</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsd(tenderUsd)} / {fmtLbp(tenderLbp)}
+                                </span>
+                              </div>
+                            </>
+                          ) : null}
+
+                          {(detail.tax_lines || []).length ? (
+                            <>
+                              <div className="section-divider my-3" />
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">VAT</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsd(vatUsd)} / {fmtLbp(vatLbp)}
+                                </span>
+                              </div>
+                            </>
+                          ) : null}
+
+                          <div className="section-divider my-3" />
+                          <div className="ui-kv ui-kv-strong">
+                            <span className="ui-kv-label">Balance</span>
+                            <span className="ui-kv-value">{primaryFmt(primaryBal)}</span>
+                          </div>
+                          <div className="ui-kv ui-kv-sub">
+                            <span className="ui-kv-label">Balance (other)</span>
+                            <span className="ui-kv-value">{secondaryFmt(secondaryBal)}</span>
+                          </div>
+
+                          <details className="mt-3 rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                            <summary className="cursor-pointer text-xs font-medium text-fg-muted">Breakdown</summary>
+                            <div className="mt-2 space-y-2">
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Subtotal</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsd(subUsd)} / {fmtLbp(subLbp)}
+                                </span>
+                              </div>
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Discount</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsd(discUsd)} / {fmtLbp(discLbp)}
+                                </span>
+                              </div>
+                            </div>
+                          </details>
+                        </div>
                       </div>
 
-                      <div className="mt-4 space-y-2">
-                        <div className="ui-kv ui-kv-strong">
-                          <span className="ui-kv-label">Total</span>
-                          <span className="ui-kv-value">{primaryFmt(primaryTotal)}</span>
-                        </div>
-                        <div className="ui-kv ui-kv-sub">
-                          <span className="ui-kv-label">Total (other)</span>
-                          <span className="ui-kv-value">{secondaryFmt(secondaryTotal)}</span>
-                        </div>
-
-                        <div className="section-divider my-3" />
-
-                        <div className="ui-kv">
-                          <span className="ui-kv-label">Applied (settles invoice)</span>
-                          <span className="ui-kv-value">{primaryFmt(primaryPaid)}</span>
-                        </div>
-                        <div className="ui-kv ui-kv-sub">
-                          <span className="ui-kv-label">Applied (other)</span>
-                          <span className="ui-kv-value">{secondaryFmt(secondaryPaid)}</span>
-                        </div>
-
-                        {hasAnyTender ? (
-                          <>
-                            <div className="section-divider my-3" />
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">Tender received</span>
-                              <span className="ui-kv-value">
-                                {fmtUsd(tenderUsd)} / {fmtLbp(tenderLbp)}
-                              </span>
+                      <div className="ui-panel p-4">
+                        <p className="text-sm font-medium text-foreground">Tax Lines</p>
+                        <div className="mt-2 space-y-1 text-xs text-fg-muted">
+                          {detail.invoice.status === "draft" ? (
+                            <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">VAT preview</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsd(taxPreview?.tax_usd ?? 0)} / {fmtLbp(taxPreview?.tax_lbp ?? 0)}
+                                </span>
+                              </div>
+                              <div className="mt-1 text-[11px] text-fg-subtle">
+                                Tax lines are created when you post the invoice.
+                              </div>
                             </div>
-                          </>
-                        ) : null}
+                          ) : null}
 
-                        {(vatUsd !== 0 || vatLbp !== 0) ? (
-                          <>
-                            <div className="section-divider my-3" />
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">VAT</span>
-                              <span className="ui-kv-value">
-                                {fmtUsd(vatUsd)} / {fmtLbp(vatLbp)}
-                              </span>
-                            </div>
-                          </>
-                        ) : null}
+                          {detail.tax_lines.map((t) => {
+                            const tc = taxById.get(String(t.tax_code_id));
+                            const label = tc?.name ? `${tc.name}` : t.tax_code_id;
+                            const ratePct = tc ? taxRateToPercent(tc.rate) : null;
+                            return (
+                              <div key={t.id} className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="data-mono">
+                                    {label}
+                                    {ratePct !== null ? <span className="text-fg-subtle"> · {ratePct.toFixed(2)}%</span> : null}
+                                  </span>
+                                  <span className="data-mono text-foreground">
+                                    {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
+                                  </span>
+                                </div>
+                                <div className="mt-1 flex items-center justify-between gap-2">
+                                  <span className="text-[11px] text-fg-subtle">Base</span>
+                                  <span className="data-mono text-[11px] text-fg-muted">
+                                    {fmtUsd(t.base_usd)} / {fmtLbp(t.base_lbp)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
 
-                        <div className="section-divider my-3" />
-                        <div className="ui-kv ui-kv-strong">
-                          <span className="ui-kv-label">Balance</span>
-                          <span className="ui-kv-value">{primaryFmt(primaryBal)}</span>
+                          {detail.invoice.status === "posted" && detail.tax_lines.length === 0 ? (
+                            <p className="text-fg-subtle">
+                              No tax lines. VAT is only created at posting time and requires a VAT tax code (System {">"} Config) and item tax codes if you use overrides.
+                            </p>
+                          ) : null}
                         </div>
-                        <div className="ui-kv ui-kv-sub">
-                          <span className="ui-kv-label">Balance (other)</span>
-                          <span className="ui-kv-value">{secondaryFmt(secondaryBal)}</span>
-                        </div>
-
-                        <details className="mt-3 rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                          <summary className="cursor-pointer text-xs font-medium text-fg-muted">
-                            Breakdown
-                          </summary>
-                          <div className="mt-2 space-y-2">
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">Subtotal</span>
-                              <span className="ui-kv-value">
-                                {fmtUsd(subUsd)} / {fmtLbp(subLbp)}
-                              </span>
-                            </div>
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">Discount</span>
-                              <span className="ui-kv-value">
-                                {fmtUsd(discUsd)} / {fmtLbp(discLbp)}
-                              </span>
-                            </div>
-                          </div>
-                        </details>
                       </div>
                     </div>
                   </div>
@@ -765,67 +897,6 @@ function SalesInvoiceShowInner() {
                   />
                 </CardContent>
               </Card>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="ui-panel p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-foreground">Payments</p>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href={`/sales/payments?invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`}>Record Payment</Link>
-                    </Button>
-                  </div>
-                  <div className="mt-2 space-y-1 text-xs text-fg-muted">
-                    {detail.payments.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between gap-2">
-                        <span className="data-mono">{p.method}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="data-mono text-right">
-                            {hasTender(p) ? (
-                              <>
-                                <span className="text-foreground">
-                                  Tender {fmtUsd(n(p.tender_usd))} / {fmtLbp(n(p.tender_lbp))}
-                                </span>
-                                <span className="text-fg-subtle"> · </span>
-                                <span className="text-fg-muted">
-                                  Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <span className="text-foreground">
-                                  Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
-                                </span>
-                              </>
-                            )}
-                          </span>
-                          <Button variant="outline" size="sm" onClick={() => recomputePayment(p.id)}>
-                            Fix
-                          </Button>
-                          <Button variant="destructive" size="sm" onClick={() => voidPayment(p.id)}>
-                            Void
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
-                  </div>
-                </div>
-
-                <div className="ui-panel p-4">
-                  <p className="text-sm font-medium text-foreground">Tax Lines</p>
-                  <div className="mt-2 space-y-1 text-xs text-fg-muted">
-                    {detail.tax_lines.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between gap-2">
-                        <span className="data-mono">{t.tax_code_id}</span>
-                        <span className="data-mono">
-                          {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
-                        </span>
-                      </div>
-                    ))}
-                    {detail.tax_lines.length === 0 ? <p className="text-fg-subtle">No tax lines.</p> : null}
-                  </div>
-                </div>
-              </div>
             </CardContent>
           </Card>
 

@@ -1,6 +1,8 @@
 import next from "eslint-config-next";
 
 const config = [
+  // Prevent linting build artifacts; they can be huge and exhaust memory.
+  { ignores: [".next/**"] },
   // Next.js flat config (includes TypeScript + core rules + recommended ignores).
   ...next,
   // The app has many "load on mount" patterns which are idiomatic for data-fetching UIs.

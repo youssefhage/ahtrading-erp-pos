@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 from typing import Optional
 from passlib.context import CryptContext
 
@@ -20,7 +21,7 @@ def verify_password(password: str, hashed: Optional[str]) -> bool:
         return False
     if is_legacy_hash(hashed):
         legacy = hashlib.sha256(password.encode("utf-8")).hexdigest()
-        return legacy == hashed
+        return hmac.compare_digest(legacy, hashed)
     return _pwd_context.verify(password, hashed)
 
 
@@ -39,7 +40,7 @@ def hash_device_token(token: str) -> str:
 def verify_device_token(token: str, token_hash: Optional[str]) -> bool:
     if not token_hash:
         return False
-    return hash_device_token(token) == token_hash
+    return hmac.compare_digest(hash_device_token(token), token_hash)
 
 
 def hash_session_token(token: str) -> str:

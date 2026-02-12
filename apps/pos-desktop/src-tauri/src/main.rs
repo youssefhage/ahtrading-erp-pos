@@ -87,12 +87,7 @@ fn find_sidecar_exe(app: &tauri::AppHandle) -> Option<PathBuf> {
     res.join("bin").join("pos-agent"),
     res.join("bin").join("pos-agent.exe"),
   ];
-  for c in candidates {
-    if c.exists() {
-      return Some(c);
-    }
-  }
-  None
+  candidates.into_iter().find(|c| c.exists())
 }
 
 fn spawn_agent(
@@ -124,6 +119,7 @@ fn spawn_agent(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn start_agents(
   app: tauri::AppHandle,
   state: tauri::State<'_, Mutex<AgentsState>>,

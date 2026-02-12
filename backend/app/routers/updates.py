@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import hmac
 from pathlib import Path
 from typing import Optional
 
@@ -33,7 +34,7 @@ def _require_publish_key(x_updates_key: Optional[str]) -> None:
     if not expected:
         # Not configured in this environment.
         raise HTTPException(status_code=404, detail="updates publishing is disabled")
-    if not x_updates_key or x_updates_key.strip() != expected:
+    if not x_updates_key or not hmac.compare_digest(x_updates_key.strip(), expected):
         raise HTTPException(status_code=403, detail="forbidden")
 
 

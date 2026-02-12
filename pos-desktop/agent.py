@@ -193,6 +193,13 @@ def _admin_pin_required(client_ip: str, cfg: dict) -> bool:
     return not _is_loopback(client_ip)
 
 
+class _JsonBodyError(Exception):
+    def __init__(self, *, status: int, payload: dict):
+        super().__init__(str(payload.get("error") or "json_body_error"))
+        self.status = int(status or 400)
+        self.payload = payload or {"error": "invalid_json"}
+
+
 def _clean_expired_sessions(cur):
     now = datetime.utcnow().isoformat()
     cur.execute("DELETE FROM pos_local_sessions WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
@@ -334,24 +341,27 @@ def text_response(handler, body, status=200, content_type='text/plain'):
 
 
 def file_response(handler, path):
-    if not os.path.exists(path):
+    if not os.path.exists(path) or not os.path.isfile(path):
         handler.send_response(404)
         handler.end_headers()
         return
-    ext = os.path.splitext(path)[1]
-    ctype = 'text/plain'
-    if ext == '.html':
-        ctype = 'text/html'
-    elif ext == '.css':
-        ctype = 'text/css'
-    elif ext == '.js':
-        ctype = 'application/javascript'
-    with open(path, 'rb') as f:
-        data = f.read()
-    handler.send_response(200)
-    handler.send_header('Content-Type', ctype)
-    handler.end_headers()
-    handler.wfile.write(data)
+    try:
+        import mimetypes
+
+        ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    except Exception:
+        ctype = "application/octet-stream"
+    try:
+        with open(path, 'rb') as f:
+            data = f.read()
+        handler.send_response(200)
+        handler.send_header('Content-Type', ctype)
+        handler.end_headers()
+        handler.wfile.write(data)
+    except Exception:
+        handler.send_response(404)
+        handler.end_headers()
+        return
 
 
 def fetch_json(url, headers=None):
@@ -411,6 +421,13 @@ def _setup_req_json_safe(url: str, method: str = "GET", payload=None, headers=No
 
 def _normalize_api_base_url(v) -> str:
     return str(v or "").strip().rstrip("/")
+
+
+def _require_api_base(cfg: dict) -> str:
+    base = (cfg.get("api_base_url") or "").strip().rstrip("/")
+    if not base:
+        raise ValueError("missing api_base_url")
+    return base
 
 
 def device_headers(cfg):
@@ -1627,8 +1644,13 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         if path == '/':
             path = '/index.html'
-        file_path = os.path.join(UI_PATH, path.lstrip('/'))
-        file_response(self, file_path)
+        # Prevent path traversal outside UI_PATH.
+        ui_root = os.path.realpath(UI_PATH)
+        requested = os.path.realpath(os.path.join(ui_root, path.lstrip('/')))
+        if requested != ui_root and not requested.startswith(ui_root + os.sep):
+            text_response(self, "Forbidden", status=403)
+            return
+        file_response(self, requested)
 
     def do_POST(self):
         parsed = urlparse(self.path)
@@ -1643,8 +1665,20 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length', 0))
         if length == 0:
             return {}
-        raw = self.rfile.read(length).decode('utf-8')
-        return json.loads(raw)
+        # Best-effort body size cap to avoid trivial memory DoS.
+        max_len = int(load_config().get("max_json_body_bytes") or 1024 * 1024)
+        if length < 0 or length > max_len:
+            raise _JsonBodyError(status=413, payload={"error": "payload_too_large"})
+        raw = self.rfile.read(length).decode('utf-8', errors='replace')
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            raise _JsonBodyError(status=400, payload={"error": "invalid_json"})
+        if obj is None:
+            return {}
+        if not isinstance(obj, dict):
+            raise _JsonBodyError(status=400, payload={"error": "invalid_json", "hint": "JSON object required"})
+        return obj
 
     def handle_api_get(self, parsed):
         client_ip = (self.client_address[0] if self.client_address else "")
@@ -1755,6 +1789,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_api_post(self, parsed):
         client_ip = (self.client_address[0] if self.client_address else "")
+        try:
+            return self._handle_api_post(parsed, client_ip)
+        except _JsonBodyError as ex:
+            json_response(self, ex.payload, status=ex.status)
+            return
+
+    def _handle_api_post(self, parsed, client_ip: str):
 
         # Local admin PIN setup (loopback-only).
         if parsed.path == "/api/admin/pin/set":
@@ -2325,8 +2366,15 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/api/sync/pull':
             cfg = load_config()
-            base = cfg.get('api_base_url')
-            company_id = cfg.get('company_id')
+            try:
+                base = _require_api_base(cfg)
+            except Exception:
+                json_response(self, {"error": "missing api_base_url"}, status=400)
+                return
+            company_id = (cfg.get('company_id') or "").strip()
+            if not company_id:
+                json_response(self, {"error": "missing company_id"}, status=400)
+                return
             if not cfg.get('device_id') or not cfg.get('device_token'):
                 json_response(self, {'error': 'missing device_id or device_token'}, status=400)
                 return
@@ -2420,7 +2468,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/api/shift/status':
             cfg = load_config()
-            base = cfg.get('api_base_url')
+            try:
+                base = _require_api_base(cfg)
+            except Exception:
+                json_response(self, {"error": "missing api_base_url"}, status=400)
+                return
             if not cfg.get('device_id') or not cfg.get('device_token'):
                 json_response(self, {'error': 'missing device_id or device_token'}, status=400)
                 return
@@ -2436,7 +2488,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/api/shift/open':
             cfg = load_config()
-            base = cfg.get('api_base_url')
+            try:
+                base = _require_api_base(cfg)
+            except Exception:
+                json_response(self, {"error": "missing api_base_url"}, status=400)
+                return
             data = self.read_json()
             if not cfg.get('device_id') or not cfg.get('device_token'):
                 json_response(self, {'error': 'missing device_id or device_token'}, status=400)
@@ -2456,7 +2512,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/api/shift/close':
             cfg = load_config()
-            base = cfg.get('api_base_url')
+            try:
+                base = _require_api_base(cfg)
+            except Exception:
+                json_response(self, {"error": "missing api_base_url"}, status=400)
+                return
             data = self.read_json()
             shift_id = cfg.get('shift_id')
             if not shift_id:
@@ -2478,9 +2538,16 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/api/sync/push':
             cfg = load_config()
-            base = cfg.get('api_base_url')
-            company_id = cfg.get('company_id')
-            device_id = cfg.get('device_id')
+            try:
+                base = _require_api_base(cfg)
+            except Exception:
+                json_response(self, {"error": "missing api_base_url"}, status=400)
+                return
+            company_id = (cfg.get('company_id') or "").strip()
+            if not company_id:
+                json_response(self, {"error": "missing company_id"}, status=400)
+                return
+            device_id = (cfg.get('device_id') or "").strip()
             if not device_id or not cfg.get('device_token'):
                 json_response(self, {'error': 'missing device_id or device_token'}, status=400)
                 return

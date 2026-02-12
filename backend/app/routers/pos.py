@@ -355,6 +355,8 @@ def pull_inbox(
     device_id: Optional[uuid.UUID] = None,
     device=Depends(require_device),
 ):
+    if limit <= 0 or limit > 2000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
     if device_id and device_id != device["device_id"]:
         raise HTTPException(status_code=400, detail="device_id mismatch")
     if company_id and company_id != device["company_id"]:
@@ -518,6 +520,8 @@ def catalog_delta(
     Incremental catalog sync for POS. Returns items whose `items.updated_at` changed
     since the cursor, or which have new prices inserted since the cursor.
     """
+    if limit <= 0 or limit > 10000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 10000")
     if company_id and company_id != device["company_id"]:
         raise HTTPException(status_code=400, detail="company_id mismatch")
     with get_conn() as conn:
@@ -667,6 +671,8 @@ def item_categories_catalog_delta(
     limit: int = 5000,
     device=Depends(require_device),
 ):
+    if limit <= 0 or limit > 10000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 10000")
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
@@ -1483,6 +1489,8 @@ def customers_catalog_delta(
     """
     Incremental customer sync for POS.
     """
+    if limit <= 0 or limit > 10000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 10000")
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
