@@ -5,8 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
@@ -189,120 +189,128 @@ export default function BranchesPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+    <Page width="lg" className="px-4">
+      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Branches</CardTitle>
-            <CardDescription>{branches.length} branches</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button>New Branch</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create Branch</DialogTitle>
-                    <DialogDescription>Add a new store/branch.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={createBranch} className="grid grid-cols-1 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Main" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Address (optional)</label>
-                      <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Lebanon" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Default Warehouse (optional)</label>
-                      <select className="ui-select" value={defaultWarehouseId} onChange={(e) => setDefaultWarehouseId(e.target.value)}>
-                        <option value="">(none)</option>
-                        {warehouses.map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Invoice Prefix (optional)</label>
-                      <Input value={invoicePrefix} onChange={(e) => setInvoicePrefix(e.target.value)} placeholder="e.g. BR1-" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Operating Hours JSON (optional)</label>
-                      <textarea className="ui-textarea" value={operatingHours} onChange={(e) => setOperatingHours(e.target.value)} rows={4} placeholder='{"mon":[["09:00","18:00"]]}' />
-                    </div>
-                    <div className="flex justify-end">
-                      <Button type="submit" disabled={creating}>
-                        {creating ? "..." : "Create"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
+      <PageHeader
+        title="Branches"
+        description="Branches are your stores/locations. POS devices can be scoped to a branch."
+        actions={
+          <>
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>New Branch</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Branch</DialogTitle>
+                  <DialogDescription>Add a new store/branch.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createBranch} className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Name</label>
+                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Main" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Address (optional)</label>
+                    <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Lebanon" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Default Warehouse (optional)</label>
+                    <select className="ui-select" value={defaultWarehouseId} onChange={(e) => setDefaultWarehouseId(e.target.value)}>
+                      <option value="">(none)</option>
+                      {warehouses.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Invoice Prefix (optional)</label>
+                    <Input value={invoicePrefix} onChange={(e) => setInvoicePrefix(e.target.value)} placeholder="e.g. BR1-" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Operating Hours JSON (optional)</label>
+                    <textarea
+                      className="ui-textarea"
+                      value={operatingHours}
+                      onChange={(e) => setOperatingHours(e.target.value)}
+                      rows={4}
+                      placeholder='{"mon":[["09:00","18:00"]]}'
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={creating}>
+                      {creating ? "..." : "Create"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </>
+        }
+      />
 
-              <Dialog open={editOpen} onOpenChange={setEditOpen}>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Edit Branch</DialogTitle>
-                    <DialogDescription>Update branch configuration and defaults.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Address (optional)</label>
-                      <Input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Default Warehouse (optional)</label>
-                      <select className="ui-select" value={editDefaultWarehouseId} onChange={(e) => setEditDefaultWarehouseId(e.target.value)}>
-                        <option value="">(none)</option>
-                        {warehouses.map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Invoice Prefix (optional)</label>
-                      <Input value={editInvoicePrefix} onChange={(e) => setEditInvoicePrefix(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Operating Hours JSON (optional)</label>
-                      <textarea className="ui-textarea" value={editOperatingHours} onChange={(e) => setEditOperatingHours(e.target.value)} rows={6} />
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
-                        Cancel
-                      </Button>
-                      <Button type="submit" disabled={saving}>
-                        {saving ? "..." : "Save"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Branch</DialogTitle>
+            <DialogDescription>Update branch configuration and defaults.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-fg-muted">Name</label>
+              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
             </div>
-            <DataTable<BranchRow>
-              tableId="system.branches"
-              rows={branches}
-              columns={columns}
-              emptyText="No branches."
-              globalFilterPlaceholder="Search branch name / address..."
-              initialSort={{ columnId: "name", dir: "asc" }}
-            />
-          </CardContent>
-        </Card>
-      </div>);
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-fg-muted">Address (optional)</label>
+              <Input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-fg-muted">Default Warehouse (optional)</label>
+              <select className="ui-select" value={editDefaultWarehouseId} onChange={(e) => setEditDefaultWarehouseId(e.target.value)}>
+                <option value="">(none)</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-fg-muted">Invoice Prefix (optional)</label>
+              <Input value={editInvoicePrefix} onChange={(e) => setEditInvoicePrefix(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-fg-muted">Operating Hours JSON (optional)</label>
+              <textarea className="ui-textarea" value={editOperatingHours} onChange={(e) => setEditOperatingHours(e.target.value)} rows={6} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "..." : "Save"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Section title="List" description={`${branches.length} branches`}>
+        <DataTable<BranchRow>
+          tableId="system.branches"
+          rows={branches}
+          columns={columns}
+          emptyText="No branches."
+          globalFilterPlaceholder="Search branch name / address..."
+          initialSort={{ columnId: "name", dir: "asc" }}
+        />
+      </Section>
+    </Page>
+  );
 }

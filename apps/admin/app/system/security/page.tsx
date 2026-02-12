@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 type Me = {
@@ -125,20 +125,12 @@ export default function SecurityPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">Security</h1>
-        <p className="text-sm text-fg-muted">Profile and multi-factor authentication.</p>
-      </div>
+    <Page width="md" className="px-4 pb-10">
+      <PageHeader title="Security" description="Profile and multi-factor authentication." actions={<Button variant="outline" onClick={load}>Refresh</Button>} />
 
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Profile</CardTitle>
-          <CardDescription>These fields help with audit trails and internal ops.</CardDescription>
-        </CardHeader>
-        <CardContent>
+      <Section title="Profile" description="These fields help with audit trails and internal ops.">
           <form onSubmit={saveProfile} className="grid grid-cols-1 gap-3 md:grid-cols-6">
             <div className="space-y-1 md:col-span-6">
               <label className="text-xs font-medium text-fg-muted">Email</label>
@@ -161,15 +153,10 @@ export default function SecurityPage() {
               </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
+      </Section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>MFA (Authenticator App)</CardTitle>
-          <CardDescription>Optional, recommended for admin users.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <Section title="MFA (Authenticator App)" description="Optional, recommended for admin users.">
+        <div className="space-y-4">
           <div className="text-sm text-fg-muted">
             Status:{" "}
             <span className="font-mono text-xs">
@@ -222,9 +209,8 @@ export default function SecurityPage() {
               </Button>
             </form>
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </Section>
+    </Page>
   );
 }
-

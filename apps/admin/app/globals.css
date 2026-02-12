@@ -373,6 +373,43 @@
     @apply border-b-0;
   }
 
+  /* Tab bars: quick navigation within a module (e.g. System settings). */
+  .ui-tabbar-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ui-tabbar {
+    display: inline-flex;
+    min-width: max-content;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 999px;
+    border: 1px solid rgb(var(--border-subtle));
+    background: rgb(var(--bg-sunken) / 0.25);
+  }
+  .ui-tabbar-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    color: rgb(var(--fg-muted));
+    text-decoration: none;
+    transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+    white-space: nowrap;
+  }
+  .ui-tabbar-tab:hover {
+    background: rgb(var(--bg-elevated) / 0.6);
+    color: rgb(var(--foreground));
+  }
+  .ui-tabbar-tab-active {
+    background: rgb(var(--bg-elevated));
+    color: rgb(var(--foreground));
+    box-shadow: 0 1px 0 rgb(0 0 0 / 0.05), 0 0 0 1px rgb(var(--border));
+  }
+
   /* Date inputs: make calendar pickers feel consistent and readable */
   input[type="date"] {
     @apply data-mono;

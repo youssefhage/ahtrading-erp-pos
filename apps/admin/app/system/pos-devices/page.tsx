@@ -6,12 +6,12 @@ import { useEffect, useMemo, useState } from "react";
 import { apiDelete, apiGet, apiPost, getCompanyId } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 import { SearchableSelect } from "@/components/searchable-select";
 import { ConfirmButton } from "@/components/confirm-button";
+import { Page, PageHeader, Section } from "@/components/page";
 
 type DeviceRow = {
   id: string;
@@ -241,38 +241,78 @@ async function resetToken(device: DeviceRow) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4 pb-10">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
+      <PageHeader
+        title="POS Devices"
+        description="Register devices and generate setup packs for the POS agent."
+        actions={
+          <>
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+            <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
+              <DialogTrigger asChild>
+                <Button>Register Device</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Register POS Device</DialogTitle>
+                  <DialogDescription>Creates a device and returns a one-time token.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={registerDevice} className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Device Code</label>
+                    <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} placeholder="POS-01" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Branch (optional)</label>
+                    <SearchableSelect
+                      value={branchId}
+                      onChange={setBranchId}
+                      placeholder="No branch"
+                      searchPlaceholder="Search branches..."
+                      options={[
+                        { value: "", label: "No branch" },
+                        ...branches.map((b) => ({ value: b.id, label: b.name })),
+                      ]}
+                    />
+                    {branchId ? <div className="text-[11px] text-fg-subtle">Branch ID: {branchId}</div> : null}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={registering}>
+                      {registering ? "..." : "Register"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </>
+        }
+      />
+
       {devices.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Create Your First POS Device</CardTitle>
-            <CardDescription>Register a device, then copy a full setup pack with all required fields.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <ol className="list-decimal space-y-1 pl-5 text-fg-subtle">
-              <li>Click Register Device, choose an optional Branch, and set a device code like POS-01.</li>
-              <li>Copy the generated Setup Pack (includes API URL, company, branch, code, device id, token).</li>
-              <li>Paste those values in POS `Settings` and Save.</li>
-              <li>Sync to verify the agent can connect.</li>
-            </ol>
-            <div className="flex justify-end">
-              <Button onClick={() => setRegisterOpen(true)}>Register Device</Button>
-            </div>
-          </CardContent>
-        </Card>
+        <Section
+          title="Create Your First POS Device"
+          description="Register a device, then copy a full setup pack with all required fields."
+          actions={<Button onClick={() => setRegisterOpen(true)}>Register Device</Button>}
+        >
+          <ol className="list-decimal space-y-1 pl-5 text-sm text-fg-subtle">
+            <li>Click Register Device, choose an optional Branch, and set a device code like POS-01.</li>
+            <li>Copy the generated Setup Pack (includes API URL, company, branch, code, device id, token).</li>
+            <li>Paste those values in POS `Settings` and Save.</li>
+            <li>Sync to verify the agent can connect.</li>
+          </ol>
+        </Section>
       ) : null}
 
       {lastSetup ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>POS Setup Pack</CardTitle>
-            <CardDescription>
-              Everything needed for POS setup after register/reset. Copy values directly into the POS `Settings` screen.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
+        <Section
+          title="POS Setup Pack"
+          description="Everything needed for POS setup after register/reset. Copy values directly into the POS Settings screen."
+        >
+          <div className="space-y-3 text-sm">
             <div className="space-y-1">
               <label className="text-xs font-medium text-fg-muted">API Base URL for POS agents</label>
               <div className="flex flex-wrap items-center gap-2">
@@ -318,58 +358,11 @@ async function resetToken(device: DeviceRow) {
             <div className="rounded-md border border-border bg-bg-sunken/20 p-3 text-xs text-fg-subtle">
               Use this pack in POS: open POS &rarr; <strong>Settings</strong> &rarr; paste values &rarr; Save &rarr; Sync.
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </Section>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Devices</CardTitle>
-          <CardDescription>{devices.length} devices</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
-            <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
-              <DialogTrigger asChild>
-                <Button>Register Device</Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Register POS Device</DialogTitle>
-                  <DialogDescription>Creates a device and returns a one-time token.</DialogDescription>
-                </DialogHeader>
-                <form onSubmit={registerDevice} className="grid grid-cols-1 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Device Code</label>
-                    <Input value={deviceCode} onChange={(e) => setDeviceCode(e.target.value)} placeholder="POS-01" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Branch (optional)</label>
-                    <SearchableSelect
-                      value={branchId}
-                      onChange={setBranchId}
-                      placeholder="No branch"
-                      searchPlaceholder="Search branches..."
-                      options={[
-                        { value: "", label: "No branch" },
-                        ...branches.map((b) => ({ value: b.id, label: b.name })),
-                      ]}
-                    />
-                    {branchId ? <div className="text-[11px] text-fg-subtle">Branch ID: {branchId}</div> : null}
-                  </div>
-                  <div className="flex justify-end">
-                    <Button type="submit" disabled={registering}>
-                      {registering ? "..." : "Register"}
-                    </Button>
-                  </div>
-                </form>
-              </DialogContent>
-            </Dialog>
-          </div>
-
+      <Section title="Devices" description={`${devices.length} device(s)`}>
           {(() => {
             const columns: Array<DataTableColumn<DeviceRow>> = [
               { id: "device_code", header: "Code", accessor: (d) => d.device_code, sortable: true, mono: true, cell: (d) => <span className="text-xs">{d.device_code}</span> },
@@ -427,8 +420,7 @@ async function resetToken(device: DeviceRow) {
               />
             );
           })()}
-        </CardContent>
-      </Card>
-    </div>
+      </Section>
+    </Page>
   );
 }

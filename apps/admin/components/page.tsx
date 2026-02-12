@@ -34,7 +34,7 @@ export function Toolbar(props: { children: React.ReactNode; className?: string }
 
 export function Section(props: {
   title: string;
-  description?: string;
+  description?: React.ReactNode;
   actions?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
@@ -54,4 +54,3 @@ export function Section(props: {
     </Card>
   );
 }
-

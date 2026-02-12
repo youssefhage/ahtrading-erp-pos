@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 
@@ -282,109 +282,101 @@ export default function PosShiftsPage() {
   }, [selectedShiftId]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4 pb-10">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-      <div className="flex items-center justify-end">
-        <Button variant="outline" onClick={load}>
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="POS Shifts"
+        description="Shift history and cash movements for POS devices."
+        actions={
+          <Button variant="outline" onClick={load}>
+            Refresh
+          </Button>
+        }
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Shifts</CardTitle>
-          <CardDescription>{shifts.length} shifts (latest first)</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <DataTable<ShiftRow>
-            tableId="system.pos_shifts.shifts"
-            rows={shifts}
-            columns={shiftColumns}
-            getRowId={(r) => r.id}
-            emptyText="No shifts."
-            globalFilterPlaceholder="Search device / status / id"
-            initialSort={{ columnId: "opened_at", dir: "desc" }}
-          />
-        </CardContent>
-      </Card>
+      <Section title="Shifts" description={`${shifts.length} shift(s) (latest first)`}>
+        <DataTable<ShiftRow>
+          tableId="system.pos_shifts.shifts"
+          rows={shifts}
+          columns={shiftColumns}
+          getRowId={(r) => r.id}
+          emptyText="No shifts."
+          globalFilterPlaceholder="Search device / status / id"
+          initialSort={{ columnId: "opened_at", dir: "desc" }}
+        />
+      </Section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Cash Movements</CardTitle>
-          <CardDescription>
-            {selectedShiftId ? (
-              <span>
-                Shift: <span className="font-mono text-xs">{selectedShiftId}</span>
-              </span>
-            ) : (
-              "Select a shift to view cash movements."
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {recon ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Cash Reconciliation</CardTitle>
-                <CardDescription>
-                  Cash methods:{" "}
-                  <span className="font-mono text-xs">
-                    {(recon.cash_methods || []).length ? recon.cash_methods.join(", ") : "none"}
-                  </span>
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                  <div className="text-xs text-fg-muted">Opening</div>
-                  <div className="mt-1 font-mono text-sm">
-                    USD {Number(recon.shift.opening_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                  <div className="text-xs text-fg-muted">Cash Sales</div>
-                  <div className="mt-1 font-mono text-sm">
-                    USD {Number(recon.sales_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                  <div className="text-xs text-fg-muted">Cash Refunds</div>
-                  <div className="mt-1 font-mono text-sm">
-                    USD {Number(recon.refunds_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                  <div className="text-xs text-fg-muted">Cash Movements (net)</div>
-                  <div className="mt-1 font-mono text-sm">
-                    USD {Number(recon.cash_movements_net_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                  <div className="text-xs text-fg-muted">Expected (computed)</div>
-                  <div className="mt-1 font-mono text-sm">
-                    USD {Number(recon.expected_computed_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
-                  <div className="text-xs text-fg-muted">Closing (counted)</div>
-                  <div className="mt-1 font-mono text-sm">
-                    USD {Number(recon.shift.closing_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
-
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <div className="w-full md:w-56">
-                <label className="text-xs font-medium text-fg-muted">Limit</label>
-                <Input value={movementsLimit} onChange={(e) => setMovementsLimit(e.target.value)} />
-              </div>
-              <Button variant="outline" onClick={() => loadMovements(selectedShiftId)} disabled={!selectedShiftId}>
-                Refresh Movements
-              </Button>
+      <Section
+        title="Cash Movements"
+        description={
+          selectedShiftId ? (
+            <span>
+              Shift: <span className="font-mono text-xs">{selectedShiftId}</span>
+            </span>
+          ) : (
+            "Select a shift to view cash movements."
+          )
+        }
+      >
+        {recon ? (
+          <div className="rounded-md border border-border-subtle bg-bg-sunken/20 p-4">
+            <div className="text-sm font-medium text-foreground">Cash Reconciliation</div>
+            <div className="mt-1 text-xs text-fg-subtle">
+              Cash methods: <span className="font-mono">{(recon.cash_methods || []).length ? recon.cash_methods.join(", ") : "none"}</span>
             </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                <div className="text-xs text-fg-muted">Opening</div>
+                <div className="mt-1 font-mono text-sm">
+                  USD {Number(recon.shift.opening_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                <div className="text-xs text-fg-muted">Cash Sales</div>
+                <div className="mt-1 font-mono text-sm">
+                  USD {Number(recon.sales_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                <div className="text-xs text-fg-muted">Cash Refunds</div>
+                <div className="mt-1 font-mono text-sm">
+                  USD {Number(recon.refunds_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                <div className="text-xs text-fg-muted">Cash Movements (net)</div>
+                <div className="mt-1 font-mono text-sm">
+                  USD {Number(recon.cash_movements_net_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                <div className="text-xs text-fg-muted">Expected (computed)</div>
+                <div className="mt-1 font-mono text-sm">
+                  USD {Number(recon.expected_computed_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                </div>
+              </div>
+              <div className="rounded-md border border-border-subtle bg-bg-sunken/40 p-3">
+                <div className="text-xs text-fg-muted">Closing (counted)</div>
+                <div className="mt-1 font-mono text-sm">
+                  USD {Number(recon.shift.closing_cash_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
+          <div className="w-full md:w-56">
+            <label className="text-xs font-medium text-fg-muted">Limit</label>
+            <Input value={movementsLimit} onChange={(e) => setMovementsLimit(e.target.value)} />
+          </div>
+          <Button variant="outline" onClick={() => loadMovements(selectedShiftId)} disabled={!selectedShiftId}>
+            Refresh Movements
+          </Button>
+        </div>
+
+        <div className="mt-3">
           <DataTable<CashMovementRow>
             tableId="system.pos_shifts.cash_movements"
             rows={movements}
@@ -394,8 +386,8 @@ export default function PosShiftsPage() {
             globalFilterPlaceholder="Search device / type / notes"
             initialSort={{ columnId: "created_at", dir: "desc" }}
           />
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </Section>
+    </Page>
   );
 }

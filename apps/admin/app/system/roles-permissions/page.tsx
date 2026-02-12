@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmButton } from "@/components/confirm-button";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
@@ -253,15 +253,14 @@ export default function RolesPermissionsPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4 pb-10">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Roles & Permissions</h1>
-          <p className="text-sm text-fg-muted">Define roles and grant permission codes.</p>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+      <PageHeader
+        title="Roles & Permissions"
+        description="Define roles and grant permission codes."
+        actions={
+          <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="outline" onClick={load}>
             Refresh
           </Button>
@@ -372,8 +371,9 @@ export default function RolesPermissionsPage() {
               </form>
             </DialogContent>
           </Dialog>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       <Dialog open={editRoleOpen} onOpenChange={setEditRoleOpen}>
         <DialogContent>
@@ -395,12 +395,7 @@ export default function RolesPermissionsPage() {
         </DialogContent>
       </Dialog>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Role Permissions</CardTitle>
-            <CardDescription>Pick a role to review its assigned permissions.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      <Section title="Role Permissions" description="Pick a role to review its assigned permissions.">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Role</label>
@@ -430,15 +425,9 @@ export default function RolesPermissionsPage() {
               globalFilterPlaceholder="Search permission code / description"
               initialSort={{ columnId: "code", dir: "asc" }}
             />
-          </CardContent>
-        </Card>
+      </Section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>All Permissions</CardTitle>
-            <CardDescription>{permissions.length} permission codes</CardDescription>
-          </CardHeader>
-          <CardContent>
+      <Section title="All Permissions" description={`${permissions.length} permission code(s)`}>
             <DataTable<PermissionRow>
               tableId="system.roles_permissions.all_permissions"
               rows={permissions}
@@ -449,7 +438,7 @@ export default function RolesPermissionsPage() {
               globalFilterPlaceholder="Search code / description"
               initialSort={{ columnId: "code", dir: "asc" }}
             />
-          </CardContent>
-        </Card>
-      </div>);
+      </Section>
+    </Page>
+  );
 }

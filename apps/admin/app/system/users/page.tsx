@@ -6,8 +6,8 @@ import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { ConfirmButton } from "@/components/confirm-button";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
@@ -214,144 +214,130 @@ export default function UsersPage() {
   }, [load]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4 pb-10">
         {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" onClick={load}>
-            Refresh
-          </Button>
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogTrigger asChild>
-              <Button>New User</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create User</DialogTitle>
-                <DialogDescription>Create the account and auto-assign access with a template (recommended).</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={createUser} className="grid grid-cols-1 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Email</label>
-                  <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@ahtrading.local" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Password</label>
-                  <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Set a password" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Role Template (Recommended)</label>
-                  <select className="ui-select" value={templateCode} onChange={(e) => setTemplateCode(e.target.value)}>
-                    <option value="">No template</option>
-                    {templates.map((t) => (
-                      <option key={t.code} value={t.code}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {selectedTemplate ? (
-                  <p className="text-xs text-fg-muted">
-                    {selectedTemplate.description} ({selectedTemplate.permission_codes.length} permissions)
-                  </p>
-                ) : null}
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Or Assign Existing Role</label>
-                  <select
-                    className="ui-select"
-                    value={createRoleId}
-                    onChange={(e) => setCreateRoleId(e.target.value)}
-                    disabled={Boolean(templateCode)}
-                  >
-                    <option value="">No role</option>
-                    {roles.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={creating}>
-                    {creating ? "..." : "Create"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+      <PageHeader
+        title="Users"
+        description="Manage access for this company (users, roles, templates)."
+        actions={
+          <>
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>New User</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create User</DialogTitle>
+                  <DialogDescription>Create the account and auto-assign access with a template (recommended).</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createUser} className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Email</label>
+                    <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@ahtrading.local" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Password</label>
+                    <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Set a password" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Role Template (Recommended)</label>
+                    <select className="ui-select" value={templateCode} onChange={(e) => setTemplateCode(e.target.value)}>
+                      <option value="">No template</option>
+                      {templates.map((t) => (
+                        <option key={t.code} value={t.code}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {selectedTemplate ? (
+                    <p className="text-xs text-fg-muted">
+                      {selectedTemplate.description} ({selectedTemplate.permission_codes.length} permissions)
+                    </p>
+                  ) : null}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Or Assign Existing Role</label>
+                    <select className="ui-select" value={createRoleId} onChange={(e) => setCreateRoleId(e.target.value)} disabled={Boolean(templateCode)}>
+                      <option value="">No role</option>
+                      {roles.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={creating}>
+                      {creating ? "..." : "Create"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
 
-          <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
-            <DialogTrigger asChild>
-              <Button variant="secondary">Assign Role</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Assign Role</DialogTitle>
-                <DialogDescription>Attach an existing company role to any user account.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={assignRole} className="grid grid-cols-1 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">User</label>
-                  <select
-                    className="ui-select"
-                    value={assignUserId}
-                    onChange={(e) => setAssignUserId(e.target.value)}
-                  >
-                    <option value="">Select user...</option>
-                    {allUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-fg-muted">Role</label>
-                  <select
-                    className="ui-select"
-                    value={assignRoleId}
-                    onChange={(e) => setAssignRoleId(e.target.value)}
-                  >
-                    <option value="">Select role...</option>
-                    {roles.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {assignRoleId ? (
-                  <p className="text-xs text-fg-muted">
-                    Selected role:{" "}
-                    <span className="font-mono text-xs">{roleById.get(assignRoleId)?.name || assignRoleId}</span>
-                  </p>
-                ) : null}
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={assigning}>
-                    {assigning ? "..." : "Assign"}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
+            <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+              <DialogTrigger asChild>
+                <Button variant="secondary">Assign Role</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Assign Role</DialogTitle>
+                  <DialogDescription>Attach an existing company role to any user account.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={assignRole} className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">User</label>
+                    <select className="ui-select" value={assignUserId} onChange={(e) => setAssignUserId(e.target.value)}>
+                      <option value="">Select user...</option>
+                      {allUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Role</label>
+                    <select className="ui-select" value={assignRoleId} onChange={(e) => setAssignRoleId(e.target.value)}>
+                      <option value="">Select role...</option>
+                      {roles.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {assignRoleId ? (
+                    <p className="text-xs text-fg-muted">
+                      Selected role: <span className="font-mono text-xs">{roleById.get(assignRoleId)?.name || assignRoleId}</span>
+                    </p>
+                  ) : null}
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={assigning}>
+                      {assigning ? "..." : "Assign"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </>
+        }
+      />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Users</CardTitle>
-            <CardDescription>{users.length} users with access to this company</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <DataTable<UserRow>
-              tableId="system.users"
-              rows={users}
-              columns={columns}
-              emptyText="No users."
-              globalFilterPlaceholder="Search email / id..."
-              initialSort={{ columnId: "email", dir: "asc" }}
-            />
-          </CardContent>
-        </Card>
+      <Section title="Users" description={`${users.length} user(s) with access to this company`}>
+        <DataTable<UserRow>
+          tableId="system.users"
+          rows={users}
+          columns={columns}
+          emptyText="No users."
+          globalFilterPlaceholder="Search email / id..."
+          initialSort={{ columnId: "email", dir: "asc" }}
+        />
+      </Section>
 
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
           <DialogContent>
@@ -384,5 +370,6 @@ export default function UsersPage() {
             </form>
           </DialogContent>
         </Dialog>
-      </div>);
+    </Page>
+  );
 }

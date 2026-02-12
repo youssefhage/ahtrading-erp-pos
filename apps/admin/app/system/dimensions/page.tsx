@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
@@ -153,22 +153,25 @@ export default function DimensionsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4 pb-10">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
+      <PageHeader
+        title="Dimensions"
+        description="Cost centers and projects for tagging journals and reports."
+        actions={
+          <Button variant="outline" onClick={load}>
+            Refresh
+          </Button>
+        }
+      />
+
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Cost Centers</CardTitle>
-            <CardDescription>{ccSorted.length} rows</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Button onClick={() => openCreate("cc")}>New</Button>
-            </div>
+        <Section
+          title="Cost Centers"
+          description={`${ccSorted.length} row(s)`}
+          actions={<Button onClick={() => openCreate("cc")}>New</Button>}
+        >
             <DataTable<DimRow>
               tableId="system.dimensions.cost_centers"
               rows={ccSorted}
@@ -189,21 +192,9 @@ export default function DimensionsPage() {
               globalFilterPlaceholder="Search code / name"
               initialSort={{ columnId: "code", dir: "asc" }}
             />
-          </CardContent>
-        </Card>
+        </Section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Projects</CardTitle>
-            <CardDescription>{prSorted.length} rows</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Button onClick={() => openCreate("pr")}>New</Button>
-            </div>
+        <Section title="Projects" description={`${prSorted.length} row(s)`} actions={<Button onClick={() => openCreate("pr")}>New</Button>}>
             <DataTable<DimRow>
               tableId="system.dimensions.projects"
               rows={prSorted}
@@ -224,8 +215,7 @@ export default function DimensionsPage() {
               globalFilterPlaceholder="Search code / name"
               initialSort={{ columnId: "code", dir: "asc" }}
             />
-          </CardContent>
-        </Card>
+        </Section>
       </div>
 
       <Dialog open={Boolean(createOpen)} onOpenChange={(o) => setCreateOpen(o ? createOpen : "")}>
@@ -295,6 +285,6 @@ export default function DimensionsPage() {
           </form>
         </DialogContent>
       </Dialog>
-    </div>
+    </Page>
   );
 }

@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 
@@ -115,15 +115,21 @@ export default function AuditLogsPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4 pb-10">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Filters</CardTitle>
-          <CardDescription>Audit feed (read-only). Use filters to narrow down to a document or action.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-5">
+      <PageHeader
+        title="Audit Logs"
+        description="Read-only audit feed. Use filters to narrow down to a document or action."
+        actions={
+          <Button variant="outline" onClick={load}>
+            Refresh
+          </Button>
+        }
+      />
+
+      <Section title="Filters" description="Filter by entity, action prefix, and user.">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
           <div className="space-y-1 md:col-span-1">
             <label className="text-xs font-medium text-fg-muted">Entity Type</label>
             <Input value={entityType} onChange={(e) => setEntityType(e.target.value)} placeholder="sales_invoice" />
@@ -144,30 +150,19 @@ export default function AuditLogsPage() {
             <label className="text-xs font-medium text-fg-muted">Limit</label>
             <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
           </div>
-          <div className="md:col-span-5 flex items-center justify-end gap-2">
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+        </div>
+      </Section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Audit Logs</CardTitle>
-          <CardDescription>Most recent first.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable<AuditLogRow>
-            tableId="system.auditLogs"
-            rows={rows}
-            columns={columns}
-            emptyText="No audit logs found."
-            globalFilterPlaceholder="Search action / entity / user..."
-            initialSort={{ columnId: "created_at", dir: "desc" }}
-          />
-        </CardContent>
-      </Card>
-    </div>
+      <Section title="Entries" description="Most recent first.">
+        <DataTable<AuditLogRow>
+          tableId="system.auditLogs"
+          rows={rows}
+          columns={columns}
+          emptyText="No audit logs found."
+          globalFilterPlaceholder="Search action / entity / user..."
+          initialSort={{ columnId: "created_at", dir: "desc" }}
+        />
+      </Section>
+    </Page>
   );
 }

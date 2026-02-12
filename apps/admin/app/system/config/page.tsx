@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmButton } from "@/components/confirm-button";
+import { Page, PageHeader, Section } from "@/components/page";
+import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
@@ -46,6 +48,8 @@ function taxRateInputToDecimal(raw: string): number {
 }
 
 export default function ConfigPage() {
+  const sp = useSearchParams();
+  const tab = String(sp.get("tab") || "policies").trim() || "policies";
   const [status, setStatus] = useState("");
 
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
@@ -60,6 +64,7 @@ export default function ConfigPage() {
   const [pointsPerUsd, setPointsPerUsd] = useState("0");
   const [pointsPerLbp, setPointsPerLbp] = useState("0");
   const [savingLoyalty, setSavingLoyalty] = useState(false);
+  const [loyaltyOpen, setLoyaltyOpen] = useState(false);
 
   // AI policy (company_settings.key='ai')
   const [allowExternalAi, setAllowExternalAi] = useState(true);
@@ -70,10 +75,12 @@ export default function ConfigPage() {
   const [aiInvoiceVisionModel, setAiInvoiceVisionModel] = useState("");
   const [aiInvoiceTextModel, setAiInvoiceTextModel] = useState("");
   const [savingAiPolicy, setSavingAiPolicy] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
 
   // Inventory policy (company_settings.key='inventory')
   const [requireManualLotSelection, setRequireManualLotSelection] = useState(false);
   const [savingInventoryPolicy, setSavingInventoryPolicy] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
 
   // AP 3-way match policy (company_settings.key='ap_3way_match')
   const [apPctThreshold, setApPctThreshold] = useState("0.15");
@@ -82,12 +89,14 @@ export default function ConfigPage() {
   const [apTaxDiffPctThreshold, setApTaxDiffPctThreshold] = useState("0.02");
   const [apTaxDiffLbpThreshold, setApTaxDiffLbpThreshold] = useState("500000");
   const [savingApPolicy, setSavingApPolicy] = useState(false);
+  const [apOpen, setApOpen] = useState(false);
 
   // Pricing policy (company_settings.key='pricing_policy')
   const [targetMarginPct, setTargetMarginPct] = useState("0.20");
   const [usdRoundStep, setUsdRoundStep] = useState("0.25");
   const [lbpRoundStep, setLbpRoundStep] = useState("5000");
   const [savingPricingPolicy, setSavingPricingPolicy] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
 
   // Tax code form
   const [taxName, setTaxName] = useState("");
@@ -547,7 +556,7 @@ export default function ConfigPage() {
     }
   }
 
-  async function savePricingPolicy(e: React.FormEvent) {
+  async function savePricingPolicy(e: React.FormEvent): Promise<boolean> {
     e.preventDefault();
     setSavingPricingPolicy(true);
     setStatus("Saving pricing policy...");
@@ -562,15 +571,17 @@ export default function ConfigPage() {
       });
       await load();
       setStatus("");
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+      return false;
     } finally {
       setSavingPricingPolicy(false);
     }
   }
 
-  async function saveLoyalty(e: React.FormEvent) {
+  async function saveLoyalty(e: React.FormEvent): Promise<boolean> {
     e.preventDefault();
     setSavingLoyalty(true);
     setStatus("Saving loyalty settings...");
@@ -584,15 +595,17 @@ export default function ConfigPage() {
       });
       await load();
       setStatus("");
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+      return false;
     } finally {
       setSavingLoyalty(false);
     }
   }
 
-  async function saveAi(e: React.FormEvent) {
+  async function saveAi(e: React.FormEvent): Promise<boolean> {
     e.preventDefault();
     setSavingAiPolicy(true);
     setStatus("Saving AI policy...");
@@ -614,15 +627,17 @@ export default function ConfigPage() {
       });
       await load();
       setStatus("");
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+      return false;
     } finally {
       setSavingAiPolicy(false);
     }
   }
 
-  async function saveInventory(e: React.FormEvent) {
+  async function saveInventory(e: React.FormEvent): Promise<boolean> {
     e.preventDefault();
     setSavingInventoryPolicy(true);
     setStatus("Saving inventory policy...");
@@ -638,15 +653,17 @@ export default function ConfigPage() {
       });
       await load();
       setStatus("");
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+      return false;
     } finally {
       setSavingInventoryPolicy(false);
     }
   }
 
-  async function saveApPolicy(e: React.FormEvent) {
+  async function saveApPolicy(e: React.FormEvent): Promise<boolean> {
     e.preventDefault();
     setSavingApPolicy(true);
     setStatus("Saving AP 3-way match policy...");
@@ -663,135 +680,235 @@ export default function ConfigPage() {
       });
       await load();
       setStatus("");
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+      return false;
     } finally {
       setSavingApPolicy(false);
     }
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <div className="flex items-center justify-end">
+      <PageHeader
+        title="Config"
+        description="Company-level settings and policies."
+        actions={
           <Button variant="outline" onClick={load}>
             Refresh
           </Button>
+        }
+        meta={
+          <TabBar
+            tabs={[
+              { label: "Policies", href: "/system/config?tab=policies", activeQuery: { key: "tab", value: "policies" } },
+              { label: "Accounting", href: "/system/config?tab=accounting", activeQuery: { key: "tab", value: "accounting" } },
+              { label: "Tax & FX", href: "/system/config?tab=tax", activeQuery: { key: "tab", value: "tax" } },
+              { label: "Loyalty", href: "/system/config?tab=loyalty", activeQuery: { key: "tab", value: "loyalty" } },
+              { label: "AI", href: "/system/config?tab=ai", activeQuery: { key: "tab", value: "ai" } },
+            ]}
+          />
+        }
+      />
+
+      {tab === "policies" ? (
+        <>
+      <Section
+        title="Inventory Policy"
+        description="Operational guardrails for batch/expiry-managed items."
+        actions={
+          <Dialog open={inventoryOpen} onOpenChange={setInventoryOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">Edit</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Inventory Policy</DialogTitle>
+                <DialogDescription>Adjust how POS and sales posting handle lots/expiry.</DialogDescription>
+              </DialogHeader>
+              <form
+                onSubmit={async (e) => {
+                  const ok = await saveInventory(e);
+                  if (ok) setInventoryOpen(false);
+                }}
+                className="grid grid-cols-1 gap-3"
+              >
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Manual Lot Selection Required</label>
+                  <select
+                    className="ui-select"
+                    value={requireManualLotSelection ? "yes" : "no"}
+                    onChange={(e) => setRequireManualLotSelection(e.target.value === "yes")}
+                  >
+                    <option value="no">no (auto-FEFO allowed)</option>
+                    <option value="yes">yes (POS must select a batch/expiry)</option>
+                  </select>
+                  <p className="text-xs text-fg-muted">
+                    When enabled, sales posting for expiry/batch-tracked items requires explicit lot selection (no auto allocation).
+                  </p>
+                </div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={savingInventoryPolicy}>
+                    {savingInventoryPolicy ? "..." : "Save"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      >
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+            <div className="text-xs font-medium text-fg-muted">Manual Lot Selection</div>
+            <div className="mt-1 text-sm text-foreground">{requireManualLotSelection ? "Required" : "Not required"}</div>
+          </div>
         </div>
+      </Section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Inventory Policy</CardTitle>
-            <CardDescription>Operational guardrails for batch/expiry-managed items.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <form onSubmit={saveInventory} className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Manual Lot Selection Required</label>
-                <select
-                  className="ui-select"
-                  value={requireManualLotSelection ? "yes" : "no"}
-                  onChange={(e) => setRequireManualLotSelection(e.target.value === "yes")}
-                >
-                  <option value="no">no (auto-FEFO allowed)</option>
-                  <option value="yes">yes (POS must select a batch/expiry)</option>
-                </select>
-                <p className="text-xs text-fg-muted">
-                  When enabled, sales posting for expiry/batch-tracked items requires explicit lot selection (no auto allocation).
-                </p>
-              </div>
-              <div className="md:col-span-1 flex items-end justify-end">
-                <Button type="submit" disabled={savingInventoryPolicy}>
-                  {savingInventoryPolicy ? "..." : "Save Inventory Policy"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+      <Section
+        title="AP 3-Way Match Policy"
+        description="Variance thresholds that auto-hold supplier invoices linked to goods receipts."
+        actions={
+          <Dialog open={apOpen} onOpenChange={setApOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">Edit</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>AP 3-Way Match Policy</DialogTitle>
+                <DialogDescription>Variance thresholds for holds.</DialogDescription>
+              </DialogHeader>
+              <form
+                onSubmit={async (e) => {
+                  const ok = await saveApPolicy(e);
+                  if (ok) setApOpen(false);
+                }}
+                className="grid grid-cols-1 gap-3 md:grid-cols-2"
+              >
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Pct Threshold</label>
+                  <Input value={apPctThreshold} onChange={(e) => setApPctThreshold(e.target.value)} placeholder="0.15" />
+                  <div className="text-[11px] text-fg-subtle">Example: 0.15 = 15%</div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Abs USD Threshold</label>
+                  <Input value={apAbsUsdThreshold} onChange={(e) => setApAbsUsdThreshold(e.target.value)} placeholder="25" />
+                  <div className="text-[11px] text-fg-subtle">Per-unit difference (USD)</div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Abs LBP Threshold</label>
+                  <Input value={apAbsLbpThreshold} onChange={(e) => setApAbsLbpThreshold(e.target.value)} placeholder="2500000" />
+                  <div className="text-[11px] text-fg-subtle">Fallback when only LBP is present</div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Tax Diff Pct</label>
+                  <Input value={apTaxDiffPctThreshold} onChange={(e) => setApTaxDiffPctThreshold(e.target.value)} placeholder="0.02" />
+                  <div className="text-[11px] text-fg-subtle">Tax mismatch threshold (% of base)</div>
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-medium text-fg-muted">Tax Diff LBP</label>
+                  <Input value={apTaxDiffLbpThreshold} onChange={(e) => setApTaxDiffLbpThreshold(e.target.value)} placeholder="500000" />
+                  <div className="text-[11px] text-fg-subtle">Minimum absolute tax mismatch (LBP)</div>
+                </div>
+                <div className="flex justify-end md:col-span-2">
+                  <Button type="submit" disabled={savingApPolicy}>
+                    {savingApPolicy ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      >
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+          <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+            <div className="text-xs font-medium text-fg-muted">Pct</div>
+            <div className="mt-1 text-sm text-foreground">{apPctThreshold}</div>
+          </div>
+          <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+            <div className="text-xs font-medium text-fg-muted">Abs USD</div>
+            <div className="mt-1 text-sm text-foreground">{apAbsUsdThreshold}</div>
+          </div>
+          <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+            <div className="text-xs font-medium text-fg-muted">Abs LBP</div>
+            <div className="mt-1 text-sm text-foreground">{apAbsLbpThreshold}</div>
+          </div>
+        </div>
+      </Section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>AP 3-Way Match Policy</CardTitle>
-            <CardDescription>Variance thresholds that auto-hold supplier invoices linked to goods receipts.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <form onSubmit={saveApPolicy} className="grid grid-cols-1 gap-3 md:grid-cols-6">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Pct Threshold</label>
-                <Input value={apPctThreshold} onChange={(e) => setApPctThreshold(e.target.value)} placeholder="0.15" />
-                <div className="text-[11px] text-fg-subtle">Example: 0.15 = 15%</div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Abs USD Threshold</label>
-                <Input value={apAbsUsdThreshold} onChange={(e) => setApAbsUsdThreshold(e.target.value)} placeholder="25" />
-                <div className="text-[11px] text-fg-subtle">Per-unit difference (USD)</div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Abs LBP Threshold</label>
-                <Input value={apAbsLbpThreshold} onChange={(e) => setApAbsLbpThreshold(e.target.value)} placeholder="2500000" />
-                <div className="text-[11px] text-fg-subtle">Fallback when only LBP is present</div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Tax Diff Pct</label>
-                <Input value={apTaxDiffPctThreshold} onChange={(e) => setApTaxDiffPctThreshold(e.target.value)} placeholder="0.02" />
-                <div className="text-[11px] text-fg-subtle">Tax mismatch threshold (% of base)</div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Tax Diff LBP</label>
-                <Input value={apTaxDiffLbpThreshold} onChange={(e) => setApTaxDiffLbpThreshold(e.target.value)} placeholder="500000" />
-                <div className="text-[11px] text-fg-subtle">Minimum absolute tax mismatch (LBP)</div>
-              </div>
-              <div className="flex items-end justify-end md:col-span-6">
-                <Button type="submit" disabled={savingApPolicy}>
-                  {savingApPolicy ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+      <Section
+        title="Pricing Policy"
+        description="Controls suggested sell prices (target margin + rounding)."
+        actions={
+          <Dialog open={pricingOpen} onOpenChange={setPricingOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">Edit</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Pricing Policy</DialogTitle>
+                <DialogDescription>Controls target margins and rounding steps.</DialogDescription>
+              </DialogHeader>
+              <form
+                onSubmit={async (e) => {
+                  const ok = await savePricingPolicy(e);
+                  if (ok) setPricingOpen(false);
+                }}
+                className="grid grid-cols-1 gap-3"
+              >
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Target Margin (pct)</label>
+                  <Input value={targetMarginPct} onChange={(e) => setTargetMarginPct(e.target.value)} placeholder="0.20" />
+                  <div className="text-[11px] text-fg-subtle">Example: 0.20 = 20% gross margin target</div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">USD Round Step</label>
+                  <Input value={usdRoundStep} onChange={(e) => setUsdRoundStep(e.target.value)} placeholder="0.25" />
+                  <div className="text-[11px] text-fg-subtle">Suggested USD prices round up to this step</div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">LBP Round Step</label>
+                  <Input value={lbpRoundStep} onChange={(e) => setLbpRoundStep(e.target.value)} placeholder="5000" />
+                  <div className="text-[11px] text-fg-subtle">Suggested LBP prices round up to this step</div>
+                </div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={savingPricingPolicy}>
+                    {savingPricingPolicy ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      >
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+          <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+            <div className="text-xs font-medium text-fg-muted">Target Margin</div>
+            <div className="mt-1 text-sm text-foreground">{targetMarginPct}</div>
+          </div>
+          <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+            <div className="text-xs font-medium text-fg-muted">USD Round Step</div>
+            <div className="mt-1 text-sm text-foreground">{usdRoundStep}</div>
+          </div>
+          <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+            <div className="text-xs font-medium text-fg-muted">LBP Round Step</div>
+            <div className="mt-1 text-sm text-foreground">{lbpRoundStep}</div>
+          </div>
+        </div>
+      </Section>
+        </>
+      ) : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Pricing Policy</CardTitle>
-            <CardDescription>Controls suggested sell prices (target margin + rounding).</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <form onSubmit={savePricingPolicy} className="grid grid-cols-1 gap-3 md:grid-cols-6">
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Target Margin (pct)</label>
-                <Input value={targetMarginPct} onChange={(e) => setTargetMarginPct(e.target.value)} placeholder="0.20" />
-                <div className="text-[11px] text-fg-subtle">Example: 0.20 = 20% gross margin target</div>
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">USD Round Step</label>
-                <Input value={usdRoundStep} onChange={(e) => setUsdRoundStep(e.target.value)} placeholder="0.25" />
-                <div className="text-[11px] text-fg-subtle">Suggested USD prices round up to this step</div>
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">LBP Round Step</label>
-                <Input value={lbpRoundStep} onChange={(e) => setLbpRoundStep(e.target.value)} placeholder="5000" />
-                <div className="text-[11px] text-fg-subtle">Suggested LBP prices round up to this step</div>
-              </div>
-              <div className="flex items-end justify-end md:col-span-6">
-                <Button type="submit" disabled={savingPricingPolicy}>
-                  {savingPricingPolicy ? "Saving..." : "Save Pricing Policy"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Account Defaults</CardTitle>
-            <CardDescription>
-              These mappings are required for automatic GL posting (POS sales, goods receipts, supplier invoices, payments).
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-end">
+      {tab === "accounting" ? (
+        <>
+          <Section
+            title="Account Defaults"
+            description="These mappings are required for automatic GL posting (POS sales, goods receipts, supplier invoices, payments)."
+            actions={
               <Dialog open={defaultOpen} onOpenChange={setDefaultOpen}>
                 <DialogTrigger asChild>
                   <Button>Set Default</Button>
@@ -799,18 +916,12 @@ export default function ConfigPage() {
                 <DialogContent className="max-w-2xl">
                   <DialogHeader>
                     <DialogTitle>Set Account Default</DialogTitle>
-                    <DialogDescription>
-                      Maps an account role (AR, SALES, VAT_PAYABLE, etc.) to a company COA account.
-                    </DialogDescription>
+                    <DialogDescription>Maps an account role (AR, SALES, VAT_PAYABLE, etc.) to a company COA account.</DialogDescription>
                   </DialogHeader>
                   <form onSubmit={setDefault} className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div className="space-y-1 md:col-span-1">
                       <label className="text-xs font-medium text-fg-muted">Role</label>
-                      <select
-                        className="ui-select"
-                        value={defaultRole}
-                        onChange={(e) => setDefaultRole(e.target.value)}
-                      >
+                      <select className="ui-select" value={defaultRole} onChange={(e) => setDefaultRole(e.target.value)}>
                         <option value="">Select role...</option>
                         {roles.map((r) => (
                           <option key={r.code} value={r.code}>
@@ -822,11 +933,7 @@ export default function ConfigPage() {
 
                     <div className="space-y-1 md:col-span-2">
                       <label className="text-xs font-medium text-fg-muted">Account</label>
-                      <select
-                        className="ui-select"
-                        value={defaultAccountCode}
-                        onChange={(e) => setDefaultAccountCode(e.target.value)}
-                      >
+                      <select className="ui-select" value={defaultAccountCode} onChange={(e) => setDefaultAccountCode(e.target.value)}>
                         <option value="">Select account...</option>
                         {accounts.map((a) => (
                           <option key={a.account_code} value={a.account_code}>
@@ -844,8 +951,8 @@ export default function ConfigPage() {
                   </form>
                 </DialogContent>
               </Dialog>
-            </div>
-
+            }
+          >
             <DataTable<{ role_code: string; account_code: string; name_en: string }>
               tableId="system.config.account_defaults"
               rows={accountDefaultsRows}
@@ -855,114 +962,12 @@ export default function ConfigPage() {
               enableGlobalFilter={false}
               initialSort={{ columnId: "role_code", dir: "asc" }}
             />
-          </CardContent>
-        </Card>
+          </Section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Loyalty</CardTitle>
-            <CardDescription>
-              Configure loyalty points accrual. POS and posted sales invoices will accrue points; returns and invoice voids reverse them.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <form onSubmit={saveLoyalty} className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Points per USD</label>
-                <Input value={pointsPerUsd} onChange={(e) => setPointsPerUsd(e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Points per LL</label>
-                <Input value={pointsPerLbp} onChange={(e) => setPointsPerLbp(e.target.value)} />
-              </div>
-              <div className="flex items-end justify-end">
-                <Button type="submit" disabled={savingLoyalty}>
-                  {savingLoyalty ? "Saving..." : "Save Loyalty"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>AI Policy</CardTitle>
-            <CardDescription>
-              Controls whether the platform can send documents/names to external AI services and which provider to use.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <form onSubmit={saveAi} className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <label className="flex items-center gap-2 text-sm text-fg-muted md:col-span-3">
-                <input type="checkbox" checked={allowExternalAi} onChange={(e) => setAllowExternalAi(e.target.checked)} />
-                Allow external AI processing
-              </label>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Provider</label>
-                <select className="ui-select w-full" value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
-                  <option value="openai">OpenAI (hosted)</option>
-                  <option value="openai_compatible">OpenAI-compatible (custom base URL)</option>
-                </select>
-              </div>
-              <div className="space-y-1 md:col-span-2">
-                <label className="text-xs font-medium text-fg-muted">Base URL (optional)</label>
-                <Input
-                  value={aiBaseUrl}
-                  onChange={(e) => setAiBaseUrl(e.target.value)}
-                  placeholder="https://api.openai.com"
-                />
-              </div>
-              <div className="space-y-1 md:col-span-3">
-                <label className="text-xs font-medium text-fg-muted">API Key (optional)</label>
-                <Input
-                  type="password"
-                  value={aiApiKey}
-                  onChange={(e) => setAiApiKey(e.target.value)}
-                  placeholder="Leave blank to use server environment"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Item Naming Model</label>
-                <Input value={aiItemModel} onChange={(e) => setAiItemModel(e.target.value)} placeholder="gpt-4o-mini" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Invoice Vision Model</label>
-                <Input
-                  value={aiInvoiceVisionModel}
-                  onChange={(e) => setAiInvoiceVisionModel(e.target.value)}
-                  placeholder="gpt-4o-mini"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-fg-muted">Invoice Text Model</label>
-                <Input
-                  value={aiInvoiceTextModel}
-                  onChange={(e) => setAiInvoiceTextModel(e.target.value)}
-                  placeholder="gpt-4o-mini"
-                />
-              </div>
-              <div className="flex justify-end md:col-span-3">
-                <Button type="submit" disabled={savingAiPolicy}>
-                  {savingAiPolicy ? "Saving..." : "Save AI Policy"}
-                </Button>
-              </div>
-            </form>
-            <p className="text-[11px] text-fg-subtle">
-              If disabled, AI import and AI naming will still work in “draft + attachment” mode, but without external
-              extraction/suggestions. Leaving model/base URL/API key blank will fall back to server environment variables.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Payment Method Mappings</CardTitle>
-            <CardDescription>
-              Map UI/payment method strings (cash, bank, card, transfer) to an account role, then configure the role’s account default above.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-end">
+          <Section
+            title="Payment Method Mappings"
+            description="Map UI/payment method strings (cash, bank, card, transfer) to an account role, then configure the role’s account default above."
+            actions={
               <Dialog open={methodOpen} onOpenChange={setMethodOpen}>
                 <DialogTrigger asChild>
                   <Button>Upsert Mapping</Button>
@@ -981,11 +986,7 @@ export default function ConfigPage() {
                     </div>
                     <div className="space-y-1 md:col-span-2">
                       <label className="text-xs font-medium text-fg-muted">Role</label>
-                      <select
-                        className="ui-select"
-                        value={methodRole}
-                        onChange={(e) => setMethodRole(e.target.value)}
-                      >
+                      <select className="ui-select" value={methodRole} onChange={(e) => setMethodRole(e.target.value)}>
                         <option value="">Select role...</option>
                         {roles.map((r) => (
                           <option key={r.code} value={r.code}>
@@ -1002,8 +1003,8 @@ export default function ConfigPage() {
                   </form>
                 </DialogContent>
               </Dialog>
-            </div>
-
+            }
+          >
             <DataTable<PaymentMethodRow>
               tableId="system.config.payment_methods"
               rows={methods}
@@ -1013,16 +1014,152 @@ export default function ConfigPage() {
               enableGlobalFilter={false}
               initialSort={{ columnId: "method", dir: "asc" }}
             />
-          </CardContent>
-        </Card>
+          </Section>
+        </>
+      ) : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Tax Codes (VAT)</CardTitle>
-            <CardDescription>Create and list tax codes used in invoices and reports.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-end">
+      {tab === "loyalty" ? (
+        <Section
+          title="Loyalty"
+          description="Configure loyalty points accrual. POS and posted sales invoices accrue points; returns and invoice voids reverse them."
+          actions={
+            <Dialog open={loyaltyOpen} onOpenChange={setLoyaltyOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline">Edit</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Loyalty</DialogTitle>
+                  <DialogDescription>Configure points accrual.</DialogDescription>
+                </DialogHeader>
+                <form
+                  onSubmit={async (e) => {
+                    const ok = await saveLoyalty(e);
+                    if (ok) setLoyaltyOpen(false);
+                  }}
+                  className="grid grid-cols-1 gap-3"
+                >
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Points per USD</label>
+                    <Input value={pointsPerUsd} onChange={(e) => setPointsPerUsd(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Points per LL</label>
+                    <Input value={pointsPerLbp} onChange={(e) => setPointsPerLbp(e.target.value)} />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={savingLoyalty}>
+                      {savingLoyalty ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          }
+        >
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+              <div className="text-xs font-medium text-fg-muted">Points per USD</div>
+              <div className="mt-1 text-sm text-foreground">{pointsPerUsd}</div>
+            </div>
+            <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+              <div className="text-xs font-medium text-fg-muted">Points per LL</div>
+              <div className="mt-1 text-sm text-foreground">{pointsPerLbp}</div>
+            </div>
+          </div>
+        </Section>
+      ) : null}
+
+      {tab === "ai" ? (
+        <Section
+          title="AI Policy"
+          description="Controls whether the platform can send documents/names to external AI services and which provider to use."
+          actions={
+            <Dialog open={aiOpen} onOpenChange={setAiOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline">Edit</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>AI Policy</DialogTitle>
+                  <DialogDescription>Controls external AI processing settings.</DialogDescription>
+                </DialogHeader>
+                <form
+                  onSubmit={async (e) => {
+                    const ok = await saveAi(e);
+                    if (ok) setAiOpen(false);
+                  }}
+                  className="grid grid-cols-1 gap-3"
+                >
+                  <label className="flex items-center gap-2 text-sm text-fg-muted">
+                    <input type="checkbox" checked={allowExternalAi} onChange={(e) => setAllowExternalAi(e.target.checked)} />
+                    Allow external AI processing
+                  </label>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Provider</label>
+                    <select className="ui-select w-full" value={aiProvider} onChange={(e) => setAiProvider(e.target.value)}>
+                      <option value="openai">OpenAI (hosted)</option>
+                      <option value="openai_compatible">OpenAI-compatible (custom base URL)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Base URL (optional)</label>
+                    <Input value={aiBaseUrl} onChange={(e) => setAiBaseUrl(e.target.value)} placeholder="https://api.openai.com" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">API Key (optional)</label>
+                    <Input
+                      type="password"
+                      value={aiApiKey}
+                      onChange={(e) => setAiApiKey(e.target.value)}
+                      placeholder="Leave blank to use server environment"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Item Naming Model</label>
+                    <Input value={aiItemModel} onChange={(e) => setAiItemModel(e.target.value)} placeholder="gpt-4o-mini" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Invoice Vision Model</label>
+                    <Input value={aiInvoiceVisionModel} onChange={(e) => setAiInvoiceVisionModel(e.target.value)} placeholder="gpt-4o-mini" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Invoice Text Model</label>
+                    <Input value={aiInvoiceTextModel} onChange={(e) => setAiInvoiceTextModel(e.target.value)} placeholder="gpt-4o-mini" />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={savingAiPolicy}>
+                      {savingAiPolicy ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          }
+        >
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+              <div className="text-xs font-medium text-fg-muted">External Processing</div>
+              <div className="mt-1 text-sm text-foreground">{allowExternalAi ? "Allowed" : "Not allowed"}</div>
+            </div>
+            <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+              <div className="text-xs font-medium text-fg-muted">Provider</div>
+              <div className="mt-1 text-sm text-foreground">{aiProvider}</div>
+            </div>
+          </div>
+          <p className="mt-3 text-[11px] text-fg-subtle">
+            If disabled, AI import and AI naming will still work in draft + attachment mode, but without external extraction/suggestions. Leaving
+            model/base URL/API key blank will fall back to server environment variables.
+          </p>
+        </Section>
+      ) : null}
+
+      {tab === "tax" ? (
+        <>
+          <Section
+            title="Tax Codes (VAT)"
+            description="Create and list tax codes used in invoices and reports."
+            actions={
               <Dialog open={taxOpen} onOpenChange={setTaxOpen}>
                 <DialogTrigger asChild>
                   <Button>Create Tax Code</Button>
@@ -1043,11 +1180,7 @@ export default function ConfigPage() {
                     </div>
                     <div className="space-y-1 md:col-span-1">
                       <label className="text-xs font-medium text-fg-muted">Reporting Currency</label>
-                      <select
-                        className="ui-select"
-                        value={taxCurrency}
-                        onChange={(e) => setTaxCurrency(e.target.value)}
-                      >
+                      <select className="ui-select" value={taxCurrency} onChange={(e) => setTaxCurrency(e.target.value)}>
                         <option value="LBP">LL</option>
                         <option value="USD">USD</option>
                       </select>
@@ -1064,46 +1197,8 @@ export default function ConfigPage() {
                   </form>
                 </DialogContent>
               </Dialog>
-              <Dialog open={taxEditOpen} onOpenChange={setTaxEditOpen}>
-                <DialogContent className="max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle>Edit Tax Code</DialogTitle>
-                    <DialogDescription>Update VAT code fields used in invoices and reports.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={updateTaxCode} className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                    <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={taxEditName} onChange={(e) => setTaxEditName(e.target.value)} placeholder="11%" />
-                    </div>
-                    <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-fg-muted">Rate (%)</label>
-                      <Input value={taxEditRate} onChange={(e) => setTaxEditRate(e.target.value)} />
-                    </div>
-                    <div className="space-y-1 md:col-span-1">
-                      <label className="text-xs font-medium text-fg-muted">Reporting Currency</label>
-                      <select
-                        className="ui-select"
-                        value={taxEditCurrency}
-                        onChange={(e) => setTaxEditCurrency(e.target.value)}
-                      >
-                        <option value="LBP">LL</option>
-                        <option value="USD">USD</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1 md:col-span-2">
-                      <label className="text-xs font-medium text-fg-muted">Tax Type</label>
-                      <Input value={taxEditType} onChange={(e) => setTaxEditType(e.target.value)} placeholder="vat" />
-                    </div>
-                    <div className="md:col-span-2 flex items-end justify-end">
-                      <Button type="submit" disabled={savingTaxEdit}>
-                        {savingTaxEdit ? "..." : "Save Changes"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
-
+            }
+          >
             <DataTable<TaxCode>
               tableId="system.config.tax_codes"
               rows={taxCodes}
@@ -1113,16 +1208,47 @@ export default function ConfigPage() {
               enableGlobalFilter={false}
               initialSort={{ columnId: "name", dir: "asc" }}
             />
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Exchange Rates</CardTitle>
-            <CardDescription>USD to LL daily rates used for dual-currency reporting.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-end">
+            <Dialog open={taxEditOpen} onOpenChange={setTaxEditOpen}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Edit Tax Code</DialogTitle>
+                  <DialogDescription>Update VAT code fields used in invoices and reports.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={updateTaxCode} className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-medium text-fg-muted">Name</label>
+                    <Input value={taxEditName} onChange={(e) => setTaxEditName(e.target.value)} placeholder="11%" />
+                  </div>
+                  <div className="space-y-1 md:col-span-1">
+                    <label className="text-xs font-medium text-fg-muted">Rate (%)</label>
+                    <Input value={taxEditRate} onChange={(e) => setTaxEditRate(e.target.value)} />
+                  </div>
+                  <div className="space-y-1 md:col-span-1">
+                    <label className="text-xs font-medium text-fg-muted">Reporting Currency</label>
+                    <select className="ui-select" value={taxEditCurrency} onChange={(e) => setTaxEditCurrency(e.target.value)}>
+                      <option value="LBP">LL</option>
+                      <option value="USD">USD</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-medium text-fg-muted">Tax Type</label>
+                    <Input value={taxEditType} onChange={(e) => setTaxEditType(e.target.value)} placeholder="vat" />
+                  </div>
+                  <div className="md:col-span-2 flex items-end justify-end">
+                    <Button type="submit" disabled={savingTaxEdit}>
+                      {savingTaxEdit ? "..." : "Save Changes"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </Section>
+
+          <Section
+            title="Exchange Rates"
+            description="USD to LL daily rates used for dual-currency reporting."
+            actions={
               <Dialog open={rateOpen} onOpenChange={setRateOpen}>
                 <DialogTrigger asChild>
                   <Button>Upsert Rate</Button>
@@ -1155,8 +1281,8 @@ export default function ConfigPage() {
                   </form>
                 </DialogContent>
               </Dialog>
-            </div>
-
+            }
+          >
             <DataTable<ExchangeRateRow>
               tableId="system.config.exchange_rates"
               rows={rates}
@@ -1166,7 +1292,9 @@ export default function ConfigPage() {
               enableGlobalFilter={false}
               initialSort={{ columnId: "rate_date", dir: "desc" }}
             />
-          </CardContent>
-        </Card>
-      </div>);
+          </Section>
+        </>
+      ) : null}
+    </Page>
+  );
 }

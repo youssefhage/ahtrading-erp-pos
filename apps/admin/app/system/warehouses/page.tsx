@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
@@ -191,33 +191,31 @@ export default function WarehousesPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4 pb-10">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Warehouses</CardTitle>
-            <CardDescription>{warehouses.length} warehouses</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button>New Warehouse</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create Warehouse</DialogTitle>
-                    <DialogDescription>Add a warehouse for stock moves + POS config.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={createWarehouse} className="grid grid-cols-1 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Main Warehouse" />
-                    </div>
+      <PageHeader
+        title="Warehouses"
+        description="Warehouses used for stock moves, costing, and POS defaults."
+        actions={
+          <>
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>New Warehouse</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Warehouse</DialogTitle>
+                  <DialogDescription>Add a warehouse for stock moves + POS config.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createWarehouse} className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Name</label>
+                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Main Warehouse" />
+                  </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-fg-muted">Location (optional)</label>
                       <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Lebanon" />
@@ -259,63 +257,67 @@ export default function WarehousesPage() {
                         {creating ? "..." : "Create"}
                       </Button>
                     </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
+                </form>
+              </DialogContent>
+            </Dialog>
 
-              <Dialog open={editOpen} onOpenChange={setEditOpen}>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Edit Warehouse</DialogTitle>
-                    <DialogDescription>Update warehouse metadata and expiry policy defaults.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Location (optional)</label>
-                      <Input value={editLocation} onChange={(e) => setEditLocation(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Address (optional)</label>
-                      <Input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
-                    </div>
-                    <label className="flex items-center gap-2 text-xs text-fg-muted">
-                      <input type="checkbox" checked={editIsVirtual} onChange={(e) => setEditIsVirtual(e.target.checked)} /> Virtual warehouse
-                    </label>
-                    <label className="flex items-center gap-2 text-xs text-fg-muted">
-                      <input type="checkbox" checked={editBinningEnabled} onChange={(e) => setEditBinningEnabled(e.target.checked)} /> Binning enabled
-                    </label>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Capacity Note (optional)</label>
-                      <Input value={editCapacityNote} onChange={(e) => setEditCapacityNote(e.target.value)} />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Min Shelf-Life Days For Sale (default)</label>
-                      <Input value={editMinShelfLifeDays} onChange={(e) => setEditMinShelfLifeDays(e.target.value)} inputMode="numeric" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Negative Stock Override (optional)</label>
-                      <select className="ui-select" value={editAllowNegative} onChange={(e) => setEditAllowNegative(e.target.value as any)}>
-                        <option value="">Inherit</option>
-                        <option value="block">Block</option>
-                        <option value="allow">Allow</option>
-                      </select>
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
-                        Cancel
-                      </Button>
-                      <Button type="submit" disabled={saving}>
-                        {saving ? "..." : "Save"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
+            <Dialog open={editOpen} onOpenChange={setEditOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Edit Warehouse</DialogTitle>
+                  <DialogDescription>Update warehouse metadata and expiry policy defaults.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Name</label>
+                    <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Location (optional)</label>
+                    <Input value={editLocation} onChange={(e) => setEditLocation(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Address (optional)</label>
+                    <Input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
+                  </div>
+                  <label className="flex items-center gap-2 text-xs text-fg-muted">
+                    <input type="checkbox" checked={editIsVirtual} onChange={(e) => setEditIsVirtual(e.target.checked)} /> Virtual warehouse
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-fg-muted">
+                    <input type="checkbox" checked={editBinningEnabled} onChange={(e) => setEditBinningEnabled(e.target.checked)} /> Binning enabled
+                  </label>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Capacity Note (optional)</label>
+                    <Input value={editCapacityNote} onChange={(e) => setEditCapacityNote(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Min Shelf-Life Days For Sale (default)</label>
+                    <Input value={editMinShelfLifeDays} onChange={(e) => setEditMinShelfLifeDays(e.target.value)} inputMode="numeric" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Negative Stock Override (optional)</label>
+                    <select className="ui-select" value={editAllowNegative} onChange={(e) => setEditAllowNegative(e.target.value as any)}>
+                      <option value="">Inherit</option>
+                      <option value="block">Block</option>
+                      <option value="allow">Allow</option>
+                    </select>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={saving}>
+                      {saving ? "..." : "Save"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </>
+        }
+      />
+
+      <Section title="List" description={`${warehouses.length} warehouse(s)`}>
             <DataTable<WarehouseRow>
               tableId="system.warehouses"
               rows={warehouses}
@@ -324,7 +326,7 @@ export default function WarehousesPage() {
               globalFilterPlaceholder="Search warehouse name / location..."
               initialSort={{ columnId: "name", dir: "asc" }}
             />
-          </CardContent>
-        </Card>
-      </div>);
+      </Section>
+    </Page>
+  );
 }

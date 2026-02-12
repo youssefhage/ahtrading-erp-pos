@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
@@ -123,58 +123,53 @@ export default function PosCashiersPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4 pb-10">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Cashiers</CardTitle>
-            <CardDescription>{cashiers.length} cashiers</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button>Create Cashier</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create Cashier</DialogTitle>
-                    <DialogDescription>PINs are synced to POS devices so they can login offline.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={createCashier} className="grid grid-cols-1 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Cashier name" />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">PIN</label>
-                      <Input
-                        value={pin}
-                        onChange={(e) => setPin(e.target.value)}
-                        placeholder="4+ digits"
-                        inputMode="numeric"
-                        type="password"
-                      />
-                    </div>
-                    <label className="flex items-center gap-2 text-sm text-fg-muted">
-                      <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-                      Active
-                    </label>
-                    <div className="flex justify-end">
-                      <Button type="submit" disabled={creating}>
-                        {creating ? "..." : "Create"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </div>
+      <PageHeader
+        title="POS Cashiers"
+        description="Cashiers and PINs used by POS devices (supports offline login)."
+        actions={
+          <>
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+              <DialogTrigger asChild>
+                <Button>Create Cashier</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Cashier</DialogTitle>
+                  <DialogDescription>PINs are synced to POS devices so they can login offline.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={createCashier} className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Name</label>
+                    <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Cashier name" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">PIN</label>
+                    <Input value={pin} onChange={(e) => setPin(e.target.value)} placeholder="4+ digits" inputMode="numeric" type="password" />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm text-fg-muted">
+                    <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+                    Active
+                  </label>
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={creating}>
+                      {creating ? "..." : "Create"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </>
+        }
+      />
 
-            {(() => {
+      <Section title="Cashiers" description={`${cashiers.length} cashier(s)`}>
+        {(() => {
               const columns: Array<DataTableColumn<CashierRow>> = [
                 { id: "name", header: "Name", accessor: (c) => c.name, sortable: true, cell: (c) => <span className="font-medium text-foreground">{c.name}</span> },
                 { id: "id", header: "Cashier ID", accessor: (c) => c.id, mono: true, defaultHidden: true, cell: (c) => <span className="text-xs text-fg-subtle">{c.id}</span> },
@@ -211,8 +206,7 @@ export default function PosCashiersPage() {
                 />
               );
             })()}
-          </CardContent>
-        </Card>
+      </Section>
 
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
           <DialogContent>
@@ -247,5 +241,6 @@ export default function PosCashiersPage() {
             </form>
           </DialogContent>
         </Dialog>
-      </div>);
+    </Page>
+  );
 }

@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
@@ -158,27 +158,26 @@ export default function WarehouseLocationsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4 pb-10">
       {status ? <ErrorBanner error={status} onRetry={() => loadLocations(warehouseId)} /> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Warehouse Locations</CardTitle>
-          <CardDescription>Bin/location master data per warehouse (v1).</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-end justify-between gap-3">
-          <div className="w-full md:w-96 space-y-1">
-            <label className="text-xs font-medium text-fg-muted">Warehouse</label>
-            <SearchableSelect
-              value={warehouseId}
-              onChange={setWarehouseId}
-              searchPlaceholder="Search warehouses..."
-              options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
-            />
-          </div>
+      <PageHeader
+        title="Warehouse Locations"
+        description="Bin/location master data per warehouse."
+        actions={
+          <Button variant="outline" onClick={loadAll}>
+            Refresh Warehouses
+          </Button>
+        }
+      />
+
+      <Section
+        title="Warehouse"
+        description="Select a warehouse to manage its locations."
+        actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={() => loadLocations(warehouseId)} disabled={!warehouseId}>
-              Refresh
+              Refresh Locations
             </Button>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
@@ -213,15 +212,20 @@ export default function WarehouseLocationsPage() {
               </DialogContent>
             </Dialog>
           </div>
-        </CardContent>
-      </Card>
+        }
+      >
+        <div className="w-full md:w-96 space-y-1">
+          <label className="text-xs font-medium text-fg-muted">Warehouse</label>
+          <SearchableSelect
+            value={warehouseId}
+            onChange={setWarehouseId}
+            searchPlaceholder="Search warehouses..."
+            options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+          />
+        </div>
+      </Section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Locations</CardTitle>
-          <CardDescription>{locations.length} locations</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <Section title="Locations" description={`${locations.length} location(s)`}>
           <Dialog open={editOpen} onOpenChange={setEditOpen}>
             <DialogContent>
               <DialogHeader>
@@ -294,8 +298,7 @@ export default function WarehouseLocationsPage() {
               />
             );
           })()}
-        </CardContent>
-      </Card>
-    </div>
+      </Section>
+    </Page>
   );
 }

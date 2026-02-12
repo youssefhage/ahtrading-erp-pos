@@ -6,8 +6,8 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 type AttentionItem = {
   key: string;
@@ -137,47 +137,35 @@ function Inner() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Needs Attention</h1>
-          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${sorted.length} signal(s)`}</p>
-        </div>
-        <div className="flex items-center gap-2">
+    <Page width="lg" className="px-4 pb-10">
+      <PageHeader
+        title="Needs Attention"
+        description={loading ? "Loading..." : `${sorted.length} signal(s)`}
+        actions={
           <Button type="button" variant="outline" onClick={load} disabled={loading}>
             Refresh
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {err ? <ErrorBanner error={err} onRetry={load} /> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Today</CardTitle>
-          <CardDescription>Operational queue: resolve these before posting/cash close.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <DataTable<AttentionItem>
-            tableId="system.attention.today"
-            rows={sorted}
-            columns={attentionColumns}
-            getRowId={(r) => r.key}
-            isLoading={loading}
-            emptyText={loading ? "Loading..." : "All clear."}
-            enablePagination
-            enableGlobalFilter={false}
-            initialSort={{ columnId: "severity", dir: "asc" }}
-          />
-        </CardContent>
-      </Card>
+      <Section title="Today" description="Operational queue: resolve these before posting/cash close.">
+        <DataTable<AttentionItem>
+          tableId="system.attention.today"
+          rows={sorted}
+          columns={attentionColumns}
+          getRowId={(r) => r.key}
+          isLoading={loading}
+          emptyText={loading ? "Loading..." : "All clear."}
+          enablePagination
+          enableGlobalFilter={false}
+          initialSort={{ columnId: "severity", dir: "asc" }}
+        />
+      </Section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Background Health</CardTitle>
-          <CardDescription>Worker heartbeat and any failed scheduled jobs in the last 24 hours.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
+      <Section title="Background Health" description="Worker heartbeat and failed scheduled jobs in the last 24 hours.">
+        <div className="space-y-3 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/60 px-3 py-2">
             <div className="text-fg-muted">Worker last seen</div>
             <div className="data-mono font-medium">{fmtAge(data?.worker_age_seconds ?? null)} ago</div>
@@ -194,9 +182,9 @@ function Inner() {
             enableGlobalFilter={false}
             initialSort={{ columnId: "count", dir: "desc" }}
           />
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </Section>
+    </Page>
   );
 }
 

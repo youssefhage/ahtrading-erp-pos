@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 
@@ -116,15 +116,21 @@ export default function OutboxPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <Page width="lg" className="px-4 pb-10">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Filters</CardTitle>
-            <CardDescription>Use this screen to monitor and requeue failed POS/outbox events.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
+      <PageHeader
+        title="Outbox"
+        description="Monitor and requeue failed POS/outbox events."
+        actions={
+          <Button variant="outline" onClick={load}>
+            Refresh
+          </Button>
+        }
+      />
+
+      <Section title="Filters" description="Filter events by status, device, and limit.">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
             <div className="space-y-1 md:col-span-1">
               <label className="text-xs font-medium text-fg-muted">Status</label>
               <select
@@ -147,29 +153,19 @@ export default function OutboxPage() {
               <label className="text-xs font-medium text-fg-muted">Limit</label>
               <Input value={limit} onChange={(e) => setLimit(e.target.value)} />
             </div>
-            <div className="md:col-span-4 flex items-center justify-end gap-2">
-              <Button variant="outline" onClick={load}>
-                Refresh
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        </div>
+      </Section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Events</CardTitle>
-            <CardDescription>{events.length} events</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <DataTable<OutboxRow>
-              tableId="system.outbox"
-              rows={events}
-              columns={columns}
-              emptyText="No events."
-              globalFilterPlaceholder="Search device / type / status..."
-              initialSort={{ columnId: "created_at", dir: "desc" }}
-            />
-          </CardContent>
-        </Card>
-      </div>);
+      <Section title="Events" description={`${events.length} event(s)`}>
+        <DataTable<OutboxRow>
+          tableId="system.outbox"
+          rows={events}
+          columns={columns}
+          emptyText="No events."
+          globalFilterPlaceholder="Search device / type / status..."
+          initialSort={{ columnId: "created_at", dir: "desc" }}
+        />
+      </Section>
+    </Page>
+  );
 }
