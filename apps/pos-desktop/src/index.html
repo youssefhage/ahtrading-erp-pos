@@ -45,21 +45,21 @@
             </label>
           </div>
 
-          <div id="setupMfaWrap" class="grid2" style="display: none;">
-            <label class="field">
-              <span>MFA Code</span>
-              <input id="setupMfaCode" inputmode="numeric" placeholder="123456" />
-            </label>
-            <div class="field">
-              <span>&nbsp;</span>
-              <button id="setupVerifyMfaBtn" class="ghost">Verify MFA</button>
-            </div>
-          </div>
+	          <div id="setupMfaWrap" class="grid2" style="display: none;">
+	            <label class="field">
+	              <span>MFA Code</span>
+	              <input id="setupMfaCode" inputmode="numeric" placeholder="123456" />
+	            </label>
+	            <div class="field">
+	              <span>&nbsp;</span>
+	              <button id="setupVerifyMfaBtn" class="ghost" type="button">Verify MFA</button>
+	            </div>
+	          </div>
 
-          <div class="row" style="margin-top: 6px;">
-            <button id="setupLoginBtn" class="primary">Login</button>
-            <button id="setupClearBtn" class="ghost">Clear</button>
-          </div>
+	          <div class="row" style="margin-top: 6px;">
+	            <button id="setupLoginBtn" class="primary" type="button">Login</button>
+	            <button id="setupClearBtn" class="ghost" type="button">Clear</button>
+	          </div>
 
           <div class="grid2">
             <label class="field">
@@ -88,9 +88,9 @@
             </label>
           </div>
 
-          <div class="row">
-            <button id="setupApplyBtn" class="primary">Generate Setup + Start POS</button>
-          </div>
+	          <div class="row">
+	            <button id="setupApplyBtn" class="primary" type="button">Generate Setup + Start POS</button>
+	          </div>
           <div id="setupNote" class="status muted"></div>
         </div>
 
@@ -100,10 +100,10 @@
             <span>Setup Pack (paste JSON)</span>
             <textarea id="setupPack" rows="6" placeholder='{"edgeUrl":"http://192.168.1.50:8001", "...": "..."}'></textarea>
           </label>
-          <div class="row" style="margin-top: 6px;">
-            <button id="applyPackBtn" class="ghost">Apply Pack</button>
-            <button id="clearPackBtn" class="ghost">Clear</button>
-          </div>
+	          <div class="row" style="margin-top: 6px;">
+	            <button id="applyPackBtn" class="ghost" type="button">Apply Pack</button>
+	            <button id="clearPackBtn" class="ghost" type="button">Clear</button>
+	          </div>
         </details>
 
         <details class="advanced">

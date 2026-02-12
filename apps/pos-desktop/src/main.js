@@ -13,6 +13,24 @@ const KEY_DEV_ID_UNOFFICIAL = "ahtrading.posDesktop.deviceIdUnofficial";
 const KEY_DEV_TOK_UNOFFICIAL = "ahtrading.posDesktop.deviceTokenUnofficial";
 const KEY_SETUP_EMAIL = "ahtrading.posDesktop.setupEmail";
 
+// Surface unexpected errors in the UI, otherwise the user experiences "nothing happens".
+window.addEventListener("error", (ev) => {
+  try {
+    const msg = ev?.error?.message || ev?.message || "Unknown error";
+    reportFatal(msg, "UI error");
+  } catch {
+    // ignore
+  }
+});
+window.addEventListener("unhandledrejection", (ev) => {
+  try {
+    const msg = ev?.reason?.message || String(ev?.reason || "Unknown rejection");
+    reportFatal(msg, "UI error");
+  } catch {
+    // ignore
+  }
+});
+
 // Store sensitive values in OS keychain (Windows Credential Manager / macOS Keychain).
 // We keep non-sensitive fields (URLs/ports/ids) in localStorage for convenience.
 async function secureGet(k) {
@@ -63,6 +81,27 @@ function setDiag(msg) {
 function setSetupNote(msg) {
   const n = el("setupNote");
   if (n) n.textContent = msg || "";
+}
+
+function setBtnBusy(btnId, busy, label = "Working…") {
+  const b = el(btnId);
+  if (!b) return;
+  if (busy) {
+    b.dataset.origLabel = b.textContent || "";
+    b.textContent = label;
+    b.disabled = true;
+    return;
+  }
+  if (b.dataset.origLabel) b.textContent = b.dataset.origLabel;
+  delete b.dataset.origLabel;
+  b.disabled = false;
+}
+
+function reportFatal(err, ctx = "Error") {
+  const msg = err instanceof Error ? err.message : String(err);
+  setStatus(`${ctx}: ${msg}`);
+  setSetupNote(`${ctx}: ${msg}`);
+  try { console.error(err); } catch {}
 }
 
 function parsePack(raw) {
@@ -327,86 +366,107 @@ function normalizeCompanyList(companies) {
 
 async function quickSetupLogin() {
   setSetupNote("");
-  const email = String(el("setupEmail").value || "").trim();
-  const password = String(el("setupPassword").value || "");
-  if (!email || !password) {
-    setSetupNote("Enter email and password.");
-    return;
+  setStatus("");
+  setBtnBusy("setupLoginBtn", true, "Logging in…");
+  try {
+    const email = String(el("setupEmail").value || "").trim();
+    const password = String(el("setupPassword").value || "");
+    if (!email || !password) {
+      setSetupNote("Enter email and password.");
+      return;
+    }
+    localStorage.setItem(KEY_SETUP_EMAIL, email);
+
+    const { edgeUrl, portOfficial } = await ensureAgentsRunningForSetup();
+    quickSetup.apiBaseUrl = edgeUrl;
+    const base = agentBase(portOfficial);
+
+    setSetupNote("Logging in…");
+    setStatus("Quick Setup: logging in…");
+    const res = await jpostJson(base, "/api/setup/login", {
+      api_base_url: edgeUrl,
+      email,
+      password,
+    });
+
+    if (res?.mfa_required) {
+      quickSetup.mfaToken = String(res?.mfa_token || "").trim() || null;
+      quickSetup.token = null;
+      el("setupMfaWrap").style.display = "";
+      setSetupNote("MFA required. Enter your code and click Verify MFA.");
+      setStatus("Quick Setup: MFA required.");
+      return;
+    }
+
+    quickSetup.token = String(res?.token || "").trim() || null;
+    quickSetup.mfaToken = null;
+    quickSetup.companies = Array.isArray(res?.companies) ? res.companies : [];
+    el("setupMfaWrap").style.display = "none";
+
+    const list = normalizeCompanyList(quickSetup.companies);
+    fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select Official company…" });
+    fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select Unofficial company…" });
+    fillSelect(el("setupBranch"), [], { placeholder: "Select branch (optional)…" });
+
+    const active = String(res?.active_company_id || "").trim();
+    if (active) {
+      el("setupCompanyOfficial").value = active;
+      el("setupCompanyUnofficial").value = active;
+    }
+
+    setSetupNote("Logged in. Select companies and (optional) branch.");
+    setStatus("Quick Setup: logged in.");
+    await quickSetupLoadBranches();
+  } catch (e) {
+    reportFatal(e, "Quick Setup login failed");
+  } finally {
+    setBtnBusy("setupLoginBtn", false);
   }
-  localStorage.setItem(KEY_SETUP_EMAIL, email);
-
-  const { edgeUrl, portOfficial } = await ensureAgentsRunningForSetup();
-  quickSetup.apiBaseUrl = edgeUrl;
-  const base = agentBase(portOfficial);
-
-  setSetupNote("Logging in…");
-  const res = await jpostJson(base, "/api/setup/login", {
-    api_base_url: edgeUrl,
-    email,
-    password,
-  });
-
-  if (res?.mfa_required) {
-    quickSetup.mfaToken = String(res?.mfa_token || "").trim() || null;
-    quickSetup.token = null;
-    el("setupMfaWrap").style.display = "";
-    setSetupNote("MFA required. Enter your code and click Verify MFA.");
-    return;
-  }
-
-  quickSetup.token = String(res?.token || "").trim() || null;
-  quickSetup.mfaToken = null;
-  quickSetup.companies = Array.isArray(res?.companies) ? res.companies : [];
-  el("setupMfaWrap").style.display = "none";
-
-  const list = normalizeCompanyList(quickSetup.companies);
-  fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select Official company…" });
-  fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select Unofficial company…" });
-  fillSelect(el("setupBranch"), [], { placeholder: "Select branch (optional)…" });
-
-  const active = String(res?.active_company_id || "").trim();
-  if (active) {
-    el("setupCompanyOfficial").value = active;
-    el("setupCompanyUnofficial").value = active;
-  }
-
-  setSetupNote("Logged in. Select companies and (optional) branch.");
-  await quickSetupLoadBranches();
 }
 
 async function quickSetupVerifyMfa() {
   setSetupNote("");
-  const code = String(el("setupMfaCode").value || "").trim();
-  if (!quickSetup.mfaToken) {
-    setSetupNote("Missing MFA token. Click Login again.");
-    return;
-  }
-  if (!code) {
-    setSetupNote("Enter your MFA code.");
-    return;
-  }
-  const { edgeUrl, portOfficial } = await ensureAgentsRunningForSetup();
-  const base = agentBase(portOfficial);
-  setSetupNote("Verifying MFA…");
-  const res = await jpostJson(base, "/api/setup/login", {
-    api_base_url: edgeUrl,
-    mfa_token: quickSetup.mfaToken,
-    mfa_code: code,
-  });
-  if (res?.mfa_required) {
-    setSetupNote("MFA still required. Double-check the code and retry.");
-    return;
-  }
-  quickSetup.token = String(res?.token || "").trim() || null;
-  quickSetup.mfaToken = null;
-  quickSetup.companies = Array.isArray(res?.companies) ? res.companies : [];
-  el("setupMfaWrap").style.display = "none";
+  setStatus("");
+  setBtnBusy("setupVerifyMfaBtn", true, "Verifying…");
+  try {
+    const code = String(el("setupMfaCode").value || "").trim();
+    if (!quickSetup.mfaToken) {
+      setSetupNote("Missing MFA token. Click Login again.");
+      return;
+    }
+    if (!code) {
+      setSetupNote("Enter your MFA code.");
+      return;
+    }
+    const { edgeUrl, portOfficial } = await ensureAgentsRunningForSetup();
+    const base = agentBase(portOfficial);
+    setSetupNote("Verifying MFA…");
+    setStatus("Quick Setup: verifying MFA…");
+    const res = await jpostJson(base, "/api/setup/login", {
+      api_base_url: edgeUrl,
+      mfa_token: quickSetup.mfaToken,
+      mfa_code: code,
+    });
+    if (res?.mfa_required) {
+      setSetupNote("MFA still required. Double-check the code and retry.");
+      return;
+    }
+    quickSetup.token = String(res?.token || "").trim() || null;
+    quickSetup.mfaToken = null;
+    quickSetup.companies = Array.isArray(res?.companies) ? res.companies : [];
+    el("setupMfaWrap").style.display = "none";
 
-  const list = normalizeCompanyList(quickSetup.companies);
-  fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select Official company…" });
-  fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select Unofficial company…" });
-  setSetupNote("MFA verified. Select companies and (optional) branch.");
-  await quickSetupLoadBranches();
+    const list = normalizeCompanyList(quickSetup.companies);
+    fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select Official company…" });
+    fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select Unofficial company…" });
+    setSetupNote("MFA verified. Select companies and (optional) branch.");
+    setStatus("Quick Setup: MFA verified.");
+    await quickSetupLoadBranches();
+  } catch (e) {
+    reportFatal(e, "Quick Setup MFA failed");
+  } finally {
+    setBtnBusy("setupVerifyMfaBtn", false);
+  }
 }
 
 async function quickSetupLoadBranches() {
@@ -438,34 +498,35 @@ async function quickSetupLoadBranches() {
 
 async function quickSetupApply() {
   setSetupNote("");
-  if (!quickSetup.token || !quickSetup.apiBaseUrl) {
-    setSetupNote("Please Login first.");
-    return;
-  }
-
-  const { edgeUrl, portOfficial, portUnofficial } = await ensureAgentsRunningForSetup();
-  const base = agentBase(portOfficial);
-
-  const companyOfficial = String(el("setupCompanyOfficial").value || "").trim();
-  const companyUnofficial = String(el("setupCompanyUnofficial").value || "").trim();
-  const branchId = String(el("setupBranch").value || "").trim();
-  const deviceCodeOfficial = String(el("setupDeviceCodeOfficial").value || "").trim() || "POS-OFFICIAL-01";
-  const deviceCodeUnofficial = String(el("setupDeviceCodeUnofficial").value || "").trim() || "POS-UNOFFICIAL-01";
-
-  if (!companyOfficial) {
-    setSetupNote("Select the Official company.");
-    return;
-  }
-  if (!companyUnofficial) {
-    setSetupNote("Select the Unofficial company (or set it to the same company).");
-    return;
-  }
-
-  setSetupNote("Registering POS devices…");
-  let officialReg = null;
-  let unofficialReg = null;
+  setStatus("");
+  setBtnBusy("setupApplyBtn", true, "Generating…");
   try {
-    officialReg = await jpostJson(base, "/api/setup/register-device", {
+    if (!quickSetup.token || !quickSetup.apiBaseUrl) {
+      setSetupNote("Please Login first.");
+      return;
+    }
+
+    const { edgeUrl, portOfficial, portUnofficial } = await ensureAgentsRunningForSetup();
+    const base = agentBase(portOfficial);
+
+    const companyOfficial = String(el("setupCompanyOfficial").value || "").trim();
+    const companyUnofficial = String(el("setupCompanyUnofficial").value || "").trim();
+    const branchId = String(el("setupBranch").value || "").trim();
+    const deviceCodeOfficial = String(el("setupDeviceCodeOfficial").value || "").trim() || "POS-OFFICIAL-01";
+    const deviceCodeUnofficial = String(el("setupDeviceCodeUnofficial").value || "").trim() || "POS-UNOFFICIAL-01";
+
+    if (!companyOfficial) {
+      setSetupNote("Select the Official company.");
+      return;
+    }
+    if (!companyUnofficial) {
+      setSetupNote("Select the Unofficial company (or set it to the same company).");
+      return;
+    }
+
+    setSetupNote("Registering POS devices…");
+    setStatus("Quick Setup: registering devices…");
+    const officialReg = await jpostJson(base, "/api/setup/register-device", {
       api_base_url: edgeUrl,
       token: quickSetup.token,
       company_id: companyOfficial,
@@ -473,7 +534,7 @@ async function quickSetupApply() {
       device_code: deviceCodeOfficial,
       reset_token: true,
     });
-    unofficialReg = await jpostJson(base, "/api/setup/register-device", {
+    const unofficialReg = await jpostJson(base, "/api/setup/register-device", {
       api_base_url: edgeUrl,
       token: quickSetup.token,
       company_id: companyUnofficial,
@@ -481,42 +542,35 @@ async function quickSetupApply() {
       device_code: deviceCodeUnofficial,
       reset_token: true,
     });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    setSetupNote(
-      `Device registration failed: ${msg}\nHint: your account must have permission pos:manage for each company.`
-    );
-    return;
-  }
 
-  const deviceIdOfficial = String(officialReg?.device_id || "").trim();
-  const deviceTokenOfficial = String(officialReg?.device_token || "").trim();
-  const deviceIdUnofficial = String(unofficialReg?.device_id || "").trim();
-  const deviceTokenUnofficial = String(unofficialReg?.device_token || "").trim();
-  if (!deviceIdOfficial || !deviceTokenOfficial || !deviceIdUnofficial || !deviceTokenUnofficial) {
-    setSetupNote("Device registration returned incomplete credentials. Please retry.");
-    return;
-  }
+    const deviceIdOfficial = String(officialReg?.device_id || "").trim();
+    const deviceTokenOfficial = String(officialReg?.device_token || "").trim();
+    const deviceIdUnofficial = String(unofficialReg?.device_id || "").trim();
+    const deviceTokenUnofficial = String(unofficialReg?.device_token || "").trim();
+    if (!deviceIdOfficial || !deviceTokenOfficial || !deviceIdUnofficial || !deviceTokenUnofficial) {
+      setSetupNote("Device registration returned incomplete credentials. Please retry.");
+      return;
+    }
 
-  // Persist into the existing (advanced) fields so Start POS keeps working even without Quick Setup.
-  el("companyOfficial").value = companyOfficial;
-  el("companyUnofficial").value = companyUnofficial;
-  el("deviceIdOfficial").value = deviceIdOfficial;
-  el("deviceTokenOfficial").value = deviceTokenOfficial;
-  el("deviceIdUnofficial").value = deviceIdUnofficial;
-  el("deviceTokenUnofficial").value = deviceTokenUnofficial;
+    // Persist into the existing (advanced) fields so Start POS keeps working even without Quick Setup.
+    el("companyOfficial").value = companyOfficial;
+    el("companyUnofficial").value = companyUnofficial;
+    el("deviceIdOfficial").value = deviceIdOfficial;
+    el("deviceTokenOfficial").value = deviceTokenOfficial;
+    el("deviceIdUnofficial").value = deviceIdUnofficial;
+    el("deviceTokenUnofficial").value = deviceTokenUnofficial;
 
-  localStorage.setItem(KEY_EDGE, edgeUrl);
-  localStorage.setItem(KEY_CO_OFFICIAL, companyOfficial);
-  localStorage.setItem(KEY_CO_UNOFFICIAL, companyUnofficial);
-  localStorage.setItem(KEY_DEV_ID_OFFICIAL, deviceIdOfficial);
-  localStorage.setItem(KEY_DEV_ID_UNOFFICIAL, deviceIdUnofficial);
-  await secureSet(KEY_DEV_TOK_OFFICIAL, deviceTokenOfficial);
-  await secureSet(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
+    localStorage.setItem(KEY_EDGE, edgeUrl);
+    localStorage.setItem(KEY_CO_OFFICIAL, companyOfficial);
+    localStorage.setItem(KEY_CO_UNOFFICIAL, companyUnofficial);
+    localStorage.setItem(KEY_DEV_ID_OFFICIAL, deviceIdOfficial);
+    localStorage.setItem(KEY_DEV_ID_UNOFFICIAL, deviceIdUnofficial);
+    await secureSet(KEY_DEV_TOK_OFFICIAL, deviceTokenOfficial);
+    await secureSet(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
 
-  // Patch the agent config files live (agent reloads config on each request) so the POS can sync immediately.
-  setSetupNote("Applying config to local agents…");
-  try {
+    // Patch the agent config files live (agent reloads config on each request) so the POS can sync immediately.
+    setSetupNote("Applying config to local agents…");
+    setStatus("Quick Setup: applying local config…");
     await jpostJson(agentBase(portOfficial), "/api/config", {
       api_base_url: edgeUrl,
       company_id: companyOfficial,
@@ -533,12 +587,28 @@ async function quickSetupApply() {
       device_id: deviceIdUnofficial,
       device_token: deviceTokenUnofficial,
     });
-  } catch (e) {
-    setSetupNote(`Config applied partially. (${e instanceof Error ? e.message : String(e)})`);
-  }
 
-  setSetupNote("Setup complete. Starting POS…");
-  await start();
+    setSetupNote("Setup complete. Starting POS…");
+    setStatus("Quick Setup: starting POS…");
+    await start();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    setSetupNote(`Quick Setup failed: ${msg}\nHint: your account must have permission pos:manage for each company.`);
+    setStatus(`Quick Setup failed: ${msg}`);
+    try {
+      const logs = await invoke("tail_agent_logs", { maxLines: 120 });
+      const a = String(logs?.official || "").trim();
+      const b = String(logs?.unofficial || "").trim();
+      const parts = [];
+      if (a) parts.push(`Official log:\n${a}`);
+      if (b) parts.push(`Unofficial log:\n${b}`);
+      if (parts.length) setDiag(parts.join("\n\n"));
+    } catch {
+      // ignore
+    }
+  } finally {
+    setBtnBusy("setupApplyBtn", false);
+  }
 }
 
 function quickSetupClear() {
@@ -698,10 +768,10 @@ if (el("setupCompanyOfficial")) {
   fillSelect(el("setupCompanyOfficial"), [], { placeholder: "Login to load companies…" });
   fillSelect(el("setupCompanyUnofficial"), [], { placeholder: "Login to load companies…" });
   fillSelect(el("setupBranch"), [], { placeholder: "Login to load branches…" });
-  el("setupLoginBtn").addEventListener("click", () => quickSetupLogin().catch((e) => setSetupNote(e.message || String(e))));
-  el("setupVerifyMfaBtn").addEventListener("click", () => quickSetupVerifyMfa().catch((e) => setSetupNote(e.message || String(e))));
+  el("setupLoginBtn").addEventListener("click", () => quickSetupLogin());
+  el("setupVerifyMfaBtn").addEventListener("click", () => quickSetupVerifyMfa());
   el("setupClearBtn").addEventListener("click", quickSetupClear);
-  el("setupApplyBtn").addEventListener("click", () => quickSetupApply().catch((e) => setSetupNote(e.message || String(e))));
+  el("setupApplyBtn").addEventListener("click", () => quickSetupApply());
   el("setupCompanyOfficial").addEventListener("change", () => quickSetupLoadBranches().catch(() => {}));
 }
 el("applyPackBtn").addEventListener("click", () => {
