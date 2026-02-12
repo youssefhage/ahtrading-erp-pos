@@ -37,6 +37,7 @@ export default function RolesPermissionsPage() {
   const [editSaving, setEditSaving] = useState(false);
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
+  const selectedRole = useMemo(() => (selectedRoleId ? roleById.get(selectedRoleId) || null : null), [roleById, selectedRoleId]);
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -282,9 +283,13 @@ export default function RolesPermissionsPage() {
           </Button>
           <ConfirmButton
             variant="outline"
-            disabled={!selectedRoleId}
+            disabled={!selectedRoleId || Boolean(selectedRole?.assigned_users)}
             title="Delete Role?"
-            description="This deletes the role (and its permissions). Users assigned to this role must be unassigned first."
+            description={
+              selectedRole?.assigned_users
+                ? `This role is assigned to ${selectedRole.assigned_users} user(s). Unassign users first.`
+                : "This deletes the role (and its permissions)."
+            }
             confirmText="Delete"
             confirmVariant="destructive"
             onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
