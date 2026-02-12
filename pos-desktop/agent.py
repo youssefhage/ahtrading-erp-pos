@@ -140,9 +140,19 @@ def _origin_is_trusted(origin: str, host_header: str) -> bool:
     Non-browser clients usually omit Origin; those are handled separately.
     """
     oh, op, scheme = _parse_origin(origin)
-    if not oh or scheme not in {"http", "https"}:
+    if not oh:
         return False
-    if oh in {"localhost", "127.0.0.1", "::1"}:
+
+    # Tauri desktop origins (for the launcher UI). Allowing these does not enable
+    # arbitrary websites to access localhost because a hostile website cannot
+    # spoof the browser Origin to `tauri://localhost`.
+    if scheme == "tauri" and oh == "localhost":
+        return True
+
+    if scheme not in {"http", "https"}:
+        return False
+
+    if oh in {"localhost", "127.0.0.1", "::1", "tauri.localhost"}:
         return True
     hh, hp = _parse_host_header(host_header)
     if not hh:

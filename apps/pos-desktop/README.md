@@ -23,6 +23,15 @@ npm run build
 
 ## Setup Pack (recommended for onboarding)
 
+## Quick Setup (recommended)
+If you have a cloud API and a user account with permission `pos:manage`, you can onboard a terminal without copying tokens:
+1. Enter API URL (example: `https://app.melqard.com/api`)
+2. Login
+3. Select Official + Unofficial companies (and optional branch)
+4. Generate Setup + Start POS
+
+The app will register POS devices and write the local agent config automatically.
+
 The on-prem onboarding runner exports:
 - `deploy/edge/onboarding/<timestamp>/tauri-launcher-prefill.json`
 

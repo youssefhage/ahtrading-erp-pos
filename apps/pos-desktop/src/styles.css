@@ -81,6 +81,12 @@ h2 {
   font-size: 16px;
 }
 
+h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 750;
+}
+
 .muted {
   color: var(--muted);
   margin: 8px 0 10px;
@@ -108,6 +114,16 @@ input {
   outline: none;
 }
 
+select {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 10px 10px;
+  border-radius: 12px;
+  font-size: 14px;
+  outline: none;
+}
+
 textarea {
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid var(--line);
@@ -121,6 +137,11 @@ textarea {
 }
 
 input:focus {
+  border-color: rgba(53, 192, 122, 0.6);
+  box-shadow: 0 0 0 3px rgba(53, 192, 122, 0.12);
+}
+
+select:focus {
   border-color: rgba(53, 192, 122, 0.6);
   box-shadow: 0 0 0 3px rgba(53, 192, 122, 0.12);
 }
@@ -176,6 +197,14 @@ details.advanced {
 details.advanced summary {
   cursor: pointer;
   color: rgba(255, 255, 255, 0.86);
+}
+
+.callout {
+  margin-top: 12px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(53, 192, 122, 0.22);
+  background: linear-gradient(180deg, rgba(53, 192, 122, 0.10), rgba(0, 0, 0, 0.12));
 }
 
 .grid2 {

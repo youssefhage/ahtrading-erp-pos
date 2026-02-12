@@ -22,10 +22,11 @@
       </div>
       <div class="controls">
         <label class="pill">
-          Invoice Company
+          Checkout Mode
           <select id="invoiceCompany">
-            <option value="unofficial" selected>Unofficial (default)</option>
-            <option value="official">Official</option>
+            <option value="auto" selected>Auto (Split by item)</option>
+            <option value="unofficial">Force Unofficial</option>
+            <option value="official">Force Official</option>
           </select>
         </label>
         <button id="syncBtn" class="btn">Sync Both</button>
@@ -80,7 +81,7 @@
           <div class="cartMeta">
             <label class="check">
               <input id="flagOfficial" type="checkbox" />
-              If needed, flag for later adjustment
+              Issue as Official (review later)
             </label>
             <button id="openCartBtn" class="btn ghost tiny" type="button">View</button>
             <button id="clearCartBtn" class="btn ghost tiny" type="button">Clear Cart</button>
@@ -91,7 +92,7 @@
 
         <div class="totals">
           <div class="row"><span>Items</span><strong id="tItems">0</strong></div>
-          <div class="row"><span>Invoice Company</span><strong id="tInvoiceCompany">Unofficial</strong></div>
+          <div class="row"><span>Invoice Handling</span><strong id="tInvoiceCompany">Auto</strong></div>
           <div class="row"><span>Subtotal (USD)</span><strong id="tSubtotal">0.00</strong></div>
           <div class="row"><span>VAT (USD)</span><strong id="tVat">0.00</strong></div>
           <div class="row"><span>Total (USD)</span><strong id="tTotal">0.00</strong></div>

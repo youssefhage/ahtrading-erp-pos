@@ -35,6 +35,12 @@ const state = {
     official: [],
     unofficial: []
   },
+  // In-memory search indexes rebuilt after each cache load.
+  index: {
+    itemsById: { official: new Map(), unofficial: new Map() },
+    byBarcode: { official: new Map(), unofficial: new Map() },
+    bySku: { official: new Map(), unofficial: new Map() },
+  },
   configs: {
     official: null,
     unofficial: null
@@ -67,6 +73,9 @@ const state = {
     customerLookupSeq: 0,
     customerResults: [],
     customerActiveIndex: -1,
+    lookupResults: [],
+    lookupActiveIndex: -1,
+    lookupQuery: "",
     // Optional callback to refresh the current lookup UI after caches are refreshed.
     refreshLookup: null,
     edgePollTimer: null,
@@ -116,11 +125,31 @@ async function jpost(base, path, payload) {
 }
 
 function getInvoiceCompany() {
-  return el("invoiceCompany").value === "official" ? "official" : "unofficial";
+  const v = String(el("invoiceCompany")?.value || "auto").trim().toLowerCase();
+  if (v === "official") return "official";
+  if (v === "unofficial") return "unofficial";
+  return "auto";
 }
 
 function otherAgentUrl() {
   return String(el("otherAgentUrl").value || "").trim() || "http://localhost:7072";
+}
+
+function cartCompaniesSet() {
+  return new Set((state.cart || []).map((c) => c.companyKey).filter(Boolean));
+}
+
+function primaryCompanyFromCart() {
+  const s = cartCompaniesSet();
+  if (s.size === 1) return Array.from(s.values())[0];
+  return null;
+}
+
+function effectiveInvoiceCompany() {
+  // For "Auto", infer from cart. Otherwise use the forced selection.
+  const mode = getInvoiceCompany();
+  if (mode === "official" || mode === "unofficial") return mode;
+  return primaryCompanyFromCart() || "unofficial";
 }
 
 function statusKindFromMessage(msg, fallback = "info") {
@@ -408,16 +437,19 @@ function selectActiveCustomerMatch() {
 function updateUiFacts() {
   const lineCount = state.cart.length;
   const qtyCount = state.cart.reduce((sum, c) => sum + Math.max(0, Number(c.qty || 0)), 0);
-  const invoiceCompany = getInvoiceCompany();
-  const cartCompanies = new Set(state.cart.map((c) => c.companyKey));
+  const mode = getInvoiceCompany(); // "auto" | "official" | "unofficial"
+  const invoiceCompany = effectiveInvoiceCompany(); // resolved to a specific agent
+  const cartCompanies = cartCompaniesSet();
+  const primaryCompany = primaryCompanyFromCart();
   const mixedCompanies = cartCompanies.size > 1;
   const flagToOfficial = !!el("flagOfficial")?.checked;
+  const crossCompany = !!primaryCompany && !mixedCompanies && invoiceCompany !== primaryCompany;
   const cartSummary = el("cartSummary");
   if (cartSummary) {
-    const mode = flagToOfficial
+    const modeSuffix = flagToOfficial
       ? " · Flag: Official"
-      : (mixedCompanies ? " · Split: Official+Unofficial" : "");
-    cartSummary.textContent = `Cart: ${lineCount} line(s), ${qtyCount} item(s)${mode}`;
+      : (mixedCompanies ? " · Split: Official+Unofficial" : (crossCompany ? " · Cross-company" : ""));
+    cartSummary.textContent = `Cart: ${lineCount} line(s), ${qtyCount} item(s)${modeSuffix}`;
   }
   const activeCustomer = el("activeCustomer");
   if (activeCustomer) activeCustomer.textContent = `Customer: ${state.ui.customerLabel}`;
@@ -425,21 +457,30 @@ function updateUiFacts() {
   if (tItems) tItems.textContent = String(qtyCount);
   const inv = el("tInvoiceCompany");
   if (inv) {
-    if (flagToOfficial) inv.textContent = "Official (flagged)";
-    else if (mixedCompanies) inv.textContent = "Split";
-    else inv.textContent = invoiceCompany === "official" ? "Official" : "Unofficial";
+    if (flagToOfficial) {
+      inv.textContent = "Official (review)";
+    } else if (mixedCompanies) {
+      inv.textContent = "Split (2 invoices)";
+    } else if (mode === "auto") {
+      if (crossCompany) inv.textContent = invoiceCompany === "official" ? "Auto: Official (cross-company)" : "Auto: Unofficial (cross-company)";
+      else inv.textContent = invoiceCompany === "official" ? "Auto: Official" : "Auto: Unofficial";
+    } else {
+      if (crossCompany) inv.textContent = invoiceCompany === "official" ? "Official (cross-company)" : "Unofficial (cross-company)";
+      else inv.textContent = invoiceCompany === "official" ? "Official" : "Unofficial";
+    }
   }
 
   // Disable credit when the cart would produce split invoices, to avoid partial failures
   // due to customer/account mismatches across companies.
   const creditOpt = el("payment")?.querySelector?.('option[value="credit"]');
-  if (creditOpt) creditOpt.disabled = mixedCompanies && !flagToOfficial;
+  if (creditOpt) creditOpt.disabled = (mixedCompanies || crossCompany) && !flagToOfficial;
 
   // Make the Pay button communicate split/flag mode without adding more clicks.
   const payBtn = el("payBtn");
   if (payBtn && !payBtn.classList.contains("isBusy")) {
     if (flagToOfficial) payBtn.textContent = "Pay (Official Flag)";
     else if (mixedCompanies) payBtn.textContent = "Pay (Split)";
+    else if (crossCompany) payBtn.textContent = "Pay (Cross-company)";
     else payBtn.textContent = "Pay";
   }
 }
@@ -1133,7 +1174,7 @@ function renderEdgeBadges() {
   }
 
   // Disable credit on the selected invoice agent when its edge is offline.
-  const inv = getInvoiceCompany();
+  const inv = effectiveInvoiceCompany();
   const creditOpt = el("payment")?.querySelector?.('option[value="credit"]');
   if (creditOpt) creditOpt.disabled = state.edge[inv]?.ok === false;
 }
@@ -1244,81 +1285,214 @@ function startAutoSyncPullBoth() {
   });
 }
 
+function rebuildItemIndexes() {
+  // Reset maps in-place so other references remain valid.
+  for (const k of ["official", "unofficial"]) {
+    state.index.itemsById[k].clear();
+    state.index.byBarcode[k].clear();
+    state.index.bySku[k].clear();
+
+    const items = state.items[k] || [];
+    for (const it of items) {
+      const id = String(it?.id || "").trim();
+      if (!id) continue;
+      state.index.itemsById[k].set(id, it);
+
+      const sku = String(it?.sku || "").trim().toLowerCase();
+      if (sku) state.index.bySku[k].set(sku, it);
+
+      const bc = String(it?.barcode || "").trim();
+      if (bc) state.index.byBarcode[k].set(bc, it);
+    }
+
+    const bcs = state.barcodes[k] || [];
+    for (const b of bcs) {
+      const bc = String(b?.barcode || "").trim();
+      const itemId = String(b?.item_id || "").trim();
+      if (!bc || !itemId) continue;
+      const it = state.index.itemsById[k].get(itemId);
+      if (it) state.index.byBarcode[k].set(bc, it);
+    }
+  }
+}
+
 function findByBarcode(companyKey, barcode) {
-  const bcs = state.barcodes[companyKey] || [];
-  const by = new Map();
-  for (const b of bcs) {
-    if (!b?.barcode) continue;
-    by.set(String(b.barcode).trim(), b);
-  }
-  const hit = by.get(String(barcode).trim());
-  if (hit?.item_id) {
-    const items = state.items[companyKey] || [];
-    const m = new Map(items.map((i) => [String(i.id), i]));
-    return m.get(String(hit.item_id)) || null;
-  }
-  // fallback: items.barcode
-  const items = state.items[companyKey] || [];
   const bc = String(barcode).trim();
-  return items.find((i) => String(i.barcode || "").trim() === bc) || null;
+  if (!bc) return null;
+  const m = state.index?.byBarcode?.[companyKey];
+  if (m && typeof m.get === "function") return m.get(bc) || null;
+  // Fallback: scan items array (should be rare if indexes are built).
+  const items = state.items[companyKey] || [];
+  return items.find((i) => String(i?.barcode || "").trim() === bc) || null;
 }
 
-function pickItem(barcodeOrText) {
-  const q = String(barcodeOrText || "").trim();
-  if (!q) return null;
-
-  // Priority rule: default unofficial-first, unless invoice company is official.
-  const inv = getInvoiceCompany();
+function lookupCompanyOrder() {
+  const inv = effectiveInvoiceCompany();
   const first = inv === "official" ? "official" : "unofficial";
-  const second = inv === "official" ? "unofficial" : "official";
-
-  const it1 = findByBarcode(first, q);
-  if (it1) return { companyKey: first, item: it1, reason: `${first}-barcode` };
-  const it2 = findByBarcode(second, q);
-  if (it2) return { companyKey: second, item: it2, reason: `${second}-barcode` };
-
-  // Search by SKU/name contains, in priority order.
-  const norm = q.toLowerCase();
-  const items1 = state.items[first] || [];
-  let hit = items1.find((i) => String(i.sku || "").toLowerCase() === norm) ||
-            items1.find((i) => String(i.name || "").toLowerCase().includes(norm));
-  if (hit) return { companyKey: first, item: hit, reason: `${first}-search` };
-
-  const items2 = state.items[second] || [];
-  hit = items2.find((i) => String(i.sku || "").toLowerCase() === norm) ||
-        items2.find((i) => String(i.name || "").toLowerCase().includes(norm));
-  if (hit) return { companyKey: second, item: hit, reason: `${second}-search` };
-
-  return null;
+  const second = first === "official" ? "unofficial" : "official";
+  return [first, second];
 }
 
-function renderResults(pick, opts = {}) {
+function _matchKey(companyKey, item) {
+  const id = String(item?.id || "").trim();
+  return `${companyKey}|${id}`;
+}
+
+function lookupMatches(barcodeOrText) {
+  const q = String(barcodeOrText || "").trim();
+  if (!q) return [];
+  const [first, second] = lookupCompanyOrder();
+  const order = [first, second];
+  const out = [];
+  const seen = new Set();
+
+  function push(companyKey, item, reason, score) {
+    if (!item) return;
+    const k = _matchKey(companyKey, item);
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push({ companyKey, item, reason, score: Number(score || 0) });
+  }
+
+  // 1) Barcode exact: return all matches across both companies (if any).
+  for (const companyKey of order) {
+    const it = findByBarcode(companyKey, q);
+    if (it) push(companyKey, it, "barcode", 1000);
+  }
+  if (out.length) {
+    return out.sort((a, b) => (b.score - a.score) || (a.companyKey === first ? -1 : 1));
+  }
+
+  const norm = q.toLowerCase();
+
+  // 2) SKU exact.
+  for (const companyKey of order) {
+    const it = state.index?.bySku?.[companyKey]?.get?.(norm) || null;
+    if (it) push(companyKey, it, "sku", 900);
+  }
+  if (out.length) {
+    return out.sort((a, b) => (b.score - a.score) || (a.companyKey === first ? -1 : 1));
+  }
+
+  // 3) Text search (name/sku contains) across both companies.
+  // Keep results small and stable for cashier speed.
+  const MAX = 8;
+  if (norm.length < 2) return [];
+
+  for (const companyKey of order) {
+    const items = state.items[companyKey] || [];
+    for (const it of items) {
+      const name = String(it?.name || "").toLowerCase();
+      const sku = String(it?.sku || "").toLowerCase();
+      if (!name && !sku) continue;
+      let score = 0;
+      let reason = "";
+      if (sku && sku === norm) { score = 850; reason = "sku"; }
+      else if (sku && sku.startsWith(norm)) { score = 650; reason = "sku-prefix"; }
+      else if (name && name.startsWith(norm)) { score = 620; reason = "name-prefix"; }
+      else if (sku && sku.includes(norm)) { score = 520; reason = "sku-contains"; }
+      else if (name && name.includes(norm)) { score = 480; reason = "name-contains"; }
+      if (!score) continue;
+      // Small bias towards the preferred company.
+      if (companyKey === first) score += 2;
+      push(companyKey, it, reason, score);
+      if (out.length > MAX * 4) break; // short-circuit large catalogs
+    }
+  }
+
+  out.sort((a, b) => (b.score - a.score) || (a.companyKey === first ? -1 : 1));
+  return out.slice(0, MAX);
+}
+
+function setLookupResults(matches, query) {
+  const list = Array.isArray(matches) ? matches : [];
+  state.ui.lookupResults = list;
+  state.ui.lookupQuery = String(query || "").trim();
+  state.ui.lookupActiveIndex = list.length ? 0 : -1;
+  state.lastLookup = list.length ? list[0] : null;
+}
+
+function activeLookup() {
+  const list = state.ui.lookupResults || [];
+  const idx = Number(state.ui.lookupActiveIndex);
+  if (Number.isFinite(idx) && idx >= 0 && idx < list.length) return list[idx] || null;
+  return list[0] || null;
+}
+
+function setLookupActiveIndex(nextIndex, opts = {}) {
+  const root = el("results");
+  const list = state.ui.lookupResults || [];
+  if (!root || !list.length) {
+    state.ui.lookupActiveIndex = -1;
+    state.lastLookup = null;
+    return -1;
+  }
+  let idx = Number(nextIndex);
+  if (!Number.isFinite(idx)) idx = 0;
+  idx = Math.max(0, Math.min(list.length - 1, idx));
+  state.ui.lookupActiveIndex = idx;
+  state.lastLookup = list[idx] || null;
+  const rows = Array.from(root.querySelectorAll("[data-lookup-idx]"));
+  rows.forEach((r) => {
+    const i = Number(r.getAttribute("data-lookup-idx") || "-1");
+    r.classList.toggle("active", i === idx);
+    r.setAttribute("aria-selected", i === idx ? "true" : "false");
+  });
+  if (opts.scroll && rows[idx]) rows[idx].scrollIntoView({ block: "nearest" });
+  return idx;
+}
+
+function moveLookupActive(delta) {
+  const list = state.ui.lookupResults || [];
+  if (!list.length) return false;
+  let idx = Number(state.ui.lookupActiveIndex);
+  if (!Number.isFinite(idx) || idx < 0 || idx >= list.length) idx = 0;
+  else idx = (idx + Number(delta || 0) + list.length) % list.length;
+  setLookupActiveIndex(idx, { scroll: true });
+  return true;
+}
+
+function renderResults(matches, opts = {}) {
   const root = el("results");
   root.innerHTML = "";
-  if (!pick) {
-    root.innerHTML = `<div class="hint">No match. Try Sync Both or check barcode typing.</div>`;
+  const list = Array.isArray(matches) ? matches : [];
+  if (!list.length) {
+    root.innerHTML = `<div class="hint">No match. Try Sync Both or refine your search.</div>`;
     if (!opts.silentMeta) setScanMeta("No result for current input.");
     return;
   }
-  const { companyKey, item, reason } = pick;
-  const tagClass = companyKey === "official" ? "official" : "unofficial";
-  const tagText = companyKey === "official" ? "Official" : "Unofficial";
-  const price = toNum(item.price_usd || 0);
-  const reasonLabel = String(reason || "").replace("-", " · ");
-  root.innerHTML = `
-    <div class="result">
+
+  const activeIdx = Number.isFinite(state.ui.lookupActiveIndex) ? state.ui.lookupActiveIndex : 0;
+  for (let i = 0; i < list.length; i += 1) {
+    const m = list[i];
+    const { companyKey, item } = m;
+    const tagClass = companyKey === "official" ? "official" : "unofficial";
+    const tagText = companyKey === "official" ? "Official" : "Unofficial";
+    const price = toNum(item?.price_usd || 0);
+    const reason = String(m?.reason || "").replaceAll("-", " ");
+    const row = document.createElement("div");
+    row.className = `resultRow${i === activeIdx ? " active" : ""}`;
+    row.setAttribute("data-lookup-idx", String(i));
+    row.setAttribute("aria-selected", i === activeIdx ? "true" : "false");
+    row.innerHTML = `
       <div class="meta">
-        <div class="name">${escapeHtml(item.name || item.sku || item.id)}</div>
-        <div class="sub mono">SKU: ${escapeHtml(item.sku || "-")} · Barcode: ${escapeHtml(item.barcode || "-")} · USD ${fmtUsd(price)}</div>
-        <div class="sub mono">Match: ${escapeHtml(reasonLabel || "search")}</div>
+        <div class="name">${escapeHtml(item?.name || item?.sku || item?.id)}</div>
+        <div class="sub mono">SKU: ${escapeHtml(item?.sku || "-")} · Barcode: ${escapeHtml(item?.barcode || "-")} · USD ${fmtUsd(price)}</div>
+        <div class="sub mono">Match: ${escapeHtml(reason || "search")}</div>
       </div>
-      <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-end">
+      <div class="resultRight">
         <div class="tag ${tagClass}">${tagText}</div>
-        <button class="btn" id="addFromResult">Add</button>
+        <button class="btn tiny" type="button">Add</button>
       </div>
-    </div>
-  `;
-  el("addFromResult").addEventListener("click", () => addToCart(companyKey, item));
+    `;
+    row.addEventListener("click", (e) => {
+      // Clicking the row selects; the Add button actually adds.
+      if (e?.target && e.target.tagName === "BUTTON") return;
+      setLookupActiveIndex(i, { scroll: false });
+    });
+    row.querySelector("button")?.addEventListener("click", () => addToCart(companyKey, item));
+    root.appendChild(row);
+  }
 }
 
 function escapeHtml(s) {
@@ -1569,6 +1743,7 @@ async function loadCaches(opts = {}) {
       );
     }
   }
+  try { rebuildItemIndexes(); } catch (_e) {}
   if (typeof state.ui.refreshLookup === "function") state.ui.refreshLookup();
 }
 
@@ -1660,7 +1835,7 @@ async function customerSearch(opts = {}) {
     clearCustomerResults();
     return [];
   }
-  const invoiceCompany = opts.companyKey || getInvoiceCompany();
+  const invoiceCompany = opts.companyKey || effectiveInvoiceCompany();
   const base = state.agents[invoiceCompany].base;
   const reqSeq = ++state.ui.customerLookupSeq;
   if (!live) {
@@ -1684,7 +1859,7 @@ async function customerSearch(opts = {}) {
 
 async function createCustomerFromPos() {
   setOtherAgentBase();
-  const invoiceCompany = getInvoiceCompany();
+  const invoiceCompany = effectiveInvoiceCompany();
   const base = state.agents[invoiceCompany].base;
   const name = String(el("customerCreateName")?.value || "").trim();
   const phone = String(el("customerCreatePhone")?.value || "").trim();
@@ -1720,14 +1895,38 @@ async function pay() {
   setOtherAgentBase();
 
   const payment_method = el("payment").value || "cash";
-  const customer_id = String(el("customerId").value || "").trim() || null;
-  if (payment_method === "credit" && !customer_id) {
+  const requested_customer_id = String(el("customerId").value || "").trim() || null;
+  if (payment_method === "credit" && !requested_customer_id) {
     throw new Error("credit sale requires customer_id");
   }
 
-  const cartCompanies = new Set(state.cart.map((c) => c.companyKey));
+  const cartCompanies = cartCompaniesSet();
   const flag = !!el("flagOfficial")?.checked;
   const mixedCompanies = cartCompanies.size > 1;
+  const inferredPrimary = primaryCompanyFromCart();
+  const invForPay = effectiveInvoiceCompany();
+  const crossCompany = !!inferredPrimary && !mixedCompanies && invForPay !== inferredPrimary;
+
+  if (!flag && crossCompany && payment_method === "credit") {
+    throw new Error("Credit is disabled for cross-company invoices. Use cash/card/transfer, or Flag to invoice Official for review.");
+  }
+
+  async function resolveCustomerId(companyKey) {
+    const cid = requested_customer_id;
+    if (!cid) return null;
+    try {
+      const base = state.agents[companyKey].base;
+      const res = await jget(base, `/api/customers/by-id?customer_id=${encodeURIComponent(cid)}`);
+      const ok = !!(res && res.customer && res.customer.id);
+      if (!ok && payment_method === "credit") {
+        throw new Error(`Customer not found on ${companyKey}. Credit sale requires a valid customer.`);
+      }
+      return ok ? cid : null;
+    } catch (_e) {
+      if (payment_method === "credit") throw _e;
+      return null;
+    }
+  }
 
   function mapCart(lines) {
     return lines.map((c) => ({
@@ -1755,6 +1954,10 @@ async function pay() {
       assertCreditAllowed(invoiceCompany);
       const agentBase = state.agents[invoiceCompany].base;
       const crossCompany = mixedCompanies || !cartCompanies.has(invoiceCompany);
+      const customer_id = await resolveCustomerId(invoiceCompany);
+      if (requested_customer_id && !customer_id) {
+        setStatus("Customer not found on Official. Proceeding as walk-in.", "warn");
+      }
 
       // Pre-open receipt window to reduce popup blocking.
       const receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer,width=420,height=820");
@@ -1766,6 +1969,8 @@ async function pay() {
           line_companies: Array.from(cartCompanies.values()),
           cross_company: crossCompany,
           flagged_for_adjustment: true,
+          customer_id_requested: requested_customer_id,
+          customer_id_applied: customer_id,
           note: "Flagged: invoice issued by Official for later review."
         }
       };
@@ -1811,6 +2016,17 @@ async function pay() {
         receiptWindows[k] = window.open("about:blank", "_blank", "noopener,noreferrer,width=420,height=820");
       }
 
+      const customerByCompany = {};
+      if (requested_customer_id) {
+        for (const k of companiesInOrder) {
+          customerByCompany[k] = await resolveCustomerId(k);
+        }
+        const missing = companiesInOrder.filter((k) => !customerByCompany[k]);
+        if (missing.length) {
+          setStatus(`Customer not found in: ${missing.join(", ")}. Those invoices will be walk-in.`, "warn");
+        }
+      }
+
       setScanMeta(`Issuing ${companiesInOrder.length} invoices…`);
       const done = [];
 
@@ -1820,6 +2036,7 @@ async function pay() {
         if (!lines.length) continue;
 
         setScanMeta(`Issuing ${companyKey} invoice…`);
+        const customer_id = requested_customer_id ? (customerByCompany[companyKey] || null) : null;
         const receipt_meta = {
           pilot: {
             mode: "split-by-company",
@@ -1828,6 +2045,8 @@ async function pay() {
             line_companies: [companyKey],
             cross_company: false,
             flagged_for_adjustment: false,
+            customer_id_requested: requested_customer_id,
+            customer_id_applied: customer_id,
             note: null
           }
         };
@@ -1868,10 +2087,14 @@ async function pay() {
     }
 
     // Single-company (or intentionally forced) flow: issue one invoice on selected invoice company.
-    const invoiceCompany = getInvoiceCompany();
+    const invoiceCompany = effectiveInvoiceCompany();
     assertCreditAllowed(invoiceCompany);
     const agentBase = state.agents[invoiceCompany].base;
     const crossCompany = cartCompanies.size > 1 || (cartCompanies.size === 1 && !cartCompanies.has(invoiceCompany));
+    const customer_id = await resolveCustomerId(invoiceCompany);
+    if (requested_customer_id && !customer_id) {
+      setStatus(`Customer not found on ${invoiceCompany}. Proceeding as walk-in.`, "warn");
+    }
 
       const receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer,width=420,height=820");
       const receipt_meta = {
@@ -1881,6 +2104,8 @@ async function pay() {
           line_companies: Array.from(cartCompanies.values()),
           cross_company: crossCompany,
           flagged_for_adjustment: crossCompany,
+          customer_id_requested: requested_customer_id,
+          customer_id_applied: customer_id,
           note: crossCompany
             ? "Cross-company invoice: stock moves were skipped; requires later intercompany/adjustment handling."
             : null
@@ -2028,6 +2253,9 @@ function wire() {
     el("scan").value = "";
     el("results").innerHTML = "";
     state.lastLookup = null;
+    state.ui.lookupResults = [];
+    state.ui.lookupActiveIndex = -1;
+    state.ui.lookupQuery = "";
     setScanMeta("Search cleared.");
     el("scan").focus();
   });
@@ -2199,15 +2427,20 @@ function wire() {
     const q = String(opts.query ?? el("scan")?.value ?? "").trim();
     if (!q) {
       state.lastLookup = null;
+      state.ui.lookupResults = [];
+      state.ui.lookupActiveIndex = -1;
+      state.ui.lookupQuery = "";
       el("results").innerHTML = "";
       if (!opts.silent) setScanMeta("Waiting for input…");
       return;
     }
-    const pick = pickItem(q);
-    state.lastLookup = pick;
-    renderResults(pick, { silentMeta: !!opts.silent });
-    if (pick?.item) {
-      setScanMeta(`${opts.live ? "Live match" : "Match"}: ${pick.item.name || pick.item.sku || pick.item.id} (${pick.companyKey})`);
+    const matches = lookupMatches(q);
+    setLookupResults(matches, q);
+    renderResults(matches, { silentMeta: !!opts.silent });
+    const a = activeLookup();
+    if (a?.item) {
+      const many = matches.length > 1 ? ` · ${matches.length} matches (use ↑/↓)` : "";
+      setScanMeta(`${opts.live ? "Live match" : "Match"}: ${a.item.name || a.item.sku || a.item.id} (${a.companyKey})${many}`);
     } else if (!opts.silent) {
       setScanMeta("No result for current input.");
     }
@@ -2239,16 +2472,41 @@ function wire() {
   });
 
   el("scan").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const delta = e.key === "ArrowDown" ? 1 : -1;
+      if (moveLookupActive(delta)) {
+        e.preventDefault();
+        const a = activeLookup();
+        if (a?.item) {
+          const many = (state.ui.lookupResults || []).length > 1 ? ` · ${(state.ui.lookupResults || []).length} matches` : "";
+          setScanMeta(`Selected: ${a.item.name || a.item.sku || a.item.id} (${a.companyKey})${many}`);
+        }
+      }
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
+      const q = String(el("scan")?.value || "").trim();
+      const a0 = activeLookup();
+      if (q && q === String(state.ui.lookupQuery || "") && a0?.item) {
+        addToCart(a0.companyKey, a0.item);
+        return;
+      }
       doLookupAndRender({ live: false, silent: false });
-      // Fast cashier flow: if there is a match, add immediately.
-      if (state.lastLookup?.item) addToCart(state.lastLookup.companyKey, state.lastLookup.item);
+      const a1 = activeLookup();
+      if (a1?.item) addToCart(a1.companyKey, a1.item);
     }
   });
   el("addBtn").addEventListener("click", () => {
+    const q = String(el("scan")?.value || "").trim();
+    const a0 = activeLookup();
+    if (q && q === String(state.ui.lookupQuery || "") && a0?.item) {
+      addToCart(a0.companyKey, a0.item);
+      return;
+    }
     doLookupAndRender({ live: false, silent: false });
-    if (state.lastLookup?.item) addToCart(state.lastLookup.companyKey, state.lastLookup.item);
+    const a1 = activeLookup();
+    if (a1?.item) addToCart(a1.companyKey, a1.item);
   });
   el("payBtn").addEventListener("click", async () => {
     try {
@@ -2260,7 +2518,9 @@ function wire() {
   el("invoiceCompany").addEventListener("change", () => {
     renderEdgeBadges();
     updateUiFacts();
-    setStatus(`Invoice company set to ${getInvoiceCompany()}.`, "info");
+    const m = getInvoiceCompany();
+    if (m === "auto") setStatus("Checkout mode: Auto (split by item).", "info");
+    else setStatus(`Checkout mode: Force ${m}.`, "info");
     liveCustomerSearch();
   });
   el("otherAgentUrl").addEventListener("input", () => {

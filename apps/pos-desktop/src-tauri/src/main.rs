@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -38,6 +40,10 @@ fn ensure_parent_dir(path: &Path) -> std::io::Result<()> {
     fs::create_dir_all(p)?;
   }
   Ok(())
+}
+
+fn is_port_available(port: u16) -> bool {
+  std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
 fn patch_config(
@@ -97,6 +103,7 @@ fn spawn_agent(
   port: u16,
   config_path: &Path,
   db_path: &Path,
+  log_path: &Path,
 ) -> std::io::Result<Child> {
   let sidecar = find_sidecar_exe(app).ok_or_else(|| {
     std::io::Error::new(
@@ -104,6 +111,13 @@ fn spawn_agent(
       "pos-agent sidecar not found (bundle it for production builds)",
     )
   })?;
+
+  ensure_parent_dir(log_path)?;
+  let log = OpenOptions::new()
+    .create(true)
+    .append(true)
+    .open(log_path)?;
+  let log_err = log.try_clone()?;
 
   let mut cmd = Command::new(sidecar);
   cmd.arg("--host")
@@ -115,9 +129,39 @@ fn spawn_agent(
     .arg("--db")
     .arg(db_path.to_string_lossy().to_string());
 
-  // Keep logs available via OS process tools. (We can pipe later if we want a UI console.)
-  cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+  // Always write logs to disk so setup failures are debuggable for operators.
+  cmd.stdin(Stdio::null())
+    .stdout(Stdio::from(log))
+    .stderr(Stdio::from(log_err));
   cmd.spawn()
+}
+
+fn init_db_with_sidecar(app: &tauri::AppHandle, config_path: &Path, db_path: &Path) -> Result<(), String> {
+  let sidecar = find_sidecar_exe(app)
+    .ok_or_else(|| "pos-agent sidecar not found (bundle it for production builds)".to_string())?;
+  let out = Command::new(sidecar)
+    .arg("--init-db")
+    .arg("--config")
+    .arg(config_path.to_string_lossy().to_string())
+    .arg("--db")
+    .arg(db_path.to_string_lossy().to_string())
+    .output()
+    .map_err(|e| e.to_string())?;
+
+  if out.status.success() {
+    return Ok(());
+  }
+
+  let mut msg = String::new();
+  msg.push_str("init-db failed.\n");
+  if !out.stdout.is_empty() {
+    msg.push_str(&String::from_utf8_lossy(&out.stdout));
+  }
+  if !out.stderr.is_empty() {
+    msg.push_str("\n");
+    msg.push_str(&String::from_utf8_lossy(&out.stderr));
+  }
+  Err(msg.trim().to_string())
 }
 
 fn keyring_entry(key: &str) -> Result<keyring::Entry, String> {
@@ -179,6 +223,16 @@ fn start_agents(
   let unofficial_cfg = data.join("unofficial").join("config.json");
   let official_db = data.join("official").join("pos.sqlite");
   let unofficial_db = data.join("unofficial").join("pos.sqlite");
+  let logs_dir = data.join("logs");
+  let official_log = logs_dir.join("official.log");
+  let unofficial_log = logs_dir.join("unofficial.log");
+
+  if !is_port_available(port_official) {
+    return Err(format!("port {port_official} is already in use on this machine"));
+  }
+  if !is_port_available(port_unofficial) {
+    return Err(format!("port {port_unofficial} is already in use on this machine"));
+  }
 
   patch_config(
     &official_cfg,
@@ -197,14 +251,37 @@ fn start_agents(
   )
   .map_err(|e| e.to_string())?;
 
+  // Preflight DB init to surface schema errors deterministically.
+  init_db_with_sidecar(&app, &official_cfg, &official_db)
+    .map_err(|e| format!("Official agent DB init failed: {e}"))?;
+  init_db_with_sidecar(&app, &unofficial_cfg, &unofficial_db)
+    .map_err(|e| format!("Unofficial agent DB init failed: {e}"))?;
+
   let mut st = state.lock().unwrap();
   if st.official.is_none() {
-    let child = spawn_agent(&app, port_official, &official_cfg, &official_db).map_err(|e| e.to_string())?;
+    let child = spawn_agent(&app, port_official, &official_cfg, &official_db, &official_log)
+      .map_err(|e| e.to_string())?;
     st.official = Some(child);
   }
   if st.unofficial.is_none() {
-    let child = spawn_agent(&app, port_unofficial, &unofficial_cfg, &unofficial_db).map_err(|e| e.to_string())?;
+    let child = spawn_agent(&app, port_unofficial, &unofficial_cfg, &unofficial_db, &unofficial_log)
+      .map_err(|e| e.to_string())?;
     st.unofficial = Some(child);
+  }
+
+  // If a child exits immediately, return log tail to make failures actionable.
+  std::thread::sleep(std::time::Duration::from_millis(250));
+  if let Some(c) = st.official.as_mut() {
+    if let Ok(Some(status)) = c.try_wait() {
+      let tail = tail_file(&official_log, 120_000, 80);
+      return Err(format!("Official agent exited ({status}).\n{tail}").trim().to_string());
+    }
+  }
+  if let Some(c) = st.unofficial.as_mut() {
+    if let Ok(Some(status)) = c.try_wait() {
+      let tail = tail_file(&unofficial_log, 120_000, 80);
+      return Err(format!("Unofficial agent exited ({status}).\n{tail}").trim().to_string());
+    }
   }
 
   Ok(())
@@ -222,6 +299,42 @@ fn stop_agents(state: tauri::State<'_, Mutex<AgentsState>>) -> Result<(), String
   Ok(())
 }
 
+fn tail_file(path: &Path, max_bytes: usize, max_lines: usize) -> String {
+  let mut f = match fs::File::open(path) {
+    Ok(v) => v,
+    Err(_) => return String::new(),
+  };
+  let mut buf = Vec::new();
+  if f.read_to_end(&mut buf).is_err() {
+    return String::new();
+  }
+  if max_bytes > 0 && buf.len() > max_bytes {
+    buf = buf.split_off(buf.len() - max_bytes);
+  }
+  let text = String::from_utf8_lossy(&buf).to_string();
+  if max_lines == 0 {
+    return text;
+  }
+  let mut lines: Vec<&str> = text.lines().collect();
+  if lines.len() > max_lines {
+    lines = lines.split_off(lines.len() - max_lines);
+  }
+  lines.join("\n")
+}
+
+#[tauri::command]
+fn tail_agent_logs(app: tauri::AppHandle, max_lines: Option<usize>) -> Result<serde_json::Value, String> {
+  let data = app_data_dir(&app);
+  let logs_dir = data.join("logs");
+  let official_log = logs_dir.join("official.log");
+  let unofficial_log = logs_dir.join("unofficial.log");
+  let n = max_lines.unwrap_or(120).min(600);
+  Ok(serde_json::json!({
+    "official": tail_file(&official_log, 200_000, n),
+    "unofficial": tail_file(&unofficial_log, 200_000, n),
+  }))
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_updater::Builder::new().build())
@@ -229,6 +342,7 @@ fn main() {
     .invoke_handler(tauri::generate_handler![
       start_agents,
       stop_agents,
+      tail_agent_logs,
       secure_get,
       secure_set,
       secure_delete
