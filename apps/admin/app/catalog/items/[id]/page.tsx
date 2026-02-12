@@ -117,6 +117,22 @@ type PriceListItemRow = {
 type CategoryRow = { id: string; name: string; parent_id: string | null; is_active: boolean; updated_at: string };
 type WarehouseRow = { id: string; name: string };
 
+type PriceChangeRow = {
+  id: string;
+  changed_at: string;
+  item_id: string;
+  sku: string;
+  name: string;
+  effective_from?: string | null;
+  old_price_usd?: string | number | null;
+  new_price_usd?: string | number | null;
+  pct_change_usd?: string | number | null;
+  old_price_lbp?: string | number | null;
+  new_price_lbp?: string | number | null;
+  pct_change_lbp?: string | number | null;
+  source_type?: string | null;
+};
+
 type StockRow = {
   item_id: string;
   warehouse_id: string;
@@ -278,13 +294,14 @@ export default function ItemViewPage() {
   const [uomConversions, setUomConversions] = useState<UomConversionRow[]>([]);
   const [warehousePolicies, setWarehousePolicies] = useState<ItemWarehousePolicyRow[]>([]);
   const [legacyPrices, setLegacyPrices] = useState<ItemPriceRow[]>([]);
+  const [priceChanges, setPriceChanges] = useState<PriceChangeRow[]>([]);
 
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setErr(null);
     try {
-      const [it, bc, sup, tc, ps, pls, settings, cats, whs, st, uom, pol, pr] = await Promise.all([
+      const [it, bc, sup, tc, ps, pls, settings, cats, whs, st, uom, pol, pr, pc] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
         apiGet<{ barcodes: ItemBarcode[] }>(`/items/${encodeURIComponent(id)}/barcodes`).catch(() => ({ barcodes: [] as ItemBarcode[] })),
         apiGet<{ suppliers: ItemSupplierLinkRow[] }>(`/suppliers/items/${encodeURIComponent(id)}`).catch(() => ({ suppliers: [] as ItemSupplierLinkRow[] })),
@@ -298,6 +315,7 @@ export default function ItemViewPage() {
         apiGet<{ base_uom: string; conversions: UomConversionRow[] }>(`/items/${encodeURIComponent(id)}/uom-conversions`).catch(() => ({ base_uom: "", conversions: [] as any[] })),
         apiGet<{ policies: ItemWarehousePolicyRow[] }>(`/items/${encodeURIComponent(id)}/warehouse-policies`).catch(() => ({ policies: [] as any[] })),
         apiGet<{ prices: ItemPriceRow[] }>(`/items/${encodeURIComponent(id)}/prices`).catch(() => ({ prices: [] as any[] })),
+        apiGet<{ changes: PriceChangeRow[] }>(`/pricing/price-changes?item_id=${encodeURIComponent(id)}&q=&limit=200`).catch(() => ({ changes: [] as PriceChangeRow[] })),
       ]);
       setItem(it.item || null);
       setBarcodes(bc.barcodes || []);
@@ -311,6 +329,9 @@ export default function ItemViewPage() {
       setUomConversions((uom as any)?.conversions || []);
       setWarehousePolicies((pol as any)?.policies || []);
       setLegacyPrices((pr as any)?.prices || []);
+      const initialPc = ((pc as any)?.changes || []) as PriceChangeRow[];
+      const initialFiltered = initialPc.filter((r) => String((r as any)?.item_id || "") === id);
+      setPriceChanges(initialFiltered);
       const lists = pls?.lists || [];
       setPriceLists(lists);
       const settingDefault = (settings?.settings || []).find((s) => String(s?.key || "") === "default_price_list_id");
@@ -344,6 +365,13 @@ export default function ItemViewPage() {
       } else {
         setStockBatches([]);
       }
+
+      // Fallback if the API doesn't support filtering by item_id: query by SKU then filter locally.
+      if (initialFiltered.length === 0 && it.item?.sku) {
+        const res = await apiGet<{ changes: PriceChangeRow[] }>(`/pricing/price-changes?q=${encodeURIComponent(it.item.sku)}&limit=500`).catch(() => ({ changes: [] as PriceChangeRow[] }));
+        const maybe = (res?.changes || []).filter((r) => String((r as any)?.item_id || "") === id);
+        if (maybe.length) setPriceChanges(maybe);
+      }
     } catch (e) {
       setItem(null);
       setBarcodes([]);
@@ -362,6 +390,7 @@ export default function ItemViewPage() {
       setUomConversions([]);
       setWarehousePolicies([]);
       setLegacyPrices([]);
+      setPriceChanges([]);
       setErr(e);
     } finally {
       setLoading(false);
@@ -464,6 +493,87 @@ export default function ItemViewPage() {
       },
     ];
   }, [warehouseById]);
+
+  const priceChangeColumns = useMemo((): Array<DataTableColumn<PriceChangeRow>> => {
+    const fmtWhen = (iso: string) => (iso ? String(iso).replace("T", " ").slice(0, 19) : "-");
+    const fmtPct = (v: string | number | null | undefined) => {
+      if (v == null) return "-";
+      const n = typeof v === "number" ? v : Number(v);
+      if (!Number.isFinite(n)) return "-";
+      const pct = n * 100;
+      const s = pct.toFixed(Math.abs(pct) < 10 ? 1 : 0);
+      return `${s}%`;
+    };
+    return [
+      {
+        id: "when",
+        header: "When",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.changed_at,
+        cell: (r) => <span className="text-xs">{fmtWhen(r.changed_at)}</span>,
+      },
+      {
+        id: "effective",
+        header: "Effective",
+        sortable: true,
+        mono: true,
+        accessor: (r) => String(r.effective_from || ""),
+        cell: (r) => <span className="text-xs text-fg-subtle">{String(r.effective_from || "-").slice(0, 10)}</span>,
+      },
+      {
+        id: "usd",
+        header: "USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.new_price_usd || 0),
+        cell: (r) => (
+          <span className="data-mono text-xs">
+            {fmtUsd(r.old_price_usd || 0)} <span className="text-fg-subtle">→</span> {fmtUsd(r.new_price_usd || 0)}
+          </span>
+        ),
+      },
+      {
+        id: "usd_pct",
+        header: "USD %",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.pct_change_usd || 0),
+        cell: (r) => <span className="text-xs">{fmtPct(r.pct_change_usd)}</span>,
+      },
+      {
+        id: "lbp",
+        header: "LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.new_price_lbp || 0),
+        cell: (r) => (
+          <span className="data-mono text-xs">
+            {fmtLbp(r.old_price_lbp || 0)} <span className="text-fg-subtle">→</span> {fmtLbp(r.new_price_lbp || 0)}
+          </span>
+        ),
+      },
+      {
+        id: "lbp_pct",
+        header: "LL %",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.pct_change_lbp || 0),
+        cell: (r) => <span className="text-xs">{fmtPct(r.pct_change_lbp)}</span>,
+      },
+      {
+        id: "source",
+        header: "Source",
+        sortable: true,
+        accessor: (r) => String(r.source_type || ""),
+        cell: (r) => <span className="text-xs text-fg-muted">{String(r.source_type || "-")}</span>,
+      },
+    ];
+  }, []);
 
   const stockBatchColumns = useMemo((): Array<DataTableColumn<StockBatchRow>> => {
     return [
@@ -754,6 +864,34 @@ export default function ItemViewPage() {
                 label="RETAIL (Effective)"
                 value={`${fmtUsd(retailEffective?.price_usd || 0)} · ${fmtLbp(retailEffective?.price_lbp || 0)}`}
                 hint={retailEffective?.effective_from ? `From: ${String(retailEffective.effective_from).slice(0, 10)}` : "No override row"}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <CardTitle>Price Change History</CardTitle>
+                  <CardDescription>Sell price changes derived from item price inserts.</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button asChild variant="outline" size="sm" disabled={loading}>
+                    <Link href={`/inventory/price-changes/list?q=${encodeURIComponent(item.sku || "")}`}>Open Full Log</Link>
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <DataTable<PriceChangeRow>
+                tableId="catalog.item.priceChanges"
+                rows={priceChanges}
+                columns={priceChangeColumns}
+                getRowId={(r) => r.id}
+                emptyText="No price changes yet."
+                enablePagination
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "when", dir: "desc" }}
               />
             </CardContent>
           </Card>
