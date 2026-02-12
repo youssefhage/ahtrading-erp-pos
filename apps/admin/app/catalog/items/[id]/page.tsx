@@ -397,6 +397,12 @@ export default function ItemViewPage() {
     return s?.name || pid;
   }, [item?.preferred_supplier_id, suppliers]);
 
+  const negativeStockPolicy = useMemo(() => {
+    const v = item?.allow_negative_stock;
+    if (v === null || v === undefined) return { label: "inherit", variant: "default" as const };
+    return v ? { label: "allowed", variant: "danger" as const } : { label: "blocked", variant: "success" as const };
+  }, [item?.allow_negative_stock]);
+
   const stockTotals = useMemo(() => {
     let on_hand = 0;
     let reserved = 0;
@@ -785,6 +791,7 @@ export default function ItemViewPage() {
                 }
                 mono
               />
+              <SummaryField label="Negative Stock" value={negativeStockPolicy.label} />
               <SummaryField label="Standard Cost" value={`${fmtUsd(item.standard_cost_usd || 0)} · ${fmtLbp(item.standard_cost_lbp || 0)}`} />
               <SummaryField label="Costing Method" value={String(item.costing_method || "-").toUpperCase()} />
               <SummaryField label="Min Margin" value={item.min_margin_pct != null ? fmtPctFrac(item.min_margin_pct) : "-"} />
@@ -806,7 +813,7 @@ export default function ItemViewPage() {
               <div className="flex flex-wrap gap-2">
                 <Chip variant={item.track_batches ? "primary" : "default"}>{item.track_batches ? "batches: on" : "batches: off"}</Chip>
                 <Chip variant={item.track_expiry ? "primary" : "default"}>{item.track_expiry ? "expiry: on" : "expiry: off"}</Chip>
-                <Chip variant={item.allow_negative_stock ? "default" : "success"}>{item.allow_negative_stock ? "negative stock: allowed" : "negative stock: blocked"}</Chip>
+                <Chip variant={negativeStockPolicy.variant}>{`negative stock: ${negativeStockPolicy.label}`}</Chip>
                 <Chip variant={item.is_excise ? "primary" : "default"}>{item.is_excise ? "excise: yes" : "excise: no"}</Chip>
                 {item.tax_category ? <Chip variant="default">{`tax category: ${String(item.tax_category).toLowerCase()}`}</Chip> : null}
               </div>

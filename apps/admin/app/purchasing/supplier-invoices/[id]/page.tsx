@@ -259,6 +259,43 @@ function SupplierInvoiceShowInner() {
     ];
   }, []);
 
+  const taxBreakdown = useMemo(() => {
+    const lines = detail?.tax_lines || [];
+    const byId = new Map<
+      string,
+      { tax_code_id: string; base_usd: number; base_lbp: number; tax_usd: number; tax_lbp: number; count: number }
+    >();
+    for (const t of lines) {
+      const id = String(t.tax_code_id || "");
+      if (!id) continue;
+      const row =
+        byId.get(id) || { tax_code_id: id, base_usd: 0, base_lbp: 0, tax_usd: 0, tax_lbp: 0, count: 0 };
+      row.base_usd += Number(t.base_usd || 0) || 0;
+      row.base_lbp += Number(t.base_lbp || 0) || 0;
+      row.tax_usd += Number(t.tax_usd || 0) || 0;
+      row.tax_lbp += Number(t.tax_lbp || 0) || 0;
+      row.count += 1;
+      byId.set(id, row);
+    }
+    const out = Array.from(byId.values());
+    out.sort((a, b) => a.tax_code_id.localeCompare(b.tax_code_id));
+    return out;
+  }, [detail?.tax_lines]);
+
+  const taxBreakdownTotals = useMemo(() => {
+    let base_usd = 0;
+    let base_lbp = 0;
+    let tax_usd = 0;
+    let tax_lbp = 0;
+    for (const r of taxBreakdown) {
+      base_usd += Number(r.base_usd || 0) || 0;
+      base_lbp += Number(r.base_lbp || 0) || 0;
+      tax_usd += Number(r.tax_usd || 0) || 0;
+      tax_lbp += Number(r.tax_lbp || 0) || 0;
+    }
+    return { base_usd, base_lbp, tax_usd, tax_lbp };
+  }, [taxBreakdown]);
+
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -928,14 +965,54 @@ function SupplierInvoiceShowInner() {
                 <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                   <p className="text-sm font-medium text-foreground">Tax Lines</p>
                   <div className="mt-2 space-y-1 text-xs text-fg-muted">
-                    {detail.tax_lines.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between gap-2">
-                        <span className="data-mono">{t.tax_code_id}</span>
-                        <span className="data-mono">
-                          {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
-                        </span>
+                    {taxBreakdown.map((r) => (
+                      <div key={r.tax_code_id} className="rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="data-mono">{r.tax_code_id}</span>
+                          <span className="data-mono text-foreground">
+                            {fmtUsd(r.tax_usd)} / {fmtLbp(r.tax_lbp)}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                          <span className="text-fg-subtle">Base</span>
+                          <span className="data-mono">
+                            {fmtUsd(r.base_usd)} / {fmtLbp(r.base_lbp)}
+                          </span>
+                        </div>
                       </div>
                     ))}
+                    {taxBreakdown.length ? (
+                      <div className="mt-2 rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Total</span>
+                          <span className="data-mono text-foreground">
+                            {fmtUsd(taxBreakdownTotals.tax_usd)} / {fmtLbp(taxBreakdownTotals.tax_lbp)}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                          <span className="text-fg-subtle">Taxable base</span>
+                          <span className="data-mono">
+                            {fmtUsd(taxBreakdownTotals.base_usd)} / {fmtLbp(taxBreakdownTotals.base_lbp)}
+                          </span>
+                        </div>
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-[11px] font-medium text-fg-subtle">Raw tax lines</summary>
+                          <div className="mt-2 space-y-1">
+                            {(detail.tax_lines || []).map((t) => (
+                              <div key={t.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/30 p-2">
+                                <span className="data-mono">
+                                  {t.tax_code_id}
+                                  {t.tax_date ? <span className="text-fg-subtle"> · {String(t.tax_date).slice(0, 10)}</span> : null}
+                                </span>
+                                <span className="data-mono">
+                                  {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
+                    ) : null}
                     {detail.tax_lines.length === 0 ? <p className="text-fg-subtle">No tax lines.</p> : null}
                   </div>
                 </div>

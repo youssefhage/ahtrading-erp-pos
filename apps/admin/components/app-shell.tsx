@@ -1436,26 +1436,12 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
               <Star className={cn("h-4 w-4", isStarred && "fill-primary")} />
             </Button>
 
-            {/* Connection helper */}
+            {/* Connection helper dialog (opened from the Online indicator) */}
             <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="hidden h-8 items-center gap-2 border-border bg-bg-elevated/60 text-fg-muted hover:bg-bg-sunken hover:text-foreground md:flex"
-                onClick={() => setConnectOpen(true)}
-                disabled={!companyId}
-                title={companyId ? "Connection details" : "Select a company first"}
-              >
-                <Cable className="h-4 w-4" />
-                <span className="text-sm">Connect</span>
-              </Button>
               <DialogContent className="max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>Connection</DialogTitle>
-                  <DialogDescription>
-                    Quick details and steps to connect devices to this company.
-                  </DialogDescription>
+                  <DialogDescription>Quick details and steps to connect devices to this company.</DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-4">
@@ -1463,9 +1449,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                     <div className="text-xs font-medium uppercase tracking-wider text-fg-muted">Company</div>
                     <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-foreground">
-                          {companyName || companyId || "-"}
-                        </div>
+                        <div className="truncate text-sm font-medium text-foreground">{companyName || companyId || "-"}</div>
                         <div className="mt-1 break-all font-mono text-xs text-fg-subtle">{companyId || "-"}</div>
                       </div>
                       <CopyValueButton value={companyId || ""} label="Company ID" />
@@ -1488,7 +1472,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                       <div>
                         <div className="text-xs font-medium uppercase tracking-wider text-fg-muted">POS Setup Pack</div>
                         <p className="mt-1 text-xs text-fg-subtle">
-                          Register a device to get a real <span className="font-mono">device_id</span> and one-time <span className="font-mono">device_token</span>.
+                          Register a device to get a real <span className="font-mono">device_id</span> and one-time{" "}
+                          <span className="font-mono">device_token</span>.
                         </p>
                       </div>
                       <Button asChild variant="outline" size="sm" className="h-8">
@@ -1497,9 +1482,15 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                     </div>
 
                     <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-fg-subtle">
-                      <li>Open <strong>System → POS Devices</strong>.</li>
-                      <li>Click <strong>Register Device</strong> (or <strong>Reset Token &amp; Setup</strong> for an existing one).</li>
-                      <li>Copy the generated <strong>POS Config JSON</strong> and paste it into POS → <strong>Settings</strong>.</li>
+                      <li>
+                        Open <strong>System → POS Devices</strong>.
+                      </li>
+                      <li>
+                        Click <strong>Register Device</strong> (or <strong>Reset Token &amp; Setup</strong> for an existing one).
+                      </li>
+                      <li>
+                        Copy the generated <strong>POS Config JSON</strong> and paste it into POS → <strong>Settings</strong>.
+                      </li>
                       <li>Save, then Sync to verify connectivity.</li>
                     </ol>
 
@@ -1509,7 +1500,9 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                           <div className="text-xs font-medium text-fg-muted">Quick Template (fill device fields)</div>
                           <CopyValueButton value={connectJson} label="POS config template" />
                         </div>
-                        <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-elevated/40 p-3 text-xs text-fg-subtle">{connectJson}</pre>
+                        <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-elevated/40 p-3 text-xs text-fg-subtle">
+                          {connectJson}
+                        </pre>
                       </div>
                     ) : null}
                   </div>
@@ -1547,16 +1540,64 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                 <>
                   <span className="status-dot status-online" />
                   <span className="hidden sm:inline">Online</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="ml-0.5 h-6 w-6 text-current/80 hover:text-current"
+                    disabled={!companyId}
+                    title={companyId ? "Connection tutorial" : "Select a company first"}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setConnectOpen(true);
+                    }}
+                  >
+                    <Cable className="h-4 w-4" />
+                    <span className="sr-only">Connection tutorial</span>
+                  </Button>
                 </>
               ) : health === "offline" ? (
                 <>
                   <WifiOff className="h-3.5 w-3.5" />
                   <span className="hidden sm:inline">Offline</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="ml-0.5 h-6 w-6 text-current/80 hover:text-current"
+                    disabled={!companyId}
+                    title={companyId ? "Connection tutorial" : "Select a company first"}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setConnectOpen(true);
+                    }}
+                  >
+                    <Cable className="h-4 w-4" />
+                    <span className="sr-only">Connection tutorial</span>
+                  </Button>
                 </>
               ) : (
                 <>
                   <Wifi className="h-3.5 w-3.5 animate-pulse" />
                   <span className="hidden sm:inline">...</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="ml-0.5 h-6 w-6 text-current/80 hover:text-current"
+                    disabled={!companyId}
+                    title={companyId ? "Connection tutorial" : "Select a company first"}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setConnectOpen(true);
+                    }}
+                  >
+                    <Cable className="h-4 w-4" />
+                    <span className="sr-only">Connection tutorial</span>
+                  </Button>
                 </>
               )}
             </div>
