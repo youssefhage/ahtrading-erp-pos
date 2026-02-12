@@ -400,6 +400,24 @@ function agentBase(port) {
   return `http://127.0.0.1:${Number(port || 7070)}`;
 }
 
+function buildUnifiedUiUrl(port) {
+  const ts = Date.now();
+  return `${agentBase(port)}/unified.html?cb=${ts}`;
+}
+
+async function checkLatestUnifiedUi(port) {
+  const url = `${agentBase(port)}/unified.html?check=1`;
+  try {
+    const resp = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+    });
+    return resp.status === 200;
+  } catch {
+    return false;
+  }
+}
+
 class ApiError extends Error {
   constructor(message, status, payload = null, path = "") {
     super(message);
@@ -927,12 +945,22 @@ async function start() {
   } else {
     setStatus("Opening POS…");
   }
-  window.location.href = `http://127.0.0.1:${portOfficial}/unified.html`;
+  const uiOk = await checkLatestUnifiedUi(portOfficial);
+  if (!uiOk) {
+    setStatus("Unified UI unavailable on this host.");
+    return;
+  }
+  window.location.href = buildUnifiedUiUrl(portOfficial);
 }
 
-function openPos() {
+async function openPos() {
   const portOfficial = Number(el("portOfficial").value || 7070);
-  window.location.href = `http://127.0.0.1:${portOfficial}/unified.html`;
+  const uiOk = await checkLatestUnifiedUi(portOfficial);
+  if (!uiOk) {
+    setStatus("Unified UI unavailable on this host.");
+    return;
+  }
+  window.location.href = buildUnifiedUiUrl(portOfficial);
 }
 
 function getUpdateVersion(update) {
