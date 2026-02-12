@@ -372,7 +372,7 @@ fn start_onboarding(
   let app_out = app.clone();
   thread::spawn(move || {
     let reader = BufReader::new(stdout);
-    for line in reader.lines().flatten() {
+    for line in reader.lines().map_while(Result::ok) {
       emit_log(&app_out, &line);
     }
   });
@@ -381,7 +381,7 @@ fn start_onboarding(
   let app_err = app.clone();
   thread::spawn(move || {
     let reader = BufReader::new(stderr);
-    for line in reader.lines().flatten() {
+    for line in reader.lines().map_while(Result::ok) {
       emit_log(&app_err, &format!("[stderr] {line}"));
     }
   });

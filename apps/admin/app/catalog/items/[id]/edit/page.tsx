@@ -97,6 +97,24 @@ type PriceSuggest = {
   last_cost_change?: any;
 };
 
+type PriceListRow = {
+  id: string;
+  code: string;
+  name: string;
+  currency: "USD" | "LBP";
+  is_default: boolean;
+};
+
+type PriceListItemRow = {
+  id: string;
+  item_id: string;
+  price_usd: string | number;
+  price_lbp: string | number;
+  effective_from: string;
+  effective_to: string | null;
+  created_at: string;
+};
+
 function toNum(v: string) {
   const r = parseNumberInput(v);
   return r.ok ? r.value : 0;
@@ -152,6 +170,17 @@ export default function ItemEditPage() {
   const [priceSuggest, setPriceSuggest] = useState<PriceSuggest | null>(null);
   const [priceBusy, setPriceBusy] = useState(false);
 
+  // Price list override (WHOLESALE/RETAIL)
+  const [priceLists, setPriceLists] = useState<PriceListRow[]>([]);
+  const [defaultPriceListId, setDefaultPriceListId] = useState<string>("");
+  const [selectedPriceListId, setSelectedPriceListId] = useState<string>("");
+  const [plItems, setPlItems] = useState<PriceListItemRow[]>([]);
+  const [plEffective, setPlEffective] = useState<PriceListItemRow | null>(null);
+  const [plBusy, setPlBusy] = useState(false);
+  const [plEffectiveFrom, setPlEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [plPriceUsd, setPlPriceUsd] = useState("");
+  const [plPriceLbp, setPlPriceLbp] = useState("");
+
   // Editable fields
   const [editSku, setEditSku] = useState("");
   const [editName, setEditName] = useState("");
@@ -180,7 +209,7 @@ export default function ItemEditPage() {
     setLoading(true);
     setErr(null);
     try {
-      const [it, tc, cats, uo, bc, conv, sup, links] = await Promise.all([
+      const [it, tc, cats, uo, bc, conv, sup, links, pls, settings] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
         apiGet<{ categories: Category[] }>("/item-categories").catch(() => ({ categories: [] as Category[] })),
@@ -189,6 +218,8 @@ export default function ItemEditPage() {
         apiGet<{ base_uom: string; conversions: ItemUomConversion[] }>(`/items/${encodeURIComponent(id)}/uom-conversions`).catch(() => ({ base_uom: "", conversions: [] as ItemUomConversion[] })),
         apiGet<{ suppliers: SupplierRow[] }>("/suppliers").catch(() => ({ suppliers: [] as SupplierRow[] })),
         apiGet<{ suppliers: ItemSupplierLinkRow[] }>(`/suppliers/items/${encodeURIComponent(id)}`).catch(() => ({ suppliers: [] as ItemSupplierLinkRow[] })),
+        apiGet<{ lists: PriceListRow[] }>("/pricing/lists").catch(() => ({ lists: [] as PriceListRow[] })),
+        apiGet<{ settings: Array<{ key: string; value_json: any }> }>("/pricing/company-settings").catch(() => ({ settings: [] as any[] })),
       ]);
       const row = it.item || null;
       setItem(row);
@@ -200,6 +231,20 @@ export default function ItemEditPage() {
       setConversions(conv.conversions || []);
       setSuppliers(sup.suppliers || []);
       setItemLinks(links.suppliers || []);
+
+      const lists = pls.lists || [];
+      setPriceLists(lists);
+      const settingDefault = (settings.settings || []).find((s) => String(s?.key || "") === "default_price_list_id");
+      const defIdFromSetting = String(settingDefault?.value_json?.id || "");
+      const defIdFromFlag = String((lists.find((l) => l.is_default)?.id as any) || "");
+      const defId = defIdFromSetting || defIdFromFlag || "";
+      setDefaultPriceListId(defId);
+      setSelectedPriceListId((prev) => {
+        // Keep user's selection if still valid; otherwise fall back to default, otherwise first list.
+        if (prev && lists.some((l) => l.id === prev)) return prev;
+        if (defId && lists.some((l) => l.id === defId)) return defId;
+        return lists[0]?.id || "";
+      });
 
       if (row) {
         setEditSku(row.sku || "");
@@ -248,6 +293,56 @@ export default function ItemEditPage() {
     load();
   }, [load]);
 
+  const loadPriceListRows = useCallback(async () => {
+    if (!id || !selectedPriceListId) {
+      setPlItems([]);
+      setPlEffective(null);
+      return;
+    }
+    setPlBusy(true);
+    try {
+      const res = await apiGet<{ items: PriceListItemRow[]; effective: PriceListItemRow | null }>(
+        `/pricing/lists/${encodeURIComponent(selectedPriceListId)}/items/by-item/${encodeURIComponent(id)}`
+      );
+      setPlItems(res.items || []);
+      setPlEffective(res.effective || null);
+    } catch {
+      setPlItems([]);
+      setPlEffective(null);
+    } finally {
+      setPlBusy(false);
+    }
+  }, [id, selectedPriceListId]);
+
+  useEffect(() => {
+    loadPriceListRows();
+  }, [loadPriceListRows]);
+
+  async function addPriceListOverride(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedPriceListId) return setStatus("Pick a price list first.");
+    if (!plEffectiveFrom) return setStatus("effective_from is required.");
+    setPlBusy(true);
+    setStatus("Saving price list override...");
+    try {
+      await apiPost(`/pricing/lists/${encodeURIComponent(selectedPriceListId)}/items`, {
+        item_id: id,
+        price_usd: toNum(plPriceUsd),
+        price_lbp: toNum(plPriceLbp),
+        effective_from: plEffectiveFrom,
+        effective_to: null,
+      });
+      setPlPriceUsd("");
+      setPlPriceLbp("");
+      await loadPriceListRows();
+      setStatus("");
+    } catch (e2) {
+      setStatus(e2 instanceof Error ? e2.message : String(e2));
+    } finally {
+      setPlBusy(false);
+    }
+  }
+
   const uomOptions = useMemo(() => {
     const out: Array<{ value: string; label: string }> = [];
     const seen = new Set<string>();
@@ -271,6 +366,10 @@ export default function ItemEditPage() {
     if (item) return `Edit ${item.sku}`;
     return "Edit Item";
   }, [loading, item]);
+
+  const selectedPriceList = useMemo(() => {
+    return priceLists.find((l) => l.id === selectedPriceListId) || null;
+  }, [priceLists, selectedPriceListId]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -624,6 +723,100 @@ export default function ItemEditPage() {
                 <div className="mt-2 text-xs text-fg-subtle">
                   Rounding: USD step {priceSuggest?.rounding?.usd_step || "-"} · LBP step {priceSuggest?.rounding?.lbp_step || "-"}
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <CardTitle>Price List Override</CardTitle>
+                  <CardDescription>Set WHOLESALE/RETAIL price for this item without leaving the Item page.</CardDescription>
+                </div>
+                {selectedPriceListId ? (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => router.push(`/catalog/price-lists?open=${encodeURIComponent(selectedPriceListId)}`)}
+                      disabled={saving || plBusy}
+                    >
+                      Open Price List
+                    </Button>
+                    <Button type="button" variant="outline" onClick={loadPriceListRows} disabled={saving || plBusy}>
+                      Refresh
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2 md:col-span-1">
+                <label className="text-xs font-medium text-fg-muted">Price List</label>
+                <select
+                  className="ui-select w-full"
+                  value={selectedPriceListId}
+                  onChange={(e) => setSelectedPriceListId(e.target.value)}
+                  disabled={plBusy}
+                >
+                  <option value="">(pick)</option>
+                  {priceLists.map((pl) => (
+                    <option key={pl.id} value={pl.id}>
+                      {pl.code} · {pl.name}
+                      {defaultPriceListId && pl.id === defaultPriceListId ? " (default)" : ""}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-3 text-sm">
+                  <div className="text-xs font-medium text-fg-muted">Current Effective (This List)</div>
+                  <div className="mt-1 data-mono font-medium">
+                    {fmtUsd(plEffective?.price_usd || 0)} · {fmtLbp(plEffective?.price_lbp || 0)}
+                  </div>
+                  <div className="mt-1 text-xs text-fg-subtle">
+                    From: {plEffective?.effective_from ? String(plEffective.effective_from).slice(0, 10) : "-"}
+                    {plBusy ? " · loading..." : ""}
+                  </div>
+                </div>
+              </div>
+
+              <div className="md:col-span-2">
+                <form onSubmit={addPriceListOverride} className="grid gap-3 rounded-lg border border-border-subtle bg-bg-sunken/20 p-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <div className="space-y-1 md:col-span-1">
+                      <label className="text-xs font-medium text-fg-muted">Effective From</label>
+                      <Input value={plEffectiveFrom} onChange={(e) => setPlEffectiveFrom(e.target.value)} type="date" disabled={plBusy} />
+                    </div>
+                    <div className="space-y-1 md:col-span-1">
+                      <label className="text-xs font-medium text-fg-muted">Price USD</label>
+                      <Input value={plPriceUsd} onChange={(e) => setPlPriceUsd(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
+                    </div>
+                    <div className="space-y-1 md:col-span-1">
+                      <label className="text-xs font-medium text-fg-muted">Price LL</label>
+                      <Input value={plPriceLbp} onChange={(e) => setPlPriceLbp(e.target.value)} placeholder="0" inputMode="decimal" disabled={plBusy} />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs text-fg-subtle">
+                      {selectedPriceList ? (
+                        <>
+                          Writing into <span className="data-mono">{selectedPriceList.code}</span>. Most recent effective row wins.
+                        </>
+                      ) : (
+                        "Pick a list to set a price."
+                      )}
+                    </div>
+                    <Button type="submit" disabled={plBusy || !selectedPriceListId}>
+                      {plBusy ? "..." : "Add Price Row"}
+                    </Button>
+                  </div>
+
+                  <div className="pt-2 text-xs text-fg-subtle">
+                    Recent rows: {plItems.slice(0, 5).map((r) => `${String(r.effective_from).slice(0, 10)}=${Number(r.price_usd || 0).toFixed(2)}`).join(" · ") || "-"}
+                  </div>
+                </form>
               </div>
             </CardContent>
           </Card>

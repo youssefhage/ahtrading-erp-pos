@@ -3,6 +3,7 @@ import json
 import os
 import urllib.request
 import urllib.error
+import hmac
 from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException
@@ -83,7 +84,7 @@ def telegram_webhook(
         # Hide the endpoint when not configured.
         raise HTTPException(status_code=404, detail="telegram integration not configured")
 
-    if (x_telegram_bot_api_secret_token or "").strip() != expected_secret:
+    if not hmac.compare_digest((x_telegram_bot_api_secret_token or "").strip(), expected_secret):
         raise HTTPException(status_code=401, detail="invalid telegram secret token")
 
     try:

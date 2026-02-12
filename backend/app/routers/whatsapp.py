@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import hmac
 from typing import Optional
 
 from fastapi import APIRouter, File, Header, HTTPException, UploadFile
@@ -38,7 +39,7 @@ def whatsapp_webhook(
 
     if not expected_secret or not company_id or not system_user_id:
         raise HTTPException(status_code=404, detail="whatsapp integration not configured")
-    if (x_whatsapp_webhook_secret or "").strip() != expected_secret:
+    if not hmac.compare_digest((x_whatsapp_webhook_secret or "").strip(), expected_secret):
         raise HTTPException(status_code=401, detail="invalid whatsapp secret")
 
     try:

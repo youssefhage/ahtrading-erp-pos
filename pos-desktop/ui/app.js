@@ -93,11 +93,11 @@ async function apiRequest(method, path, payload, retry = true) {
 }
 
 const api = {
-  async get(path) {
-    return apiRequest("GET", path);
+  async get(path, opts = {}) {
+    return apiRequest("GET", path, null, opts?.retry ?? true);
   },
-  async post(path, payload) {
-    return apiRequest("POST", path, payload);
+  async post(path, payload, opts = {}) {
+    return apiRequest("POST", path, payload, opts?.retry ?? true);
   }
 };
 
@@ -117,7 +117,8 @@ const state = {
   customerPickerTarget: null,
   lotContext: null,
   lotBatches: [],
-  edge: { ok: null, latency_ms: null, pending: 0, error: "" }
+  edge: { ok: null, latency_ms: null, pending: 0, error: "" },
+  autoSync: { timer: null, busy: false, failures: 0, nextAtMs: 0, lastOkAtMs: 0 }
 };
 
 const el = (id) => document.getElementById(id);
@@ -549,6 +550,7 @@ function renderEdgeStatus() {
 }
 
 async function refreshEdgeStatus() {
+  const prevOk = state.edge.ok;
   try {
     const res = await api.get("/edge/status");
     state.edge.ok = !!res.edge_ok;
@@ -562,7 +564,64 @@ async function refreshEdgeStatus() {
     state.edge.error = String(err?.message || err || "");
   } finally {
     renderEdgeStatus();
+    // If edge just came back online, try an immediate (silent) catalog refresh.
+    if (prevOk === false && state.edge.ok === true) {
+      maybeAutoSyncPull({ reason: "edge-online" });
+    }
   }
+}
+
+function recordAutoSyncSuccess() {
+  state.autoSync.failures = 0;
+  state.autoSync.nextAtMs = 0;
+  state.autoSync.lastOkAtMs = Date.now();
+}
+
+function recordAutoSyncFailure() {
+  state.autoSync.failures = Math.min(8, Number(state.autoSync.failures || 0) + 1);
+  const delayMs = Math.min(5 * 60_000, 10_000 * (2 ** Math.max(0, state.autoSync.failures - 1)));
+  state.autoSync.nextAtMs = Date.now() + delayMs;
+}
+
+function canAutoSyncNow() {
+  return Date.now() >= Number(state.autoSync.nextAtMs || 0);
+}
+
+async function maybeAutoSyncPull(_opts = {}) {
+  if (document.hidden) return;
+  if (state.autoSync.busy) return;
+  if (!canAutoSyncNow()) return;
+  if (state.edge.ok === false) return;
+
+  // Avoid surprising PIN prompts during sales; auto-sync should be silent if auth is needed.
+  state.autoSync.busy = true;
+  try {
+    const res = await api.post("/sync/pull", {}, { retry: false });
+    if (res?.error === "pos_auth_required") throw new Error("pos_auth_required");
+    await loadItems();
+    await loadBarcodes();
+    await loadPromotions();
+    recordAutoSyncSuccess();
+  } catch (_e) {
+    recordAutoSyncFailure();
+  } finally {
+    state.autoSync.busy = false;
+  }
+}
+
+function stopAutoSyncPull() {
+  if (!state.autoSync.timer) return;
+  clearInterval(state.autoSync.timer);
+  state.autoSync.timer = null;
+}
+
+function startAutoSyncPull() {
+  stopAutoSyncPull();
+  // Keep item prices reasonably fresh without requiring manual Sync.
+  state.autoSync.timer = setInterval(() => maybeAutoSyncPull({ reason: "interval" }), 30_000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) maybeAutoSyncPull({ reason: "tab-visible" });
+  });
 }
 
 function renderItems(list) {
@@ -572,8 +631,8 @@ function renderItems(list) {
     const card = document.createElement("div");
     card.className = "item";
     card.innerHTML = `
-      <h3>${item.name}</h3>
-      <small>${item.sku || ""}</small>
+      <h3>${escapeHtml(item.name || "")}</h3>
+      <small>${escapeHtml(item.sku || "")}</small>
       <div>${item.price_usd || 0} USD · ${item.price_lbp || 0} LBP</div>
     `;
     card.addEventListener("click", () => addToCart(item, 1));
@@ -596,7 +655,7 @@ function renderCart() {
     const enteredLbp = (item.price_lbp || 0) * qtyFactor;
     row.innerHTML = `
         <div>
-          <div>${item.name}</div>
+          <div>${escapeHtml(item.name || "")}</div>
           <div class="meta">${fmtUsd(item.price_usd || 0)} USD · ${fmtLbp(item.price_lbp || 0)} LBP</div>
           ${qtyFactor !== 1 && uomLabel ? `<div class="meta">Per ${escapeHtml(uomLabel)}: ${fmtUsd(enteredUsd)} USD · ${fmtLbp(enteredLbp)} LBP</div>` : ""}
           <div class="meta">Qty: ${qtyEntered}${uomLabel ? ` ${escapeHtml(uomLabel)}` : ""}${qtyFactor !== 1 ? ` (x${qtyFactor} = ${qtyBase})` : ""}</div>
@@ -817,7 +876,8 @@ function confirmLotAdd() {
 async function loadItems() {
   const data = await api.get("/items");
   state.items = data.items || [];
-  renderItems(state.items);
+  // Preserve the current filter/search term, while refreshing item prices.
+  filterItems();
 }
 
 async function loadBarcodes() {
@@ -827,6 +887,9 @@ async function loadBarcodes() {
   } catch {
     state.barcodes = [];
   }
+  // If the user is filtering by barcode, refresh the visible list with the new barcode cache.
+  const needle = (el("search")?.value || "").trim();
+  if (needle) filterItems();
 }
 
 async function loadCashiers() {
@@ -1408,6 +1471,8 @@ async function boot() {
   // Live edge connectivity + queued events indicator.
   refreshEdgeStatus();
   setInterval(refreshEdgeStatus, 3000);
+  startAutoSyncPull();
+  maybeAutoSyncPull({ reason: "boot" });
 
   if (!state.cashierId) {
     setText(

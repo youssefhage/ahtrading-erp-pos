@@ -2,6 +2,7 @@ import os
 import json
 from datetime import datetime
 from typing import Any, Optional
+import hmac
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
@@ -16,7 +17,7 @@ def _require_edge_key(x_edge_sync_key: Optional[str]) -> None:
     if not expected:
         # Fail closed: do not allow edge import unless explicitly configured.
         raise HTTPException(status_code=403, detail="edge sync not configured")
-    if not x_edge_sync_key or x_edge_sync_key.strip() != expected:
+    if not x_edge_sync_key or not hmac.compare_digest(x_edge_sync_key.strip(), expected):
         raise HTTPException(status_code=403, detail="forbidden")
 
 
@@ -36,7 +37,7 @@ class SalesInvoiceBundle(BaseModel):
 @router.post("/sales-invoices/import")
 def import_sales_invoice_bundle(
     data: SalesInvoiceBundle,
-    x_edge_sync_key: Optional[str] = Header(None, convert_underscores=False),
+    x_edge_sync_key: Optional[str] = Header(None, alias="X-Edge-Sync-Key"),
 ):
     """
     Cloud-side endpoint: import a fully-posted sales invoice bundle from an edge node.

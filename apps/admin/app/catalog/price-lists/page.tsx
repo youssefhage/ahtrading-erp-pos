@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
+import { useSearchParams } from "next/navigation";
 
 type ItemRow = { id: string; sku: string; name: string; barcode: string | null };
 
@@ -38,9 +39,11 @@ function todayIso() {
 }
 
 export default function PriceListsPage() {
+  const sp = useSearchParams();
   const [status, setStatus] = useState("");
   const [lists, setLists] = useState<PriceListRow[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
+  const openedFromQueryRef = useRef(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [code, setCode] = useState("");
@@ -286,6 +289,18 @@ export default function PriceListsPage() {
     }
   }, []);
 
+  // Deep-link support: /catalog/price-lists?open=<list_id>
+  useEffect(() => {
+    if (openedFromQueryRef.current) return;
+    const openId = (sp?.get("open") || "").trim();
+    if (!openId) return;
+    if (!lists.length || !items.length) return;
+    const exists = lists.some((l) => l.id === openId);
+    if (!exists) return;
+    openedFromQueryRef.current = true;
+    openListItems(openId);
+  }, [sp, lists, items, openListItems]);
+
   const listColumns = useMemo((): Array<DataTableColumn<PriceListRow>> => {
     return [
       { id: "code", header: "Code", accessor: (pl) => pl.code, mono: true, sortable: true, cell: (pl) => <span className="font-mono text-xs">{pl.code}</span> },
@@ -486,78 +501,84 @@ export default function PriceListsPage() {
         </Dialog>
 
         <Dialog open={itemsOpen} onOpenChange={setItemsOpen}>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>Price List Items</DialogTitle>
-              <DialogDescription>Most recent effective price wins for each item.</DialogDescription>
-            </DialogHeader>
+          <DialogContent className="w-[96vw] max-w-[1400px] max-h-[92vh] overflow-hidden p-0">
+            <div className="flex h-full min-h-0 flex-col">
+              <DialogHeader className="shrink-0 border-b border-border-subtle px-5 pb-4 pt-5 pr-12">
+                <DialogTitle>Price List Items</DialogTitle>
+                <DialogDescription>Most recent effective price wins for each item.</DialogDescription>
+              </DialogHeader>
 
-            <div className="space-y-3">
-              <DataTable<PriceListItemRow>
-                tableId={`catalog.priceListItems.${itemsListId || "none"}`}
-                rows={listItems}
-                columns={listItemColumns}
-                initialSort={{ columnId: "effective_from", dir: "desc" }}
-                globalFilterPlaceholder="Search SKU / item..."
-                emptyText="No items yet."
-              />
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,2.2fr)_minmax(360px,1fr)]">
+                  <div className="min-w-0">
+                    <DataTable<PriceListItemRow>
+                      tableId={`catalog.priceListItems.${itemsListId || "none"}`}
+                      rows={listItems}
+                      columns={listItemColumns}
+                      initialSort={{ columnId: "effective_from", dir: "desc" }}
+                      globalFilterPlaceholder="Search SKU / item..."
+                      emptyText="No items yet."
+                    />
+                  </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Add / Update Price</CardTitle>
-                  <CardDescription>Insert a new row (history is preserved).</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={addPrice} className="grid grid-cols-1 gap-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">SKU</label>
-                        <Input
-                          value={addSku}
-                          onChange={(e) => onSkuChange(e.target.value)}
-                          placeholder="SKU"
-                          list="skuList"
-                        />
-                        <datalist id="skuList">
-                          {items.slice(0, 2000).map((it) => (
-                            <option key={it.id} value={(it.sku || "").toUpperCase()}>
-                              {it.name}
-                            </option>
-                          ))}
-                        </datalist>
-                        {addItemId ? (
-                          <p className="text-xs text-fg-subtle">Item: {itemById.get(addItemId)?.name || addItemId}</p>
-                        ) : (
-                          <p className="text-xs text-fg-subtle">Pick a valid SKU.</p>
-                        )}
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Effective From</label>
-                        <Input value={addEffectiveFrom} onChange={(e) => setAddEffectiveFrom(e.target.value)} type="date" />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Price USD</label>
-                        <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0" inputMode="decimal" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Price LL</label>
-                        <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-fg-muted">Effective To (optional)</label>
-                      <Input value={addEffectiveTo} onChange={(e) => setAddEffectiveTo(e.target.value)} type="date" />
-                    </div>
-                    <div className="flex justify-end">
-                      <Button type="submit" disabled={adding}>
-                        {adding ? "..." : "Add Price Row"}
-                      </Button>
-                    </div>
-                  </form>
-                </CardContent>
-              </Card>
+                  <Card className="h-fit xl:sticky xl:top-0">
+                    <CardHeader>
+                      <CardTitle>Add / Update Price</CardTitle>
+                      <CardDescription>Insert a new row (history is preserved).</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <form onSubmit={addPrice} className="grid grid-cols-1 gap-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-fg-muted">SKU</label>
+                            <Input
+                              value={addSku}
+                              onChange={(e) => onSkuChange(e.target.value)}
+                              placeholder="SKU"
+                              list="skuList"
+                            />
+                            <datalist id="skuList">
+                              {items.slice(0, 2000).map((it) => (
+                                <option key={it.id} value={(it.sku || "").toUpperCase()}>
+                                  {it.name}
+                                </option>
+                              ))}
+                            </datalist>
+                            {addItemId ? (
+                              <p className="text-xs text-fg-subtle">Item: {itemById.get(addItemId)?.name || addItemId}</p>
+                            ) : (
+                              <p className="text-xs text-fg-subtle">Pick a valid SKU.</p>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-fg-muted">Effective From</label>
+                            <Input value={addEffectiveFrom} onChange={(e) => setAddEffectiveFrom(e.target.value)} type="date" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-fg-muted">Price USD</label>
+                            <Input value={addUsd} onChange={(e) => setAddUsd(e.target.value)} placeholder="0" inputMode="decimal" />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-fg-muted">Price LL</label>
+                            <Input value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-fg-muted">Effective To (optional)</label>
+                          <Input value={addEffectiveTo} onChange={(e) => setAddEffectiveTo(e.target.value)} type="date" />
+                        </div>
+                        <div className="flex justify-end">
+                          <Button type="submit" disabled={adding}>
+                            {adding ? "..." : "Add Price Row"}
+                          </Button>
+                        </div>
+                      </form>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
