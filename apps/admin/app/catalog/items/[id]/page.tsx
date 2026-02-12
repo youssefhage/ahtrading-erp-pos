@@ -7,7 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Check, Copy } from "lucide-react";
 
 import { apiGet, apiUrl } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdMaybe } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
@@ -432,6 +432,12 @@ export default function ItemViewPage() {
     return v ? { label: "allowed", variant: "danger" as const } : { label: "blocked", variant: "success" as const };
   }, [item?.allow_negative_stock]);
 
+  const pricingSecondaryMissing = useMemo(() => {
+    const usd = Number((priceSuggest as any)?.current?.price_usd || 0) || 0;
+    const lbp = Number((priceSuggest as any)?.current?.price_lbp || 0) || 0;
+    return usd > 0 && lbp === 0;
+  }, [priceSuggest]);
+
   const stockTotals = useMemo(() => {
     let on_hand = 0;
     let reserved = 0;
@@ -843,12 +849,12 @@ export default function ItemViewPage() {
             <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
               <SummaryField
                 label="Effective Sell Price"
-                value={`${fmtUsd(priceSuggest?.current?.price_usd || 0)} · ${fmtLbp(priceSuggest?.current?.price_lbp || 0)}`}
-                hint={`Default list: ${defaultListLabel}`}
+                value={`${fmtUsdMaybe(priceSuggest?.current?.price_usd)} · ${fmtLbpMaybe(priceSuggest?.current?.price_lbp, { dashIfZero: true })}`}
+                hint={`Default list: ${defaultListLabel}${pricingSecondaryMissing ? " (LL derived from exchange rate)" : ""}`}
               />
               <SummaryField
                 label="Average Cost"
-                value={`${fmtUsd(priceSuggest?.current?.avg_cost_usd || 0)} · ${fmtLbp(priceSuggest?.current?.avg_cost_lbp || 0)}`}
+                value={`${fmtUsdMaybe(priceSuggest?.current?.avg_cost_usd)} · ${fmtLbpMaybe(priceSuggest?.current?.avg_cost_lbp, { dashIfZero: true })}`}
               />
               <SummaryField
                 label="Margin"
@@ -857,12 +863,20 @@ export default function ItemViewPage() {
               />
               <SummaryField
                 label="WHOLESALE (Effective)"
-                value={`${fmtUsd(wholesaleEffective?.price_usd || 0)} · ${fmtLbp(wholesaleEffective?.price_lbp || 0)}`}
+                value={
+                  wholesaleEffective
+                    ? `${fmtUsdMaybe(wholesaleEffective?.price_usd, { dashIfZero: true })} · ${fmtLbpMaybe(wholesaleEffective?.price_lbp, { dashIfZero: true })}`
+                    : "-"
+                }
                 hint={wholesaleEffective?.effective_from ? `From: ${String(wholesaleEffective.effective_from).slice(0, 10)}` : "No override row"}
               />
               <SummaryField
                 label="RETAIL (Effective)"
-                value={`${fmtUsd(retailEffective?.price_usd || 0)} · ${fmtLbp(retailEffective?.price_lbp || 0)}`}
+                value={
+                  retailEffective
+                    ? `${fmtUsdMaybe(retailEffective?.price_usd, { dashIfZero: true })} · ${fmtLbpMaybe(retailEffective?.price_lbp, { dashIfZero: true })}`
+                    : "-"
+                }
                 hint={retailEffective?.effective_from ? `From: ${String(retailEffective.effective_from).slice(0, 10)}` : "No override row"}
               />
             </CardContent>
