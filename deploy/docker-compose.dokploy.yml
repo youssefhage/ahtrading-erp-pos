@@ -154,6 +154,10 @@ services:
       context: ..
       dockerfile: apps/downloads/Dockerfile
     restart: unless-stopped
+    environment:
+      # No functional impact; used to force Dokploy to re-apply/rebuild the downloads
+      # container when we change how the landing page is served.
+      DOWNLOADS_SITE_FROM_UPDATES: "1"
     volumes:
       - downloads_updates:/updates
     networks:
