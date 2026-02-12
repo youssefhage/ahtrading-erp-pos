@@ -352,6 +352,14 @@ def get_update_file(rel_path: str):
         raise HTTPException(status_code=404, detail="not found")
 
     rel = str(target.relative_to(base))
+    # For the downloads landing page under /updates/site/*, we want browsers to
+    # render files inline (HTML/CSS/images), not force a download.
+    if rel.startswith("site/"):
+        return FileResponse(
+            path=str(target),
+            headers={"Cache-Control": _cache_control_for_rel(rel)},
+        )
+
     return FileResponse(
         path=str(target),
         filename=target.name,
