@@ -886,7 +886,7 @@ export default function ItemEditPage() {
                         <td className="px-3 py-2 text-xs text-fg-muted">
                           <Input
                             defaultValue={b.label || ""}
-                            placeholder="-"
+                            placeholder=""
                             onBlur={(e) => {
                               const next = (e.currentTarget.value || "").trim() || null;
                               const prev = (b.label || "").trim() || null;

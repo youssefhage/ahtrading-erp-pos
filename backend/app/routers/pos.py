@@ -38,6 +38,17 @@ class ShiftCloseIn(BaseModel):
     cashier_id: Optional[str] = None
 
 
+class PosCustomerCreateIn(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    membership_no: Optional[str] = None
+    party_type: Literal["individual", "business"] = "individual"
+    customer_type: Literal["retail", "wholesale", "b2b"] = "retail"
+    payment_terms_days: int = 0
+    is_active: bool = True
+
+
 @router.post("/devices/register")
 def register_device(
     company_id: str,
@@ -1400,6 +1411,51 @@ def customers_catalog_delta(
         next_cursor = since.isoformat()
         next_cursor_id = str(since_id) if since_id else None
     return {"customers": rows, "next_cursor": next_cursor, "next_cursor_id": next_cursor_id}
+
+
+@router.post("/customers")
+def create_customer_from_pos(data: PosCustomerCreateIn, device=Depends(require_device)):
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO customers
+                  (id, company_id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                   legal_name, tax_id, vat_no, notes,
+                   membership_no, is_member, membership_expires_at,
+                   payment_terms_days, credit_limit_usd, credit_limit_lbp,
+                   price_list_id, is_active)
+                VALUES
+                  (gen_random_uuid(), %s, NULL, %s, %s, %s, %s, %s, NULL, false, NULL, NULL, NULL, NULL, %s, false, NULL, %s, 0, 0, NULL, %s)
+                RETURNING id, name, phone, email,
+                          membership_no, is_member, membership_expires_at,
+                          payment_terms_days,
+                          credit_limit_usd, credit_limit_lbp,
+                          credit_balance_usd, credit_balance_lbp,
+                          loyalty_points,
+                          price_list_id,
+                          is_active,
+                          updated_at
+                """,
+                (
+                    device["company_id"],
+                    name,
+                    (data.phone or "").strip() or None,
+                    (data.email or "").strip() or None,
+                    (data.party_type or "individual").strip() or "individual",
+                    (data.customer_type or "retail").strip() or "retail",
+                    (data.membership_no or "").strip() or None,
+                    int(data.payment_terms_days or 0),
+                    bool(data.is_active),
+                ),
+            )
+            row = cur.fetchone()
+            return {"customer": row}
+
 
 @router.get("/promotions/catalog")
 def promotions_catalog(device=Depends(require_device)):

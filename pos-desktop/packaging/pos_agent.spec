@@ -11,20 +11,26 @@
 
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
 from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
+SPEC_PATH = os.path.abspath(globals().get("SPEC", "pos-desktop/packaging/pos_agent.spec"))
+SPEC_DIR = os.path.dirname(SPEC_PATH)
+REPO_ROOT = os.path.abspath(os.path.join(SPEC_DIR, "..", ".."))
+if not os.path.exists(os.path.join(REPO_ROOT, "pos-desktop", "agent.py")):
+    REPO_ROOT = os.path.abspath(os.getcwd())
 
 hiddenimports = []
 hiddenimports += collect_submodules("bcrypt")
 
 datas = []
-datas += [("pos-desktop/ui", "ui")]
-datas += [("pos/sqlite_schema.sql", ".")]
+datas += [(os.path.join(REPO_ROOT, "pos-desktop", "ui"), "ui")]
+datas += [(os.path.join(REPO_ROOT, "pos", "sqlite_schema.sql"), ".")]
 
 a = Analysis(
-    ["pos-desktop/agent.py"],
-    pathex=["."],
+    [os.path.join(REPO_ROOT, "pos-desktop", "agent.py")],
+    pathex=[REPO_ROOT],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
@@ -59,4 +65,3 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
-

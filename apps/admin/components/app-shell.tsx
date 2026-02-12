@@ -341,6 +341,47 @@ type UiVariant = "full" | "lite";
 type ColorTheme = "light" | "dark";
 type AccentTheme = "sky" | "emerald" | "teal" | "rose" | "slate";
 
+const ACCENT_THEME_VARS: Record<
+  AccentTheme,
+  { primary: string; primaryFg: string; primaryDim: string; primaryGlow: string; ring: string }
+> = {
+  sky: {
+    primary: "14 165 233",
+    primaryFg: "0 0 0",
+    primaryDim: "3 105 161",
+    primaryGlow: "14 165 233",
+    ring: "14 165 233"
+  },
+  emerald: {
+    primary: "16 185 129",
+    primaryFg: "0 0 0",
+    primaryDim: "4 120 87",
+    primaryGlow: "16 185 129",
+    ring: "16 185 129"
+  },
+  teal: {
+    primary: "20 184 166",
+    primaryFg: "0 0 0",
+    primaryDim: "15 118 110",
+    primaryGlow: "20 184 166",
+    ring: "20 184 166"
+  },
+  rose: {
+    primary: "244 63 94",
+    primaryFg: "255 255 255",
+    primaryDim: "190 18 60",
+    primaryGlow: "244 63 94",
+    ring: "244 63 94"
+  },
+  slate: {
+    primary: "100 116 139",
+    primaryFg: "255 255 255",
+    primaryDim: "51 65 85",
+    primaryGlow: "100 116 139",
+    ring: "100 116 139"
+  }
+};
+
 function readColorTheme(): ColorTheme {
   try {
     const raw = localStorage.getItem("admin.colorTheme");
@@ -360,11 +401,19 @@ function readAccentTheme(): AccentTheme {
 }
 
 function applyAccentThemeClass(next: AccentTheme) {
-  const cls = Array.from(document.documentElement.classList);
+  const root = document.documentElement;
+  const cls = Array.from(root.classList);
   for (const c of cls) {
-    if (c.startsWith("theme-")) document.documentElement.classList.remove(c);
+    if (c.startsWith("theme-")) root.classList.remove(c);
   }
-  document.documentElement.classList.add(`theme-${next}`);
+  root.classList.add(`theme-${next}`);
+
+  const vars = ACCENT_THEME_VARS[next] ?? ACCENT_THEME_VARS.sky;
+  root.style.setProperty("--primary", vars.primary);
+  root.style.setProperty("--primary-fg", vars.primaryFg);
+  root.style.setProperty("--primary-dim", vars.primaryDim);
+  root.style.setProperty("--primary-glow", vars.primaryGlow);
+  root.style.setProperty("--ring", vars.ring);
 }
 
 function shortId(id: string) {

@@ -35,6 +35,7 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": false,
-    "icon": ["icons/icon.png", "icons/icon.ico"]
+    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "resources": ["bin/*"]
   }
 }

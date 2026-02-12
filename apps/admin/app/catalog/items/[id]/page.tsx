@@ -48,6 +48,7 @@ type ItemBarcode = {
   id: string;
   barcode: string;
   qty_factor: string | number;
+  uom_code?: string | null;
   label: string | null;
   is_primary: boolean;
 };
@@ -210,11 +211,19 @@ export default function ItemViewPage() {
         cell: (b) => <span className="font-mono text-sm">{String(b.qty_factor || 1)}</span>,
       },
       {
+        id: "uom_code",
+        header: "UOM",
+        sortable: true,
+        mono: true,
+        accessor: (b) => String(b.uom_code || item?.unit_of_measure || ""),
+        cell: (b) => <span className="font-mono text-sm">{String(b.uom_code || item?.unit_of_measure || "-")}</span>,
+      },
+      {
         id: "label",
         header: "Label",
         sortable: true,
         accessor: (b) => b.label || "",
-        cell: (b) => <span className="text-sm text-fg-muted">{b.label || "-"}</span>,
+        cell: (b) => <span className="text-sm text-fg-muted">{b.label || ""}</span>,
       },
       {
         id: "is_primary",
@@ -224,7 +233,7 @@ export default function ItemViewPage() {
         cell: (b) => (b.is_primary ? <Chip variant="primary">yes</Chip> : <Chip variant="default">no</Chip>),
       },
     ];
-  }, []);
+  }, [item?.unit_of_measure]);
   const supplierColumns = useMemo((): Array<DataTableColumn<ItemSupplierLinkRow>> => {
     return [
       {
@@ -427,7 +436,7 @@ export default function ItemViewPage() {
           <Card>
             <CardHeader>
               <CardTitle>Barcodes</CardTitle>
-              <CardDescription>Primary and alternate barcodes.</CardDescription>
+              <CardDescription>Primary and alternate barcodes. UOM + factor drive quantity behavior; label is optional note text.</CardDescription>
             </CardHeader>
             <CardContent>
               <DataTable<ItemBarcode>

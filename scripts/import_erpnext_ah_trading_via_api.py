@@ -231,6 +231,11 @@ def main() -> int:
     ap.add_argument("--skip-opening-stock", action="store_true", help="Skip opening stock import")
     ap.add_argument("--skip-suppliers", action="store_true")
     ap.add_argument("--chunk", type=int, default=1000)
+    ap.add_argument(
+        "--prices-effective-from",
+        default=os.getenv("POS_IMPORT_PRICES_EFFECTIVE_FROM") or "",
+        help="Optional YYYY-MM-DD to force effective_from for imported sell prices.",
+    )
     args = ap.parse_args()
 
     if not args.email or not args.password:
@@ -243,6 +248,12 @@ def main() -> int:
             _die(f"missing file: {fp}")
 
     api = ApiClient(args.api_base)
+    prices_effective_from = date.today()
+    if str(args.prices_effective_from or "").strip():
+        try:
+            prices_effective_from = date.fromisoformat(str(args.prices_effective_from).strip())
+        except Exception:
+            _die("invalid --prices-effective-from (expected YYYY-MM-DD)")
     print("[1/6] Login...")
     api.login(args.email, args.password)
 
@@ -385,6 +396,8 @@ def main() -> int:
             name_cell = _norm(row[idx["Item Name"]])
 
             # Company mapping can appear on base rows and continuation rows.
+            # In this ERPNext export shape, blank Company cells inherit the latest
+            # explicit company context.
             row_company = _strip_wrapped_quotes(row[c_company]) if c_company is not None and c_company < len(row) else ""
             if row_company:
                 current_company = alias.get(row_company, official_id)
@@ -533,7 +546,7 @@ def main() -> int:
 
         prices = list(prices_by_company[cid].values())
         imported_prices = _post_with_isolation(
-            lambda batch, _cid=cid: api.post_bulk_prices(_cid, date.today(), batch),
+            lambda batch, _cid=cid: api.post_bulk_prices(_cid, prices_effective_from, batch),
             prices,
             5000,
             f"prices/{label}",

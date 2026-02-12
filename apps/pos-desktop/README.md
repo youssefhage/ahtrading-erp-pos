@@ -21,12 +21,29 @@ npm install
 npm run build
 ```
 
+### Installer builds
+- macOS DMG:
+  ```bash
+  cd apps/pos-desktop
+  npm install
+  npm run build:dmg
+  ```
+- Windows installers (`.exe` via NSIS and `.msi`):
+  ```bash
+  cd apps/pos-desktop
+  npm install
+  npm run build:windows
+  ```
+
+Artifacts are generated under:
+- `apps/pos-desktop/src-tauri/target/release/bundle/dmg/`
+- `apps/pos-desktop/src-tauri/target/release/bundle/nsis/`
+- `apps/pos-desktop/src-tauri/target/release/bundle/msi/`
+
 ## Sidecar (recommended)
-For real distribution, bundle the POS agent as a sidecar binary (built via PyInstaller):
+For real distribution, POS bundles the `pos-agent` sidecar binary (built via PyInstaller).
+The build now auto-prepares this sidecar before creating installers.
 
 ```bash
 ./pos-desktop/packaging/build_pos_agent.sh
 ```
-
-Then copy `dist/pos-agent` into `apps/pos-desktop/src-tauri/bin/` before building.
-

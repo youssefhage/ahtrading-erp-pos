@@ -8,9 +8,9 @@ import sys
 import uuid
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, quote
+from urllib.parse import urlparse, parse_qs, quote, urlencode
 from urllib.request import Request, urlopen
-from urllib.error import URLError
+from urllib.error import URLError, HTTPError
 import secrets
 from datetime import timedelta
 from typing import Optional
@@ -371,6 +371,46 @@ def post_json(url, payload, headers=None):
     req.add_header('Content-Type', 'application/json')
     with urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode('utf-8'))
+
+
+def _setup_req_json(url: str, method: str = "GET", payload=None, headers=None, timeout_s: float = 12.0):
+    body = None
+    if payload is not None:
+        body = json.dumps(payload).encode("utf-8")
+    req = Request(url, data=body, headers=headers or {}, method=method.upper())
+    if payload is not None:
+        req.add_header("Content-Type", "application/json")
+    with urlopen(req, timeout=max(0.5, float(timeout_s or 12.0))) as resp:
+        raw = resp.read().decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+
+def _setup_req_json_safe(url: str, method: str = "GET", payload=None, headers=None, timeout_s: float = 12.0):
+    try:
+        return _setup_req_json(url, method=method, payload=payload, headers=headers, timeout_s=timeout_s), None, None
+    except HTTPError as ex:
+        detail = ""
+        try:
+            raw = ex.read().decode("utf-8", errors="ignore")
+        except Exception:
+            raw = ""
+        if raw:
+            try:
+                obj = json.loads(raw)
+                detail = str(obj.get("detail") or obj.get("error") or raw)
+            except Exception:
+                detail = raw
+        else:
+            detail = str(ex.reason or ex)
+        return None, int(ex.code or 500), detail
+    except URLError as ex:
+        return None, 502, str(ex.reason or ex)
+    except Exception as ex:
+        return None, 500, str(ex)
+
+
+def _normalize_api_base_url(v) -> str:
+    return str(v or "").strip().rstrip("/")
 
 
 def device_headers(cfg):
@@ -1768,11 +1808,244 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, {"error": "pos_auth_required"}, status=401)
                 return
 
+        if parsed.path == "/api/setup/login":
+            data = self.read_json()
+            api_base = _normalize_api_base_url(data.get("api_base_url"))
+            email = str(data.get("email") or "").strip()
+            password = str(data.get("password") or "")
+            mfa_token = str(data.get("mfa_token") or "").strip()
+            mfa_code = str(data.get("mfa_code") or "").strip()
+            if not api_base:
+                json_response(self, {"error": "api_base_url is required"}, status=400)
+                return
+
+            if mfa_token:
+                if not mfa_code:
+                    json_response(self, {"error": "mfa_code is required"}, status=400)
+                    return
+                auth_res, status, err = _setup_req_json_safe(
+                    f"{api_base}/auth/mfa/verify",
+                    method="POST",
+                    payload={"mfa_token": mfa_token, "code": mfa_code},
+                )
+            else:
+                if not email or not password:
+                    json_response(self, {"error": "email and password are required"}, status=400)
+                    return
+                auth_res, status, err = _setup_req_json_safe(
+                    f"{api_base}/auth/login",
+                    method="POST",
+                    payload={"email": email, "password": password},
+                )
+
+            if status:
+                json_response(self, {"error": err or f"auth request failed ({status})"}, status=status)
+                return
+
+            if auth_res.get("mfa_required"):
+                json_response(
+                    self,
+                    {
+                        "ok": True,
+                        "mfa_required": True,
+                        "mfa_token": auth_res.get("mfa_token"),
+                    },
+                )
+                return
+
+            token = str(auth_res.get("token") or "").strip()
+            if not token:
+                json_response(self, {"error": "no token returned by auth service"}, status=502)
+                return
+
+            companies_res, c_status, c_err = _setup_req_json_safe(
+                f"{api_base}/companies",
+                method="GET",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if c_status:
+                json_response(self, {"error": c_err or f"companies request failed ({c_status})"}, status=c_status)
+                return
+
+            json_response(
+                self,
+                {
+                    "ok": True,
+                    "mfa_required": False,
+                    "token": token,
+                    "companies": list(companies_res.get("companies") or []),
+                    "active_company_id": auth_res.get("active_company_id"),
+                },
+            )
+            return
+
+        if parsed.path == "/api/setup/branches":
+            data = self.read_json()
+            api_base = _normalize_api_base_url(data.get("api_base_url"))
+            token = str(data.get("token") or "").strip()
+            company_id = str(data.get("company_id") or "").strip()
+            if not api_base:
+                json_response(self, {"error": "api_base_url is required"}, status=400)
+                return
+            if not token:
+                json_response(self, {"error": "token is required"}, status=400)
+                return
+            if not company_id:
+                json_response(self, {"error": "company_id is required"}, status=400)
+                return
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "X-Company-Id": company_id,
+            }
+            res, status, err = _setup_req_json_safe(
+                f"{api_base}/branches",
+                method="GET",
+                headers=headers,
+            )
+            if status:
+                # Some roles may not have config:read; treat as non-fatal for quick setup.
+                if status in (401, 403):
+                    json_response(
+                        self,
+                        {
+                            "ok": True,
+                            "branches": [],
+                            "warning": "Branches unavailable for this account; leave Branch empty or enter one in Advanced settings.",
+                        },
+                    )
+                    return
+                json_response(self, {"error": err or f"branches request failed ({status})"}, status=status)
+                return
+
+            json_response(self, {"ok": True, "branches": list(res.get("branches") or [])})
+            return
+
+        if parsed.path == "/api/setup/register-device":
+            data = self.read_json()
+            api_base = _normalize_api_base_url(data.get("api_base_url"))
+            token = str(data.get("token") or "").strip()
+            company_id = str(data.get("company_id") or "").strip()
+            branch_id = str(data.get("branch_id") or "").strip()
+            device_code = str(data.get("device_code") or "").strip()
+            reset_token = bool(data.get("reset_token", True))
+            if not api_base:
+                json_response(self, {"error": "api_base_url is required"}, status=400)
+                return
+            if not token:
+                json_response(self, {"error": "token is required"}, status=400)
+                return
+            if not company_id:
+                json_response(self, {"error": "company_id is required"}, status=400)
+                return
+            if not device_code:
+                json_response(self, {"error": "device_code is required"}, status=400)
+                return
+
+            params = {
+                "company_id": company_id,
+                "device_code": device_code,
+                "reset_token": "true" if reset_token else "false",
+            }
+            if branch_id:
+                params["branch_id"] = branch_id
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "X-Company-Id": company_id,
+            }
+
+            # Best effort: align active company on the session used for setup.
+            _setup_req_json_safe(
+                f"{api_base}/auth/select-company",
+                method="POST",
+                payload={"company_id": company_id},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            reg_res, status, err = _setup_req_json_safe(
+                f"{api_base}/pos/devices/register?{urlencode(params)}",
+                method="POST",
+                headers=headers,
+            )
+            if status:
+                json_response(self, {"error": err or f"device registration failed ({status})"}, status=status)
+                return
+
+            device_id = str(reg_res.get("id") or "").strip()
+            device_token = str(reg_res.get("token") or "").strip()
+            if not device_id:
+                json_response(self, {"error": "registration response missing device id"}, status=502)
+                return
+            if not device_token:
+                json_response(
+                    self,
+                    {"error": "device exists but no token returned; enable token reset and retry"},
+                    status=409,
+                )
+                return
+
+            json_response(
+                self,
+                {
+                    "ok": True,
+                    "device_id": device_id,
+                    "device_token": device_token,
+                },
+            )
+            return
+
         if parsed.path == '/api/config':
             data = self.read_json()
             cfg.update(data)
             save_config(cfg)
             json_response(self, {'ok': True, 'config': cfg})
+            return
+
+        if parsed.path == "/api/customers/create":
+            data = self.read_json()
+            name = str(data.get("name") or "").strip()
+            phone = str(data.get("phone") or "").strip()
+            email = str(data.get("email") or "").strip()
+            if not name:
+                json_response(self, {"error": "name is required"}, status=400)
+                return
+            api_base = _normalize_api_base_url(cfg.get("api_base_url"))
+            if not api_base:
+                json_response(self, {"error": "missing api_base_url"}, status=400)
+                return
+            if not cfg.get("device_id") or not cfg.get("device_token"):
+                json_response(self, {"error": "missing device_id or device_token"}, status=400)
+                return
+            payload = {
+                "name": name,
+                "phone": phone or None,
+                "email": email or None,
+                "party_type": "individual",
+                "customer_type": "retail",
+                "payment_terms_days": 0,
+                "is_active": True,
+            }
+            res, status, err = _setup_req_json_safe(
+                f"{api_base}/pos/customers",
+                method="POST",
+                payload=payload,
+                headers=device_headers(cfg),
+                timeout_s=10.0,
+            )
+            if status:
+                json_response(self, {"error": err or f"customer create failed ({status})"}, status=status)
+                return
+            customer = (res or {}).get("customer") or None
+            if not isinstance(customer, dict) or not customer.get("id"):
+                json_response(self, {"error": "invalid customer response"}, status=502)
+                return
+            # Keep local customer cache hot so typeahead finds it immediately.
+            try:
+                upsert_customers([customer])
+            except Exception:
+                pass
+            json_response(self, {"ok": True, "customer": customer})
             return
 
         if parsed.path == '/api/sale':

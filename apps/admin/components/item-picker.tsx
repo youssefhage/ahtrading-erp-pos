@@ -1,9 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+type MenuPosition = {
+  left: number;
+  width: number;
+  top?: number;
+  bottom?: number;
+};
 
 type BarcodeRow = { barcode?: string | null };
 
@@ -55,7 +63,10 @@ export function ItemPicker(props: {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const [menuPos, setMenuPos] = useState<MenuPosition | null>(null);
 
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const indexed = useMemo(() => {
@@ -85,6 +96,66 @@ export function ItemPicker(props: {
   useEffect(() => {
     setActive(0);
   }, [q]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocPointerDown(e: PointerEvent) {
+      const el = wrapRef.current;
+      const menu = menuRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && (el.contains(e.target) || (menu && menu.contains(e.target)))) return;
+      setOpen(false);
+    }
+    function onDocKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onDocPointerDown);
+    document.addEventListener("keydown", onDocKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onDocPointerDown);
+      document.removeEventListener("keydown", onDocKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) return;
+    setMenuPos(null);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const updateMenuRect = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const gap = 8;
+      const rect = el.getBoundingClientRect();
+      const width = Math.min(rect.width, Math.max(120, window.innerWidth - gap * 2));
+      const left = Math.min(Math.max(gap, rect.left), Math.max(gap, window.innerWidth - gap - width));
+      const spaceBelow = window.innerHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+      const preferUp = spaceBelow < 280 && spaceAbove > spaceBelow;
+      if (preferUp) {
+        setMenuPos({
+          left,
+          width,
+          bottom: Math.max(gap, window.innerHeight - rect.top + gap),
+        });
+        return;
+      }
+      setMenuPos({
+        left,
+        width,
+        top: Math.max(gap, rect.bottom + gap),
+      });
+    };
+    updateMenuRect();
+    window.addEventListener("resize", updateMenuRect);
+    window.addEventListener("scroll", updateMenuRect, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuRect);
+      window.removeEventListener("scroll", updateMenuRect, true);
+    };
+  }, [open]);
 
   function select(it: ItemPickerItem) {
     props.onSelect(it);
@@ -134,7 +205,7 @@ export function ItemPicker(props: {
   }
 
   return (
-    <div className={cn("relative", props.className)}>
+    <div ref={wrapRef} className={cn("relative", props.className)}>
       <Input
         ref={inputRef}
         value={q}
@@ -148,72 +219,83 @@ export function ItemPicker(props: {
         disabled={props.disabled}
       />
 
-      {open && q.trim() ? (
-        <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg">
-          <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-[11px] text-fg-subtle">
-            <div className="flex items-center gap-2">
-              <span className="ui-kbd">Enter</span>
-              <span>select</span>
-              <span className="ui-kbd">Esc</span>
-              <span>close</span>
-            </div>
-            {props.onClear ? (
-              <button
-                type="button"
-                className="text-fg-muted hover:text-foreground"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setQ("");
-                  setOpen(false);
-                  props.onClear?.();
-                }}
-              >
-                Clear
-              </button>
-            ) : null}
-          </div>
-
-          <div className="max-h-72 overflow-auto">
-            {results.length ? (
-              results.map((it, idx) => {
-                const isActive = idx === active;
-                return (
+      {open && q.trim() && menuPos
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
+              style={{
+                position: "fixed",
+                left: menuPos.left,
+                width: menuPos.width,
+                ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
+              }}
+            >
+              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-[11px] text-fg-subtle">
+                <div className="flex items-center gap-2">
+                  <span className="ui-kbd">Enter</span>
+                  <span>select</span>
+                  <span className="ui-kbd">Esc</span>
+                  <span>close</span>
+                </div>
+                {props.onClear ? (
                   <button
-                    key={it.id}
                     type="button"
-                    className={cn(
-                      "w-full px-3 py-2 text-left text-sm transition-colors",
-                      "border-b border-border-subtle last:border-b-0",
-                      isActive ? "bg-bg-sunken/70" : "hover:bg-bg-sunken/50"
-                    )}
+                    className="text-fg-muted hover:text-foreground"
                     onMouseDown={(e) => e.preventDefault()}
-                    onMouseEnter={() => setActive(idx)}
-                    onClick={() => select(it)}
+                    onClick={() => {
+                      setQ("");
+                      setOpen(false);
+                      props.onClear?.();
+                    }}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate">
-                          <span className="font-mono text-xs text-fg-muted">{it.sku}</span>{" "}
-                          <span className="text-foreground">· {it.name}</span>
-                        </div>
-                        {it.barcode ? (
-                          <div className="mt-0.5 truncate font-mono text-[10px] text-fg-subtle">{String(it.barcode)}</div>
-                        ) : null}
-                      </div>
-                      {it.unit_of_measure ? (
-                        <div className="shrink-0 font-mono text-[11px] text-fg-muted">{String(it.unit_of_measure)}</div>
-                      ) : null}
-                    </div>
+                    Clear
                   </button>
-                );
-              })
-            ) : (
-              <div className="px-3 py-3 text-sm text-fg-subtle">No matches.</div>
-            )}
-          </div>
-        </div>
-      ) : null}
+                ) : null}
+              </div>
+
+              <div className="max-h-72 overflow-auto">
+                {results.length ? (
+                  results.map((it, idx) => {
+                    const isActive = idx === active;
+                    return (
+                      <button
+                        key={it.id}
+                        type="button"
+                        className={cn(
+                          "w-full px-3 py-2 text-left text-sm transition-colors",
+                          "border-b border-border-subtle last:border-b-0",
+                          isActive ? "bg-bg-sunken/70" : "hover:bg-bg-sunken/50"
+                        )}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onMouseEnter={() => setActive(idx)}
+                        onClick={() => select(it)}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate">
+                              <span className="font-mono text-xs text-fg-muted">{it.sku}</span>{" "}
+                              <span className="text-foreground">· {it.name}</span>
+                            </div>
+                            {it.barcode ? (
+                              <div className="mt-0.5 truncate font-mono text-[10px] text-fg-subtle">{String(it.barcode)}</div>
+                            ) : null}
+                          </div>
+                          {it.unit_of_measure ? (
+                            <div className="shrink-0 font-mono text-[11px] text-fg-muted">{String(it.unit_of_measure)}</div>
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-3 py-3 text-sm text-fg-subtle">No matches.</div>
+                )}
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }
-

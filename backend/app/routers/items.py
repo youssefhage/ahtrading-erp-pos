@@ -1868,7 +1868,32 @@ def list_item_uom_conversions(item_id: str, company_id: str = Depends(get_compan
                 """,
                 (company_id, item_id, base_uom),
             )
-            return {"base_uom": base_uom, "conversions": cur.fetchall()}
+            rows = [dict(r) for r in (cur.fetchall() or [])]
+            has_base = any(str(r.get("uom_code") or "").strip().upper() == base_uom for r in rows)
+            if not has_base:
+                cur.execute(
+                    """
+                    SELECT name, precision
+                    FROM unit_of_measures
+                    WHERE company_id=%s AND code=%s
+                    """,
+                    (company_id, base_uom),
+                )
+                u = cur.fetchone() or {}
+                rows.insert(
+                    0,
+                    {
+                        "uom_code": base_uom,
+                        "uom_name": u.get("name") or base_uom,
+                        "uom_precision": u.get("precision"),
+                        "to_base_factor": Decimal("1"),
+                        "is_active": True,
+                        "created_at": None,
+                        "updated_at": None,
+                    },
+                )
+            rows.sort(key=lambda r: (0 if str(r.get("uom_code") or "").strip().upper() == base_uom else 1, str(r.get("uom_code") or "")))
+            return {"base_uom": base_uom, "conversions": rows}
 
 
 @router.post("/{item_id}/uom-conversions", dependencies=[Depends(require_permission("items:write"))])

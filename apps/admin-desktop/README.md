@@ -26,3 +26,13 @@ The app will ask you for an Admin URL like:
 
 - `npm run build`
 
+### Installer builds
+- macOS DMG:
+  - `npm run build:dmg`
+- Windows installers (`.exe` via NSIS and `.msi`):
+  - `npm run build:windows`
+
+Artifacts are generated under:
+- `apps/admin-desktop/src-tauri/target/release/bundle/dmg/`
+- `apps/admin-desktop/src-tauri/target/release/bundle/nsis/`
+- `apps/admin-desktop/src-tauri/target/release/bundle/msi/`

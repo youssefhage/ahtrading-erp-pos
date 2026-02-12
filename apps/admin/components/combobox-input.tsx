@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { apiGet } from "@/lib/api";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+
+type MenuPosition = {
+  left: number;
+  width: number;
+  top?: number;
+  bottom?: number;
+};
 
 export function ComboboxInput(props: {
   value: string;
@@ -38,8 +46,10 @@ export function ComboboxInput(props: {
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(false);
   const [remote, setRemote] = useState<string[]>([]);
+  const [menuPos, setMenuPos] = useState<MenuPosition | null>(null);
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Load remote suggestions (debounced) when open.
@@ -86,20 +96,61 @@ export function ComboboxInput(props: {
 
   useEffect(() => {
     if (!open) return;
-    function onDocMouseDown(e: MouseEvent) {
+    function onDocPointerDown(e: PointerEvent) {
       const el = wrapRef.current;
+      const menu = menuRef.current;
       if (!el) return;
-      if (e.target instanceof Node && el.contains(e.target)) return;
+      if (e.target instanceof Node && (el.contains(e.target) || (menu && menu.contains(e.target)))) return;
       setOpen(false);
     }
     function onDocKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("pointerdown", onDocPointerDown);
     document.addEventListener("keydown", onDocKeyDown);
     return () => {
-      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("pointerdown", onDocPointerDown);
       document.removeEventListener("keydown", onDocKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open) return;
+    setMenuPos(null);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const updateMenuRect = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const gap = 8;
+      const rect = el.getBoundingClientRect();
+      const width = Math.min(rect.width, Math.max(120, window.innerWidth - gap * 2));
+      const left = Math.min(Math.max(gap, rect.left), Math.max(gap, window.innerWidth - gap - width));
+      const spaceBelow = window.innerHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+      const preferUp = spaceBelow < 280 && spaceAbove > spaceBelow;
+      if (preferUp) {
+        setMenuPos({
+          left,
+          width,
+          bottom: Math.max(gap, window.innerHeight - rect.top + gap),
+        });
+        return;
+      }
+      setMenuPos({
+        left,
+        width,
+        top: Math.max(gap, rect.bottom + gap),
+      });
+    };
+    updateMenuRect();
+    window.addEventListener("resize", updateMenuRect);
+    window.addEventListener("scroll", updateMenuRect, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuRect);
+      window.removeEventListener("scroll", updateMenuRect, true);
     };
   }, [open]);
 
@@ -145,38 +196,49 @@ export function ComboboxInput(props: {
         disabled={disabled}
       />
 
-      {open ? (
-        <div className="absolute z-40 mt-2 w-full overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg">
-          <div className="max-h-72 overflow-auto">
-            {loading ? (
-              <div className="px-3 py-3 text-sm text-fg-subtle">Searching...</div>
-            ) : suggestions.length ? (
-              suggestions.map((s, idx) => {
-                const isActive = idx === active;
-                return (
-                  <button
-                    key={`${s}-${idx}`}
-                    type="button"
-                    className={cn(
-                      "w-full px-3 py-2 text-left text-sm transition-colors",
-                      "border-b border-border-subtle last:border-b-0",
-                      isActive ? "bg-bg-sunken/70" : "hover:bg-bg-sunken/50"
-                    )}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onMouseEnter={() => setActive(idx)}
-                    onClick={() => select(s)}
-                  >
-                    <span className="font-mono text-xs text-foreground">{s}</span>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="px-3 py-3 text-sm text-fg-subtle">No suggestions.</div>
-            )}
-          </div>
-        </div>
-      ) : null}
+      {open && menuPos
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
+              style={{
+                position: "fixed",
+                left: menuPos.left,
+                width: menuPos.width,
+                ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
+              }}
+            >
+              <div className="max-h-72 overflow-auto">
+                {loading ? (
+                  <div className="px-3 py-3 text-sm text-fg-subtle">Searching...</div>
+                ) : suggestions.length ? (
+                  suggestions.map((s, idx) => {
+                    const isActive = idx === active;
+                    return (
+                      <button
+                        key={`${s}-${idx}`}
+                        type="button"
+                        className={cn(
+                          "w-full px-3 py-2 text-left text-sm transition-colors",
+                          "border-b border-border-subtle last:border-b-0",
+                          isActive ? "bg-bg-sunken/70" : "hover:bg-bg-sunken/50"
+                        )}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onMouseEnter={() => setActive(idx)}
+                        onClick={() => select(s)}
+                      >
+                        <span className="font-mono text-xs text-foreground">{s}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-3 py-3 text-sm text-fg-subtle">No suggestions.</div>
+                )}
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }
-

@@ -151,11 +151,17 @@ def load_expected_from_csv(items_csv: Path) -> dict[str, CsvExpectedItem]:
         c_company = idx.get("Company")
         c_tax = idx.get("Item Tax Template")
 
+        current_company_name = ""
         for row in r:
+            # ERPNext exports often leave Company blank on many rows; blank means
+            # "same as previous explicit company value".
+            row_company_name = _strip_wrapped_quotes(row[c_company]) if c_company is not None and c_company < len(row) else ""
+            if row_company_name:
+                current_company_name = row_company_name
             sku = _strip_wrapped_quotes(row[idx["ID"]]) if idx["ID"] < len(row) else ""
             if not sku:
                 continue
-            company_name = _strip_wrapped_quotes(row[c_company]) if c_company is not None and c_company < len(row) else ""
+            company_name = current_company_name
             base_uom = _norm(row[idx["Default Unit of Measure"]]) if idx["Default Unit of Measure"] < len(row) else ""
             base_uom = (base_uom or "EA").strip().upper()[:32]
             valuation = _to_decimal(row[idx["Valuation Rate"]]) if idx["Valuation Rate"] < len(row) else Decimal("0")
@@ -402,4 +408,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
