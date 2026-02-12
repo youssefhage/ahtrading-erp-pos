@@ -38,7 +38,7 @@ from .routers.telegram import router as telegram_router
 from .routers.whatsapp import router as whatsapp_router
 from .routers.landed_costs import router as landed_costs_router
 from .routers.stock_transfers import router as stock_transfers_router
-from .routers.updates import router as updates_router
+from .routers.updates import router as updates_router, sync_downloads_site_to_updates
 from .routers.fx import router as fx_router
 from .config import settings
 from .routers.inventory_locations import router as inventory_locations_router
@@ -177,6 +177,11 @@ app.include_router(inventory_locations_router, dependencies=[Depends(require_com
 app.include_router(inventory_warehouses_locations_router, dependencies=[Depends(require_company_access)])
 # Dev-only helpers (route handlers self-disable outside local/dev).
 app.include_router(devtools_router, dependencies=[Depends(require_company_access)])
+
+@app.on_event("startup")
+def _startup():
+    # Keep download.melqard.com landing page in sync via the shared /updates volume.
+    sync_downloads_site_to_updates()
 
 @app.on_event("shutdown")
 def _shutdown():

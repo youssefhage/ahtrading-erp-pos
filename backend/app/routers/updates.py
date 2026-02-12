@@ -28,6 +28,48 @@ def _updates_dir() -> Path:
     return p
 
 
+def sync_downloads_site_to_updates() -> None:
+    """
+    Ensure the downloads landing page (download.melqard.com `/` + `/style.css`)
+    is available from the shared `/updates` volume.
+
+    Why: some Dokploy deployments may skip rebuilding the `downloads` container
+    if only static files changed. By keeping the landing page inside the shared
+    volume, the API deployment can update it reliably.
+    """
+    try:
+        base = _updates_dir()
+        if not base.exists() or not base.is_dir():
+            return
+
+        src_dir = (Path(__file__).resolve().parents[1] / "static" / "downloads_site").resolve()
+        if not src_dir.exists() or not src_dir.is_dir():
+            return
+
+        dest_dir = (base / "site").resolve()
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return
+
+        for src in sorted(src_dir.glob("*")):
+            if not src.is_file():
+                continue
+            dest = dest_dir / src.name
+            try:
+                new_bytes = src.read_bytes()
+                old_bytes = dest.read_bytes() if dest.exists() and dest.is_file() else None
+                if old_bytes != new_bytes:
+                    dest.write_bytes(new_bytes)
+                _make_world_readable(dest, base)
+            except Exception:
+                # Never crash API startup because a staff-facing downloads page
+                # couldn't be written.
+                continue
+    except Exception:
+        return
+
+
 def _require_publish_key(x_updates_key: Optional[str]) -> None:
     expected = (os.getenv("UPDATES_PUBLISH_KEY") or "").strip()
     if not expected:
