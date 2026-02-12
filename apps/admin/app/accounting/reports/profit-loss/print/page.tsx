@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdMaybe } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 
@@ -122,18 +122,18 @@ function ProfitLossPrintInner() {
         <section className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="rounded-md border border-black/15 p-3">
             <p className="text-[11px] uppercase tracking-wider text-black/60">Revenue</p>
-            <p className="mt-1 font-mono text-sm">{fmtUsd(data?.revenue_usd || 0)}</p>
-            <p className="font-mono text-sm">{fmtLbp(data?.revenue_lbp || 0)}</p>
+            <p className="mt-1 font-mono text-sm">{fmtUsdMaybe(data?.revenue_usd)}</p>
+            <p className="font-mono text-sm">{fmtLbpMaybe(data?.revenue_lbp, { dashIfZero: Number(data?.revenue_usd || 0) !== 0 })}</p>
           </div>
           <div className="rounded-md border border-black/15 p-3">
             <p className="text-[11px] uppercase tracking-wider text-black/60">Expenses</p>
-            <p className="mt-1 font-mono text-sm">{fmtUsd(data?.expense_usd || 0)}</p>
-            <p className="font-mono text-sm">{fmtLbp(data?.expense_lbp || 0)}</p>
+            <p className="mt-1 font-mono text-sm">{fmtUsdMaybe(data?.expense_usd)}</p>
+            <p className="font-mono text-sm">{fmtLbpMaybe(data?.expense_lbp, { dashIfZero: Number(data?.expense_usd || 0) !== 0 })}</p>
           </div>
           <div className="rounded-md border border-black/15 p-3">
             <p className="text-[11px] uppercase tracking-wider text-black/60">Net Profit</p>
-            <p className="mt-1 font-mono text-sm">{fmtUsd(data?.net_profit_usd || 0)}</p>
-            <p className="font-mono text-sm">{fmtLbp(data?.net_profit_lbp || 0)}</p>
+            <p className="mt-1 font-mono text-sm">{fmtUsdMaybe(data?.net_profit_usd)}</p>
+            <p className="font-mono text-sm">{fmtLbpMaybe(data?.net_profit_lbp, { dashIfZero: Number(data?.net_profit_usd || 0) !== 0 })}</p>
           </div>
         </section>
 

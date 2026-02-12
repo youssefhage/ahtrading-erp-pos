@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
@@ -530,17 +530,17 @@ export default function SupplierCreditDetailPage() {
           <CardHeader>
             <CardTitle>Totals</CardTitle>
             <CardDescription>
-              Total: {fmtUsd(credit?.total_usd)} / {fmtLbp(credit?.total_lbp)} · Applied: {fmtUsd(appliedTotals.usd)} / {fmtLbp(appliedTotals.lbp)}
+              Total: {fmtUsdLbp(credit?.total_usd, credit?.total_lbp)} · Applied: {fmtUsdLbp(appliedTotals.usd, appliedTotals.lbp)}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <div className="rounded-md border border-border bg-bg-elevated p-3">
               <div className="text-xs text-fg-subtle">Remaining USD</div>
-              <div className="mt-1 data-mono text-sm">{fmtUsd(remaining.usd)}</div>
+              <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(remaining.usd)}</div>
             </div>
             <div className="rounded-md border border-border bg-bg-elevated p-3">
               <div className="text-xs text-fg-subtle">Remaining LL</div>
-              <div className="mt-1 data-mono text-sm">{fmtLbp(remaining.lbp)}</div>
+              <div className="mt-1 data-mono text-sm">{fmtLbpMaybe(remaining.lbp, { dashIfZero: remaining.usd !== 0 })}</div>
             </div>
           </CardContent>
         </Card>

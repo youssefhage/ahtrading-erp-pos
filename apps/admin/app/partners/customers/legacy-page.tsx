@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { PartyAddresses } from "@/components/party-addresses";
 import { PartyContacts } from "@/components/party-contacts";
@@ -815,13 +815,13 @@ export default function CustomersPage() {
                     <div>
                       <span className="text-fg-subtle">Credit Limit:</span>{" "}
                       <span className="data-mono">
-                        {fmtUsd(detail.credit_limit_usd)} / {fmtLbp(detail.credit_limit_lbp)}
+                        {fmtUsdLbp(detail.credit_limit_usd, detail.credit_limit_lbp)}
                       </span>
                     </div>
                     <div>
                       <span className="text-fg-subtle">Balance:</span>{" "}
                       <span className="data-mono">
-                        {fmtUsd(detail.credit_balance_usd)} / {fmtLbp(detail.credit_balance_lbp)}
+                        {fmtUsdLbp(detail.credit_balance_usd, detail.credit_balance_lbp)}
                       </span>
                     </div>
                     <div>

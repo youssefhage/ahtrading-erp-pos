@@ -75,3 +75,27 @@ export function fmtLbpMaybe(amount: unknown, opts?: MoneyMaybeOptions): string {
   const abs = Math.abs(n);
   return `${sign}LL ${lbpFormatter(opts?.maximumFractionDigits ?? 0).format(abs)}`;
 }
+
+export function fmtUsdLbp(
+  usdAmount: unknown,
+  lbpAmount: unknown,
+  opts?: {
+    sep?: string;
+    // When one side is non-zero and the other is zero, it's often "not set / derived".
+    // This replaces the zero side with a dash to avoid confusion.
+    dashIfZeroWhenOtherNonZero?: boolean;
+    usd?: MoneyMaybeOptions;
+    lbp?: MoneyMaybeOptions;
+  }
+): string {
+  const sep = opts?.sep ?? " / ";
+  const dash = opts?.dashIfZeroWhenOtherNonZero ?? true;
+  const u = toFiniteNumber(usdAmount);
+  const l = toFiniteNumber(lbpAmount);
+  const usdDash = dash && u === 0 && l !== 0;
+  const lbpDash = dash && l === 0 && u !== 0;
+  return `${fmtUsdMaybe(usdAmount, { ...opts?.usd, dashIfZero: (opts?.usd?.dashIfZero ?? false) || usdDash })}${sep}${fmtLbpMaybe(lbpAmount, {
+    ...opts?.lbp,
+    dashIfZero: (opts?.lbp?.dashIfZero ?? false) || lbpDash,
+  })}`;
+}

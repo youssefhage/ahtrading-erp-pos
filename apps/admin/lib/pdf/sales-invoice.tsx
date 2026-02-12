@@ -1,6 +1,6 @@
 import { Document, Page, Text, View } from "@react-pdf/renderer";
 
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { fmtIsoDate, generatedAtStamp } from "@/lib/pdf/format";
 import { pdfStyles as s } from "@/lib/pdf/styles";
 
@@ -139,19 +139,19 @@ export function SalesInvoicePdf(props: { detail: SalesInvoiceDetail }) {
           <View style={[s.box, { flex: 1 }]}>
             <Text style={s.label}>Tax</Text>
             <Text style={[s.value, s.mono]}>
-              {fmtUsd(taxUsd)} / {fmtLbp(taxLbp)}
+              {fmtUsdLbp(taxUsd, taxLbp)}
             </Text>
           </View>
           <View style={[s.box, { flex: 1 }]}>
             <Text style={s.label}>Totals</Text>
             <Text style={[s.value, s.mono]}>
-              {fmtUsd(inv.total_usd)} / {fmtLbp(inv.total_lbp)}
+              {fmtUsdLbp(inv.total_usd, inv.total_lbp)}
             </Text>
             <Text style={[s.muted, s.mono, { marginTop: 3 }]}>
-              Paid {fmtUsd(paidUsd)} / {fmtLbp(paidLbp)}
+              Paid {fmtUsdLbp(paidUsd, paidLbp)}
             </Text>
             <Text style={[{ marginTop: 3 }, s.mono]}>
-              Balance {fmtUsd(balUsd)} / {fmtLbp(balLbp)}
+              Balance {fmtUsdLbp(balUsd, balLbp)}
             </Text>
           </View>
         </View>
@@ -164,4 +164,3 @@ export function SalesInvoicePdf(props: { detail: SalesInvoiceDetail }) {
     </Document>
   );
 }
-

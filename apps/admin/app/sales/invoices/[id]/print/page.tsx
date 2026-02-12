@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 
@@ -251,7 +251,7 @@ export default function SalesInvoicePrintPage() {
                     <div key={p.id} className="flex items-center justify-between gap-2">
                       <span className="font-mono">{p.method}</span>
                       <span className="font-mono">
-                        {fmtUsd(p.amount_usd)} / {fmtLbp(p.amount_lbp)}
+                        {fmtUsdLbp(p.amount_usd, p.amount_lbp)}
                       </span>
                     </div>
                   ))}
@@ -265,31 +265,31 @@ export default function SalesInvoicePrintPage() {
                   <div className="flex items-center justify-between gap-2">
                     <span>Subtotal</span>
                     <span className="font-mono">
-                      {fmtUsd(detail.invoice.subtotal_usd ?? detail.invoice.total_usd)} / {fmtLbp(detail.invoice.subtotal_lbp ?? detail.invoice.total_lbp)}
+                      {fmtUsdLbp(detail.invoice.subtotal_usd ?? detail.invoice.total_usd, detail.invoice.subtotal_lbp ?? detail.invoice.total_lbp)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span>Discount</span>
                     <span className="font-mono">
-                      {fmtUsd(detail.invoice.discount_total_usd ?? 0)} / {fmtLbp(detail.invoice.discount_total_lbp ?? 0)}
+                      {fmtUsdLbp(detail.invoice.discount_total_usd ?? 0, detail.invoice.discount_total_lbp ?? 0)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span>Total</span>
                     <span className="font-mono">
-                      {fmtUsd(detail.invoice.total_usd)} / {fmtLbp(detail.invoice.total_lbp)}
+                      {fmtUsdLbp(detail.invoice.total_usd, detail.invoice.total_lbp)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span>Paid</span>
                     <span className="font-mono">
-                      {fmtUsd(totals.paidUsd)} / {fmtLbp(totals.paidLbp)}
+                      {fmtUsdLbp(totals.paidUsd, totals.paidLbp)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 border-t border-black/10 pt-2">
                     <span className="font-medium">Balance</span>
                     <span className="font-mono font-semibold">
-                      {fmtUsd(totals.balUsd)} / {fmtLbp(totals.balLbp)}
+                      {fmtUsdLbp(totals.balUsd, totals.balLbp)}
                     </span>
                   </div>
                 </div>
@@ -301,7 +301,7 @@ export default function SalesInvoicePrintPage() {
                       <div key={t.id} className="flex items-center justify-between gap-2">
                         <span className="font-mono">{t.tax_code_id}</span>
                         <span className="font-mono">
-                          {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
+                          {fmtUsdLbp(t.tax_usd, t.tax_lbp)}
                         </span>
                       </div>
                     ))}

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { getFxRateUsdToLbp } from "@/lib/fx";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { SupplierTypeahead, type SupplierTypeaheadSupplier } from "@/components/supplier-typeahead";
 import { MoneyInput } from "@/components/money-input";
 import { ErrorBanner } from "@/components/error-banner";
@@ -310,7 +310,7 @@ export default function SupplierCreditNewPage() {
             <CardHeader>
               <CardTitle>Lines</CardTitle>
               <CardDescription>
-                Total: {fmtUsd(totals.usd)} / {fmtLbp(totals.lbp)}
+                Total: {fmtUsdLbp(totals.usd, totals.lbp)}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -355,8 +355,8 @@ export default function ConsolidatedReportsPage() {
             <CardDescription>
               {plTotals ? (
                 <>
-                  Revenue: {fmtUsd(plTotals.revenue_usd)} / {fmtLbp(plTotals.revenue_lbp)} · Expense: {fmtUsd(plTotals.expense_usd)} /{" "}
-                  {fmtLbp(plTotals.expense_lbp)} · Net: {fmtUsd(plTotals.net_profit_usd)} / {fmtLbp(plTotals.net_profit_lbp)}
+                  Revenue: {fmtUsdLbp(plTotals.revenue_usd, plTotals.revenue_lbp)} · Expense: {fmtUsdLbp(plTotals.expense_usd, plTotals.expense_lbp)} · Net:{" "}
+                  {fmtUsdLbp(plTotals.net_profit_usd, plTotals.net_profit_lbp)}
                 </>
               ) : (
                 `${pl.length} rows`

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdMaybe } from "@/lib/money";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -115,18 +115,24 @@ export default function ProfitLossPage() {
               <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                 <div className="rounded-md border border-border bg-bg-elevated p-3">
                   <div className="text-xs text-fg-subtle">Revenue</div>
-                  <div className="mt-1 data-mono text-sm">{fmtUsd(data?.revenue_usd || 0)}</div>
-                  <div className="data-mono text-xs text-fg-muted">{fmtLbp(data?.revenue_lbp || 0)}</div>
+                  <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(data?.revenue_usd)}</div>
+                  <div className="data-mono text-xs text-fg-muted">
+                    {fmtLbpMaybe(data?.revenue_lbp, { dashIfZero: Number(data?.revenue_usd || 0) !== 0 })}
+                  </div>
                 </div>
                 <div className="rounded-md border border-border bg-bg-elevated p-3">
                   <div className="text-xs text-fg-subtle">Expenses</div>
-                  <div className="mt-1 data-mono text-sm">{fmtUsd(data?.expense_usd || 0)}</div>
-                  <div className="data-mono text-xs text-fg-muted">{fmtLbp(data?.expense_lbp || 0)}</div>
+                  <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(data?.expense_usd)}</div>
+                  <div className="data-mono text-xs text-fg-muted">
+                    {fmtLbpMaybe(data?.expense_lbp, { dashIfZero: Number(data?.expense_usd || 0) !== 0 })}
+                  </div>
                 </div>
                 <div className="rounded-md border border-border bg-bg-elevated p-3">
                   <div className="text-xs text-fg-subtle">Net Profit</div>
-                  <div className="mt-1 data-mono text-sm">{fmtUsd(data?.net_profit_usd || 0)}</div>
-                  <div className="data-mono text-xs text-fg-muted">{fmtLbp(data?.net_profit_lbp || 0)}</div>
+                  <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(data?.net_profit_usd)}</div>
+                  <div className="data-mono text-xs text-fg-muted">
+                    {fmtLbpMaybe(data?.net_profit_lbp, { dashIfZero: Number(data?.net_profit_usd || 0) !== 0 })}
+                  </div>
                 </div>
               </div>
 

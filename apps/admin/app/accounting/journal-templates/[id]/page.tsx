@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { getFxRateUsdToLbp } from "@/lib/fx";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
@@ -272,8 +272,8 @@ export default function JournalTemplateDetailPage() {
         <CardHeader>
           <CardTitle>Lines</CardTitle>
           <CardDescription>
-            Debits {fmtUsd(totals.dUsd, { maximumFractionDigits: 4 })} / {fmtLbp(totals.dLbp, { maximumFractionDigits: 2 })} · Credits{" "}
-            {fmtUsd(totals.cUsd, { maximumFractionDigits: 4 })} / {fmtLbp(totals.cLbp, { maximumFractionDigits: 2 })}
+            Debits {fmtUsdLbp(totals.dUsd, totals.dLbp, { usd: { maximumFractionDigits: 4 }, lbp: { maximumFractionDigits: 2 } })} · Credits{" "}
+            {fmtUsdLbp(totals.cUsd, totals.cLbp, { usd: { maximumFractionDigits: 4 }, lbp: { maximumFractionDigits: 2 } })}
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
@@ -388,14 +388,14 @@ export default function SalesReturnsPage() {
                             <div className="ui-kv">
                               <span className="ui-kv-label">Total</span>
                               <span className="ui-kv-value">
-                                {fmtUsd(detail.return.total_usd)} / {fmtLbp(detail.return.total_lbp)}
+                                {fmtUsdLbp(detail.return.total_usd, detail.return.total_lbp)}
                               </span>
                             </div>
                             {(Number((detail.return as any).restocking_fee_usd || 0) || Number((detail.return as any).restocking_fee_lbp || 0)) ? (
                               <div className="ui-kv">
                                 <span className="ui-kv-label">Restocking fee</span>
                                 <span className="ui-kv-value">
-                                  {fmtUsd((detail.return as any).restocking_fee_usd || 0)} / {fmtLbp((detail.return as any).restocking_fee_lbp || 0)}
+                                  {fmtUsdLbp((detail.return as any).restocking_fee_usd, (detail.return as any).restocking_fee_lbp)}
                                 </span>
                               </div>
                             ) : null}
@@ -403,7 +403,7 @@ export default function SalesReturnsPage() {
                               <div className="ui-kv">
                                 <span className="ui-kv-label">VAT</span>
                                 <span className="ui-kv-value">
-                                  {fmtUsd(returnVat.usd)} / {fmtLbp(returnVat.lbp)}
+                                  {fmtUsdLbp(returnVat.usd, returnVat.lbp)}
                                 </span>
                               </div>
                             ) : null}
@@ -423,7 +423,7 @@ export default function SalesReturnsPage() {
                                 <div key={r.id} className="flex items-center justify-between gap-2">
                                   <div className="data-mono text-xs">{r.method}</div>
                                   <div className="data-mono text-xs text-foreground">
-                                    {fmtUsd(r.amount_usd)} / {fmtLbp(r.amount_lbp)}
+                                    {fmtUsdLbp(r.amount_usd, r.amount_lbp)}
                                   </div>
                                 </div>
                               ))}
@@ -449,13 +449,13 @@ export default function SalesReturnsPage() {
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="font-mono">{r.tax_code_id}</span>
                                   <span className="data-mono text-foreground">
-                                    {fmtUsd(r.tax_usd)} / {fmtLbp(r.tax_lbp)}
+                                    {fmtUsdLbp(r.tax_usd, r.tax_lbp)}
                                   </span>
                                 </div>
                                 <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
                                   <span className="text-fg-subtle">Base</span>
                                   <span className="data-mono">
-                                    {fmtUsd(r.base_usd)} / {fmtLbp(r.base_lbp)}
+                                    {fmtUsdLbp(r.base_usd, r.base_lbp)}
                                   </span>
                                 </div>
                               </div>
@@ -465,13 +465,13 @@ export default function SalesReturnsPage() {
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Total</span>
                                   <span className="data-mono text-foreground">
-                                    {fmtUsd(taxBreakdownTotals.tax_usd)} / {fmtLbp(taxBreakdownTotals.tax_lbp)}
+                                    {fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}
                                   </span>
                                 </div>
                                 <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
                                   <span className="text-fg-subtle">Taxable base</span>
                                   <span className="data-mono">
-                                    {fmtUsd(taxBreakdownTotals.base_usd)} / {fmtLbp(taxBreakdownTotals.base_lbp)}
+                                    {fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}
                                   </span>
                                 </div>
                                 <details className="mt-2">
@@ -484,7 +484,7 @@ export default function SalesReturnsPage() {
                                           {t.tax_date ? <span className="text-fg-subtle"> · {String(t.tax_date).slice(0, 10)}</span> : null}
                                         </span>
                                         <span className="data-mono">
-                                          {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
+                                          {fmtUsdLbp(t.tax_usd, t.tax_lbp)}
                                         </span>
                                       </div>
                                     ))}

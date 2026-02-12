@@ -5,7 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
@@ -774,17 +774,17 @@ function SalesInvoiceShowInner() {
                                   {hasTender(p) ? (
                                     <>
                                       <span className="text-foreground">
-                                        Tender {fmtUsd(n(p.tender_usd))} / {fmtLbp(n(p.tender_lbp))}
+                                        Tender {fmtUsdLbp(n(p.tender_usd), n(p.tender_lbp))}
                                       </span>
                                       <span className="text-fg-subtle"> · </span>
                                       <span className="text-fg-muted">
-                                        Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
+                                        Applied {fmtUsdLbp(n(p.amount_usd), n(p.amount_lbp))}
                                       </span>
                                     </>
                                   ) : (
                                     <>
                                       <span className="text-foreground">
-                                        Applied {fmtUsd(n(p.amount_usd))} / {fmtLbp(n(p.amount_lbp))}
+                                        Applied {fmtUsdLbp(n(p.amount_usd), n(p.amount_lbp))}
                                       </span>
                                     </>
                                   )}
@@ -849,7 +849,7 @@ function SalesInvoiceShowInner() {
                               <div className="ui-kv">
                                 <span className="ui-kv-label">Tender received</span>
                                 <span className="ui-kv-value">
-                                  {fmtUsd(tenderUsd)} / {fmtLbp(tenderLbp)}
+                                  {fmtUsdLbp(tenderUsd, tenderLbp)}
                                 </span>
                               </div>
                             </>
@@ -861,7 +861,7 @@ function SalesInvoiceShowInner() {
                               <div className="ui-kv">
                                 <span className="ui-kv-label">VAT</span>
                                 <span className="ui-kv-value">
-                                  {fmtUsd(vatUsd)} / {fmtLbp(vatLbp)}
+                                  {fmtUsdLbp(vatUsd, vatLbp)}
                                 </span>
                               </div>
                             </>
@@ -883,13 +883,13 @@ function SalesInvoiceShowInner() {
                               <div className="ui-kv">
                                 <span className="ui-kv-label">Subtotal</span>
                                 <span className="ui-kv-value">
-                                  {fmtUsd(subUsd)} / {fmtLbp(subLbp)}
+                                  {fmtUsdLbp(subUsd, subLbp)}
                                 </span>
                               </div>
                               <div className="ui-kv">
                                 <span className="ui-kv-label">Discount</span>
                                 <span className="ui-kv-value">
-                                  {fmtUsd(discUsd)} / {fmtLbp(discLbp)}
+                                  {fmtUsdLbp(discUsd, discLbp)}
                                 </span>
                               </div>
                             </div>
@@ -905,7 +905,7 @@ function SalesInvoiceShowInner() {
                               <div className="ui-kv">
                                 <span className="ui-kv-label">VAT preview</span>
                                 <span className="ui-kv-value">
-                                  {fmtUsd(taxPreview?.tax_usd ?? 0)} / {fmtLbp(taxPreview?.tax_lbp ?? 0)}
+                                  {taxPreview ? fmtUsdLbp(taxPreview.tax_usd, taxPreview.tax_lbp) : "-"}
                                 </span>
                               </div>
                               <div className="mt-1 text-[11px] text-fg-subtle">
@@ -946,12 +946,12 @@ function SalesInvoiceShowInner() {
                                         <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
                                           <span className="text-fg-subtle">Base</span>
                                           <span className="data-mono">
-                                            {fmtUsd(r.base_usd)} / {fmtLbp(r.base_lbp)}
+                                            {fmtUsdLbp(r.base_usd, r.base_lbp)}
                                           </span>
                                         </div>
                                       </div>
                                       <div className="text-right data-mono text-foreground">
-                                        {fmtUsd(r.tax_usd)} / {fmtLbp(r.tax_lbp)}
+                                        {fmtUsdLbp(r.tax_usd, r.tax_lbp)}
                                       </div>
                                     </div>
                                   );
@@ -960,13 +960,13 @@ function SalesInvoiceShowInner() {
                                 <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-[11px]">
                                   <span className="text-fg-subtle">Total</span>
                                   <span className="text-right data-mono text-foreground">
-                                    {fmtUsd(taxBreakdownTotals.tax_usd)} / {fmtLbp(taxBreakdownTotals.tax_lbp)}
+                                    {fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}
                                   </span>
                                 </div>
                                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-[11px] text-fg-muted">
                                   <span className="text-fg-subtle">Taxable base</span>
                                   <span className="text-right data-mono">
-                                    {fmtUsd(taxBreakdownTotals.base_usd)} / {fmtLbp(taxBreakdownTotals.base_lbp)}
+                                    {fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}
                                   </span>
                                 </div>
                               </div>
@@ -986,13 +986,13 @@ function SalesInvoiceShowInner() {
                                             {ratePct !== null ? <span className="text-fg-subtle"> · {ratePct.toFixed(2)}%</span> : null}
                                           </span>
                                           <span className="data-mono text-foreground">
-                                            {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
+                                            {fmtUsdLbp(t.tax_usd, t.tax_lbp)}
                                           </span>
                                         </div>
                                         <div className="mt-1 flex items-center justify-between gap-2">
                                           <span className="text-[11px] text-fg-subtle">Base</span>
                                           <span className="data-mono text-[11px] text-fg-muted">
-                                            {fmtUsd(t.base_usd)} / {fmtLbp(t.base_lbp)}
+                                            {fmtUsdLbp(t.base_usd, t.base_lbp)}
                                           </span>
                                         </div>
                                       </div>
@@ -1109,13 +1109,13 @@ function SalesInvoiceShowInner() {
                     <div className="flex items-center justify-between gap-2">
                       <span>VAT</span>
                       <span className="data-mono">
-                        {fmtUsd(postPreview.tax_usd)} / {fmtLbp(postPreview.tax_lbp)}
+                        {fmtUsdLbp(postPreview.tax_usd, postPreview.tax_lbp)}
                       </span>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <span>Total</span>
                       <span className="data-mono">
-                        {fmtUsd(postPreview.total_usd)} / {fmtLbp(postPreview.total_lbp)}
+                        {fmtUsdLbp(postPreview.total_usd, postPreview.total_lbp)}
                       </span>
                     </div>
                   </div>

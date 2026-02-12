@@ -5,7 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdMaybe } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
@@ -91,7 +91,7 @@ function Inner() {
         accessor: (r) => Number(r.new_price_usd || 0),
         cell: (r) => (
           <span className="data-mono">
-            {fmtUsd(r.old_price_usd || 0)} <span className="text-fg-subtle">→</span> {fmtUsd(r.new_price_usd || 0)}
+            {fmtUsdMaybe(r.old_price_usd)} <span className="text-fg-subtle">→</span> {fmtUsdMaybe(r.new_price_usd)}
           </span>
         ),
       },
@@ -105,7 +105,8 @@ function Inner() {
         accessor: (r) => Number(r.new_price_lbp || 0),
         cell: (r) => (
           <span className="data-mono">
-            {fmtLbp(r.old_price_lbp || 0)} <span className="text-fg-subtle">→</span> {fmtLbp(r.new_price_lbp || 0)}
+            {fmtLbpMaybe(r.old_price_lbp, { dashIfZero: Number(r.old_price_usd || 0) !== 0 })} <span className="text-fg-subtle">→</span>{" "}
+            {fmtLbpMaybe(r.new_price_lbp, { dashIfZero: Number(r.new_price_usd || 0) !== 0 })}
           </span>
         ),
       },

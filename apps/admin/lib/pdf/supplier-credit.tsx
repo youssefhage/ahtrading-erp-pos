@@ -1,6 +1,6 @@
 import { Document, Page, Text, View } from "@react-pdf/renderer";
 
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
 import { fmtIsoDate, generatedAtStamp } from "@/lib/pdf/format";
 import { pdfStyles as s } from "@/lib/pdf/styles";
 
@@ -74,16 +74,18 @@ export function SupplierCreditPdf(props: { detail: SupplierCreditDetail }) {
           </View>
           <View style={s.box}>
             <Text style={s.label}>Totals</Text>
-            <Text style={[s.value, s.mono]}>{fmtUsd(credit.total_usd)}</Text>
-            <Text style={[s.mono, { marginTop: 2 }]}>{fmtLbp(credit.total_lbp)}</Text>
+            <Text style={[s.value, s.mono]}>{fmtUsdMaybe(credit.total_usd)}</Text>
+            <Text style={[s.mono, { marginTop: 2 }]}>
+              {fmtLbpMaybe(credit.total_lbp, { dashIfZero: toNum(credit.total_usd) !== 0 })}
+            </Text>
           </View>
           <View style={s.box}>
             <Text style={s.label}>Applied / Remaining</Text>
             <Text style={[s.muted, s.mono, { marginTop: 4 }]}>
-              Applied {fmtUsd(appliedUsd)} / {fmtLbp(appliedLbp)}
+              Applied {fmtUsdLbp(appliedUsd, appliedLbp)}
             </Text>
             <Text style={[s.value, s.mono, { marginTop: 4 }]}>
-              Remaining {fmtUsd(remainingUsd)} / {fmtLbp(remainingLbp)}
+              Remaining {fmtUsdLbp(remainingUsd, remainingLbp)}
             </Text>
           </View>
         </View>
@@ -185,4 +187,3 @@ export function SupplierCreditPdf(props: { detail: SupplierCreditDetail }) {
     </Document>
   );
 }
-

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
@@ -213,11 +213,11 @@ export default function CustomerViewPage() {
               </div>
               <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                 <p className="text-xs text-fg-muted">AR Balance</p>
-                <p className="font-mono text-sm text-foreground">{fmtUsd(customer.credit_balance_usd)} / {fmtLbp(customer.credit_balance_lbp)}</p>
+                <p className="font-mono text-sm text-foreground">{fmtUsdLbp(customer.credit_balance_usd, customer.credit_balance_lbp)}</p>
               </div>
               <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
                 <p className="text-xs text-fg-muted">Credit Limit</p>
-                <p className="font-mono text-sm text-foreground">{fmtUsd(customer.credit_limit_usd)} / {fmtLbp(customer.credit_limit_lbp)}</p>
+                <p className="font-mono text-sm text-foreground">{fmtUsdLbp(customer.credit_limit_usd, customer.credit_limit_lbp)}</p>
               </div>
             </CardContent>
           </Card>

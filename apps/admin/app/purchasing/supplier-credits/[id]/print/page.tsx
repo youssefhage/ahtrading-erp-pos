@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 
@@ -180,16 +180,16 @@ export default function SupplierCreditPrintPage() {
               </div>
               <div className="rounded-md border border-black/15 p-3">
                 <p className="text-[11px] uppercase tracking-wider text-black/60">Totals</p>
-                <p className="mt-1 font-mono text-sm">{fmtUsd(credit.total_usd)}</p>
-                <p className="font-mono text-sm">{fmtLbp(credit.total_lbp)}</p>
+                <p className="mt-1 font-mono text-sm">{fmtUsdMaybe(credit.total_usd)}</p>
+                <p className="font-mono text-sm">{fmtLbpMaybe(credit.total_lbp, { dashIfZero: toNum(credit.total_usd) !== 0 })}</p>
               </div>
               <div className="rounded-md border border-black/15 p-3">
                 <p className="text-[11px] uppercase tracking-wider text-black/60">Applied / Remaining</p>
                 <p className="mt-1 font-mono text-[11px] text-black/70">
-                  Applied: {fmtUsd(appliedTotals.usd)} / {fmtLbp(appliedTotals.lbp)}
+                  Applied: {fmtUsdLbp(appliedTotals.usd, appliedTotals.lbp)}
                 </p>
                 <p className="font-mono text-sm">
-                  Remaining: {fmtUsd(remaining.usd)} / {fmtLbp(remaining.lbp)}
+                  Remaining: {fmtUsdLbp(remaining.usd, remaining.lbp)}
                 </p>
               </div>
             </section>

@@ -7,7 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Check, Copy } from "lucide-react";
 
 import { apiGet, apiUrl } from "@/lib/api";
-import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdMaybe } from "@/lib/money";
+import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
@@ -536,7 +536,7 @@ export default function ItemViewPage() {
         accessor: (r) => Number(r.new_price_usd || 0),
         cell: (r) => (
           <span className="data-mono text-xs">
-            {fmtUsd(r.old_price_usd || 0)} <span className="text-fg-subtle">→</span> {fmtUsd(r.new_price_usd || 0)}
+            {fmtUsdMaybe(r.old_price_usd)} <span className="text-fg-subtle">→</span> {fmtUsdMaybe(r.new_price_usd)}
           </span>
         ),
       },
@@ -558,7 +558,8 @@ export default function ItemViewPage() {
         accessor: (r) => Number(r.new_price_lbp || 0),
         cell: (r) => (
           <span className="data-mono text-xs">
-            {fmtLbp(r.old_price_lbp || 0)} <span className="text-fg-subtle">→</span> {fmtLbp(r.new_price_lbp || 0)}
+            {fmtLbpMaybe(r.old_price_lbp, { dashIfZero: Number(r.old_price_usd || 0) !== 0 })} <span className="text-fg-subtle">→</span>{" "}
+            {fmtLbpMaybe(r.new_price_lbp, { dashIfZero: Number(r.new_price_usd || 0) !== 0 })}
           </span>
         ),
       },
@@ -944,7 +945,7 @@ export default function ItemViewPage() {
                 mono
               />
               <SummaryField label="Negative Stock" value={negativeStockPolicy.label} />
-              <SummaryField label="Standard Cost" value={`${fmtUsd(item.standard_cost_usd || 0)} · ${fmtLbp(item.standard_cost_lbp || 0)}`} />
+              <SummaryField label="Standard Cost" value={fmtUsdLbp(item.standard_cost_usd, item.standard_cost_lbp, { sep: " · " })} />
               <SummaryField label="Costing Method" value={String(item.costing_method || "-").toUpperCase()} />
               <SummaryField label="Min Margin" value={item.min_margin_pct != null ? fmtPctFrac(item.min_margin_pct) : "-"} />
               <SummaryField label="Purchase / Sales UOM" value={`${String(item.purchase_uom_code || "-").toUpperCase()} / ${String(item.sales_uom_code || "-").toUpperCase()}`} mono />
@@ -1101,7 +1102,7 @@ export default function ItemViewPage() {
                           {p.effective_to ? ` → ${String(p.effective_to).slice(0, 10)}` : ""}
                         </span>
                         <span className="data-mono text-xs text-foreground">
-                          {fmtUsd(p.price_usd)} · {fmtLbp(p.price_lbp)}
+                          {fmtUsdLbp(p.price_usd, p.price_lbp, { sep: " · " })}
                         </span>
                       </div>
                     ))}

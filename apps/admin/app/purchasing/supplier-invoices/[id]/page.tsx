@@ -5,7 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useParams, useRouter } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
@@ -954,7 +954,7 @@ function SupplierInvoiceShowInner() {
 	                          {p.reference ? <span className="text-fg-subtle"> · {p.reference}</span> : null}
 	                        </span>
 	                        <span className="data-mono">
-	                          {fmtUsd(p.amount_usd)} / {fmtLbp(p.amount_lbp)}
+	                          {fmtUsdLbp(p.amount_usd, p.amount_lbp)}
 	                        </span>
 	                      </div>
 	                    ))}
@@ -970,13 +970,13 @@ function SupplierInvoiceShowInner() {
                         <div className="flex items-center justify-between gap-2">
                           <span className="data-mono">{r.tax_code_id}</span>
                           <span className="data-mono text-foreground">
-                            {fmtUsd(r.tax_usd)} / {fmtLbp(r.tax_lbp)}
+                            {fmtUsdLbp(r.tax_usd, r.tax_lbp)}
                           </span>
                         </div>
                         <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
                           <span className="text-fg-subtle">Base</span>
                           <span className="data-mono">
-                            {fmtUsd(r.base_usd)} / {fmtLbp(r.base_lbp)}
+                            {fmtUsdLbp(r.base_usd, r.base_lbp)}
                           </span>
                         </div>
                       </div>
@@ -986,13 +986,13 @@ function SupplierInvoiceShowInner() {
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Total</span>
                           <span className="data-mono text-foreground">
-                            {fmtUsd(taxBreakdownTotals.tax_usd)} / {fmtLbp(taxBreakdownTotals.tax_lbp)}
+                            {fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}
                           </span>
                         </div>
                         <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
                           <span className="text-fg-subtle">Taxable base</span>
                           <span className="data-mono">
-                            {fmtUsd(taxBreakdownTotals.base_usd)} / {fmtLbp(taxBreakdownTotals.base_lbp)}
+                            {fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}
                           </span>
                         </div>
                         <details className="mt-2">
@@ -1005,7 +1005,7 @@ function SupplierInvoiceShowInner() {
                                   {t.tax_date ? <span className="text-fg-subtle"> · {String(t.tax_date).slice(0, 10)}</span> : null}
                                 </span>
                                 <span className="data-mono">
-                                  {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
+                                  {fmtUsdLbp(t.tax_usd, t.tax_lbp)}
                                 </span>
                               </div>
                             ))}
@@ -1072,19 +1072,19 @@ function SupplierInvoiceShowInner() {
                     <div className="flex items-center justify-between gap-2">
                       <span>Base</span>
                       <span className="data-mono">
-                        {fmtUsd(postPreview.base_usd)} / {fmtLbp(postPreview.base_lbp)}
+                        {fmtUsdLbp(postPreview.base_usd, postPreview.base_lbp)}
                       </span>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <span>Tax</span>
                       <span className="data-mono">
-                        {fmtUsd(postPreview.tax_usd)} / {fmtLbp(postPreview.tax_lbp)}
+                        {fmtUsdLbp(postPreview.tax_usd, postPreview.tax_lbp)}
                       </span>
                     </div>
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <span>Total</span>
                       <span className="data-mono">
-                        {fmtUsd(postPreview.total_usd)} / {fmtLbp(postPreview.total_lbp)}
+                        {fmtUsdLbp(postPreview.total_usd, postPreview.total_lbp)}
                       </span>
                     </div>
                   </div>

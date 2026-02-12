@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 
 import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
-import { fmtLbp, fmtUsd } from "@/lib/money";
+import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
@@ -698,7 +698,7 @@ export default function ItemEditPage() {
               <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
                 <div className="text-xs font-medium text-fg-muted">Current Price</div>
                 <div className="mt-1 data-mono font-medium">
-                  {fmtUsd(priceSuggest?.current?.price_usd || 0)} · {fmtLbp(priceSuggest?.current?.price_lbp || 0)}
+                  {priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.price_usd, priceSuggest.current.price_lbp, { sep: " · " }) : "-"}
                 </div>
                 <div className="mt-2 text-xs text-fg-subtle">
                   Target margin: {priceSuggest ? `${(Number(priceSuggest.target_margin_pct) * 100).toFixed(0)}%` : "-"}
@@ -707,7 +707,7 @@ export default function ItemEditPage() {
               <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
                 <div className="text-xs font-medium text-fg-muted">Average Cost</div>
                 <div className="mt-1 data-mono font-medium">
-                  {fmtUsd(priceSuggest?.current?.avg_cost_usd || 0)} · {fmtLbp(priceSuggest?.current?.avg_cost_lbp || 0)}
+                  {priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.avg_cost_usd, priceSuggest.current.avg_cost_lbp, { sep: " · " }) : "-"}
                 </div>
                 <div className="mt-2 text-xs text-fg-subtle">
                   Current margin (USD):{" "}
@@ -717,8 +717,7 @@ export default function ItemEditPage() {
               <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
                 <div className="text-xs font-medium text-fg-muted">Suggested Price</div>
                 <div className="mt-1 data-mono font-medium">
-                  {priceSuggest?.suggested?.price_usd ? fmtUsd(priceSuggest.suggested.price_usd) : "-"} ·{" "}
-                  {priceSuggest?.suggested?.price_lbp ? fmtLbp(priceSuggest.suggested.price_lbp) : "-"}
+                  {priceSuggest?.suggested ? fmtUsdLbp(priceSuggest.suggested.price_usd, priceSuggest.suggested.price_lbp, { sep: " · " }) : "-"}
                 </div>
                 <div className="mt-2 text-xs text-fg-subtle">
                   Rounding: USD step {priceSuggest?.rounding?.usd_step || "-"} · LBP step {priceSuggest?.rounding?.lbp_step || "-"}
@@ -772,7 +771,7 @@ export default function ItemEditPage() {
                 <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-3 text-sm">
                   <div className="text-xs font-medium text-fg-muted">Current Effective (This List)</div>
                   <div className="mt-1 data-mono font-medium">
-                    {fmtUsd(plEffective?.price_usd || 0)} · {fmtLbp(plEffective?.price_lbp || 0)}
+                    {plEffective ? fmtUsdLbp(plEffective.price_usd, plEffective.price_lbp, { sep: " · " }) : "-"}
                   </div>
                   <div className="mt-1 text-xs text-fg-subtle">
                     From: {plEffective?.effective_from ? String(plEffective.effective_from).slice(0, 10) : "-"}
