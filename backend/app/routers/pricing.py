@@ -640,6 +640,13 @@ class PriceListItemIn(BaseModel):
     effective_to: Optional[date] = None
 
 
+class PriceListItemUpdate(BaseModel):
+    price_usd: Optional[Decimal] = None
+    price_lbp: Optional[Decimal] = None
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+
+
 @router.get("/lists/{list_id}/items", dependencies=[Depends(require_permission("items:read"))])
 def list_price_list_items(list_id: str, company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
@@ -703,6 +710,93 @@ def add_price_list_item(list_id: str, data: PriceListItemIn, company_id: str = D
                     (company_id, user["user_id"], pli_id, json.dumps(data.model_dump(), default=str)),
                 )
                 return {"id": pli_id}
+
+
+@router.patch("/lists/{list_id}/items/{item_row_id}", dependencies=[Depends(require_permission("items:write"))])
+def update_price_list_item(
+    list_id: str,
+    item_row_id: str,
+    data: PriceListItemUpdate,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    patch = {k: getattr(data, k) for k in getattr(data, "model_fields_set", set())}
+    if not patch:
+        return {"ok": True}
+
+    fields = []
+    params = []
+    for key in ("price_usd", "price_lbp", "effective_from"):
+        if key in patch:
+            fields.append(f"{key} = %s")
+            params.append(patch[key])
+    if "effective_to" in patch:
+        fields.append("effective_to = %s")
+        params.append(patch["effective_to"])
+    if not fields:
+        return {"ok": True}
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    UPDATE price_list_items
+                    SET {', '.join(fields)}
+                    WHERE company_id = %s AND price_list_id = %s AND id = %s
+                    RETURNING id
+                    """,
+                    [*params, company_id, list_id, item_row_id],
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="price list item not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'price_list_item_update', 'price_list_item', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], item_row_id, json.dumps(patch, default=str)),
+                )
+                return {"ok": True}
+
+
+@router.delete("/lists/{list_id}/items/{item_row_id}", dependencies=[Depends(require_permission("items:write"))])
+def delete_price_list_item(
+    list_id: str,
+    item_row_id: str,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    DELETE FROM price_list_items
+                    WHERE company_id = %s AND price_list_id = %s AND id = %s
+                    RETURNING id, item_id
+                    """,
+                    (company_id, list_id, item_row_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="price list item not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'price_list_item_delete', 'price_list_item', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        item_row_id,
+                        json.dumps({"item_id": row["item_id"]}),
+                    ),
+                )
+                return {"ok": True}
 
 
 class CompanySettingIn(BaseModel):

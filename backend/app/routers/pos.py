@@ -4,11 +4,12 @@ from typing import List, Optional, Literal
 from datetime import datetime, date, timedelta
 import uuid
 from ..db import get_conn, set_company_context
-from ..deps import require_device, get_company_id, require_company_access, require_permission
+from ..deps import require_device, get_company_id, require_company_access, require_permission, get_current_user
 from ..security import hash_device_token, hash_pin, verify_pin
 import secrets
 import json
 from decimal import Decimal
+from psycopg.errors import ForeignKeyViolation  # type: ignore
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 
@@ -214,6 +215,108 @@ def reset_device_token(
                 (hash_device_token(token), device_id),
             )
     return {"id": device_id, "token": token}
+
+
+@router.post("/devices/{device_id}/deactivate", dependencies=[Depends(require_permission("pos:manage"))])
+def deactivate_device(
+    device_id: str,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+    user=Depends(get_current_user),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE pos_devices
+                    SET device_token_hash = NULL
+                    WHERE id = %s AND company_id = %s
+                    RETURNING id
+                    """,
+                    (device_id, company_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="device not found")
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'pos.device.deactivate', 'pos_device', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], device_id, json.dumps({})),
+                )
+                return {"ok": True}
+
+
+@router.delete("/devices/{device_id}", dependencies=[Depends(require_permission("pos:manage"))])
+def delete_device(
+    device_id: str,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+    user=Depends(get_current_user),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, device_code
+                    FROM pos_devices
+                    WHERE id = %s AND company_id = %s
+                    """,
+                    (device_id, company_id),
+                )
+                device = cur.fetchone()
+                if not device:
+                    raise HTTPException(status_code=404, detail="device not found")
+
+                ref_counts = []
+                checks = [
+                    ("sales_invoices", "device_id"),
+                    ("sales_returns", "device_id"),
+                    ("gl_journals", "created_by_device_id"),
+                    ("stock_moves", "created_by_device_id"),
+                    ("sales_refunds", "created_by_device_id"),
+                ]
+                for table_name, column_name in checks:
+                    cur.execute(
+                        f"SELECT COUNT(*)::int AS n FROM {table_name} WHERE company_id = %s AND {column_name} = %s",
+                        (company_id, device_id),
+                    )
+                    count = int((cur.fetchone() or {}).get("n") or 0)
+                    if count > 0:
+                        ref_counts.append(f"{table_name}({count})")
+                if ref_counts:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"device is referenced by: {', '.join(ref_counts)}",
+                    )
+
+                try:
+                    cur.execute(
+                        """
+                        DELETE FROM pos_devices
+                        WHERE id = %s AND company_id = %s
+                        """,
+                        (device_id, company_id),
+                    )
+                except ForeignKeyViolation:
+                    raise HTTPException(status_code=409, detail="device has linked records and cannot be deleted")
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="device not found")
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'pos.device.delete', 'pos_device', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], device_id, json.dumps({"device_code": device["device_code"]})),
+                )
+                return {"ok": True}
+
 
 @router.post("/outbox/submit")
 def submit_outbox(data: OutboxSubmit, device=Depends(require_device)):

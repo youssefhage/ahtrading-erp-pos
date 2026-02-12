@@ -3,7 +3,7 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { apiGet, apiPost, getCompanyId } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, getCompanyId } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -185,7 +185,7 @@ export default function PosDevicesPage() {
     }
   }
 
-  async function resetToken(device: DeviceRow) {
+async function resetToken(device: DeviceRow) {
     const companyId = getCompanyId();
     if (!companyId) {
       setStatus("Company is not selected. Go to Change Company first.");
@@ -205,6 +205,36 @@ export default function PosDevicesPage() {
         device_token: res.token,
         shift_id: "",
       });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }
+
+  async function deactivateDevice(device: DeviceRow) {
+    const ok = window.confirm(`Deactivate device "${device.device_code}"? (This revokes its token)`);
+    if (!ok) return;
+    setStatus("Deactivating device...");
+    setLastSetup(null);
+    try {
+      await apiPost(`/pos/devices/${encodeURIComponent(device.id)}/deactivate`, {});
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }
+
+  async function deleteDevice(device: DeviceRow) {
+    const ok = window.confirm(`Delete device "${device.device_code}"? This is only allowed if it has no linked records.`);
+    if (!ok) return;
+    setStatus("Deleting device...");
+    setLastSetup(null);
+    try {
+      await apiDelete(`/pos/devices/${encodeURIComponent(device.id)}`);
       await load();
       setStatus("");
     } catch (err) {
@@ -356,9 +386,17 @@ export default function PosDevicesPage() {
                 globalSearch: false,
                 align: "right",
                 cell: (d) => (
-                  <Button variant="outline" size="sm" onClick={() => resetToken(d)}>
-                    Reset Token & Setup
-                  </Button>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => resetToken(d)}>
+                      Reset Token & Setup
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => deactivateDevice(d)}>
+                      Deactivate
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => deleteDevice(d)}>
+                      Delete
+                    </Button>
+                  </div>
                 ),
               },
             ];

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,14 @@ export default function PriceListsPage() {
   const [addLbp, setAddLbp] = useState("");
   const [adding, setAdding] = useState(false);
 
+  const [editItemOpen, setEditItemOpen] = useState(false);
+  const [editRowId, setEditRowId] = useState("");
+  const [editEffectiveFrom, setEditEffectiveFrom] = useState(todayIso());
+  const [editEffectiveTo, setEditEffectiveTo] = useState("");
+  const [editUsd, setEditUsd] = useState("");
+  const [editLbp, setEditLbp] = useState("");
+  const [editItemSaving, setEditItemSaving] = useState(false);
+
   const itemBySku = useMemo(() => {
     const m = new Map<string, ItemRow>();
     for (const it of items) m.set((it.sku || "").toUpperCase(), it);
@@ -114,8 +122,54 @@ export default function PriceListsPage() {
       { id: "price_lbp", header: "LL", accessor: (li) => Number(li.price_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="font-mono text-xs">{li.price_lbp}</span> },
       { id: "effective_from", header: "From", accessor: (li) => li.effective_from, mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="text-xs">{li.effective_from}</span> },
       { id: "effective_to", header: "To", accessor: (li) => li.effective_to || "", mono: true, sortable: true, globalSearch: false, cell: (li) => <span className="text-xs">{li.effective_to || "-"}</span> },
+      {
+        id: "actions",
+        header: "Actions",
+        accessor: () => "",
+        globalSearch: false,
+        align: "right",
+        cell: (li) => (
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditRowId(li.id);
+                setEditEffectiveFrom(li.effective_from || todayIso());
+                setEditEffectiveTo(li.effective_to || "");
+                setEditUsd(String(li.price_usd ?? ""));
+                setEditLbp(String(li.price_lbp ?? ""));
+                setEditItemOpen(true);
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                if (!itemsListId) return;
+                const ok = window.confirm("Delete this price row? (History row will be removed)");
+                if (!ok) return;
+                setStatus("Deleting price row...");
+                try {
+                  await apiDelete(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/${encodeURIComponent(li.id)}`);
+                  const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
+                  setListItems(res.items || []);
+                  setStatus("");
+                } catch (err) {
+                  const message = err instanceof Error ? err.message : String(err);
+                  setStatus(message);
+                }
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        ),
+      },
     ];
-  }, [itemById]);
+  }, [itemById, itemsListId]);
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -302,6 +356,32 @@ export default function PriceListsPage() {
     }
   }
 
+  async function saveEditRow(e: React.FormEvent) {
+    e.preventDefault();
+    if (!itemsListId) return;
+    if (!editRowId) return;
+    if (!editEffectiveFrom) return setStatus("effective_from is required.");
+    setEditItemSaving(true);
+    setStatus("Saving price row...");
+    try {
+      await apiPatch(`/pricing/lists/${encodeURIComponent(itemsListId)}/items/${encodeURIComponent(editRowId)}`, {
+        price_usd: Number(editUsd || 0),
+        price_lbp: Number(editLbp || 0),
+        effective_from: editEffectiveFrom,
+        effective_to: editEffectiveTo ? editEffectiveTo : null,
+      });
+      const res = await apiGet<{ items: PriceListItemRow[] }>(`/pricing/lists/${itemsListId}/items`);
+      setListItems(res.items || []);
+      setEditItemOpen(false);
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setEditItemSaving(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
@@ -479,6 +559,42 @@ export default function PriceListsPage() {
                 </CardContent>
               </Card>
             </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={editItemOpen} onOpenChange={setEditItemOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Edit Price Row</DialogTitle>
+              <DialogDescription>Edits this history row in place.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={saveEditRow} className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Effective From</label>
+                  <Input value={editEffectiveFrom} onChange={(e) => setEditEffectiveFrom(e.target.value)} type="date" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Effective To (optional)</label>
+                  <Input value={editEffectiveTo} onChange={(e) => setEditEffectiveTo(e.target.value)} type="date" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Price USD</label>
+                  <Input value={editUsd} onChange={(e) => setEditUsd(e.target.value)} placeholder="0" inputMode="decimal" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Price LL</label>
+                  <Input value={editLbp} onChange={(e) => setEditLbp(e.target.value)} placeholder="0" inputMode="decimal" />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button type="submit" disabled={editItemSaving}>
+                  {editItemSaving ? "..." : "Save"}
+                </Button>
+              </div>
+            </form>
           </DialogContent>
         </Dialog>
     </div>
