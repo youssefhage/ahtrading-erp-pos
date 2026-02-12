@@ -17,10 +17,10 @@
       <header class="top">
         <div class="brand">
           <div class="titleRow">
-            <div class="title">Unified POS</div>
+            <div class="title">Wholesale POS</div>
             <span class="modePill">Cashier Workspace</span>
           </div>
-          <div class="subtitle">Pilot multi-company mode (Official + Unofficial) — speed-first layout</div>
+          <div class="subtitle">Retail FMCG flow: Official + Unofficial split billing, compact layout</div>
           <div class="srOnly" id="status" aria-live="polite"></div>
         </div>
         <div class="controls">
@@ -51,8 +51,8 @@
         <div class="opsLeft">
           <span id="statusPill" class="statusPill info" aria-live="polite">Loading…</span>
           <span id="cartSummary" class="factPill">Cart: 0 line(s)</span>
-          <span id="activeCustomer" class="factPill">Customer: Walk-in</span>
-          <span id="queueCount" class="factPill">Queue: 0</span>
+          <span id="activeCustomer" class="factPill">Customer: Guest</span>
+          <span id="queueCount" class="factPill">Open Drafts: 0</span>
         </div>
         <div class="opsRight">
           <span class="kbdHint"><kbd>Enter</kbd> add match</span>
@@ -64,39 +64,22 @@
       <main class="workspace">
         <section class="panel panelLeft">
           <div class="panelSection">
-            <div class="panelTitle">Service Mode</div>
-            <div class="modeStrip" role="group" aria-label="Service type">
-              <button id="modeDineIn" class="segBtn" type="button" data-mode="dine-in">Dine-In</button>
-              <button id="modeTakeaway" class="segBtn" type="button" data-mode="takeaway">Takeaway</button>
-              <button id="modeDelivery" class="segBtn" type="button" data-mode="delivery">Delivery</button>
-              <button id="modeWaitlist" class="segBtn" type="button" data-mode="waitlist">Waitlist</button>
-            </div>
-            <div id="serviceModeHint" class="muted smallText">Select service context before taking order.</div>
-            <label class="pill">
-              Counter / Table / Area
-              <input id="serviceTarget" type="text" placeholder="Table 5, Counter 2, Walk-in…" />
-            </label>
-          </div>
-
-          <div class="panelSection">
-            <div class="panelTitle">Order Queue</div>
-            <div id="orderQueue" class="orderQueue" aria-live="polite"></div>
-          </div>
-
-          <div class="panelSection">
-            <div class="panelTitle">Quick Actions</div>
+            <div class="panelTitle">Draft Workspace</div>
             <div class="opActions">
-              <button id="holdBtn" class="btn ghost" type="button">Hold</button>
-              <button id="sendToKitchenBtn" class="btn" type="button">Send to Kitchen</button>
+              <button id="holdBtn" class="btn ghost" type="button">Save Draft</button>
               <button id="openCartBtn" class="btn ghost" type="button">Open Cart</button>
-              <button id="clearCartBtn" class="btn ghost" type="button">Clear</button>
             </div>
+          </div>
+
+          <div class="panelSection">
+            <div class="panelTitle">Draft Queue</div>
+            <div id="orderQueue" class="orderQueue" aria-live="polite"></div>
           </div>
         </section>
 
         <section class="panel panelCenter">
           <div class="panelHead">
-            <div class="panelTitle">Scan / Search Menu</div>
+            <div class="panelTitle">Scan / Search Product</div>
             <div class="panelHeadActions">
               <button id="focusScanBtn" class="btn ghost tiny" type="button">Focus Scan</button>
               <button id="clearSearchBtn" class="btn ghost tiny" type="button">Clear</button>
@@ -104,7 +87,7 @@
           </div>
 
           <div class="scanRow">
-            <input id="scan" type="text" placeholder="Scan barcode or type item name/SKU" autocomplete="off" />
+            <input id="scan" type="text" placeholder="Scan barcode or type product name/SKU" autocomplete="off" />
             <button id="addBtn" class="btn">Add</button>
           </div>
 
@@ -122,7 +105,7 @@
 
         <section class="panel panelRight">
           <div class="panelHead">
-            <div class="panelTitle">Active Ticket</div>
+            <div class="panelTitle">Current Sale</div>
             <div class="cartMeta">
               <label class="check">
                 <input id="flagOfficial" type="checkbox" />
@@ -148,7 +131,7 @@
           <div class="pay">
             <label class="pill">
               Customer ID (optional)
-              <input id="customerId" type="text" placeholder="Leave blank for walk-in" />
+              <input id="customerId" type="text" placeholder="Leave blank for guest" />
             </label>
             <div class="custLookup">
               <input id="customerQuery" type="text" placeholder="Search customer name/phone…" />
@@ -181,6 +164,7 @@
               <div class="payActions">
                 <button id="payBtn" class="btn primary">Pay + Print</button>
                 <button id="receiptBtn" class="btn ghost">Last Receipt</button>
+                <button id="clearCartBtn" class="btn ghost" type="button">Clear</button>
               </div>
             </div>
           </div>
@@ -340,74 +324,10 @@
       (function uiShellRevamp() {
         if (typeof state === "undefined" || typeof el === "undefined") return;
 
-        const serviceModeKey = "unified.pos.serviceMode";
         const orderQueueLimit = 12;
-        const serviceModeButtons = [
-          { id: "modeDineIn", value: "dine-in" },
-          { id: "modeTakeaway", value: "takeaway" },
-          { id: "modeDelivery", value: "delivery" },
-          { id: "modeWaitlist", value: "waitlist" },
-        ];
 
         if (!Array.isArray(state.ui?.orderQueue)) state.ui.orderQueue = [];
-        state.ui.serviceMode = state.ui.serviceMode || "dine-in";
         state.ui.lastOrderSeq = Number(state.ui.lastOrderSeq || 0);
-
-        function safeMode(raw) {
-          const v = String(raw || "").trim().toLowerCase().replace(/[^a-z-]/g, "");
-          if (v === "dine-in" || v === "dinein") return "dine-in";
-          if (v === "takeaway") return "takeaway";
-          if (v === "delivery") return "delivery";
-          if (v === "waitlist") return "waitlist";
-          return "dine-in";
-        }
-
-        function modeLabel(mode) {
-          if (mode === "dine-in") return "Dine-In";
-          if (mode === "takeaway") return "Takeaway";
-          if (mode === "delivery") return "Delivery";
-          if (mode === "waitlist") return "Waitlist";
-          return "Dine-In";
-        }
-
-        function getModeHint() {
-          const target = String(el("serviceTarget")?.value || "").trim();
-          const targetLabel = target ? `${target}` : "Walk-in";
-          return `${modeLabel(getServiceMode())} · ${targetLabel}`;
-        }
-
-        function getServiceMode() {
-          return safeMode(state.ui.serviceMode);
-        }
-
-        function setServiceMode(mode) {
-          const next = safeMode(mode);
-          state.ui.serviceMode = next;
-          serviceModeButtons.forEach((btn) => {
-            const n = el(btn.id);
-            if (!n) return;
-            const active = safeMode(btn.value) === next;
-            n.classList.toggle("active", active);
-            n.setAttribute("aria-pressed", active ? "true" : "false");
-          });
-          const hint = el("serviceModeHint");
-          if (hint) hint.textContent = getModeHint();
-          try {
-            localStorage.setItem(serviceModeKey, next);
-          } catch (_e) {
-            // ignore
-          }
-        }
-
-        function applySavedServiceMode() {
-          let saved = "";
-          try {
-            saved = localStorage.getItem(serviceModeKey) || "";
-          } catch (_e) {
-            saved = "";
-          }
-          setServiceMode(safeMode(saved || state.ui.serviceMode));
-        }
 
         function cloneTicketLine(line) {
           return {
@@ -437,7 +357,7 @@
           const queueBadge = el("queueCount");
           if (queueBadge) {
             const len = Array.isArray(state.ui.orderQueue) ? state.ui.orderQueue.length : 0;
-            queueBadge.textContent = `Queue: ${len}`;
+            queueBadge.textContent = `Open Drafts: ${len}`;
           }
         }
 
@@ -449,7 +369,7 @@
           state.ui.orderQueue = list;
           root.innerHTML = "";
           if (!list.length) {
-            root.innerHTML = `<div class="queueEmpty">No queued or completed tickets.</div>`;
+            root.innerHTML = `<div class="queueEmpty">No queued draft sales.</div>`;
             return;
           }
 
@@ -459,13 +379,12 @@
             row.className = `queueItem ${t.status === "Paid" ? "ticketDone" : ""}`;
             row.innerHTML = `
               <div class="queueInfo">
-                <div class="queueRowTitle">${escapeHtml(t.code || "Ticket")} · ${escapeHtml(t.mode || "")}</div>
-                <div class="queueMeta">${escapeHtml(t.target || "Walk-in")} · ${escapeHtml(t.status || "")}</div>
-                <div class="queueMeta">${formatTicketTime(t.createdAt)} · ${linesCount} item(s) · $${fmtMoney(t.total)}</div>
+                <div class="queueRowTitle">${escapeHtml(t.code || "Order")}</div>
+                <div class="queueMeta">${escapeHtml(t.status || "Open")} · ${formatTicketTime(t.createdAt)} · ${linesCount} item(s) · $${fmtMoney(t.total)}</div>
               </div>
               <div class="queueActions">
-                <button type="button" class="btn ghost tiny" data-ticket="${escapeHtml(String(t.id || ""))}" data-action="resume">Resume</button>
-                <button type="button" class="btn ghost tiny" data-ticket="${escapeHtml(String(t.id || ""))}" data-action="close">Close</button>
+                <button type="button" class="btn ghost tiny" data-ticket="${escapeHtml(String(t.id || ""))}" data-action="resume">Load</button>
+                <button type="button" class="btn ghost tiny" data-ticket="${escapeHtml(String(t.id || ""))}" data-action="close">Done</button>
               </div>
             `;
             root.appendChild(row);
@@ -484,19 +403,15 @@
 
         function makeQueueTicket(status, lines) {
           state.ui.lastOrderSeq = Number(state.ui.lastOrderSeq || 0) + 1;
-          const mode = getServiceMode();
-          const target = String(el("serviceTarget")?.value || "").trim() || "Walk-in";
           const total = lines.reduce((sum, line) => sum + Number(line.price_usd || 0) * Number(line.qty || 0), 0);
           return {
             id: `${Date.now()}-${state.ui.lastOrderSeq}`,
-            code: `T-${String(state.ui.lastOrderSeq).padStart(3, "0")}`,
-            mode,
+            code: `SO-${String(state.ui.lastOrderSeq).padStart(3, "0")}`,
             status,
-            target,
             createdAt: Date.now(),
             total,
             lines: lines.map(cloneTicketLine),
-            customer: state.ui.customerLabel || "Walk-in",
+            customer: state.ui.customerLabel || "Guest",
             invoiceMode: getInvoiceCompany(),
           };
         }
@@ -518,7 +433,7 @@
           }
           renderOrderQueue();
           renderQueueSummary();
-          setStatus(`Ticket ${ticket.code} ${status.toLowerCase()}.`, status === "Kitchen" ? "warn" : "ok");
+          setStatus(`Draft ${ticket.code} ${status.toLowerCase()} saved.`, "ok");
           return ticket;
         }
 
@@ -533,14 +448,14 @@
           state.ui.orderQueue.splice(i, 1);
           renderOrderQueue();
           renderQueueSummary();
-          setStatus("Ticket closed.", "warn");
+          setStatus("Draft removed.", "warn");
         }
 
         function resumeQueuedTicket(ticketId) {
           const i = resolveQueueIndex(ticketId);
           if (i < 0) return;
           if (state.cart.length) {
-            const ok = window.confirm("Replace current cart with this ticket?");
+            const ok = window.confirm("Replace current cart with this order?");
             if (!ok) return;
           }
           const ticket = state.ui.orderQueue.splice(i, 1)[0];
@@ -587,38 +502,15 @@
           };
         }
 
-        function updateModeFromTargetInput() {
-          const hint = el("serviceModeHint");
-          if (!hint) return;
-          hint.textContent = getModeHint();
-        }
-
         function wireRevampControls() {
-          serviceModeButtons.forEach((b) => {
-            const node = el(b.id);
-            if (!node) return;
-            node.addEventListener("click", () => {
-              setServiceMode(b.value);
-            });
-          });
-
           el("holdBtn")?.addEventListener("click", () => {
-            queueCurrentOrder("Hold", true);
-          });
-          el("sendToKitchenBtn")?.addEventListener("click", () => {
-            queueCurrentOrder("Kitchen", true);
-          });
-
-          el("serviceTarget")?.addEventListener("input", () => {
-            updateModeFromTargetInput();
+            queueCurrentOrder("Draft", true);
           });
         }
 
         wireRevampControls();
-        applySavedServiceMode();
         renderOrderQueue();
         renderQueueSummary();
-        updateModeFromTargetInput();
         wrapRenderCart();
         wrapPay();
       })();

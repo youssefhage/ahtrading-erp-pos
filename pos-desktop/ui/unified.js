@@ -69,7 +69,7 @@ const state = {
     densityMode: "auto",
     cashierId: "",
     cashierName: "",
-    customerLabel: "Walk-in",
+    customerLabel: "Guest",
     customerLookupSeq: 0,
     customerResults: [],
     customerActiveIndex: -1,
@@ -321,7 +321,7 @@ function initDensityMode() {
       storeDensityMode(cashierKey, stored);
     }
   }
-  applyDensityMode(stored || "auto", false);
+  applyDensityMode(stored || "compact", false);
 }
 
 function toggleDensityMode() {
@@ -365,7 +365,7 @@ function setCustomerSelection(id, label = "") {
   const cid = String(id || "").trim();
   const customerInput = el("customerId");
   if (customerInput) customerInput.value = cid;
-  state.ui.customerLabel = cid ? (String(label || cid).trim() || cid) : "Walk-in";
+  state.ui.customerLabel = cid ? (String(label || cid).trim() || cid) : "Guest";
   updateUiFacts();
 }
 
@@ -1956,7 +1956,7 @@ async function pay() {
       const crossCompany = mixedCompanies || !cartCompanies.has(invoiceCompany);
       const customer_id = await resolveCustomerId(invoiceCompany);
       if (requested_customer_id && !customer_id) {
-        setStatus("Customer not found on Official. Proceeding as walk-in.", "warn");
+        setStatus("Customer not found on Official. Proceeding as guest.", "warn");
       }
 
       // Pre-open receipt window to reduce popup blocking.
@@ -2023,7 +2023,7 @@ async function pay() {
         }
         const missing = companiesInOrder.filter((k) => !customerByCompany[k]);
         if (missing.length) {
-          setStatus(`Customer not found in: ${missing.join(", ")}. Those invoices will be walk-in.`, "warn");
+          setStatus(`Customer not found in: ${missing.join(", ")}. Those invoices will be guest sales.`, "warn");
         }
       }
 
@@ -2093,7 +2093,7 @@ async function pay() {
     const crossCompany = cartCompanies.size > 1 || (cartCompanies.size === 1 && !cartCompanies.has(invoiceCompany));
     const customer_id = await resolveCustomerId(invoiceCompany);
     if (requested_customer_id && !customer_id) {
-      setStatus(`Customer not found on ${invoiceCompany}. Proceeding as walk-in.`, "warn");
+      setStatus(`Customer not found on ${invoiceCompany}. Proceeding as guest.`, "warn");
     }
 
       const receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer,width=420,height=820");

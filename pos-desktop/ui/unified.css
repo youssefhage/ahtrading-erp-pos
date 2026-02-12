@@ -179,8 +179,8 @@ p {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 8px;
 }
 
 .pageGlow {
@@ -213,9 +213,9 @@ p {
   align-items: stretch;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   background: linear-gradient(160deg, var(--surface-glass-top), var(--surface-glass-soft));
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-soft);
@@ -241,12 +241,12 @@ p {
 .modePill {
   align-items: center;
   display: inline-flex;
-  padding: 5px 10px;
+  padding: 4px 8px;
   border-radius: 999px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   background: var(--accent-soft);
   color: var(--accent-strong);
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   font-weight: 760;
@@ -255,7 +255,7 @@ p {
 .brand .subtitle {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .controls {
@@ -264,17 +264,16 @@ p {
   grid-template-columns: repeat(auto-fit, minmax(122px, max-content));
   justify-content: end;
   align-content: start;
-  gap: 8px;
+  gap: 6px;
 }
 
 .controls .btn,
 .controls .pill,
 .chip,
-.segBtn,
 .searchChips .chip,
 .opActions .btn,
 .payActions .btn {
-  min-height: 44px;
+  min-height: 38px;
 }
 
 .pill,
@@ -290,7 +289,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
+  min-height: 36px;
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 8px 12px;
@@ -307,8 +306,7 @@ select,
 .cfgField select,
 .scanRow input,
 .custCreateGrid input,
-#customerQuery,
-#serviceTarget {
+#customerQuery {
   min-width: 0;
   width: 100%;
   border: 0;
@@ -324,7 +322,7 @@ select,
   padding: 10px 14px;
   cursor: pointer;
   font-weight: 700;
-  min-height: 44px;
+  min-height: 36px;
   transition: transform 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
 }
 
@@ -364,7 +362,7 @@ button:focus-visible {
 }
 
 .btn.tiny {
-  min-height: 36px;
+  min-height: 32px;
   border-radius: 12px;
   padding: 7px 11px;
 }
@@ -375,7 +373,7 @@ button:focus-visible {
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
-  padding: 7px 4px;
+  padding: 6px 4px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface);
@@ -441,8 +439,8 @@ button:focus-visible {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(250px, 0.92fr) minmax(430px, 1.6fr) minmax(360px, 1.05fr);
-  gap: 10px;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(360px, 1.5fr) minmax(320px, 1.05fr);
+  gap: 8px;
   flex: 1;
   min-height: 0;
 }
@@ -450,17 +448,17 @@ button:focus-visible {
 .panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
-  padding: 11px;
+  padding: 9px;
   background: linear-gradient(170deg, var(--panel-start), var(--panel-end));
   box-shadow: var(--shadow-card);
   min-height: 0;
 }
 
 .panelLeft {
-  gap: 14px;
+  gap: 10px;
 }
 
 .panelTitle {
@@ -498,25 +496,22 @@ button:focus-visible {
   background: var(--surface);
 }
 
-.modeStrip,
 .chipRow {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: 5px;
 }
 
-.segBtn,
 .chip {
   border: 1px solid var(--line);
-  border-radius: 12px;
-  min-height: 42px;
+  border-radius: 10px;
+  min-height: 36px;
   background: var(--surface-2);
   color: var(--muted);
   font-weight: 680;
   cursor: pointer;
 }
 
-.segBtn.active,
 .chip.active {
   border-color: var(--accent-line-strong);
   background: var(--accent);
@@ -537,8 +532,8 @@ button:focus-visible {
 .orderQueue {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-height: 120px;
+  gap: 5px;
+  min-height: 112px;
 }
 
 .queueEmpty {
@@ -553,7 +548,7 @@ button:focus-visible {
 .queueItem {
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  padding: 8px;
+  padding: 7px;
   display: flex;
   justify-content: space-between;
   align-items: stretch;
@@ -610,7 +605,6 @@ button:focus-visible {
 .scanRow input,
 #scan,
 #customerQuery,
-#serviceTarget,
 .custCreateGrid input,
 .cfgField input,
 .cfgField select,
@@ -626,7 +620,7 @@ button:focus-visible {
 #adminUrl,
 #quickStatus,
 #settingsStatus {
-  min-height: 44px;
+  min-height: 36px;
   border-radius: 999px;
   border: 1px solid var(--line);
   padding: 10px 12px;
@@ -719,7 +713,7 @@ button:focus-visible {
 
 .cart {
   flex: 1;
-  min-height: 125px;
+  min-height: 112px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -732,10 +726,10 @@ button:focus-visible {
   grid-template-columns: 1fr auto auto auto;
   gap: 8px;
   align-items: center;
-  padding: 8px;
+  padding: 7px;
   border: 1px solid var(--line-soft, var(--line));
   border-radius: 10px;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
 }
 
 .cartItem .title {
