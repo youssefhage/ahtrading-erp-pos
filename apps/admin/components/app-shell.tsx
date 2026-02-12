@@ -11,6 +11,7 @@ import {
   Bot,
   Boxes,
   Building2,
+  Cable,
   Calculator,
   ChevronDown,
   ChevronLeft,
@@ -54,7 +55,7 @@ import {
   Zap
 } from "lucide-react";
 
-import { apiGet, apiPost, apiUrl, clearSession, getCompanyId, getCompanies } from "@/lib/api";
+import { apiBase, apiGet, apiPost, apiUrl, clearSession, getCompanyId, getCompanies } from "@/lib/api";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import {
   addRecentForCompany,
@@ -66,7 +67,7 @@ import {
 import { getDefaultBranchId, getDefaultWarehouseId, setDefaultBranchId, setDefaultWarehouseId } from "@/lib/op-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type NavItem = {
   label: string;
@@ -79,6 +80,44 @@ type FlatNavItem = NavItem & { section: string };
 
 type BranchRow = { id: string; name: string };
 type WarehouseRow = { id: string; name: string };
+
+function inferPublicApiBaseUrl(): string {
+  if (typeof window === "undefined") return "";
+  const b = String(apiBase() || "").trim().replace(/\/+$/, "");
+  if (!b) return "";
+  if (/^https?:\/\//i.test(b)) return b;
+  const origin = window.location.origin.replace(/\/+$/, "");
+  const path = b.startsWith("/") ? b : `/${b}`;
+  return `${origin}${path}`.replace(/\/+$/, "");
+}
+
+function CopyValueButton(props: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  const v = String(props.value || "");
+  const disabled = !v.trim();
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-8"
+      disabled={disabled}
+      onClick={async () => {
+        if (disabled) return;
+        try {
+          await navigator.clipboard.writeText(v);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1200);
+        } catch {
+          // ignore clipboard errors
+        }
+      }}
+      title={`Copy ${props.label}`}
+    >
+      {copied ? "Copied" : "Copy"}
+    </Button>
+  );
+}
 
 function iconForHref(href: string) {
   const byHref: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -561,6 +600,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const [favorites, setFavorites] = useState<{ href: string; label: string; at: string }[]>([]);
   const [recents, setRecents] = useState<{ href: string; label: string; at: string }[]>([]);
 
+  const [connectOpen, setConnectOpen] = useState(false);
+
   const [branches, setBranches] = useState<BranchRow[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [defaultBranchId, setDefaultBranchIdState] = useState("");
@@ -716,6 +757,22 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     // Prefer data matches (actual documents/master data), then pages/actions.
     return [...(commandData || []), ...pageResults].slice(0, 12);
   }, [commandQ, commandData, pageResults]);
+
+  const publicApiBaseUrl = useMemo(() => inferPublicApiBaseUrl(), []);
+  const connectJson = useMemo(() => {
+    const cid = String(companyId || "").trim();
+    if (!cid) return "";
+    const payload = {
+      api_base_url: publicApiBaseUrl,
+      company_id: cid,
+      device_code: "POS-01",
+      device_id: "",
+      device_token: "",
+      branch_id: "",
+      shift_id: "",
+    };
+    return JSON.stringify(payload, null, 2);
+  }, [companyId, publicApiBaseUrl]);
 
   // Keep the active selection in-bounds when results change.
   useEffect(() => {
@@ -1371,6 +1428,87 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
             >
               <Star className={cn("h-4 w-4", isStarred && "fill-primary")} />
             </Button>
+
+            {/* Connection helper */}
+            <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="hidden h-8 items-center gap-2 border-border bg-bg-elevated/60 text-fg-muted hover:bg-bg-sunken hover:text-foreground md:flex"
+                onClick={() => setConnectOpen(true)}
+                disabled={!companyId}
+                title={companyId ? "Connection details" : "Select a company first"}
+              >
+                <Cable className="h-4 w-4" />
+                <span className="text-sm">Connect</span>
+              </Button>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Connection</DialogTitle>
+                  <DialogDescription>
+                    Quick details and steps to connect devices to this company.
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-border bg-bg-sunken/20 p-4">
+                    <div className="text-xs font-medium uppercase tracking-wider text-fg-muted">Company</div>
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {companyName || companyId || "-"}
+                        </div>
+                        <div className="mt-1 break-all font-mono text-xs text-fg-subtle">{companyId || "-"}</div>
+                      </div>
+                      <CopyValueButton value={companyId || ""} label="Company ID" />
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-bg-sunken/20 p-4">
+                    <div className="text-xs font-medium uppercase tracking-wider text-fg-muted">API Base URL</div>
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                      <div className="break-all font-mono text-xs text-fg-subtle">{publicApiBaseUrl || "-"}</div>
+                      <CopyValueButton value={publicApiBaseUrl || ""} label="API Base URL" />
+                    </div>
+                    <p className="mt-2 text-xs text-fg-subtle">
+                      This is the endpoint POS agents should call. If your POS connects via an on-prem Edge node, use the Edge API URL instead.
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-bg-sunken/20 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wider text-fg-muted">POS Setup Pack</div>
+                        <p className="mt-1 text-xs text-fg-subtle">
+                          Register a device to get a real <span className="font-mono">device_id</span> and one-time <span className="font-mono">device_token</span>.
+                        </p>
+                      </div>
+                      <Button asChild variant="outline" size="sm" className="h-8">
+                        <Link href="/system/pos-devices">Open POS Devices</Link>
+                      </Button>
+                    </div>
+
+                    <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-fg-subtle">
+                      <li>Open <strong>System → POS Devices</strong>.</li>
+                      <li>Click <strong>Register Device</strong> (or <strong>Reset Token &amp; Setup</strong> for an existing one).</li>
+                      <li>Copy the generated <strong>POS Config JSON</strong> and paste it into POS → <strong>Settings</strong>.</li>
+                      <li>Save, then Sync to verify connectivity.</li>
+                    </ol>
+
+                    {connectJson ? (
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs font-medium text-fg-muted">Quick Template (fill device fields)</div>
+                          <CopyValueButton value={connectJson} label="POS config template" />
+                        </div>
+                        <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-elevated/40 p-3 text-xs text-fg-subtle">{connectJson}</pre>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
 
             {/* Search trigger */}
             <Button
