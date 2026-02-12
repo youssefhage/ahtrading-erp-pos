@@ -43,6 +43,12 @@ On success, it creates:
 
 Security note: device packs contain `device_token` secrets. Keep the folder private.
 
+## Safer Defaults
+
+- MinIO is bound to localhost by default (not exposed to LAN): `MINIO_BIND_IP=127.0.0.1`.
+  - If you need LAN access for troubleshooting, set `MINIO_BIND_IP=0.0.0.0` in `deploy/edge/.env.edge`.
+- The default cloud API URL for sync is `https://app.melqard.com/api`.
+
 ## Common Overrides
 
 ```bash

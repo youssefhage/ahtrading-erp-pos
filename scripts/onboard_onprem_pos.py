@@ -32,7 +32,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 
-DEFAULT_CLOUD_API_URL = "https://pos.melqard.com/api"
+DEFAULT_CLOUD_API_URL = "https://app.melqard.com/api"
 
 
 class ApiError(RuntimeError):

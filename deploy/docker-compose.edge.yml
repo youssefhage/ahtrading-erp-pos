@@ -24,9 +24,10 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server /data --console-address ":9001"
     ports:
-      # Expose to LAN only if you need to troubleshoot; otherwise leave these closed at the firewall/router.
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      # Safer default: bind to localhost so MinIO isn't exposed on the LAN by accident.
+      # If you need LAN access for troubleshooting, set MINIO_BIND_IP=0.0.0.0.
+      - "${MINIO_BIND_IP:-127.0.0.1}:${MINIO_PORT:-9000}:9000"
+      - "${MINIO_BIND_IP:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
 

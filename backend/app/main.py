@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from psycopg import errors as pg_errors
 import json
+import os
 import sys
 import time
 import uuid
@@ -50,6 +51,19 @@ from .deps import require_company_access
 from .db import get_admin_conn, close_pools
 
 app = FastAPI(title="AH Trading ERP/POS API", version="0.1.0")
+
+def _is_downloads_host(request: Request) -> bool:
+    """
+    Some deployments route download.melqard.com to this API container.
+    We only want the "downloads landing page redirects" for that host,
+    not for the main API domains.
+    """
+    host = (request.headers.get("host") or "").split(":", 1)[0].strip().lower()
+    if not host:
+        return False
+    allowed_raw = (os.getenv("DOWNLOADS_HOSTS") or "download.melqard.com").strip()
+    allowed = {h.strip().lower() for h in allowed_raw.split(",") if h.strip()}
+    return host in allowed
 
 def _json_log(level: str, event: str, **fields):
     rec = {"ts": datetime.utcnow().isoformat(), "level": level, "event": event, **fields}
@@ -188,29 +202,41 @@ def _shutdown():
     close_pools()
 
 @app.get("/")
-def downloads_root_redirect():
+def downloads_root_redirect(request: Request):
     # When routed via download.melqard.com, keep the landing page fully static.
-    return RedirectResponse(url="/updates/site/index.html", status_code=307)
+    if _is_downloads_host(request):
+        return RedirectResponse(url="/updates/site/index.html", status_code=307)
+    return {"status": "ok", "service": "api"}
 
 @app.get("/style.css")
-def downloads_style_redirect():
-    return RedirectResponse(url="/updates/site/style.css", status_code=307)
+def downloads_style_redirect(request: Request):
+    if _is_downloads_host(request):
+        return RedirectResponse(url="/updates/site/style.css", status_code=307)
+    raise HTTPException(status_code=404, detail="not found")
 
 @app.get("/favicon.ico")
-def downloads_favicon_redirect():
-    return RedirectResponse(url="/updates/site/favicon.ico", status_code=307)
+def downloads_favicon_redirect(request: Request):
+    if _is_downloads_host(request):
+        return RedirectResponse(url="/updates/site/favicon.ico", status_code=307)
+    raise HTTPException(status_code=404, detail="not found")
 
 @app.get("/apple-touch-icon.png")
-def downloads_apple_icon_redirect():
-    return RedirectResponse(url="/updates/site/apple-touch-icon.png", status_code=307)
+def downloads_apple_icon_redirect(request: Request):
+    if _is_downloads_host(request):
+        return RedirectResponse(url="/updates/site/apple-touch-icon.png", status_code=307)
+    raise HTTPException(status_code=404, detail="not found")
 
 @app.get("/icon-192.png")
-def downloads_icon_192_redirect():
-    return RedirectResponse(url="/updates/site/icon-192.png", status_code=307)
+def downloads_icon_192_redirect(request: Request):
+    if _is_downloads_host(request):
+        return RedirectResponse(url="/updates/site/icon-192.png", status_code=307)
+    raise HTTPException(status_code=404, detail="not found")
 
 @app.get("/icon-512.png")
-def downloads_icon_512_redirect():
-    return RedirectResponse(url="/updates/site/icon-512.png", status_code=307)
+def downloads_icon_512_redirect(request: Request):
+    if _is_downloads_host(request):
+        return RedirectResponse(url="/updates/site/icon-512.png", status_code=307)
+    raise HTTPException(status_code=404, detail="not found")
 
 @app.get("/health")
 def health():

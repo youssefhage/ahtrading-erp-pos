@@ -12,6 +12,33 @@ const KEY_DEV_TOK_OFFICIAL = "ahtrading.posDesktop.deviceTokenOfficial";
 const KEY_DEV_ID_UNOFFICIAL = "ahtrading.posDesktop.deviceIdUnofficial";
 const KEY_DEV_TOK_UNOFFICIAL = "ahtrading.posDesktop.deviceTokenUnofficial";
 
+// Store sensitive values in OS keychain (Windows Credential Manager / macOS Keychain).
+// We keep non-sensitive fields (URLs/ports/ids) in localStorage for convenience.
+async function secureGet(k) {
+  try {
+    return await invoke("secure_get", { key: String(k || "") });
+  } catch {
+    return null;
+  }
+}
+
+async function secureSet(k, v) {
+  try {
+    await invoke("secure_set", { key: String(k || ""), value: String(v ?? "") });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function secureDelete(k) {
+  try {
+    await invoke("secure_delete", { key: String(k || "") });
+  } catch {
+    // ignore
+  }
+}
+
 function el(id) {
   return document.getElementById(id);
 }
@@ -102,18 +129,39 @@ function installReplaceOnTypeBehavior() {
   }
 }
 
-function load() {
+async function migrateSecretsFromLocalStorage() {
+  // Best-effort: move any previously-saved secrets out of localStorage.
+  const secrets = [
+    KEY_PACK,
+    KEY_DEV_TOK_OFFICIAL,
+    KEY_DEV_TOK_UNOFFICIAL,
+  ];
+  for (const k of secrets) {
+    const v = localStorage.getItem(k);
+    if (!v) continue;
+    const existing = await secureGet(k);
+    if (!existing) {
+      const ok = await secureSet(k, v);
+      if (ok) localStorage.removeItem(k);
+    } else {
+      localStorage.removeItem(k);
+    }
+  }
+}
+
+async function load() {
   // Cloud pilot default: POS subdomain routes /api to the same backend.
-  el("edgeUrl").value = localStorage.getItem(KEY_EDGE) || "https://pos.melqard.com/api";
-  el("setupPack").value = localStorage.getItem(KEY_PACK) || "";
+  el("edgeUrl").value = localStorage.getItem(KEY_EDGE) || "https://app.melqard.com/api";
+  await migrateSecretsFromLocalStorage();
+  el("setupPack").value = (await secureGet(KEY_PACK)) || "";
   el("portOfficial").value = localStorage.getItem(KEY_PORT_OFFICIAL) || "7070";
   el("portUnofficial").value = localStorage.getItem(KEY_PORT_UNOFFICIAL) || "7072";
   el("companyOfficial").value = localStorage.getItem(KEY_CO_OFFICIAL) || "00000000-0000-0000-0000-000000000001";
   el("companyUnofficial").value = localStorage.getItem(KEY_CO_UNOFFICIAL) || "00000000-0000-0000-0000-000000000002";
   el("deviceIdOfficial").value = localStorage.getItem(KEY_DEV_ID_OFFICIAL) || "";
-  el("deviceTokenOfficial").value = localStorage.getItem(KEY_DEV_TOK_OFFICIAL) || "";
+  el("deviceTokenOfficial").value = (await secureGet(KEY_DEV_TOK_OFFICIAL)) || "";
   el("deviceIdUnofficial").value = localStorage.getItem(KEY_DEV_ID_UNOFFICIAL) || "";
-  el("deviceTokenUnofficial").value = localStorage.getItem(KEY_DEV_TOK_UNOFFICIAL) || "";
+  el("deviceTokenUnofficial").value = (await secureGet(KEY_DEV_TOK_UNOFFICIAL)) || "";
   setStatus("");
 }
 
@@ -139,9 +187,9 @@ async function start() {
   localStorage.setItem(KEY_CO_OFFICIAL, companyOfficial);
   localStorage.setItem(KEY_CO_UNOFFICIAL, companyUnofficial);
   localStorage.setItem(KEY_DEV_ID_OFFICIAL, deviceIdOfficial);
-  localStorage.setItem(KEY_DEV_TOK_OFFICIAL, deviceTokenOfficial);
   localStorage.setItem(KEY_DEV_ID_UNOFFICIAL, deviceIdUnofficial);
-  localStorage.setItem(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
+  await secureSet(KEY_DEV_TOK_OFFICIAL, deviceTokenOfficial);
+  await secureSet(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
 
   setStatus("Starting local agents…");
   try {
@@ -200,7 +248,7 @@ el("openBtn").addEventListener("click", openPos);
 el("updateBtn").addEventListener("click", checkUpdates);
 el("applyPackBtn").addEventListener("click", () => {
   const raw = el("setupPack").value;
-  localStorage.setItem(KEY_PACK, raw);
+  secureSet(KEY_PACK, raw);
   try {
     const pack = parsePack(raw);
     if (!pack) {
@@ -215,9 +263,9 @@ el("applyPackBtn").addEventListener("click", () => {
     localStorage.setItem(KEY_CO_OFFICIAL, String(el("companyOfficial").value || "").trim());
     localStorage.setItem(KEY_CO_UNOFFICIAL, String(el("companyUnofficial").value || "").trim());
     localStorage.setItem(KEY_DEV_ID_OFFICIAL, String(el("deviceIdOfficial").value || "").trim());
-    localStorage.setItem(KEY_DEV_TOK_OFFICIAL, String(el("deviceTokenOfficial").value || "").trim());
     localStorage.setItem(KEY_DEV_ID_UNOFFICIAL, String(el("deviceIdUnofficial").value || "").trim());
-    localStorage.setItem(KEY_DEV_TOK_UNOFFICIAL, String(el("deviceTokenUnofficial").value || "").trim());
+    secureSet(KEY_DEV_TOK_OFFICIAL, String(el("deviceTokenOfficial").value || "").trim());
+    secureSet(KEY_DEV_TOK_UNOFFICIAL, String(el("deviceTokenUnofficial").value || "").trim());
 
     setStatus("Setup pack applied.");
   } catch (e) {
@@ -226,8 +274,8 @@ el("applyPackBtn").addEventListener("click", () => {
 });
 el("clearPackBtn").addEventListener("click", () => {
   el("setupPack").value = "";
-  localStorage.removeItem(KEY_PACK);
+  secureDelete(KEY_PACK);
   setStatus("Cleared setup pack.");
 });
 installReplaceOnTypeBehavior();
-load();
+load().catch(() => {});

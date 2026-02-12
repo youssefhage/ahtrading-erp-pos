@@ -7,6 +7,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use tauri::Manager;
 
+const KEYRING_SERVICE: &str = "MelqardPOSDesktop";
+
 #[derive(Default)]
 struct AgentsState {
   official: Option<Child>,
@@ -123,6 +125,40 @@ fn spawn_agent(
   cmd.spawn()
 }
 
+fn keyring_entry(key: &str) -> Result<keyring::Entry, String> {
+  let k = key.trim();
+  if k.is_empty() || k.len() > 120 {
+    return Err("invalid key".to_string());
+  }
+  keyring::Entry::new(KEYRING_SERVICE, k).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn secure_get(key: String) -> Result<Option<String>, String> {
+  let entry = keyring_entry(&key)?;
+  match entry.get_password() {
+    Ok(v) => Ok(Some(v)),
+    Err(keyring::Error::NoEntry) => Ok(None),
+    Err(e) => Err(e.to_string()),
+  }
+}
+
+#[tauri::command]
+fn secure_set(key: String, value: String) -> Result<(), String> {
+  let entry = keyring_entry(&key)?;
+  entry.set_password(value.trim_end()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn secure_delete(key: String) -> Result<(), String> {
+  let entry = keyring_entry(&key)?;
+  match entry.delete_credential() {
+    Ok(_) => Ok(()),
+    Err(keyring::Error::NoEntry) => Ok(()),
+    Err(e) => Err(e.to_string()),
+  }
+}
+
 #[tauri::command]
 fn start_agents(
   app: tauri::AppHandle,
@@ -194,7 +230,13 @@ fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_updater::Builder::new().build())
     .manage(Mutex::new(AgentsState::default()))
-    .invoke_handler(tauri::generate_handler![start_agents, stop_agents])
+    .invoke_handler(tauri::generate_handler![
+      start_agents,
+      stop_agents,
+      secure_get,
+      secure_set,
+      secure_delete
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
