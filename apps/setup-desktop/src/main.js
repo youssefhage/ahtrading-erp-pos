@@ -43,6 +43,7 @@ function loadState() {
 
     el("mode").value = s.mode || "hybrid";
     el("repoPath").value = s.repoPath || "";
+    el("edgeHome").value = s.edgeHome || "";
     el("apiPort").value = s.apiPort || "";
     el("adminPort").value = s.adminPort || "";
     el("edgeApiUrlForPos").value = s.edgeApiUrlForPos || "";
@@ -65,6 +66,7 @@ function saveState() {
   const s = {
     mode: el("mode").value,
     repoPath: el("repoPath").value,
+    edgeHome: el("edgeHome").value,
     apiPort: el("apiPort").value,
     adminPort: el("adminPort").value,
     edgeApiUrlForPos: el("edgeApiUrlForPos").value,
@@ -135,6 +137,7 @@ async function runSetup() {
 
   const mode = String(el("mode").value || "").toLowerCase();
   const repoPath = String(el("repoPath").value || "").trim();
+  const edgeHome = String(el("edgeHome").value || "").trim();
 
   const apiPort = Number(el("apiPort").value || "");
   const adminPort = Number(el("adminPort").value || "");
@@ -167,6 +170,7 @@ async function runSetup() {
   const params = {
     repo_path: repoPath,
     mode,
+    edge_home: edgeHome || null,
     api_port: Number.isFinite(apiPort) && apiPort > 0 ? apiPort : null,
     admin_port: Number.isFinite(adminPort) && adminPort > 0 ? adminPort : null,
     api_base_url: mode === "pos" ? apiBaseUrl : null,

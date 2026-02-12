@@ -10,6 +10,8 @@ Use the installer launcher:
 ./scripts/setup_installer.sh
 ```
 
+Or (recommended for stores) install **Setup Desktop** from the downloads page and run it. Setup Desktop can run without a repo clone (it ships a bundled Edge stack that pulls prebuilt images).
+
 You can select:
 1. Full setup (On-Prem + POS)
 2. On-Prem only
@@ -57,6 +59,17 @@ Security note: device packs contain `device_token` secrets. Keep the folder priv
   --admin-port 3000 \
   --edge-api-url-for-pos "http://192.168.1.50:8001" \
   --device-count 3
+```
+
+## Compose Mode (Build vs Images)
+
+- `--compose-mode build` (default): builds Docker images locally from this repo (developer workflow).
+- `--compose-mode images`: pulls prebuilt Docker images from GHCR (recommended for store installs).
+
+Example:
+
+```bash
+./scripts/onboard_onprem_pos.sh --compose-mode images
 ```
 
 ## Edge -> Cloud Sync

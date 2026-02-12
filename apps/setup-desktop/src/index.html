@@ -34,18 +34,27 @@
           </select>
 
           <h2 class="mt">Project</h2>
-          <label class="label" for="repoPath">Repo folder path</label>
+          <label class="label" for="repoPath">Repo folder path (optional)</label>
           <input
             id="repoPath"
             class="input"
-            placeholder="/path/to/Codex POS (must contain scripts/onboard_onprem_pos.py)"
+            placeholder="/path/to/Codex POS (dev only)"
             autocomplete="off"
             spellcheck="false"
           />
           <p class="help muted">
-            This installer currently runs the onboarding runner from the repo. Later we can package a standalone “Edge
-            distro” (prebuilt images) so you don’t need the repo on the server.
+            Leave this empty for normal installs. Setup Desktop includes a bundled Edge stack that pulls prebuilt images
+            (no repo clone needed). Use the repo path only for development.
           </p>
+
+          <label class="label" for="edgeHome">Edge home folder (optional)</label>
+          <input
+            id="edgeHome"
+            class="input"
+            placeholder="leave empty to use the app default"
+            autocomplete="off"
+            spellcheck="false"
+          />
 
           <h2 class="mt">Edge</h2>
           <div class="two">

@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -9,6 +10,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
+use tauri::Manager;
 
 #[derive(Default)]
 struct RunnerState {
@@ -28,6 +30,9 @@ struct Prereqs {
 struct OnboardParams {
   repo_path: String,
   mode: String, // "hybrid" | "onprem" | "pos"
+
+  // Optional: where to store Edge runtime (env, compose, onboarding output) when using bundled mode.
+  edge_home: Option<String>,
 
   api_port: Option<u16>,
   admin_port: Option<u16>,
@@ -52,12 +57,57 @@ struct OnboardParams {
   update_env: Option<bool>,
 }
 
+fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
+  app
+    .path()
+    .app_data_dir()
+    .expect("failed to resolve app data dir")
+}
+
 fn repo_script(repo: &Path) -> PathBuf {
   repo.join("scripts").join("onboard_onprem_pos.py")
 }
 
 fn has_repo_layout(repo: &Path) -> bool {
   repo_script(repo).exists() && repo.join("deploy").join("docker-compose.edge.yml").exists()
+}
+
+fn has_bundled_layout(app: &tauri::AppHandle) -> bool {
+  let res = match app.path().resource_dir() {
+    Ok(p) => p,
+    Err(_) => return false,
+  };
+  let d = res.join("edge_bundle");
+  d.join("onboard_onprem_pos.py").exists() && d.join("docker-compose.edge.images.yml").exists()
+}
+
+fn default_edge_home(app: &tauri::AppHandle) -> PathBuf {
+  app_data_dir(app).join("edge")
+}
+
+fn ensure_edge_bundle(app: &tauri::AppHandle, edge_home: &Path) -> Result<PathBuf, String> {
+  let res = app.path().resource_dir().map_err(|e| e.to_string())?;
+  let src_dir = res.join("edge_bundle");
+  let src_runner = src_dir.join("onboard_onprem_pos.py");
+  let src_compose = src_dir.join("docker-compose.edge.images.yml");
+  let src_env_example = src_dir.join(".env.edge.example");
+
+  if !src_runner.exists() || !src_compose.exists() {
+    return Err("Bundled Edge assets are missing from this installer build.".to_string());
+  }
+
+  fs::create_dir_all(edge_home).map_err(|e| e.to_string())?;
+  let dst_runner = edge_home.join("onboard_onprem_pos.py");
+  let dst_compose = edge_home.join("docker-compose.edge.images.yml");
+
+  // Keep these files overwritten so updating Setup Desktop upgrades the bundle.
+  fs::copy(&src_runner, &dst_runner).map_err(|e| e.to_string())?;
+  fs::copy(&src_compose, &dst_compose).map_err(|e| e.to_string())?;
+  if src_env_example.exists() {
+    let _ = fs::copy(&src_env_example, &edge_home.join(".env.edge.example"));
+  }
+
+  Ok(dst_runner)
 }
 
 fn try_cmd(cmd: &str, args: &[&str]) -> bool {
@@ -85,16 +135,19 @@ fn docker_compose_ok() -> bool {
 }
 
 #[tauri::command]
-fn check_prereqs(repo_path: String) -> Result<Prereqs, String> {
+fn check_prereqs(app: tauri::AppHandle, repo_path: String) -> Result<Prereqs, String> {
   let repo = PathBuf::from(repo_path.trim());
-  let repo_ok = has_repo_layout(&repo);
+  let repo_ok = has_repo_layout(&repo) || has_bundled_layout(&app);
   let docker_ok = docker_ok();
   let docker_compose_ok = docker_compose_ok();
   let python_ok = python_ok();
 
   let mut details: Vec<String> = Vec::new();
   if !repo_ok {
-    details.push("Repo not found or missing required files (scripts/onboard_onprem_pos.py, deploy/docker-compose.edge.yml).".to_string());
+    details.push(
+      "Missing onboarding runner. Either provide a valid repo path, or reinstall Setup Desktop with bundled Edge assets."
+        .to_string(),
+    );
   }
   if !docker_ok {
     details.push("Docker not found in PATH. Install Docker Desktop (Windows/macOS) and ensure `docker --version` works.".to_string());
@@ -159,19 +212,45 @@ fn start_onboarding(
   }
 
   let repo = PathBuf::from(params.repo_path.trim());
-  if !has_repo_layout(&repo) {
-    return Err("Repo path is invalid (missing scripts/onboard_onprem_pos.py or deploy/docker-compose.edge.yml).".to_string());
-  }
   if !docker_ok() || !docker_compose_ok() {
     return Err("Docker/Docker Compose not available. Install/upgrade Docker Desktop first.".to_string());
   }
 
   let (py, py_args) = pick_python().ok_or_else(|| "Python 3 not found. Install Python 3 first.".to_string())?;
-  let script = repo_script(&repo);
+
+  let use_repo = !params.repo_path.trim().is_empty() && has_repo_layout(&repo);
+  let mut edge_home = params
+    .edge_home
+    .clone()
+    .unwrap_or_default()
+    .trim()
+    .to_string();
+  if edge_home.is_empty() {
+    if use_repo {
+      edge_home = repo.join("deploy").join("edge").to_string_lossy().to_string();
+    } else {
+      edge_home = default_edge_home(&app).to_string_lossy().to_string();
+    }
+  }
+  let edge_home_path = PathBuf::from(edge_home.trim()).to_path_buf();
+
+  let script = if use_repo {
+    repo_script(&repo)
+  } else {
+    ensure_edge_bundle(&app, &edge_home_path)?
+  };
 
   let mut args: Vec<String> = Vec::new();
   args.push(script.to_string_lossy().to_string());
   args.push("--non-interactive".to_string());
+  args.push("--edge-home".to_string());
+  args.push(edge_home_path.to_string_lossy().to_string());
+
+  if !use_repo {
+    // Bundled installs always run using prebuilt images.
+    args.push("--compose-mode".to_string());
+    args.push("images".to_string());
+  }
 
   if params.update_env.unwrap_or(false) {
     args.push("--update-env".to_string());
@@ -264,13 +343,14 @@ fn start_onboarding(
   let mut cmd = Command::new(py);
   cmd.args(&py_args);
   cmd.args(&args);
-  cmd.current_dir(&repo);
+  let workdir = if use_repo { repo.clone() } else { edge_home_path.clone() };
+  cmd.current_dir(&workdir);
   cmd.stdin(Stdio::null());
   cmd.stdout(Stdio::piped());
   cmd.stderr(Stdio::piped());
 
   emit_log(&app, "Starting onboarding...");
-  emit_log(&app, &format!("Working directory: {}", repo.to_string_lossy()));
+  emit_log(&app, &format!("Working directory: {}", workdir.to_string_lossy()));
 
   let mut child = cmd.spawn().map_err(|e| format!("Failed to start onboarding: {e}"))?;
 
