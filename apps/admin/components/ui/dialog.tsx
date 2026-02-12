@@ -32,7 +32,7 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, onPointerDownOutside, onInteractOutside, ...props }, ref) => (
+>(({ className, children, onPointerDownOutside, onFocusOutside, onInteractOutside, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -53,6 +53,16 @@ const DialogContent = React.forwardRef<
           return;
         }
         onPointerDownOutside?.(e);
+      }}
+      onFocusOutside={(e) => {
+        // When a portal popover focuses an input (e.g. SearchableSelect search box),
+        // Radix will treat it as a focus-outside and close the dialog unless we block it.
+        const target = e.target as HTMLElement | null;
+        if (target && target.closest('[data-dialog-keepopen="true"]')) {
+          e.preventDefault();
+          return;
+        }
+        onFocusOutside?.(e);
       }}
       onInteractOutside={(e) => {
         const target = e.target as HTMLElement | null;
