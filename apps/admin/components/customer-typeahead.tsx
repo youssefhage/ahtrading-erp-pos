@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { apiGet } from "@/lib/api";
+import { apiGet, getCompanyId } from "@/lib/api";
 import { rankByFuzzy } from "@/lib/fuzzy";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -27,7 +27,24 @@ export type CustomerTypeaheadCustomer = {
   is_active?: boolean;
 };
 
-const RECENT_KEY = "admin.recent.customers.v1";
+const LEGACY_RECENT_KEY = "admin.recent.customers.v1";
+
+function recentKey(): string {
+  const cid = String(getCompanyId() || "").trim();
+  return `${LEGACY_RECENT_KEY}.${cid || "unknown"}`;
+}
+
+function maybeMigrateLegacy(nextKey: string) {
+  try {
+    const legacy = localStorage.getItem(LEGACY_RECENT_KEY);
+    if (!legacy) return;
+    if (localStorage.getItem(nextKey)) return;
+    localStorage.setItem(nextKey, legacy);
+    localStorage.removeItem(LEGACY_RECENT_KEY);
+  } catch {
+    // ignore
+  }
+}
 
 function norm(s: string) {
   return (s || "").toLowerCase().trim();
@@ -44,7 +61,9 @@ function safeJsonParse<T>(raw: string | null): T | null {
 
 function loadRecent(): CustomerTypeaheadCustomer[] {
   try {
-    const parsed = safeJsonParse<CustomerTypeaheadCustomer[]>(localStorage.getItem(RECENT_KEY));
+    const k = recentKey();
+    maybeMigrateLegacy(k);
+    const parsed = safeJsonParse<CustomerTypeaheadCustomer[]>(localStorage.getItem(k));
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -53,9 +72,11 @@ function loadRecent(): CustomerTypeaheadCustomer[] {
 
 function pushRecent(c: CustomerTypeaheadCustomer) {
   try {
+    const k = recentKey();
+    maybeMigrateLegacy(k);
     const prev = loadRecent();
     const next = [c, ...prev.filter((p) => p.id !== c.id)].slice(0, 12);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+    localStorage.setItem(k, JSON.stringify(next));
   } catch {
     // ignore
   }

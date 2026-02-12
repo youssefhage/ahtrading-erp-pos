@@ -56,7 +56,13 @@ import {
 
 import { apiGet, apiPost, apiUrl, clearSession, getCompanyId, getCompanies } from "@/lib/api";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
-import { addRecent, clearRecents, getFavorites, getRecents, toggleFavorite } from "@/lib/nav-memory";
+import {
+  addRecentForCompany,
+  clearRecentsForCompany,
+  getFavoritesForCompany,
+  getRecentsForCompany,
+  toggleFavoriteForCompany
+} from "@/lib/nav-memory";
 import { getDefaultBranchId, getDefaultWarehouseId, setDefaultBranchId, setDefaultWarehouseId } from "@/lib/op-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -620,10 +626,11 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   }, [activeSectionLabel, uiVariant]);
 
   useEffect(() => {
-    // Nav memory is client-only.
-    setFavorites(getFavorites());
-    setRecents(getRecents());
-  }, []);
+    // Nav memory is client-only and company-scoped.
+    const cid = String(companyId || "").trim();
+    setFavorites(getFavoritesForCompany(cid));
+    setRecents(getRecentsForCompany(cid));
+  }, [companyId]);
 
   useEffect(() => {
     // Track recents for deep links as well (document-first UX).
@@ -631,9 +638,9 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     if (!path || path === "/") return;
     if (path.startsWith("/login") || path.startsWith("/company/select")) return;
     const entry = { href: path, label: labelForMemory(path, title) };
-    addRecent(entry);
-    setRecents(getRecents());
-  }, [pathname, title]);
+    addRecentForCompany(entry, String(companyId || "").trim());
+    setRecents(getRecentsForCompany(String(companyId || "").trim()));
+  }, [pathname, title, companyId]);
 
   useEffect(() => {
     // Company context display should be human-friendly.
@@ -1168,8 +1175,9 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                       type="button"
                       className="text-[10px] text-fg-subtle hover:text-fg-muted"
                       onClick={() => {
-                        clearRecents();
-                        setRecents([]);
+                        const cid = String(companyId || "").trim();
+                        clearRecentsForCompany(cid);
+                        setRecents(getRecentsForCompany(cid));
                       }}
                     >
                       Clear
@@ -1356,8 +1364,9 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
               )}
               title={isStarred ? "Remove from favorites" : "Add to favorites"}
               onClick={() => {
-                toggleFavorite({ href: pageHrefForStar, label: pageLabelForStar });
-                setFavorites(getFavorites());
+                const cid = String(companyId || "").trim();
+                toggleFavoriteForCompany({ href: pageHrefForStar, label: pageLabelForStar }, cid);
+                setFavorites(getFavoritesForCompany(cid));
               }}
             >
               <Star className={cn("h-4 w-4", isStarred && "fill-primary")} />
