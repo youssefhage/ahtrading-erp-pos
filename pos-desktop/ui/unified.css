@@ -152,6 +152,10 @@ body {
 }
 
 body {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   margin: 0;
   background:
     radial-gradient(90rem 36rem at 8% -6%, rgba(56, 128, 226, 0.2), transparent 55%),
@@ -160,6 +164,32 @@ body {
   color: var(--text);
   font-family: var(--sans);
   position: relative;
+}
+
+:root[data-density="xs"] {
+  --density-font-scale: 0.94;
+}
+
+:root[data-density="sm"] {
+  --density-font-scale: 0.98;
+}
+
+:root[data-density="md"] {
+  --density-font-scale: 1;
+}
+
+.top,
+.opsBar,
+.panel,
+.pill,
+.btn,
+.statusPill,
+.factPill {
+  font-size: calc(12px * var(--density-font-scale, 1));
+}
+
+.brand .title {
+  font-size: calc(18px * var(--density-font-scale, 1));
 }
 
 .pageGlow {
@@ -187,7 +217,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 14px 18px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--glass-top);
   backdrop-filter: blur(10px);
@@ -206,7 +236,7 @@ body {
 }
 
 .brand .title {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 760;
   letter-spacing: 0.01em;
 }
@@ -225,28 +255,29 @@ body {
   border: 1px solid var(--mode-pill-line);
 }
 
-.brand .subtitle {
-  color: var(--muted);
-  font-size: 12px;
-}
+.brand .subtitle { display: none; }
 
 .controls {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
+}
+
+#managerBtn {
+  border-style: dashed;
 }
 
 .opsBar {
   position: sticky;
-  top: 88px;
+  top: var(--top-offset, 52px);
   z-index: 18;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 18px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--line);
   background: var(--glass-ops);
   backdrop-filter: blur(8px);
@@ -426,17 +457,21 @@ kbd {
   z-index: 1;
   display: grid;
   grid-template-columns: 1.03fr 1fr;
-  gap: 16px;
-  padding: 16px 18px;
+  gap: 10px;
+  padding: 10px 12px;
+  flex: 1;
+  min-height: 0;
 }
 
 .panel {
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 14px;
   background: linear-gradient(170deg, var(--panel-grad-start), var(--panel-grad-end));
   box-shadow: var(--shadow-sm);
-  padding: 14px;
-  min-height: 72vh;
+  padding: 10px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .panelHead {
@@ -444,7 +479,7 @@ kbd {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .panelTitle {
@@ -467,8 +502,8 @@ kbd {
 
 .scanRow input {
   flex: 1;
-  padding: 12px;
-  border-radius: 14px;
+  padding: 10px 10px;
+  border-radius: 12px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
@@ -494,6 +529,10 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .result {
@@ -543,8 +582,8 @@ kbd {
 
 .cart {
   min-height: 280px;
-  max-height: 52vh;
-  overflow: auto;
+  max-height: none;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -552,16 +591,23 @@ kbd {
   border-radius: 14px;
   padding: 10px;
   background: var(--surface-soft-1);
+  flex: 1;
+  min-height: 0;
+}
+
+.cartFull {
+  overflow: auto;
+  max-height: 62vh;
 }
 
 .cartItem {
   display: grid;
   grid-template-columns: 1fr auto auto auto;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   border: 1px solid var(--line);
   border-radius: 14px;
-  padding: 10px;
+  padding: 8px;
   background: var(--surface);
 }
 
@@ -642,9 +688,9 @@ kbd {
 .pay {
   margin-top: 12px;
   display: grid;
-  grid-template-columns: 1.2fr 1fr auto auto;
+  grid-template-columns: 1fr 1fr;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .cust {
@@ -709,8 +755,8 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 140px;
-  overflow: auto;
+  max-height: none;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 8px;
@@ -772,9 +818,97 @@ kbd {
 }
 
 .foot {
-  padding: 14px 18px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
+  display: none;
+}
+
+:root[data-density="sm"] .top {
+  padding: 8px 10px;
+}
+
+:root[data-density="sm"] .opsBar {
+  padding: 6px 10px;
+}
+
+:root[data-density="sm"] .grid {
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+:root[data-density="sm"] .panel {
+  padding: 8px;
+}
+
+:root[data-density="sm"] .scanRow input,
+:root[data-density="sm"] .custLookup input,
+:root[data-density="sm"] .pill input,
+:root[data-density="sm"] .pill select {
+  padding: 8px 9px;
+}
+
+:root[data-density="sm"] .btn {
+  padding: 7px 10px;
+}
+
+:root[data-density="sm"] .cartItem {
+  padding: 7px;
+}
+
+:root[data-density="xs"] .top {
+  padding: 6px 8px;
+}
+
+:root[data-density="xs"] .opsBar {
+  padding: 5px 8px;
+}
+
+:root[data-density="xs"] .grid {
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+:root[data-density="xs"] .panel {
+  padding: 7px;
+  border-radius: 12px;
+}
+
+:root[data-density="xs"] .panelHead {
+  margin-bottom: 6px;
+}
+
+:root[data-density="xs"] .scanMeta,
+:root[data-density="xs"] .hint,
+:root[data-density="xs"] .kbdHint {
+  font-size: 10px;
+}
+
+:root[data-density="xs"] .scanRow input,
+:root[data-density="xs"] .custLookup input,
+:root[data-density="xs"] .pill input,
+:root[data-density="xs"] .pill select {
+  padding: 7px 8px;
+}
+
+:root[data-density="xs"] .pill {
+  padding: 6px 8px;
+}
+
+:root[data-density="xs"] .btn {
+  padding: 6px 8px;
+  border-radius: 10px;
+}
+
+:root[data-density="xs"] .tiny {
+  padding: 5px 7px;
+}
+
+:root[data-density="xs"] .cartItem {
+  padding: 6px;
+  gap: 6px;
+}
+
+:root[data-density="xs"] .pay {
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .mono {

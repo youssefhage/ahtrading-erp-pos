@@ -9,18 +9,27 @@
   <body>
     <main class="wrap">
       <header class="hdr">
-        <div class="logo">AH</div>
+        <div class="logo">POS</div>
         <div>
           <h1>Melqard POS Desktop</h1>
-          <p>Connects to cloud API, queues sales offline</p>
+          <p>Connects to your POS server, queues sales offline</p>
         </div>
       </header>
 
       <section class="card">
         <h2>Setup</h2>
         <p class="muted">
-          Enter the API URL. For the cloud pilot use: <code>https://pos.melqard.com/api</code>
+          For on-prem: paste the Setup Pack and click Apply. For cloud pilot use: <code>https://pos.melqard.com/api</code>
         </p>
+
+        <label class="field">
+          <span>Setup Pack (paste JSON)</span>
+          <textarea id="setupPack" rows="6" placeholder='{"edgeUrl":"http://192.168.1.50:8001", "...": "..."}'></textarea>
+        </label>
+        <div class="row" style="margin-top: 6px;">
+          <button id="applyPackBtn" class="ghost">Apply Pack</button>
+          <button id="clearPackBtn" class="ghost">Clear</button>
+        </div>
 
         <label class="field">
           <span>API URL</span>
@@ -30,7 +39,7 @@
         <details class="advanced">
           <summary>Advanced (optional)</summary>
           <p class="muted">
-            For each company you must paste a POS device token (created in Portal -> System -> POS Devices).
+            For each company you must paste a POS device token (created in Admin -> System -> POS Devices).
             After first Sync, the agent auto-pulls default warehouse + VAT settings.
           </p>
           <div class="grid2">
@@ -91,7 +100,7 @@
         <ul>
           <li>This app starts 2 local agents: Official + Unofficial.</li>
           <li>Unified POS opens at <code>http://127.0.0.1:7070/unified.html</code>.</li>
-          <li>Sales are queued locally if the cloud is unreachable; they sync when back online.</li>
+          <li>Sales are queued locally if the server is unreachable; they sync when back online.</li>
         </ul>
       </section>
     </main>

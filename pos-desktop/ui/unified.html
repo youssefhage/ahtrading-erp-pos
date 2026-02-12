@@ -28,16 +28,14 @@
             <option value="official">Official</option>
           </select>
         </label>
-        <label class="pill">
-          Other Agent URL
-          <input id="otherAgentUrl" type="text" value="http://localhost:7072" />
-        </label>
         <button id="syncBtn" class="btn">Sync Both</button>
         <button id="pushBtn" class="btn ghost">Push Both</button>
         <button id="reconnectBothBtn" class="btn ghost">Reconnect</button>
         <button id="themeToggle" class="btn ghost">Dark Theme</button>
+        <button id="densityToggle" class="btn ghost">Density: Auto</button>
         <button id="settingsBtn" class="btn ghost">Settings</button>
         <button id="loginBtn" class="btn ghost">Cashier PIN</button>
+        <button id="managerBtn" class="btn ghost">Manager</button>
         <div class="edgeBadges">
           <span id="edgeUnofficial" class="edgeBadge edgeUnknown">Unofficial: …</span>
           <span id="edgeOfficial" class="edgeBadge edgeUnknown">Official: …</span>
@@ -59,7 +57,7 @@
     </section>
 
     <main class="grid">
-      <section class="panel">
+      <section class="panel panelLeft">
         <div class="panelHead">
           <div class="panelTitle">Scan / Search</div>
           <div class="panelHeadActions">
@@ -72,13 +70,11 @@
           <button id="addBtn" class="btn">Add</button>
         </div>
         <div id="scanMeta" class="scanMeta" aria-live="polite">Waiting for input…</div>
-        <div class="hint">
-          Rule: if barcode exists in both companies, we pick <strong>Unofficial</strong> first (unless Invoice Company is set to Official).
-        </div>
+        <div class="hint">Tip: scans work anywhere on the screen (no need to click the field).</div>
         <div class="results" id="results"></div>
       </section>
 
-      <section class="panel">
+      <section class="panel panelRight">
         <div class="panelHead">
           <div class="panelTitle">Cart</div>
           <div class="cartMeta">
@@ -86,6 +82,7 @@
               <input id="flagOfficial" type="checkbox" />
               If needed, flag for later adjustment
             </label>
+            <button id="openCartBtn" class="btn ghost tiny" type="button">View</button>
             <button id="clearCartBtn" class="btn ghost tiny" type="button">Clear Cart</button>
           </div>
         </div>
@@ -159,6 +156,10 @@
         </div>
       </div>
       <div class="modalBody">
+        <section class="cfgCard">
+          <h4>Unified UI</h4>
+          <label class="cfgField">Other Agent URL<input id="otherAgentUrl" type="text" value="http://localhost:7072" /></label>
+        </section>
         <section class="quickCard">
           <h4>Quick Connect</h4>
           <p>Connect with API URL + account, pick company/branch, then register and apply device credentials automatically.</p>
@@ -229,6 +230,63 @@
       <div class="modalActions">
         <button id="settingsCancel" class="btn ghost" type="button">Cancel</button>
         <button id="settingsSave" class="btn primary" type="button">Save Settings</button>
+      </div>
+    </div>
+
+    <div id="cartBackdrop" class="backdrop hidden"></div>
+    <div id="cartModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="cartTitle">
+      <div class="modalHeader">
+        <div>
+          <h3 id="cartTitle">Cart (Full)</h3>
+          <p>Edit quantities and remove items. This view can scroll; the main POS screen stays fixed.</p>
+        </div>
+      </div>
+      <div class="modalBody">
+        <div id="cartFull" class="cart cartFull"></div>
+      </div>
+      <div class="modalActions">
+        <button id="cartCloseBtn" class="btn ghost" type="button">Close</button>
+      </div>
+    </div>
+
+    <div id="managerBackdrop" class="backdrop hidden"></div>
+    <div id="managerModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="managerTitle">
+      <div class="modalHeader">
+        <div>
+          <h3 id="managerTitle">Manager Access</h3>
+          <p>PIN-gated shortcut for opening the Admin portal on this POS terminal.</p>
+        </div>
+      </div>
+      <div class="modalBody">
+        <section class="cfgCard">
+          <h4>Admin Portal</h4>
+          <label class="cfgField">Admin URL<input id="adminUrl" type="text" placeholder="https://app.melqard.com" /></label>
+          <div class="row">
+            <button id="adminSuggestBtn" class="btn ghost" type="button">Suggest from API URL</button>
+            <button id="adminOpenBtn" class="btn primary" type="button" disabled>Open Admin</button>
+          </div>
+          <div id="managerStatus" class="quickStatus" aria-live="polite"></div>
+        </section>
+
+        <section class="cfgCard">
+          <h4>Manager PIN</h4>
+          <div class="quickGrid">
+            <label class="cfgField">PIN<input id="managerPin" type="password" placeholder="Enter PIN" autocomplete="off" /></label>
+            <button id="managerUnlockBtn" class="btn" type="button">Unlock</button>
+          </div>
+          <div class="quickGrid quickGridSecond">
+            <label class="cfgField">Set new PIN<input id="managerPinNew" type="password" placeholder="New PIN" autocomplete="off" /></label>
+            <label class="cfgField">Confirm PIN<input id="managerPinNew2" type="password" placeholder="Confirm PIN" autocomplete="off" /></label>
+            <button id="managerSetPinBtn" class="btn ghost" type="button">Set PIN</button>
+          </div>
+          <div class="row">
+            <button id="managerLockBtn" class="btn ghost" type="button">Lock</button>
+            <button id="managerResetPinBtn" class="btn ghost" type="button">Reset PIN</button>
+          </div>
+          <p class="muted" style="margin-top: 10px;">
+            Note: This is a convenience lock, not a replacement for proper OS user accounts.
+          </p>
+        </section>
       </div>
     </div>
 

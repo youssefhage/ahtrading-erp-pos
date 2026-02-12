@@ -21,6 +21,22 @@ npm install
 npm run build
 ```
 
+## Setup Pack (recommended for onboarding)
+
+The on-prem onboarding runner exports:
+- `deploy/edge/onboarding/<timestamp>/tauri-launcher-prefill.json`
+
+Tip: generate this with the installer launcher:
+```bash
+./scripts/setup_installer.sh
+```
+
+In POS Desktop, paste this JSON into the **Setup Pack** box and click **Apply Pack**.
+This auto-fills:
+- Edge API URL
+- Official/Unofficial company IDs
+- Device IDs + tokens
+
 ### Installer builds
 - macOS DMG:
   ```bash
