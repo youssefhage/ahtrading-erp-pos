@@ -54,6 +54,11 @@ function setStatus(msg) {
   el("status").textContent = msg || "";
 }
 
+function setDiag(msg) {
+  const n = el("diag");
+  if (n) n.textContent = msg || "";
+}
+
 function parsePack(raw) {
   const text = String(raw || "").trim();
   if (!text) return null;
@@ -163,6 +168,56 @@ async function load() {
   el("deviceIdUnofficial").value = localStorage.getItem(KEY_DEV_ID_UNOFFICIAL) || "";
   el("deviceTokenUnofficial").value = (await secureGet(KEY_DEV_TOK_UNOFFICIAL)) || "";
   setStatus("");
+  setDiag("");
+}
+
+async function waitForAgent(port, timeoutMs = 8000) {
+  const url = `http://127.0.0.1:${port}/api/health`;
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(url, { method: "GET" });
+      if (res.ok) return true;
+    } catch {
+      // ignore
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return false;
+}
+
+async function fetchEdgeStatus(port) {
+  const url = `http://127.0.0.1:${port}/api/edge/status`;
+  const started = Date.now();
+  try {
+    const res = await fetch(url, { method: "GET" });
+    const data = await res.json().catch(() => ({}));
+    const ms = Date.now() - started;
+    if (!res.ok) return { ok: false, ms, error: data?.error || data?.detail || `HTTP ${res.status}` };
+    return { ok: true, ms, data };
+  } catch (e) {
+    const ms = Date.now() - started;
+    return { ok: false, ms, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+function fmtEdgeDiag(label, res) {
+  if (!res) return `${label}: (no data)`;
+  if (!res.ok) return `${label}: local agent error (${res.ms}ms) ${res.error || ""}`.trim();
+  const d = res.data || {};
+  const serverOk = !!d.edge_ok;
+  const authOk = d.edge_auth_ok == null ? null : !!d.edge_auth_ok;
+  const pend = Number(d.outbox_pending || 0);
+  if (serverOk && (authOk === true || authOk == null)) {
+    return `${label}: server OK${d.edge_latency_ms ? ` (${d.edge_latency_ms}ms)` : ""} · auth OK · queued ${pend}`;
+  }
+  if (serverOk && authOk === false) {
+    const code = d.edge_auth_status ? ` (${d.edge_auth_status})` : "";
+    const err = d.edge_auth_error ? ` - ${d.edge_auth_error}` : "";
+    return `${label}: server OK · auth FAILED${code}${err} · queued ${pend}`;
+  }
+  const err = d.edge_error ? ` - ${d.edge_error}` : "";
+  return `${label}: OFFLINE${err} · queued ${pend}`;
 }
 
 async function start() {
@@ -192,6 +247,7 @@ async function start() {
   await secureSet(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
 
   setStatus("Starting local agents…");
+  setDiag("");
   try {
     await invoke("start_agents", {
       edgeUrl,
@@ -209,9 +265,24 @@ async function start() {
     return;
   }
 
+  setStatus("Waiting for agents to start…");
+  const [okA, okB] = await Promise.all([
+    waitForAgent(portOfficial, 10000),
+    waitForAgent(portUnofficial, 10000),
+  ]);
+  if (!okA || !okB) {
+    setStatus(`Agent startup incomplete. Official=${okA ? "ok" : "missing"} Unofficial=${okB ? "ok" : "missing"}`);
+  } else {
+    setStatus("Agents started. Checking server connection…");
+  }
+
+  const [stA, stB] = await Promise.all([
+    fetchEdgeStatus(portOfficial),
+    fetchEdgeStatus(portUnofficial),
+  ]);
+  setDiag([fmtEdgeDiag("Official", stA), fmtEdgeDiag("Unofficial", stB)].join("\n"));
+
   setStatus("Opening POS…");
-  // Give the agents a moment to bind the HTTP ports.
-  await new Promise((r) => setTimeout(r, 700));
   window.location.href = `http://127.0.0.1:${portOfficial}/unified.html`;
 }
 
@@ -236,6 +307,28 @@ async function checkUpdates() {
   }
 }
 
+async function runDiagnostics() {
+  const portOfficial = Number(el("portOfficial").value || 7070);
+  const portUnofficial = Number(el("portUnofficial").value || 7072);
+  setStatus("Running diagnostics…");
+  setDiag("");
+  const [okA, okB] = await Promise.all([
+    waitForAgent(portOfficial, 1500),
+    waitForAgent(portUnofficial, 1500),
+  ]);
+  if (!okA || !okB) {
+    setStatus("Agents are not running (or not ready). Click Start POS first.");
+    setDiag(`Official agent: ${okA ? "ok" : "not reachable"}\nUnofficial agent: ${okB ? "ok" : "not reachable"}`);
+    return;
+  }
+  const [stA, stB] = await Promise.all([
+    fetchEdgeStatus(portOfficial),
+    fetchEdgeStatus(portUnofficial),
+  ]);
+  setDiag([fmtEdgeDiag("Official", stA), fmtEdgeDiag("Unofficial", stB)].join("\n"));
+  setStatus("Diagnostics complete.");
+}
+
 // Quiet auto-update on launch (helps fast iteration). If offline, do nothing.
 setTimeout(() => {
   check()
@@ -246,6 +339,7 @@ setTimeout(() => {
 el("startBtn").addEventListener("click", start);
 el("openBtn").addEventListener("click", openPos);
 el("updateBtn").addEventListener("click", checkUpdates);
+el("diagBtn").addEventListener("click", runDiagnostics);
 el("applyPackBtn").addEventListener("click", () => {
   const raw = el("setupPack").value;
   secureSet(KEY_PACK, raw);
@@ -268,6 +362,7 @@ el("applyPackBtn").addEventListener("click", () => {
     secureSet(KEY_DEV_TOK_UNOFFICIAL, String(el("deviceTokenUnofficial").value || "").trim());
 
     setStatus("Setup pack applied.");
+    setDiag("");
   } catch (e) {
     setStatus(`Setup pack error: ${e instanceof Error ? e.message : String(e)}`);
   }

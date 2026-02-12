@@ -462,6 +462,33 @@ def edge_health(cfg: dict, timeout_s: float = 0.8) -> dict:
         lat = int((time.time() - started) * 1000)
         return {"ok": False, "error": str(ex), "latency_ms": lat, "url": url}
 
+def edge_auth_check(cfg: dict, timeout_s: float = 1.2) -> dict:
+    """
+    Validate device credentials against a device-scoped endpoint.
+    This is the quickest way to determine whether the POS will actually be able to sync,
+    even if /health is reachable.
+    """
+    base = (cfg.get("api_base_url") or "").strip()
+    if not base:
+        return {"ok": False, "status": 400, "error": "missing api_base_url", "latency_ms": None, "url": ""}
+    device_id = (cfg.get("device_id") or "").strip()
+    token = (cfg.get("device_token") or "").strip()
+    if not device_id or not token:
+        return {
+            "ok": False,
+            "status": 400,
+            "error": "missing device_id or device_token",
+            "latency_ms": None,
+            "url": f"{base.rstrip('/')}/pos/config",
+        }
+    url = f"{base.rstrip('/')}/pos/config"
+    started = time.time()
+    data, status, err = _setup_req_json_safe(url, method="GET", payload=None, headers=device_headers(cfg), timeout_s=timeout_s)
+    lat = int((time.time() - started) * 1000)
+    if status is None:
+        return {"ok": True, "status": 200, "error": None, "latency_ms": lat, "url": url, "data": data}
+    return {"ok": False, "status": int(status), "error": str(err or "auth failed"), "latency_ms": lat, "url": url}
+
 
 def submit_single_event(cfg: dict, event_id: str, event_type: str, payload: dict, created_at: str) -> tuple[bool, dict]:
     """
@@ -1707,6 +1734,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/edge/status":
             st = edge_health(cfg, timeout_s=0.8)
+            auth = edge_auth_check(cfg, timeout_s=1.2)
             json_response(
                 self,
                 {
@@ -1715,6 +1743,11 @@ class Handler(BaseHTTPRequestHandler):
                     "edge_latency_ms": st.get("latency_ms"),
                     "edge_url": (st.get("url") or ""),
                     "edge_error": st.get("error"),
+                    "edge_auth_ok": bool(auth.get("ok")),
+                    "edge_auth_status": auth.get("status"),
+                    "edge_auth_latency_ms": auth.get("latency_ms"),
+                    "edge_auth_url": (auth.get("url") or ""),
+                    "edge_auth_error": auth.get("error"),
                     "outbox_pending": count_outbox_pending(),
                 },
             )

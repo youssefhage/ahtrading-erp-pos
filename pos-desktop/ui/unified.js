@@ -1097,18 +1097,38 @@ function renderEdgeBadges() {
   for (const key of ["unofficial", "official"]) {
     const n = map[key];
     if (!n) continue;
-    const st = state.edge[key] || { ok: null, pending: 0, latency_ms: null };
+    const st = state.edge[key] || { ok: null, pending: 0, latency_ms: null, auth_ok: null, auth_status: null, auth_error: "" };
     n.classList.remove("edgeOk", "edgeOffline", "edgeUnknown");
-    if (st.ok === true) {
+    if (st.ok === true && (st.auth_ok === true || st.auth_ok == null)) {
       n.classList.add("edgeOk");
       const ms = Number(st.latency_ms || 0);
       n.textContent = `${key}: OK${ms ? ` (${ms}ms)` : ""} · ${Number(st.pending || 0)} queued`;
+      const tip = [];
+      tip.push(`Server: OK${ms ? ` (${ms}ms)` : ""}`);
+      if (st.auth_ok === true) tip.push("Device auth: OK");
+      n.title = tip.join("\n");
+    } else if (st.ok === true && st.auth_ok === false) {
+      // Server reachable but device credentials are invalid/missing.
+      n.classList.add("edgeOffline");
+      const code = st.auth_status ? ` (${st.auth_status})` : "";
+      n.textContent = `${key}: AUTH${code} · ${Number(st.pending || 0)} queued`;
+      const tip = [];
+      tip.push("Server: OK");
+      tip.push(`Device auth: FAILED${code}`);
+      if (st.auth_error) tip.push(`Error: ${st.auth_error}`);
+      if (st.auth_url) tip.push(`URL: ${st.auth_url}`);
+      n.title = tip.join("\n");
     } else if (st.ok === false) {
       n.classList.add("edgeOffline");
       n.textContent = `${key}: OFFLINE · ${Number(st.pending || 0)} queued`;
+      const tip = [];
+      if (st.error) tip.push(`Error: ${st.error}`);
+      if (st.url) tip.push(`URL: ${st.url}`);
+      n.title = tip.join("\n");
     } else {
       n.classList.add("edgeUnknown");
       n.textContent = `${key}: …`;
+      n.title = "";
     }
   }
 
@@ -1132,14 +1152,26 @@ async function refreshEdgeStatusBoth() {
       state.edge[key] = {
         ok: !!res.edge_ok,
         latency_ms: res.edge_latency_ms ?? null,
-        pending: Number(res.outbox_pending || 0)
+        pending: Number(res.outbox_pending || 0),
+        url: String(res.edge_url || ""),
+        error: String(res.edge_error || ""),
+        auth_ok: res.edge_auth_ok == null ? null : !!res.edge_auth_ok,
+        auth_status: res.edge_auth_status ?? null,
+        auth_error: String(res.edge_auth_error || ""),
+        auth_url: String(res.edge_auth_url || ""),
       };
       recordEdgePollSuccess(key);
     } catch (e) {
       state.edge[key] = {
         ok: false,
         latency_ms: null,
-        pending: state.edge[key]?.pending || 0
+        pending: state.edge[key]?.pending || 0,
+        url: "",
+        error: String(e?.message || e || ""),
+        auth_ok: null,
+        auth_status: null,
+        auth_error: "",
+        auth_url: "",
       };
       recordEdgePollFailure(key);
     }
