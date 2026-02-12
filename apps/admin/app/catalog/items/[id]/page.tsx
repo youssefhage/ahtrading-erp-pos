@@ -26,8 +26,12 @@ type Item = {
   item_type?: "stocked" | "service" | "bundle";
   tags?: string[] | null;
   unit_of_measure: string;
+  purchase_uom_code?: string | null;
+  sales_uom_code?: string | null;
   barcode: string | null;
   tax_code_id: string | null;
+  tax_category?: string | null;
+  is_excise?: boolean;
   reorder_point: string | number | null;
   reorder_qty: string | number | null;
   is_active?: boolean;
@@ -41,8 +45,20 @@ type Item = {
   min_shelf_life_days_for_sale?: number | null;
   expiry_warning_days?: number | null;
   allow_negative_stock?: boolean | null;
+  case_pack_qty?: string | number | null;
+  inner_pack_qty?: string | number | null;
+  standard_cost_usd?: string | number | null;
+  standard_cost_lbp?: string | number | null;
+  min_margin_pct?: string | number | null;
+  costing_method?: string | null;
+  preferred_supplier_id?: string | null;
+  weight?: string | number | null;
+  volume?: string | number | null;
+  external_ids?: any;
   image_attachment_id?: string | null;
   image_alt?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 type ItemBarcode = {
@@ -98,6 +114,57 @@ type PriceListItemRow = {
   created_at: string;
 };
 
+type CategoryRow = { id: string; name: string; parent_id: string | null; is_active: boolean; updated_at: string };
+type WarehouseRow = { id: string; name: string };
+
+type StockRow = {
+  item_id: string;
+  warehouse_id: string;
+  qty_in: string | number;
+  qty_out: string | number;
+  qty_on_hand: string | number;
+  reserved_qty?: string | number;
+  qty_available?: string | number;
+  incoming_qty?: string | number;
+};
+
+type StockBatchRow = {
+  item_id: string;
+  warehouse_id: string;
+  batch_id: string | null;
+  batch_no: string | null;
+  expiry_date: string | null;
+  qty_in: string | number;
+  qty_out: string | number;
+  qty_on_hand: string | number;
+};
+
+type UomConversionRow = {
+  uom_code: string;
+  uom_name: string | null;
+  uom_precision: number | null;
+  to_base_factor: string | number;
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type ItemWarehousePolicyRow = {
+  id: string;
+  item_id: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  min_stock: string | number;
+  max_stock: string | number;
+  preferred_supplier_id: string | null;
+  preferred_supplier_name: string | null;
+  replenishment_lead_time_days: number | null;
+  notes: string | null;
+  updated_at: string;
+};
+
+type ItemPriceRow = { id: string; price_usd: string | number; price_lbp: string | number; effective_from: string; effective_to: string | null };
+
 function shortId(v: string, head = 8, tail = 4) {
   const s = (v || "").trim();
   if (!s) return "-";
@@ -124,6 +191,16 @@ function fmtPctFrac(v: string | number | null | undefined) {
   const n = typeof v === "number" ? v : Number(v);
   if (!Number.isFinite(n)) return "-";
   return `${(n * 100).toFixed(1)}%`;
+}
+
+function fmtIso(iso?: string | null) {
+  return String(iso || "").slice(0, 19).replace("T", " ") || "-";
+}
+
+function fmtQty(v: string | number | null | undefined) {
+  const n = Number(v || 0);
+  if (!Number.isFinite(n)) return String(v ?? "");
+  return n.toLocaleString("en-US", { maximumFractionDigits: 3 });
 }
 
 function CopyIconButton(props: { text: string; label?: string; className?: string }) {
@@ -193,13 +270,21 @@ export default function ItemViewPage() {
   const [defaultPriceListId, setDefaultPriceListId] = useState<string>("");
   const [wholesaleEffective, setWholesaleEffective] = useState<PriceListItemRow | null>(null);
   const [retailEffective, setRetailEffective] = useState<PriceListItemRow | null>(null);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
+  const [stock, setStock] = useState<StockRow[]>([]);
+  const [stockBatches, setStockBatches] = useState<StockBatchRow[]>([]);
+  const [uomBase, setUomBase] = useState("");
+  const [uomConversions, setUomConversions] = useState<UomConversionRow[]>([]);
+  const [warehousePolicies, setWarehousePolicies] = useState<ItemWarehousePolicyRow[]>([]);
+  const [legacyPrices, setLegacyPrices] = useState<ItemPriceRow[]>([]);
 
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     setErr(null);
     try {
-      const [it, bc, sup, tc, ps, pls, settings] = await Promise.all([
+      const [it, bc, sup, tc, ps, pls, settings, cats, whs, st, uom, pol, pr] = await Promise.all([
         apiGet<{ item: Item }>(`/items/${encodeURIComponent(id)}`),
         apiGet<{ barcodes: ItemBarcode[] }>(`/items/${encodeURIComponent(id)}/barcodes`).catch(() => ({ barcodes: [] as ItemBarcode[] })),
         apiGet<{ suppliers: ItemSupplierLinkRow[] }>(`/suppliers/items/${encodeURIComponent(id)}`).catch(() => ({ suppliers: [] as ItemSupplierLinkRow[] })),
@@ -207,12 +292,25 @@ export default function ItemViewPage() {
         apiGet<PriceSuggest>(`/pricing/items/${encodeURIComponent(id)}/suggested-price`).catch(() => null),
         apiGet<{ lists: PriceListRow[] }>("/pricing/lists").catch(() => ({ lists: [] as PriceListRow[] })),
         apiGet<{ settings: Array<{ key: string; value_json: any }> }>("/pricing/company-settings").catch(() => ({ settings: [] as any[] })),
+        apiGet<{ categories: CategoryRow[] }>("/item-categories").catch(() => ({ categories: [] as any[] })),
+        apiGet<{ warehouses: WarehouseRow[] }>("/warehouses").catch(() => ({ warehouses: [] as any[] })),
+        apiGet<{ stock: StockRow[] }>(`/inventory/stock?item_id=${encodeURIComponent(id)}`).catch(() => ({ stock: [] as any[] })),
+        apiGet<{ base_uom: string; conversions: UomConversionRow[] }>(`/items/${encodeURIComponent(id)}/uom-conversions`).catch(() => ({ base_uom: "", conversions: [] as any[] })),
+        apiGet<{ policies: ItemWarehousePolicyRow[] }>(`/items/${encodeURIComponent(id)}/warehouse-policies`).catch(() => ({ policies: [] as any[] })),
+        apiGet<{ prices: ItemPriceRow[] }>(`/items/${encodeURIComponent(id)}/prices`).catch(() => ({ prices: [] as any[] })),
       ]);
       setItem(it.item || null);
       setBarcodes(bc.barcodes || []);
       setSuppliers(sup.suppliers || []);
       setTaxCodes(tc.tax_codes || []);
       setPriceSuggest((ps as any) || null);
+      setCategories((cats as any)?.categories || []);
+      setWarehouses((whs as any)?.warehouses || []);
+      setStock((st as any)?.stock || []);
+      setUomBase((uom as any)?.base_uom || "");
+      setUomConversions((uom as any)?.conversions || []);
+      setWarehousePolicies((pol as any)?.policies || []);
+      setLegacyPrices((pr as any)?.prices || []);
       const lists = pls?.lists || [];
       setPriceLists(lists);
       const settingDefault = (settings?.settings || []).find((s) => String(s?.key || "") === "default_price_list_id");
@@ -238,6 +336,14 @@ export default function ItemViewPage() {
       ]);
       setWholesaleEffective((wEff as any)?.effective || null);
       setRetailEffective((rEff as any)?.effective || null);
+
+      const tracked = Boolean(it.item?.track_batches || it.item?.track_expiry);
+      if (tracked) {
+        const sb = await apiGet<{ stock: StockBatchRow[] }>(`/inventory/stock?item_id=${encodeURIComponent(id)}&by_batch=1`).catch(() => ({ stock: [] as any[] }));
+        setStockBatches((sb as any)?.stock || []);
+      } else {
+        setStockBatches([]);
+      }
     } catch (e) {
       setItem(null);
       setBarcodes([]);
@@ -248,6 +354,14 @@ export default function ItemViewPage() {
       setDefaultPriceListId("");
       setWholesaleEffective(null);
       setRetailEffective(null);
+      setCategories([]);
+      setWarehouses([]);
+      setStock([]);
+      setStockBatches([]);
+      setUomBase("");
+      setUomConversions([]);
+      setWarehousePolicies([]);
+      setLegacyPrices([]);
       setErr(e);
     } finally {
       setLoading(false);
@@ -270,6 +384,164 @@ export default function ItemViewPage() {
     const pl = priceLists.find((l) => l.id === defaultPriceListId) || priceLists.find((l) => l.is_default) || null;
     return pl ? `${pl.code} · ${pl.name}` : "-";
   }, [priceLists, defaultPriceListId]);
+
+  const categoryById = useMemo(() => new Map(categories.map((c) => [String(c.id), c])), [categories]);
+  const categoryMeta = useMemo(() => (item?.category_id ? categoryById.get(String(item.category_id)) : undefined), [item?.category_id, categoryById]);
+
+  const warehouseById = useMemo(() => new Map(warehouses.map((w) => [String(w.id), w])), [warehouses]);
+
+  const preferredSupplierName = useMemo(() => {
+    const pid = String(item?.preferred_supplier_id || "").trim();
+    if (!pid) return "";
+    const s = suppliers.find((x) => String(x.supplier_id) === pid);
+    return s?.name || pid;
+  }, [item?.preferred_supplier_id, suppliers]);
+
+  const stockTotals = useMemo(() => {
+    let on_hand = 0;
+    let reserved = 0;
+    let available = 0;
+    let incoming = 0;
+    for (const r of stock || []) {
+      on_hand += Number((r as any)?.qty_on_hand || 0) || 0;
+      reserved += Number((r as any)?.reserved_qty || 0) || 0;
+      available += Number((r as any)?.qty_available || 0) || 0;
+      incoming += Number((r as any)?.incoming_qty || 0) || 0;
+    }
+    return { on_hand, reserved, available, incoming };
+  }, [stock]);
+
+  const stockColumns = useMemo((): Array<DataTableColumn<StockRow>> => {
+    return [
+      {
+        id: "warehouse",
+        header: "Warehouse",
+        sortable: true,
+        accessor: (r) => warehouseById.get(String(r.warehouse_id))?.name || r.warehouse_id,
+        cell: (r) => <span className="text-sm">{warehouseById.get(String(r.warehouse_id))?.name || shortId(String(r.warehouse_id))}</span>,
+      },
+      {
+        id: "qty_on_hand",
+        header: "On Hand",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number((r as any)?.qty_on_hand || 0),
+        cell: (r) => <span className="font-mono text-sm">{fmtQty((r as any)?.qty_on_hand)}</span>,
+      },
+      {
+        id: "reserved_qty",
+        header: "Reserved",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number((r as any)?.reserved_qty || 0),
+        cell: (r) => <span className="font-mono text-sm">{fmtQty((r as any)?.reserved_qty)}</span>,
+      },
+      {
+        id: "qty_available",
+        header: "Available",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number((r as any)?.qty_available || 0),
+        cell: (r) => <span className="font-mono text-sm">{fmtQty((r as any)?.qty_available)}</span>,
+      },
+      {
+        id: "incoming_qty",
+        header: "Incoming",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number((r as any)?.incoming_qty || 0),
+        cell: (r) => <span className="font-mono text-sm">{fmtQty((r as any)?.incoming_qty)}</span>,
+      },
+    ];
+  }, [warehouseById]);
+
+  const stockBatchColumns = useMemo((): Array<DataTableColumn<StockBatchRow>> => {
+    return [
+      {
+        id: "warehouse",
+        header: "Warehouse",
+        sortable: true,
+        accessor: (r) => warehouseById.get(String(r.warehouse_id))?.name || r.warehouse_id,
+        cell: (r) => <span className="text-sm">{warehouseById.get(String(r.warehouse_id))?.name || shortId(String(r.warehouse_id))}</span>,
+      },
+      {
+        id: "batch",
+        header: "Batch",
+        sortable: true,
+        mono: true,
+        accessor: (r) => String(r.batch_no || ""),
+        cell: (r) => <span className="font-mono text-xs">{String(r.batch_no || "-")}</span>,
+      },
+      {
+        id: "expiry",
+        header: "Expiry",
+        sortable: true,
+        mono: true,
+        accessor: (r) => String(r.expiry_date || ""),
+        cell: (r) => <span className="font-mono text-xs">{String(r.expiry_date || "-").slice(0, 10) || "-"}</span>,
+      },
+      {
+        id: "qty_on_hand",
+        header: "On Hand",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number((r as any)?.qty_on_hand || 0),
+        cell: (r) => <span className="font-mono text-sm">{fmtQty((r as any)?.qty_on_hand)}</span>,
+      },
+    ];
+  }, [warehouseById]);
+
+  const conversionColumns = useMemo((): Array<DataTableColumn<UomConversionRow>> => {
+    return [
+      {
+        id: "uom",
+        header: "UOM",
+        sortable: true,
+        mono: true,
+        accessor: (r) => r.uom_code,
+        cell: (r) => <span className="font-mono text-sm">{r.uom_code}</span>,
+      },
+      {
+        id: "name",
+        header: "Name",
+        sortable: true,
+        accessor: (r) => r.uom_name || "",
+        cell: (r) => <span className="text-sm text-fg-muted">{r.uom_name || ""}</span>,
+      },
+      {
+        id: "to_base_factor",
+        header: `To ${uomBase || "BASE"}`,
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.to_base_factor || 0),
+        cell: (r) => <span className="font-mono text-sm">{String(r.to_base_factor || "")}</span>,
+      },
+      {
+        id: "active",
+        header: "Active",
+        sortable: true,
+        accessor: (r) => (r.is_active ? "yes" : "no"),
+        cell: (r) => (r.is_active ? <Chip variant="success">yes</Chip> : <Chip variant="default">no</Chip>),
+      },
+    ];
+  }, [uomBase]);
+
+  const policyColumns = useMemo((): Array<DataTableColumn<ItemWarehousePolicyRow>> => {
+    return [
+      { id: "warehouse", header: "Warehouse", sortable: true, accessor: (p) => p.warehouse_name, cell: (p) => <span className="text-sm">{p.warehouse_name}</span> },
+      { id: "min", header: "Min", sortable: true, align: "right", mono: true, accessor: (p) => Number(p.min_stock || 0), cell: (p) => <span className="font-mono text-sm">{fmtQty(p.min_stock)}</span> },
+      { id: "max", header: "Max", sortable: true, align: "right", mono: true, accessor: (p) => Number(p.max_stock || 0), cell: (p) => <span className="font-mono text-sm">{fmtQty(p.max_stock)}</span> },
+      { id: "lead", header: "Lead (days)", sortable: true, align: "right", mono: true, accessor: (p) => Number(p.replenishment_lead_time_days || 0), cell: (p) => <span className="font-mono text-sm">{String(p.replenishment_lead_time_days ?? "-")}</span> },
+      { id: "supplier", header: "Preferred Supplier", sortable: true, accessor: (p) => p.preferred_supplier_name || "", cell: (p) => <span className="text-sm text-fg-muted">{p.preferred_supplier_name || "-"}</span> },
+      { id: "notes", header: "Notes", sortable: false, accessor: (p) => p.notes || "", cell: (p) => <span className="text-sm text-fg-muted">{p.notes || ""}</span> },
+    ];
+  }, []);
   const barcodeColumns = useMemo((): Array<DataTableColumn<ItemBarcode>> => {
     return [
       {
@@ -490,6 +762,8 @@ export default function ItemViewPage() {
               <SummaryField label="UOM" value={item.unit_of_measure || "-"} />
               <SummaryField label="Primary Barcode" value={item.barcode || "-"} copyText={item.barcode || ""} mono />
               <SummaryField label="Type" value={itemTypeLabel(item.item_type)} />
+              <SummaryField label="Category" value={item.category_id ? (categoryMeta?.name || shortId(item.category_id)) : "-"} hint={item.category_id ? `ID: ${shortId(item.category_id)}` : undefined} copyText={item.category_id || ""} />
+              <SummaryField label="Brand" value={item.brand || "-"} />
               <SummaryField
                 label="Tax"
                 value={
@@ -511,8 +785,172 @@ export default function ItemViewPage() {
                 }
                 mono
               />
+              <SummaryField label="Standard Cost" value={`${fmtUsd(item.standard_cost_usd || 0)} · ${fmtLbp(item.standard_cost_lbp || 0)}`} />
+              <SummaryField label="Costing Method" value={String(item.costing_method || "-").toUpperCase()} />
+              <SummaryField label="Min Margin" value={item.min_margin_pct != null ? fmtPctFrac(item.min_margin_pct) : "-"} />
+              <SummaryField label="Purchase / Sales UOM" value={`${String(item.purchase_uom_code || "-").toUpperCase()} / ${String(item.sales_uom_code || "-").toUpperCase()}`} mono />
+              <SummaryField label="Case / Inner Pack" value={`${String(item.case_pack_qty ?? "-")} / ${String(item.inner_pack_qty ?? "-")}`} mono />
+              <SummaryField label="Preferred Supplier" value={preferredSupplierName || "-"} hint={item.preferred_supplier_id ? `ID: ${shortId(item.preferred_supplier_id)}` : undefined} copyText={item.preferred_supplier_id || ""} />
+              <SummaryField label="Weight / Volume" value={`${String(item.weight ?? "-")} / ${String(item.volume ?? "-")}`} mono />
+              <SummaryField label="Created" value={fmtIso(item.created_at)} mono />
+              <SummaryField label="Updated" value={fmtIso(item.updated_at)} mono />
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Details</CardTitle>
+              <CardDescription>Operational flags, tags, and long text.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Chip variant={item.track_batches ? "primary" : "default"}>{item.track_batches ? "batches: on" : "batches: off"}</Chip>
+                <Chip variant={item.track_expiry ? "primary" : "default"}>{item.track_expiry ? "expiry: on" : "expiry: off"}</Chip>
+                <Chip variant={item.allow_negative_stock ? "default" : "success"}>{item.allow_negative_stock ? "negative stock: allowed" : "negative stock: blocked"}</Chip>
+                <Chip variant={item.is_excise ? "primary" : "default"}>{item.is_excise ? "excise: yes" : "excise: no"}</Chip>
+                {item.tax_category ? <Chip variant="default">{`tax category: ${String(item.tax_category).toLowerCase()}`}</Chip> : null}
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Short Name</div>
+                  <div className="mt-1 text-sm text-foreground">{item.short_name || "-"}</div>
+                </div>
+                <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Shelf Life</div>
+                  <div className="mt-1 text-sm text-foreground">
+                    Default {String(item.default_shelf_life_days ?? "-")}d · Min for sale {String(item.min_shelf_life_days_for_sale ?? "-")}d · Warn {String(item.expiry_warning_days ?? "-")}d
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Tags</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(item.tags || []).length ? (item.tags || []).map((t) => <Chip key={t} variant="default">{t}</Chip>) : <span className="text-sm text-fg-subtle">No tags.</span>}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+                <div className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Description</div>
+                <div className="mt-2 whitespace-pre-wrap text-sm text-foreground">{item.description || "-"}</div>
+              </div>
+
+              {item.external_ids ? (
+                <details className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+                  <summary className="cursor-pointer text-sm font-medium text-foreground">External IDs</summary>
+                  <pre className="mt-3 whitespace-pre-wrap text-xs text-fg-muted">{JSON.stringify(item.external_ids, null, 2)}</pre>
+                </details>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Inventory</CardTitle>
+              <CardDescription>
+                On-hand, reserved (draft invoices with reserve_stock), available, and incoming (posted POs not fully received).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <SummaryField label="Total On Hand" value={fmtQty(stockTotals.on_hand)} mono />
+                <SummaryField label="Total Reserved" value={fmtQty(stockTotals.reserved)} mono />
+                <SummaryField label="Total Available" value={fmtQty(stockTotals.available)} mono />
+                <SummaryField label="Total Incoming" value={fmtQty(stockTotals.incoming)} mono />
+              </div>
+
+              <DataTable<StockRow>
+                tableId="catalog.item.stock"
+                rows={stock}
+                columns={stockColumns}
+                getRowId={(r) => `${r.warehouse_id}`}
+                emptyText="No stock moves yet."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "warehouse", dir: "asc" }}
+              />
+
+              {(item.track_batches || item.track_expiry) ? (
+                <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                  <summary className="cursor-pointer text-sm font-medium text-foreground">Batches</summary>
+                  <div className="mt-3">
+                    <DataTable<StockBatchRow>
+                      tableId="catalog.item.stockBatches"
+                      rows={stockBatches}
+                      columns={stockBatchColumns}
+                      getRowId={(r) => `${r.warehouse_id}:${r.batch_id || r.batch_no || ""}:${r.expiry_date || ""}`}
+                      emptyText="No batch stock yet."
+                      enableGlobalFilter={false}
+                      initialSort={{ columnId: "expiry", dir: "asc" }}
+                    />
+                  </div>
+                </details>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>UOM Conversions</CardTitle>
+              <CardDescription>How non-base units convert into the base UOM for inventory.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable<UomConversionRow>
+                tableId="catalog.item.uomConversions"
+                rows={uomConversions}
+                columns={conversionColumns}
+                getRowId={(r) => r.uom_code}
+                emptyText="No conversions."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "uom", dir: "asc" }}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Warehouse Policies</CardTitle>
+              <CardDescription>Per-warehouse min/max and replenishment hints.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DataTable<ItemWarehousePolicyRow>
+                tableId="catalog.item.warehousePolicies"
+                rows={warehousePolicies}
+                columns={policyColumns}
+                getRowId={(p) => p.id}
+                emptyText="No warehouse policies."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "warehouse", dir: "asc" }}
+              />
+            </CardContent>
+          </Card>
+
+          {legacyPrices.length ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Legacy Item Prices</CardTitle>
+                <CardDescription>`item_prices` history (if used). Modern pricing uses price lists.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm text-fg-muted">
+                <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                  <summary className="cursor-pointer text-sm font-medium text-foreground">Show history ({legacyPrices.length})</summary>
+                  <div className="mt-3 space-y-2">
+                    {legacyPrices.slice(0, 25).map((p) => (
+                      <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                        <span className="font-mono text-xs text-fg-subtle">
+                          {String(p.effective_from).slice(0, 10)}
+                          {p.effective_to ? ` → ${String(p.effective_to).slice(0, 10)}` : ""}
+                        </span>
+                        <span className="data-mono text-xs text-foreground">
+                          {fmtUsd(p.price_usd)} · {fmtLbp(p.price_lbp)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>

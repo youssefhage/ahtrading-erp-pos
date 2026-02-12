@@ -689,6 +689,7 @@ def get_item(item_id: str, company_id: str = Depends(get_company_id)):
                        i.weight, i.volume,
                        i.external_ids,
                        i.image_attachment_id, i.image_alt,
+                       i.created_at, i.updated_at,
                        COALESCE(
                          (
                            SELECT json_agg(json_build_object('barcode', b.barcode) ORDER BY b.barcode)
