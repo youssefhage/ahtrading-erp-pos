@@ -41,11 +41,19 @@ function classify(err: unknown): { title: string; hint?: string; status?: number
   }
   if (err instanceof ApiError) {
     const st = err.status;
+    const requestId = err.requestId;
     if (st === 401) return { title: "Signed out", hint: "Please sign in again.", status: st, raw: err.body ?? err.message, tone: "warning" };
     if (st === 403) return { title: "Permission missing", hint: "You may not have access to this action.", status: st, raw: err.body ?? err.message, tone: "warning" };
     if (st === 409) return { title: "Conflict", hint: "This change conflicts with existing data (duplicate or already processed).", status: st, raw: err.body ?? err.message, tone: "warning" };
     if (st === 422) return { title: "Invalid input", hint: "Please check the fields and try again.", status: st, raw: err.body ?? err.message, tone: "warning" };
-    return { title: "Request failed", hint: "Please retry. If it keeps failing, share the details with support.", status: st, raw: err.body ?? err.message, tone: "danger" };
+    const suffix = requestId ? ` Request ID: ${requestId}.` : "";
+    return {
+      title: "Request failed",
+      hint: `Please retry. If it keeps failing, share the details with support.${suffix}`,
+      status: st,
+      raw: err.body ?? err.message,
+      tone: "danger"
+    };
   }
   if (err instanceof Error) return { title: "Something went wrong", hint: err.message, raw: String(err.stack || err.message), tone: "danger" };
   return { title: "Something went wrong", hint: String(err || ""), raw: err, tone: "danger" };

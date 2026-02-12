@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   TrendingUp,
@@ -17,7 +17,7 @@ import {
   Truck
 } from "lucide-react";
 
-import { apiGet } from "@/lib/api";
+import { ApiError, apiGet } from "@/lib/api";
 import { getFxRateUsdToLbp, upsertFxRateUsdToLbp } from "@/lib/fx";
 import { cn } from "@/lib/utils";
 import { Banner } from "@/components/ui/banner";
@@ -41,6 +41,16 @@ type Metrics = {
   customers_count: number;
   suppliers_count: number;
   low_stock_count: number;
+};
+
+type ApiHealth = {
+  status: "ok" | "ready" | "degraded";
+  env: string;
+  db: "ok" | "down";
+  service: string;
+  version?: string;
+  request_id?: string;
+  error?: string;
 };
 
 function fmtNumber(value: string | number) {
@@ -223,7 +233,14 @@ export default function DashboardPage() {
   const [aiSummary, setAiSummary] = useState<Record<string, number>>({});
   const [status, setStatus] = useState<string>("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [apiHealth, setApiHealth] = useState<ApiHealth | null>(null);
+  const [dataIsStale, setDataIsStale] = useState(false);
+  const [lastErrorRequestId, setLastErrorRequestId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [hasLoadedMetrics, setHasLoadedMetrics] = useState(false);
+  const hasLoadedMetricsRef = useRef(false);
+  const metricsRef = useRef<Metrics | null>(null);
+  const refreshingRef = useRef(false);
   const [fxLoading, setFxLoading] = useState(true);
   const [usdToLbp, setUsdToLbp] = useState("90000");
   const [savingFx, setSavingFx] = useState(false);
@@ -244,27 +261,70 @@ export default function DashboardPage() {
     }
   }
 
+  async function loadDashboard() {
+    const [metricsResult, aiResult, healthResult] = await Promise.allSettled([
+      apiGet<{ metrics: Metrics }>("/reports/metrics"),
+      apiGet<{ rows: { agent_code: string; status: string; count: number }[] }>(
+        "/ai/recommendations/summary?status=pending"
+      ),
+      apiGet<ApiHealth>("/health")
+    ]);
+
+    const nextAiSummary: Record<string, number> = {};
+    let metricLoadFailed = false;
+
+    if (metricsResult.status === "fulfilled") {
+      setMetrics(metricsResult.value.metrics);
+      setHasLoadedMetrics(true);
+      hasLoadedMetricsRef.current = true;
+      setDataIsStale(false);
+    } else {
+      metricLoadFailed = true;
+      setDataIsStale(Boolean(metricsRef.current));
+      setLastErrorRequestId(metricsResult.reason instanceof ApiError ? metricsResult.reason.requestId || null : null);
+      if (!hasLoadedMetricsRef.current) setMetrics(null);
+      const msg = metricsResult.reason instanceof Error ? metricsResult.reason.message : String(metricsResult.reason);
+      setStatus(msg);
+    }
+
+    if (aiResult.status === "fulfilled") {
+      for (const r of aiResult.value.rows || []) {
+        nextAiSummary[String(r.agent_code)] = Number(r.count || 0);
+      }
+      setAiSummary(nextAiSummary);
+    } else {
+      setAiSummary({});
+    }
+
+    if (healthResult.status === "fulfilled") {
+      setApiHealth(healthResult.value);
+    } else {
+      setApiHealth({
+        status: "degraded",
+        env: "unknown",
+        db: "down",
+        service: "ahtrading-backend",
+        error: healthResult.reason instanceof Error ? healthResult.reason.message : String(healthResult.reason)
+      });
+    }
+
+    setLastUpdatedAt(new Date());
+    if (!metricLoadFailed) {
+      setStatus("");
+      setLastErrorRequestId(null);
+    }
+  }
+
+  useEffect(() => {
+    metricsRef.current = metrics;
+    hasLoadedMetricsRef.current = hasLoadedMetrics;
+  }, [metrics, hasLoadedMetrics]);
+
   useEffect(() => {
     async function run() {
       setStatus("Loading...");
       try {
-        const res = await apiGet<{ metrics: Metrics }>("/reports/metrics");
-        setMetrics(res.metrics);
-
-        // AI is optional: don't block the dashboard if ai:read is missing.
-        try {
-          const ai = await apiGet<{ rows: { agent_code: string; status: string; count: number }[] }>(
-            "/ai/recommendations/summary?status=pending"
-          );
-          const next: Record<string, number> = {};
-          for (const r of ai.rows || []) next[String(r.agent_code)] = Number(r.count || 0);
-          setAiSummary(next);
-        } catch {
-          setAiSummary({});
-        }
-
-        setLastUpdatedAt(new Date());
-        setStatus("");
+        await loadDashboard();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setStatus(message);
@@ -277,41 +337,33 @@ export default function DashboardPage() {
     loadFx();
   }, []);
 
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.hidden || refreshingRef.current) return;
+      void refresh();
+    }, 60000);
+    return () => window.clearInterval(id);
+  }, []);
+
   async function refresh() {
+    if (refreshingRef.current) return;
     setRefreshing(true);
+    refreshingRef.current = true;
     try {
-      const res = await apiGet<{ metrics: Metrics }>("/reports/metrics");
-      setMetrics(res.metrics);
-
+      await loadDashboard();
+      // Best-effort: keep the rate card in sync on manual refresh.
       try {
-        const ai = await apiGet<{ rows: { agent_code: string; status: string; count: number }[] }>(
-          "/ai/recommendations/summary?status=pending"
-        );
-        const next: Record<string, number> = {};
-        for (const r of ai.rows || []) next[String(r.agent_code)] = Number(r.count || 0);
-        setAiSummary(next);
+        await loadFx();
       } catch {
-        setAiSummary({});
-      }
-
-      setLastUpdatedAt(new Date());
-      setStatus("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
-    } finally {
-      setRefreshing(false);
-    }
-
-    // Best-effort: keep the rate card in sync on manual refresh.
-    try {
-      await loadFx();
-    } catch {
       // ignore
+      }
+    } finally {
+      refreshingRef.current = false;
+      setRefreshing(false);
     }
   }
 
-  const isLoading = !metrics && status === "Loading...";
+  const isLoading = !hasLoadedMetrics && status === "Loading...";
 
   return (
     <div className="space-y-6">
@@ -319,7 +371,10 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
-          <p className="text-sm text-fg-subtle">Overview of your business metrics and activity</p>
+          <p className="text-sm text-fg-subtle">
+            Overview of your business metrics and activity
+            {apiHealth?.version ? ` · v${apiHealth.version}` : ""}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {lastUpdatedAt && (
@@ -348,7 +403,7 @@ export default function DashboardPage() {
         <Banner
           variant="danger"
           title="Error loading metrics"
-          description={status}
+          description={lastErrorRequestId ? `${status} (request ${lastErrorRequestId})` : status}
           actions={
             <Button variant="secondary" size="sm" onClick={refresh} disabled={refreshing} className="gap-2">
               <RefreshCw className={refreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
@@ -549,7 +604,21 @@ export default function DashboardPage() {
             <CardDescription>Health indicators</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <StatusIndicator label="Database" value="Connected" status="good" />
+            <StatusIndicator
+              label="API"
+              value={apiHealth ? apiHealth.status : "checking"}
+              status={apiHealth?.status === "ok" || apiHealth?.status === "ready" ? "good" : "warning"}
+            />
+            <StatusIndicator
+              label="Database"
+              value={apiHealth ? apiHealth.db : "-"}
+              status={apiHealth?.db === "ok" ? "good" : "critical"}
+            />
+            <StatusIndicator
+              label="Data Freshness"
+              value={dataIsStale ? "stale" : "fresh"}
+              status={dataIsStale ? "warning" : "good"}
+            />
             <StatusIndicator label="POS Integration" value="Active" status="good" />
             <StatusIndicator label="Outbox Queue" value={metrics ? fmtNumber(0) : "-"} status="good" />
             <StatusIndicator

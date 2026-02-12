@@ -1,13 +1,13 @@
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.exceptions import RequestValidationError
 from psycopg import errors as pg_errors
 import json
-import os
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from .routers.pos import router as pos_router
 from .routers.companies import router as companies_router
 from .routers.branches import router as branches_router
@@ -50,7 +50,12 @@ from .routers.auth import router as auth_router
 from .deps import require_company_access
 from .db import get_admin_conn, close_pools
 
-app = FastAPI(title="AH Trading ERP/POS API", version="0.1.0")
+app = FastAPI(title="AH Trading ERP/POS API", version=settings.api_version)
+STARTED_AT_UTC = datetime.now(timezone.utc)
+
+
+def _current_request_id(req: Request) -> str:
+    return getattr(req.state, "request_id", "") or req.headers.get("x-request-id") or "startup"
 
 def _is_downloads_host(request: Request) -> bool:
     """
@@ -58,15 +63,20 @@ def _is_downloads_host(request: Request) -> bool:
     We only want the "downloads landing page redirects" for that host,
     not for the main API domains.
     """
-    host = (request.headers.get("host") or "").split(":", 1)[0].strip().lower()
+    raw_host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("x-original-host")
+        or request.headers.get("host")
+        or ""
+    )
+    host = raw_host.split(",", 1)[0].split(":", 1)[0].strip().lower()
     if not host:
         return False
-    allowed_raw = (os.getenv("DOWNLOADS_HOSTS") or "download.melqard.com").strip()
-    allowed = {h.strip().lower() for h in allowed_raw.split(",") if h.strip()}
+    allowed = {h.strip().lower() for h in settings.download_hosts}
     return host in allowed
 
 def _json_log(level: str, event: str, **fields):
-    rec = {"ts": datetime.utcnow().isoformat(), "level": level, "event": event, **fields}
+    rec = {"ts": datetime.now(timezone.utc).isoformat(), "level": level, "event": event, **fields}
     print(json.dumps(rec, default=str), file=sys.stderr)
 
 # Map common DB constraint/cast errors to 4xx so clients get actionable responses
@@ -103,6 +113,31 @@ def _check_violation(_req: Request, exc: Exception):
         content["error"] = str(exc)
     return JSONResponse(status_code=400, content=content)
 
+
+@app.exception_handler(RequestValidationError)
+def _request_validation_error(_req: Request, exc: Exception):
+    content = {"detail": "validation failed"}
+    if settings.env in {"local", "dev"} and hasattr(exc, "errors"):
+        content["errors"] = exc.errors()
+    return JSONResponse(status_code=422, content=content)
+
+
+@app.exception_handler(Exception)
+def _unhandled_exception(req: Request, exc: Exception):
+    rid = _current_request_id(req)
+    _json_log(
+        "error",
+        "http.request.unhandled",
+        request_id=rid,
+        method=req.method,
+        path=req.url.path,
+        error=str(exc),
+    )
+    content = {"detail": "internal error", "request_id": rid}
+    if settings.env in {"local", "dev"}:
+        content["error"] = str(exc)
+    return JSONResponse(status_code=500, content=content)
+
 # Correlation id + basic structured request logging.
 @app.middleware("http")
 async def _request_logging(request: Request, call_next):
@@ -130,6 +165,8 @@ async def _request_logging(request: Request, call_next):
         raise
 
     response.headers["X-Request-Id"] = rid
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     if path != "/health":
         dur_ms = int((time.time() - started) * 1000)
         _json_log(
@@ -196,6 +233,14 @@ app.include_router(devtools_router, dependencies=[Depends(require_company_access
 def _startup():
     # Keep download.melqard.com landing page in sync via the shared /updates volume.
     sync_downloads_site_to_updates()
+    try:
+        with get_admin_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 AS ok")
+                cur.fetchone()
+        _json_log("info", "startup.db_connected", env=settings.env, version=settings.api_version)
+    except Exception as exc:
+        _json_log("warning", "startup.db_probe_failed", env=settings.env, error=str(exc))
 
 @app.on_event("shutdown")
 def _shutdown():
@@ -238,27 +283,88 @@ def downloads_icon_512_redirect(request: Request):
         return RedirectResponse(url="/updates/site/icon-512.png", status_code=307)
     raise HTTPException(status_code=404, detail="not found")
 
-@app.get("/health")
-def health():
+
+def _db_health():
     try:
         with get_admin_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT 1 AS ok")
                 cur.fetchone()
-        return {
-            "status": "ok",
-            "env": settings.env,
-            "db": "ok",
-        }
+        return True, None
     except Exception as exc:
-        content = {"status": "degraded", "env": settings.env, "db": "down"}
+        return False, str(exc)
+
+
+@app.get("/health")
+def health(req: Request):
+    request_id = _current_request_id(req)
+    ok, err = _db_health()
+    if not ok:
+        content = {
+            "status": "degraded",
+            "env": settings.env,
+            "db": "down",
+            "service": "ahtrading-backend",
+            "version": settings.api_version,
+            "started_at": STARTED_AT_UTC.isoformat(),
+            "request_id": request_id,
+        }
         if settings.env in {"local", "dev"}:
-            content["error"] = str(exc)
+            content["error"] = err
         return JSONResponse(status_code=503, content=content)
+    return {
+        "status": "ok",
+        "env": settings.env,
+        "db": "ok",
+        "service": "ahtrading-backend",
+        "version": settings.api_version,
+        "started_at": STARTED_AT_UTC.isoformat(),
+        "request_id": request_id,
+    }
+
+
+@app.get("/health/live")
+def health_live(req: Request):
+    return {
+        "status": "ok",
+        "env": settings.env,
+        "service": "ahtrading-backend",
+        "request_id": _current_request_id(req),
+    }
+
+
+@app.get("/health/ready")
+def health_ready(req: Request):
+    request_id = _current_request_id(req)
+    ok, err = _db_health()
+    if not ok:
+        content = {
+            "status": "degraded",
+            "env": settings.env,
+            "db": "down",
+            "service": "ahtrading-backend",
+            "version": settings.api_version,
+            "request_id": request_id,
+        }
+        if settings.env in {"local", "dev"}:
+            content["error"] = err
+        return JSONResponse(status_code=503, content=content)
+    return {
+        "status": "ready",
+        "env": settings.env,
+        "db": "ok",
+        "service": "ahtrading-backend",
+        "version": settings.api_version,
+        "request_id": request_id,
+    }
+
 
 @app.get("/meta")
 def meta():
     return {
         "service": "ahtrading-backend",
-        "version": app.version,
+        "version": settings.api_version,
+        "env": settings.env,
+        "uptime_seconds": int((datetime.now(timezone.utc) - STARTED_AT_UTC).total_seconds()),
+        "started_at": STARTED_AT_UTC.isoformat(),
     }

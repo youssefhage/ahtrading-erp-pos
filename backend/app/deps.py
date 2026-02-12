@@ -17,6 +17,15 @@ def _extract_session_token(authorization: Optional[str], cookie_token: Optional[
     raise HTTPException(status_code=401, detail="missing token")
 
 
+def _normalize_company_id(raw: str) -> str:
+    if not raw:
+        raise HTTPException(status_code=400, detail="missing company id")
+    try:
+        return str(uuid.UUID(str(raw)))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="invalid company id")
+
+
 def get_session(
     authorization: Optional[str] = Header(None),
     cookie_token: Optional[str] = Cookie(None, alias=SESSION_COOKIE_NAME),
@@ -69,9 +78,9 @@ def get_company_id(
     session=Depends(get_session),
 ) -> str:
     if x_company_id:
-        return x_company_id
+        return _normalize_company_id(x_company_id)
     if session.get("active_company_id"):
-        return str(session["active_company_id"])
+        return _normalize_company_id(session["active_company_id"])
     raise HTTPException(status_code=400, detail="missing company id")
 
 
