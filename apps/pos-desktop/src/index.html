@@ -7,21 +7,25 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="wrap">
-      <header class="hdr">
-        <div class="logo">POS</div>
-        <div>
-          <h1>Melqard POS Desktop</h1>
-          <p>Connects to your POS server, queues sales offline</p>
+    <main class="app-shell">
+      <div class="surface-glow glow-one" aria-hidden="true"></div>
+      <div class="surface-glow glow-two" aria-hidden="true"></div>
+      <header class="topbar glass">
+        <div class="topbar-left">
+          <div class="brand-mark">POS</div>
+          <div>
+            <h1>Melqard POS Desktop</h1>
+            <p>Setup for local POS agents with compact, enterprise-ready controls.</p>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <div id="appVersion" class="app-version muted"></div>
         </div>
       </header>
-      <div id="appVersion" class="app-version muted"></div>
 
-      <section class="card">
-        <h2>Setup</h2>
-        <p class="muted">
-          Recommended: Quick Setup (login once, pick companies, start). For on-prem you can still paste a Setup Pack.
-        </p>
+      <section class="glass card-setup">
+        <h2>Store Setup</h2>
+        <p class="muted">Recommended: Quick Setup (login once, select your companies, start). Use Setup Pack only for on-prem or manual workflows.</p>
 
         <label class="field">
           <span>API URL</span>
@@ -29,13 +33,15 @@
         </label>
 
         <div class="callout">
-          <h3>Quick Setup (Recommended)</h3>
+          <div class="callout-head">
+            <h3>Quick Setup</h3>
+            <span class="status-chip">Supported by backend</span>
+          </div>
           <p class="muted">
-            Enter your API URL and account, then select the companies you want the POS to issue invoices under.
-            We will register this terminal as a POS device and fill the config automatically.
+            Sign in to your portal account, pick Official and Unofficial companies, then generate and start the POS locally.
           </p>
 
-          <div class="grid2">
+          <div class="grid2 compact">
             <label class="field">
               <span>Email</span>
               <input id="setupEmail" placeholder="name@company.com" autocomplete="username" />
@@ -46,23 +52,23 @@
             </label>
           </div>
 
-	          <div id="setupMfaWrap" class="grid2" style="display: none;">
-	            <label class="field">
-	              <span>MFA Code</span>
-	              <input id="setupMfaCode" inputmode="numeric" placeholder="123456" />
-	            </label>
-	            <div class="field">
-	              <span>&nbsp;</span>
-	              <button id="setupVerifyMfaBtn" class="ghost" type="button">Verify MFA</button>
-	            </div>
-	          </div>
+          <div id="setupMfaWrap" class="grid2 compact mfa-wrap" style="display: none;">
+            <label class="field">
+              <span>MFA Code</span>
+              <input id="setupMfaCode" inputmode="numeric" placeholder="123456" />
+            </label>
+            <label class="field field-inline-btn">
+              <span>&nbsp;</span>
+              <button id="setupVerifyMfaBtn" class="ghost" type="button">Verify MFA</button>
+            </label>
+          </div>
 
-	          <div class="row" style="margin-top: 6px;">
-	            <button id="setupLoginBtn" class="primary" type="button">Login</button>
-	            <button id="setupClearBtn" class="ghost" type="button">Clear</button>
-	          </div>
+          <div class="row compact">
+            <button id="setupLoginBtn" class="primary" type="button">Login</button>
+            <button id="setupClearBtn" class="ghost" type="button">Clear</button>
+          </div>
 
-          <div class="grid2">
+          <div class="grid2 compact">
             <label class="field">
               <span>Official Company</span>
               <select id="setupCompanyOfficial"></select>
@@ -78,7 +84,7 @@
             <select id="setupBranch"></select>
           </label>
 
-          <div class="grid2">
+          <div class="grid2 compact">
             <label class="field">
               <span>Official Device Code</span>
               <input id="setupDeviceCodeOfficial" value="POS-OFFICIAL-01" />
@@ -89,94 +95,101 @@
             </label>
           </div>
 
-	          <div class="row">
-	            <button id="setupApplyBtn" class="primary" type="button">Generate Setup + Start POS</button>
-	          </div>
-          <div id="setupNote" class="status muted"></div>
+          <div class="row compact">
+            <button id="setupApplyBtn" class="primary" type="button">Generate Setup + Start POS</button>
+          </div>
+          <div id="setupNote" class="status muted setup-note"></div>
         </div>
 
         <details class="advanced">
           <summary>Setup Pack (on-prem / advanced)</summary>
-          <label class="field">
-            <span>Setup Pack (paste JSON)</span>
-            <textarea id="setupPack" rows="6" placeholder='{"edgeUrl":"http://192.168.1.50:8001", "...": "..."}'></textarea>
-          </label>
-	          <div class="row" style="margin-top: 6px;">
-	            <button id="applyPackBtn" class="ghost" type="button">Apply Pack</button>
-	            <button id="clearPackBtn" class="ghost" type="button">Clear</button>
-	          </div>
+          <div class="details-body">
+            <label class="field">
+              <span>Setup Pack (paste JSON)</span>
+              <textarea id="setupPack" rows="5" placeholder='{"edgeUrl":"http://192.168.1.50:8001", "...": "..."}'></textarea>
+            </label>
+            <div class="row compact">
+              <button id="applyPackBtn" class="ghost" type="button">Apply Pack</button>
+              <button id="clearPackBtn" class="ghost" type="button">Clear</button>
+            </div>
+          </div>
         </details>
 
         <details class="advanced">
-          <summary>Advanced (optional)</summary>
-          <p class="muted">
-            For each company you must paste a POS device token (created in Admin -> System -> POS Devices).
-            After first Sync, the agent auto-pulls default warehouse + VAT settings.
-          </p>
-          <div class="grid2">
-            <label class="field">
-              <span>Official Agent Port</span>
-              <input id="portOfficial" type="number" value="7070" />
-            </label>
-            <label class="field">
-              <span>Unofficial Agent Port</span>
-              <input id="portUnofficial" type="number" value="7072" />
-            </label>
-          </div>
+          <summary>Advanced</summary>
+          <div class="details-body">
+            <p class="muted">
+              For each company, set POS device credentials created in Admin → System → POS Devices.
+              The agent pulls defaults after first sync.
+            </p>
+            <div class="grid2 compact">
+              <label class="field">
+                <span>Official Agent Port</span>
+                <input id="portOfficial" type="number" value="7070" />
+              </label>
+              <label class="field">
+                <span>Unofficial Agent Port</span>
+                <input id="portUnofficial" type="number" value="7072" />
+              </label>
+            </div>
 
-          <div class="grid2">
-            <label class="field">
-              <span>Official Company ID</span>
-              <input id="companyOfficial" placeholder="00000000-0000-0000-0000-000000000001" />
-            </label>
-            <label class="field">
-              <span>Unofficial Company ID</span>
-              <input id="companyUnofficial" placeholder="00000000-0000-0000-0000-000000000002" />
-            </label>
-          </div>
+            <div class="grid2 compact">
+              <label class="field">
+                <span>Official Company ID</span>
+                <input id="companyOfficial" placeholder="00000000-0000-0000-0000-000000000001" />
+              </label>
+              <label class="field">
+                <span>Unofficial Company ID</span>
+                <input id="companyUnofficial" placeholder="00000000-0000-0000-0000-000000000002" />
+              </label>
+            </div>
 
-          <div class="grid2">
-            <label class="field">
-              <span>Official Device ID</span>
-              <input id="deviceIdOfficial" placeholder="UUID from Portal" />
-            </label>
-            <label class="field">
-              <span>Official Device Token</span>
-              <input id="deviceTokenOfficial" placeholder="Token from Portal" />
-            </label>
-          </div>
+            <div class="grid2 compact">
+              <label class="field">
+                <span>Official Device ID</span>
+                <input id="deviceIdOfficial" placeholder="UUID from Portal" />
+              </label>
+              <label class="field">
+                <span>Official Device Token</span>
+                <input id="deviceTokenOfficial" placeholder="Token from Portal" />
+              </label>
+            </div>
 
-          <div class="grid2">
-            <label class="field">
-              <span>Unofficial Device ID</span>
-              <input id="deviceIdUnofficial" placeholder="UUID from Portal" />
-            </label>
-            <label class="field">
-              <span>Unofficial Device Token</span>
-              <input id="deviceTokenUnofficial" placeholder="Token from Portal" />
-            </label>
+            <div class="grid2 compact">
+              <label class="field">
+                <span>Unofficial Device ID</span>
+                <input id="deviceIdUnofficial" placeholder="UUID from Portal" />
+              </label>
+              <label class="field">
+                <span>Unofficial Device Token</span>
+                <input id="deviceTokenUnofficial" placeholder="Token from Portal" />
+              </label>
+            </div>
           </div>
         </details>
+      </section>
 
-        <div class="row">
+      <section class="glass card-compact">
+        <h2>Runtime Actions</h2>
+        <div class="actions-row">
           <button id="startBtn" class="primary">Start POS</button>
-          <button id="openBtn" class="ghost">Open POS (if already running)</button>
+          <button id="openBtn" class="ghost">Open POS</button>
           <button id="updateBtn" class="ghost">Check Updates</button>
           <button id="updateDownloadBtn" class="ghost update-download" type="button" disabled>
             <span>Download Update</span>
             <span id="updateBadge" class="update-pill">No update available</span>
           </button>
         </div>
-        <div class="row" style="margin-top: 6px;">
+        <div class="actions-row">
           <button id="diagBtn" class="ghost">Connection Diagnostics</button>
           <button id="showDesktopLogsBtn" class="ghost" type="button">Show Desktop Logs</button>
           <button id="copyDebugBtn" class="ghost" type="button">Copy Debug Report</button>
         </div>
         <div id="status" class="status"></div>
-        <div id="diag" class="status muted" style="white-space: pre-wrap; margin-top: 6px;"></div>
+        <div id="diag" class="status muted"></div>
       </section>
 
-      <section class="card small">
+      <section class="glass card-notes">
         <h2>Notes</h2>
         <ul>
           <li>This app starts 2 local agents: Official + Unofficial.</li>
