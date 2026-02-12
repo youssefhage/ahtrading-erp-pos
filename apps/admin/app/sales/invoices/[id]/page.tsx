@@ -156,6 +156,68 @@ function SalesInvoiceShowInner() {
     return new Map((taxCodes || []).map((t) => [String(t.id), t]));
   }, [taxCodes]);
 
+  const taxBreakdown = useMemo(() => {
+    const lines = detail?.tax_lines || [];
+    const acc = new Map<
+      string,
+      {
+        tax_code_id: string;
+        label: string;
+        ratePct: number | null;
+        base_usd: number;
+        base_lbp: number;
+        tax_usd: number;
+        tax_lbp: number;
+      }
+    >();
+
+    for (const t of lines) {
+      const id = String((t as any)?.tax_code_id || "").trim();
+      if (!id) continue;
+      const tc = taxById.get(id);
+      const label = tc?.name ? String(tc.name) : id;
+      const ratePct = tc ? taxRateToPercent(tc.rate) : null;
+
+      const prev = acc.get(id) || {
+        tax_code_id: id,
+        label,
+        ratePct,
+        base_usd: 0,
+        base_lbp: 0,
+        tax_usd: 0,
+        tax_lbp: 0,
+      };
+
+      prev.base_usd += n((t as any)?.base_usd);
+      prev.base_lbp += n((t as any)?.base_lbp);
+      prev.tax_usd += n((t as any)?.tax_usd);
+      prev.tax_lbp += n((t as any)?.tax_lbp);
+      // Keep the most-informative label/rate if tax codes loaded after initial render.
+      prev.label = label;
+      prev.ratePct = ratePct;
+
+      acc.set(id, prev);
+    }
+
+    const out = Array.from(acc.values());
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  }, [detail?.tax_lines, taxById]);
+
+  const taxBreakdownTotals = useMemo(() => {
+    let base_usd = 0;
+    let base_lbp = 0;
+    let tax_usd = 0;
+    let tax_lbp = 0;
+    for (const r of taxBreakdown) {
+      base_usd += n(r.base_usd);
+      base_lbp += n(r.base_lbp);
+      tax_usd += n(r.tax_usd);
+      tax_lbp += n(r.tax_lbp);
+    }
+    return { base_usd, base_lbp, tax_usd, tax_lbp };
+  }, [taxBreakdown]);
+
   const invoiceLineColumns = useMemo((): Array<DataTableColumn<InvoiceLine>> => {
     return [
       {
@@ -844,30 +906,94 @@ function SalesInvoiceShowInner() {
                             </div>
                           ) : null}
 
-                          {detail.tax_lines.map((t) => {
-                            const tc = taxById.get(String(t.tax_code_id));
-                            const label = tc?.name ? `${tc.name}` : t.tax_code_id;
-                            const ratePct = tc ? taxRateToPercent(tc.rate) : null;
-                            return (
-                              <div key={t.id} className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="data-mono">
-                                    {label}
-                                    {ratePct !== null ? <span className="text-fg-subtle"> · {ratePct.toFixed(2)}%</span> : null}
-                                  </span>
-                                  <span className="data-mono text-foreground">
-                                    {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
+                          {detail.invoice.status !== "draft" && taxBreakdown.length ? (
+                            <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Tax breakdown</span>
+                                <span className="text-[11px] text-fg-subtle">{taxBreakdown.length} code(s)</span>
+                              </div>
+
+                              <div className="mt-2 space-y-1">
+                                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-[11px] text-fg-subtle">
+                                  <span>Code</span>
+                                  <span className="text-right">Tax</span>
+                                </div>
+                                {taxBreakdown.map((r) => {
+                                  const effectivePctUsd = r.base_usd > 0 ? (r.tax_usd / r.base_usd) * 100 : null;
+                                  const effectivePctLbp = r.base_lbp > 0 ? (r.tax_lbp / r.base_lbp) * 100 : null;
+                                  const effectivePct = Number.isFinite(Number(effectivePctUsd))
+                                    ? effectivePctUsd
+                                    : Number.isFinite(Number(effectivePctLbp))
+                                      ? effectivePctLbp
+                                      : null;
+
+                                  return (
+                                    <div key={r.tax_code_id} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                                      <div className="min-w-0">
+                                        <div className="truncate data-mono text-foreground">
+                                          {r.label}
+                                          {r.ratePct !== null ? <span className="text-fg-subtle"> · {r.ratePct.toFixed(2)}%</span> : null}
+                                          {effectivePct !== null ? <span className="text-fg-subtle"> · eff {effectivePct.toFixed(2)}%</span> : null}
+                                        </div>
+                                        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                                          <span className="text-fg-subtle">Base</span>
+                                          <span className="data-mono">
+                                            {fmtUsd(r.base_usd)} / {fmtLbp(r.base_lbp)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <div className="text-right data-mono text-foreground">
+                                        {fmtUsd(r.tax_usd)} / {fmtLbp(r.tax_lbp)}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+
+                                <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-[11px]">
+                                  <span className="text-fg-subtle">Total</span>
+                                  <span className="text-right data-mono text-foreground">
+                                    {fmtUsd(taxBreakdownTotals.tax_usd)} / {fmtLbp(taxBreakdownTotals.tax_lbp)}
                                   </span>
                                 </div>
-                                <div className="mt-1 flex items-center justify-between gap-2">
-                                  <span className="text-[11px] text-fg-subtle">Base</span>
-                                  <span className="data-mono text-[11px] text-fg-muted">
-                                    {fmtUsd(t.base_usd)} / {fmtLbp(t.base_lbp)}
+                                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-[11px] text-fg-muted">
+                                  <span className="text-fg-subtle">Taxable base</span>
+                                  <span className="text-right data-mono">
+                                    {fmtUsd(taxBreakdownTotals.base_usd)} / {fmtLbp(taxBreakdownTotals.base_lbp)}
                                   </span>
                                 </div>
                               </div>
-                            );
-                          })}
+
+                              <details className="mt-2">
+                                <summary className="cursor-pointer text-[11px] font-medium text-fg-subtle">Raw tax lines</summary>
+                                <div className="mt-2 space-y-1">
+                                  {detail.tax_lines.map((t) => {
+                                    const tc = taxById.get(String(t.tax_code_id));
+                                    const label = tc?.name ? `${tc.name}` : t.tax_code_id;
+                                    const ratePct = tc ? taxRateToPercent(tc.rate) : null;
+                                    return (
+                                      <div key={t.id} className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="data-mono">
+                                            {label}
+                                            {ratePct !== null ? <span className="text-fg-subtle"> · {ratePct.toFixed(2)}%</span> : null}
+                                          </span>
+                                          <span className="data-mono text-foreground">
+                                            {fmtUsd(t.tax_usd)} / {fmtLbp(t.tax_lbp)}
+                                          </span>
+                                        </div>
+                                        <div className="mt-1 flex items-center justify-between gap-2">
+                                          <span className="text-[11px] text-fg-subtle">Base</span>
+                                          <span className="data-mono text-[11px] text-fg-muted">
+                                            {fmtUsd(t.base_usd)} / {fmtLbp(t.base_lbp)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </details>
+                            </div>
+                          ) : null}
 
                           {detail.invoice.status === "posted" && detail.tax_lines.length === 0 ? (
                             <p className="text-fg-subtle">
