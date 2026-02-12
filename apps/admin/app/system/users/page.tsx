@@ -107,7 +107,17 @@ export default function UsersPage() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setStatus(message);
+      if (String(message).includes("409") && String(message).toLowerCase().includes("email")) {
+        const desiredEmail = email.trim().toLowerCase();
+        const existing = allUsers.find((u) => String(u.email || "").toLowerCase() === desiredEmail) || null;
+        if (existing?.id) setAssignUserId(existing.id);
+        setPassword("");
+        setCreateOpen(false);
+        setAssignOpen(true);
+        setStatus("Email already exists. Opened Assign Role so you can grant access to this company.");
+      } else {
+        setStatus(message);
+      }
     } finally {
       setCreating(false);
     }
