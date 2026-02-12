@@ -156,6 +156,68 @@ def list_outbox_events(
             return {"events": cur.fetchall()}
 
 
+@router.get("/outbox/summary", dependencies=[Depends(require_permission("pos:manage"))])
+def outbox_summary(
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT o.status, COUNT(*)::int AS count
+                FROM pos_events_outbox o
+                JOIN pos_devices d ON d.id = o.device_id
+                WHERE d.company_id = %s
+                GROUP BY o.status
+                ORDER BY o.status
+                """,
+                (company_id,),
+            )
+            by_status = {r["status"]: int(r["count"] or 0) for r in cur.fetchall()}
+
+            cur.execute(
+                """
+                SELECT o.status, MIN(o.created_at) AS oldest_created_at
+                FROM pos_events_outbox o
+                JOIN pos_devices d ON d.id = o.device_id
+                WHERE d.company_id = %s
+                GROUP BY o.status
+                """,
+                (company_id,),
+            )
+            oldest_by_status = {
+                str(r["status"]): (r["oldest_created_at"].isoformat() if r["oldest_created_at"] is not None else None)
+                for r in cur.fetchall()
+            }
+
+            cur.execute(
+                """
+                SELECT d.device_code, o.status, COUNT(*)::int AS count
+                FROM pos_events_outbox o
+                JOIN pos_devices d ON d.id = o.device_id
+                WHERE d.company_id = %s
+                GROUP BY d.device_code, o.status
+                ORDER BY d.device_code, o.status
+                """,
+                (company_id,),
+            )
+            by_device: dict[str, dict[str, int]] = {}
+            for r in cur.fetchall():
+                device_code = str(r["device_code"] or "").strip() or "(unknown)"
+                status = str(r["status"])
+                by_device.setdefault(device_code, {})
+                by_device[device_code][status] = int(r["count"] or 0)
+
+            return {
+                "total": sum(by_status.values()),
+                "by_status": by_status,
+                "by_device": by_device,
+                "oldest_by_status": oldest_by_status,
+            }
+
+
 @router.post("/outbox/{event_id}/requeue", dependencies=[Depends(require_permission("pos:manage"))])
 def requeue_outbox_event(
     event_id: str,

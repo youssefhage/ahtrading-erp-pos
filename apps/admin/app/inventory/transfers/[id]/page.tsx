@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ItemTypeahead, ItemTypeaheadItem } from "@/components/item-typeahead";
 import { SearchableSelect } from "@/components/searchable-select";
+import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -111,6 +112,16 @@ function Inner({ id }: { id: string }) {
   const tr = detail?.transfer;
   const lines = detail?.lines || [];
   const alloc = detail?.allocations_by_line || {};
+  const searchParams = useSearchParams();
+  const activeTab = (() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "allocations") return "allocations";
+    return "overview";
+  })();
+  const transferTabs = [
+    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
+    { label: "Allocations", href: "?tab=allocations", activeQuery: { key: "tab", value: "allocations" } },
+  ];
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -469,278 +480,285 @@ function Inner({ id }: { id: string }) {
 
       {tr ? (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Header</CardTitle>
-              <CardDescription>Status and warehouse context.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-2 text-sm md:grid-cols-2">
-              <div>
-                <div className="text-xs text-fg-muted">Status</div>
-                <div className="mt-1">
-                  <StatusChip value={tr.status} />
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-fg-muted">Warehouses</div>
-                <div className="mt-1">
-                  <span className="font-medium">{tr.from_warehouse_name || tr.from_warehouse_id.slice(0, 8)}</span>
-                  <span className="mx-2 text-fg-subtle">→</span>
-                  <span className="font-medium">{tr.to_warehouse_name || tr.to_warehouse_id.slice(0, 8)}</span>
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-fg-muted">Locations</div>
-                <div className="mt-1 text-sm">
-                  <span className="font-medium">
-                    {tr.from_location_code || tr.from_location_id ? (tr.from_location_code || String(tr.from_location_id).slice(0, 8)) : "(none)"}
-                  </span>
-                  <span className="mx-2 text-fg-subtle">→</span>
-                  <span className="font-medium">
-                    {tr.to_location_code || tr.to_location_id ? (tr.to_location_code || String(tr.to_location_id).slice(0, 8)) : "(none)"}
-                  </span>
-                </div>
-              </div>
-              <div className="md:col-span-2">
-                <div className="text-xs text-fg-muted">Memo</div>
-                <div className="mt-1">{tr.memo || "-"}</div>
-              </div>
-              <div>
-                <div className="text-xs text-fg-muted">Created</div>
-                <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(tr.created_at)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-fg-muted">Picked</div>
-                <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(tr.picked_at)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-fg-muted">Posted</div>
-                <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(tr.posted_at)}</div>
-              </div>
-              {tr.status === "canceled" ? (
-                <div>
-                  <div className="text-xs text-fg-muted">Cancel reason</div>
-                  <div className="mt-1">{tr.cancel_reason || "-"}</div>
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
+          <TabBar tabs={transferTabs} />
 
-          {editMode && canEdit ? (
+          {activeTab === "overview" ? (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Header</CardTitle>
+                  <CardDescription>Status and warehouse context.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-2 text-sm md:grid-cols-2">
+                  <div>
+                    <div className="text-xs text-fg-muted">Status</div>
+                    <div className="mt-1">
+                      <StatusChip value={tr.status} />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-fg-muted">Warehouses</div>
+                    <div className="mt-1">
+                      <span className="font-medium">{tr.from_warehouse_name || tr.from_warehouse_id.slice(0, 8)}</span>
+                      <span className="mx-2 text-fg-subtle">→</span>
+                      <span className="font-medium">{tr.to_warehouse_name || tr.to_warehouse_id.slice(0, 8)}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-fg-muted">Locations</div>
+                    <div className="mt-1 text-sm">
+                      <span className="font-medium">
+                        {tr.from_location_code || tr.from_location_id ? (tr.from_location_code || String(tr.from_location_id).slice(0, 8)) : "(none)"}
+                      </span>
+                      <span className="mx-2 text-fg-subtle">→</span>
+                      <span className="font-medium">
+                        {tr.to_location_code || tr.to_location_id ? (tr.to_location_code || String(tr.to_location_id).slice(0, 8)) : "(none)"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="md:col-span-2">
+                    <div className="text-xs text-fg-muted">Memo</div>
+                    <div className="mt-1">{tr.memo || "-"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-fg-muted">Created</div>
+                    <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(tr.created_at)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-fg-muted">Picked</div>
+                    <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(tr.picked_at)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-fg-muted">Posted</div>
+                    <div className="mt-1 font-mono text-xs text-fg-muted">{fmtIso(tr.posted_at)}</div>
+                  </div>
+                  {tr.status === "canceled" ? (
+                    <div>
+                      <div className="text-xs text-fg-muted">Cancel reason</div>
+                      <div className="mt-1">{tr.cancel_reason || "-"}</div>
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+
+              {editMode && canEdit ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Edit Draft</CardTitle>
+                    <CardDescription>Update memo and lines. Then save.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <form onSubmit={saveDraft} className="space-y-4">
+                      <label className="space-y-1">
+                        <div className="text-xs text-fg-muted">Memo</div>
+                        <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Optional" />
+                      </label>
+
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div className="space-y-1">
+                          <div className="text-xs text-fg-muted">From location (optional)</div>
+                          <Input
+                            value={fromLocCode}
+                            onChange={(e) => setFromLocCode(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                const id = pickLocationByCode(fromLocCode, fromLocations);
+                                if (id) setFromLocationId(id);
+                              }
+                            }}
+                            placeholder="Scan/type location code"
+                          />
+                          <SearchableSelect
+                            value={fromLocationId}
+                            onChange={setFromLocationId}
+                            placeholder="Select location..."
+                            searchPlaceholder="Search locations..."
+                            options={[{ value: "", label: "(none)" }, ...fromLocOptions]}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-xs text-fg-muted">To location (optional)</div>
+                          <Input
+                            value={toLocCode}
+                            onChange={(e) => setToLocCode(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                const id = pickLocationByCode(toLocCode, toLocations);
+                                if (id) setToLocationId(id);
+                              }
+                            }}
+                            placeholder="Scan/type location code"
+                          />
+                          <SearchableSelect
+                            value={toLocationId}
+                            onChange={setToLocationId}
+                            placeholder="Select location..."
+                            searchPlaceholder="Search locations..."
+                            options={[{ value: "", label: "(none)" }, ...toLocOptions]}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="max-w-xl">
+                        <ItemTypeahead onSelect={addItem} onClear={() => {}} />
+                      </div>
+
+                      <div className="ui-table-scroll">
+                        <table className="ui-table">
+                          <thead className="ui-thead">
+                            <tr>
+                              <th className="px-3 py-2">Item</th>
+                              <th className="px-3 py-2 text-right">Qty</th>
+                              <th className="px-3 py-2">Notes</th>
+                              <th className="px-3 py-2 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {linesDraft.map((ln, idx) => (
+                              <tr key={`${ln.item_id}:${idx}`} className="ui-tr-hover">
+                                <td className="px-3 py-2">
+                                  <div className="font-medium">
+                                    <span className="data-mono">{ln.item_sku}</span> · {ln.item_name}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <Input className="w-28 text-right data-mono" value={ln.qty} onChange={(e) => updateDraftLine(idx, { qty: e.target.value })} />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Input value={ln.notes} onChange={(e) => updateDraftLine(idx, { notes: e.target.value })} placeholder="Optional" />
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  <Button type="button" variant="outline" size="sm" onClick={() => removeDraftLine(idx)}>
+                                    Remove
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                            {linesDraft.length === 0 ? (
+                              <tr>
+                                <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
+                                  No lines.
+                                </td>
+                              </tr>
+                            ) : null}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2">
+                        <Button type="button" variant="outline" onClick={() => setEditMode(false)} disabled={saving}>
+                          Close
+                        </Button>
+                        <Button type="submit" disabled={saving}>
+                          {saving ? "Saving..." : "Save Draft"}
+                        </Button>
+                      </div>
+                    </form>
+                  </CardContent>
+                </Card>
+              ) : null}
+            </>
+          ) : null}
+
+          {activeTab === "allocations" ? (
             <Card>
               <CardHeader>
-                <CardTitle>Edit Draft</CardTitle>
-                <CardDescription>Update memo and lines. Then save.</CardDescription>
+                <CardTitle>Lines</CardTitle>
+                <CardDescription>Requested qty and picked allocations.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <form onSubmit={saveDraft} className="space-y-4">
-                  <label className="space-y-1">
-                    <div className="text-xs text-fg-muted">Memo</div>
-                    <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Optional" />
-                  </label>
-
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div className="space-y-1">
-                      <div className="text-xs text-fg-muted">From location (optional)</div>
-                      <Input
-                        value={fromLocCode}
-                        onChange={(e) => setFromLocCode(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            const id = pickLocationByCode(fromLocCode, fromLocations);
-                            if (id) setFromLocationId(id);
-                          }
-                        }}
-                        placeholder="Scan/type location code"
-                      />
-                      <SearchableSelect
-                        value={fromLocationId}
-                        onChange={setFromLocationId}
-                        placeholder="Select location..."
-                        searchPlaceholder="Search locations..."
-                        options={[{ value: "", label: "(none)" }, ...fromLocOptions]}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-fg-muted">To location (optional)</div>
-                      <Input
-                        value={toLocCode}
-                        onChange={(e) => setToLocCode(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            const id = pickLocationByCode(toLocCode, toLocations);
-                            if (id) setToLocationId(id);
-                          }
-                        }}
-                        placeholder="Scan/type location code"
-                      />
-                      <SearchableSelect
-                        value={toLocationId}
-                        onChange={setToLocationId}
-                        placeholder="Select location..."
-                        searchPlaceholder="Search locations..."
-                        options={[{ value: "", label: "(none)" }, ...toLocOptions]}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="max-w-xl">
-                    <ItemTypeahead onSelect={addItem} onClear={() => {}} />
-                  </div>
-
-                  <div className="ui-table-scroll">
-                    <table className="ui-table">
-                      <thead className="ui-thead">
-                        <tr>
-                          <th className="px-3 py-2">Item</th>
-                          <th className="px-3 py-2 text-right">Qty</th>
-                          <th className="px-3 py-2">Notes</th>
-                          <th className="px-3 py-2 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {linesDraft.map((ln, idx) => (
-                          <tr key={`${ln.item_id}:${idx}`} className="ui-tr-hover">
+                <div className="ui-table-scroll">
+                  <table className="ui-table">
+                    <thead className="ui-thead">
+                      <tr>
+                        <th className="px-3 py-2">#</th>
+                        <th className="px-3 py-2">Item</th>
+                        <th className="px-3 py-2 text-right">Requested</th>
+                        <th className="px-3 py-2 text-right">Picked</th>
+                        <th className="px-3 py-2">Allocations</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lines.map((ln) => {
+                        const allocRows = alloc[String(ln.id)] || [];
+                        return (
+                          <tr key={ln.id} className="ui-tr-hover align-top">
+                            <td className="px-3 py-2 text-xs font-mono text-fg-muted">{ln.line_no}</td>
                             <td className="px-3 py-2">
                               <div className="font-medium">
                                 <span className="data-mono">{ln.item_sku}</span> · {ln.item_name}
                               </div>
+                              {ln.notes ? <div className="mt-0.5 text-xs text-fg-muted">{ln.notes}</div> : null}
                             </td>
-                            <td className="px-3 py-2 text-right">
-                              <Input className="w-28 text-right data-mono" value={ln.qty} onChange={(e) => updateDraftLine(idx, { qty: e.target.value })} />
-                            </td>
+                            <td className="px-3 py-2 text-right data-mono">{String(ln.qty)}</td>
+                            <td className="px-3 py-2 text-right data-mono">{String(ln.picked_qty)}</td>
                             <td className="px-3 py-2">
-                              <Input value={ln.notes} onChange={(e) => updateDraftLine(idx, { notes: e.target.value })} placeholder="Optional" />
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <Button type="button" variant="outline" size="sm" onClick={() => removeDraftLine(idx)}>
-                                Remove
-                              </Button>
+                              {allocRows.length ? (
+                                <div className="space-y-1 text-xs">
+                                  {allocRows.slice(0, 12).map((a) => (
+                                    <div key={a.id} className="flex flex-wrap items-center gap-2">
+                                      {editPickMode ? (
+                                        <Input
+                                          className="h-8 w-24 text-right data-mono"
+                                          value={allocEdits[String(a.id)] ?? String(a.qty)}
+                                          onChange={(e) =>
+                                            setAllocEdits((prev) => ({
+                                              ...prev,
+                                              [String(a.id)]: e.target.value
+                                            }))
+                                          }
+                                        />
+                                      ) : (
+                                        <span className="data-mono font-medium">{String(a.qty)}</span>
+                                      )}
+                                      <span className="text-fg-subtle">from</span>
+                                      <span className="data-mono">{a.batch_no || (a.batch_id ? String(a.batch_id).slice(0, 8) : "unbatched")}</span>
+                                      {a.expiry_date ? <span className="text-fg-subtle">exp {String(a.expiry_date).slice(0, 10)}</span> : null}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-fg-subtle">No allocations yet.</span>
+                              )}
                             </td>
                           </tr>
-                        ))}
-                        {linesDraft.length === 0 ? (
-                          <tr>
-                            <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
-                              No lines.
-                            </td>
-                          </tr>
-                        ) : null}
-                      </tbody>
-                    </table>
-                  </div>
+                        );
+                      })}
+                      {lines.length === 0 ? (
+                        <tr>
+                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
+                            No lines.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
 
+                {editPickMode ? (
                   <div className="flex items-center justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={() => setEditMode(false)} disabled={saving}>
+                    <Button type="button" variant="outline" onClick={() => setEditPickMode(false)} disabled={savingPick}>
                       Close
                     </Button>
-                    <Button type="submit" disabled={saving}>
-                      {saving ? "Saving..." : "Save Draft"}
+                    <Button type="button" onClick={savePickEdits} disabled={savingPick}>
+                      {savingPick ? "Saving..." : "Save Pick"}
                     </Button>
                   </div>
-                </form>
+                ) : null}
+                {tr.status === "posted" ? (
+                  <div className="text-xs text-fg-subtle">
+                    Posted transfers create stock moves. You can view movements in{" "}
+                    <Link className="focus-ring text-primary hover:underline" href="/inventory/movements">
+                      Inventory → Movements
+                    </Link>{" "}
+                    (filter by source).
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           ) : null}
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Lines</CardTitle>
-              <CardDescription>Requested qty and picked allocations.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="ui-table-scroll">
-                <table className="ui-table">
-                  <thead className="ui-thead">
-                    <tr>
-                      <th className="px-3 py-2">#</th>
-                      <th className="px-3 py-2">Item</th>
-                      <th className="px-3 py-2 text-right">Requested</th>
-                      <th className="px-3 py-2 text-right">Picked</th>
-                      <th className="px-3 py-2">Allocations</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lines.map((ln) => {
-                      const allocRows = alloc[String(ln.id)] || [];
-                      return (
-                        <tr key={ln.id} className="ui-tr-hover align-top">
-                          <td className="px-3 py-2 text-xs font-mono text-fg-muted">{ln.line_no}</td>
-                          <td className="px-3 py-2">
-                            <div className="font-medium">
-                              <span className="data-mono">{ln.item_sku}</span> · {ln.item_name}
-                            </div>
-                            {ln.notes ? <div className="mt-0.5 text-xs text-fg-muted">{ln.notes}</div> : null}
-                          </td>
-                          <td className="px-3 py-2 text-right data-mono">{String(ln.qty)}</td>
-                          <td className="px-3 py-2 text-right data-mono">{String(ln.picked_qty)}</td>
-                          <td className="px-3 py-2">
-                            {allocRows.length ? (
-                              <div className="space-y-1 text-xs">
-                                {allocRows.slice(0, 12).map((a) => (
-                                  <div key={a.id} className="flex flex-wrap items-center gap-2">
-                                    {editPickMode ? (
-                                      <Input
-                                        className="h-8 w-24 text-right data-mono"
-                                        value={allocEdits[String(a.id)] ?? String(a.qty)}
-                                        onChange={(e) =>
-                                          setAllocEdits((prev) => ({
-                                            ...prev,
-                                            [String(a.id)]: e.target.value
-                                          }))
-                                        }
-                                      />
-                                    ) : (
-                                      <span className="data-mono font-medium">{String(a.qty)}</span>
-                                    )}
-                                    <span className="text-fg-subtle">from</span>
-                                    <span className="data-mono">{a.batch_no || (a.batch_id ? String(a.batch_id).slice(0, 8) : "unbatched")}</span>
-                                    {a.expiry_date ? <span className="text-fg-subtle">exp {String(a.expiry_date).slice(0, 10)}</span> : null}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-xs text-fg-subtle">No allocations yet.</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {lines.length === 0 ? (
-                      <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={5}>
-                          No lines.
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-
-              {editPickMode ? (
-                <div className="flex items-center justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setEditPickMode(false)} disabled={savingPick}>
-                    Close
-                  </Button>
-                  <Button type="button" onClick={savePickEdits} disabled={savingPick}>
-                    {savingPick ? "Saving..." : "Save Pick"}
-                  </Button>
-                </div>
-              ) : null}
-
-              {tr.status === "posted" ? (
-                <div className="text-xs text-fg-subtle">
-                  Posted transfers create stock moves. You can view movements in{" "}
-                  <Link className="focus-ring text-primary hover:underline" href="/inventory/movements">
-                    Inventory → Movements
-                  </Link>{" "}
-                  (filter by source).
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
 
           {/* Audit trail is available via the right-rail utilities drawer. */}
         </>
@@ -767,7 +785,6 @@ function Inner({ id }: { id: string }) {
           </form>
         </DialogContent>
       </Dialog>
-
       <Dialog open={postOpen} onOpenChange={setPostOpen}>
         <DialogContent>
           <DialogHeader>

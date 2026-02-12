@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { PartyAddresses } from "@/components/party-addresses";
 import { PartyContacts } from "@/components/party-contacts";
+import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Chip } from "@/components/ui/chip";
@@ -62,6 +63,7 @@ export default function CustomerViewPage() {
   const [err, setErr] = useState<unknown>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [ledger, setLedger] = useState<LoyaltyRow[]>([]);
+  const searchParams = useSearchParams();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -92,6 +94,17 @@ export default function CustomerViewPage() {
     if (customer) return customer.name;
     return "Customer";
   }, [loading, customer]);
+  const activeTab = useMemo(() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "loyalty" || t === "contacts" || t === "addresses") return t;
+    return "overview";
+  }, [searchParams]);
+  const customerTabs = [
+    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
+    { label: "Loyalty", href: "?tab=loyalty", activeQuery: { key: "tab", value: "loyalty" } },
+    { label: "Addresses", href: "?tab=addresses", activeQuery: { key: "tab", value: "addresses" } },
+    { label: "Contacts", href: "?tab=contacts", activeQuery: { key: "tab", value: "contacts" } },
+  ];
   const loyaltyColumns = useMemo((): Array<DataTableColumn<LoyaltyRow>> => {
     return [
       {
@@ -187,63 +200,66 @@ export default function CustomerViewPage() {
         </div>
       </div>
 
+      <TabBar tabs={customerTabs} />
       {customer ? (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Summary</CardTitle>
-              <CardDescription>Contact and credit snapshot.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">Type</p>
-                <p className="text-sm text-foreground">{customer.party_type || "individual"}</p>
-              </div>
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">Phone</p>
-                <p className="text-sm text-foreground">{customer.phone || "-"}</p>
-              </div>
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">Email</p>
-                <p className="text-sm text-foreground">{customer.email || "-"}</p>
-              </div>
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">Terms (days)</p>
-                <p className="font-mono text-sm text-foreground">{String(customer.payment_terms_days || 0)}</p>
-              </div>
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">AR Balance</p>
-                <p className="font-mono text-sm text-foreground">{fmtUsdLbp(customer.credit_balance_usd, customer.credit_balance_lbp)}</p>
-              </div>
-              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                <p className="text-xs text-fg-muted">Credit Limit</p>
-                <p className="font-mono text-sm text-foreground">{fmtUsdLbp(customer.credit_limit_usd, customer.credit_limit_lbp)}</p>
-              </div>
-            </CardContent>
-          </Card>
+          {activeTab === "overview" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Summary</CardTitle>
+                <CardDescription>Contact and credit snapshot.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                  <p className="text-xs text-fg-muted">Type</p>
+                  <p className="text-sm text-foreground">{customer.party_type || "individual"}</p>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                  <p className="text-xs text-fg-muted">Phone</p>
+                  <p className="text-sm text-foreground">{customer.phone || "-"}</p>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                  <p className="text-xs text-fg-muted">Email</p>
+                  <p className="text-sm text-foreground">{customer.email || "-"}</p>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                  <p className="text-xs text-fg-muted">Terms (days)</p>
+                  <p className="font-mono text-sm text-foreground">{String(customer.payment_terms_days || 0)}</p>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                  <p className="text-xs text-fg-muted">AR Balance</p>
+                  <p className="font-mono text-sm text-foreground">{fmtUsdLbp(customer.credit_balance_usd, customer.credit_balance_lbp)}</p>
+                </div>
+                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
+                  <p className="text-xs text-fg-muted">Credit Limit</p>
+                  <p className="font-mono text-sm text-foreground">{fmtUsdLbp(customer.credit_limit_usd, customer.credit_limit_lbp)}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Loyalty</CardTitle>
-              <CardDescription>Points ledger (most recent).</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataTable<LoyaltyRow>
-                tableId="partners.customer.loyalty"
-                rows={ledger}
-                columns={loyaltyColumns}
-                getRowId={(l) => l.id}
-                emptyText="No loyalty activity."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "created_at", dir: "desc" }}
-              />
-            </CardContent>
-          </Card>
+          {activeTab === "loyalty" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Loyalty</CardTitle>
+                <CardDescription>Points ledger (most recent).</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DataTable<LoyaltyRow>
+                  tableId="partners.customer.loyalty"
+                  rows={ledger}
+                  columns={loyaltyColumns}
+                  getRowId={(l) => l.id}
+                  emptyText="No loyalty activity."
+                  enableGlobalFilter={false}
+                  initialSort={{ columnId: "created_at", dir: "desc" }}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
 
-          <PartyAddresses partyKind="customer" partyId={customer.id} />
-          <PartyContacts partyKind="customer" partyId={customer.id} />
-
-          {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
+          {activeTab === "addresses" ? <PartyAddresses partyKind="customer" partyId={customer.id} /> : null}
+          {activeTab === "contacts" ? <PartyContacts partyKind="customer" partyId={customer.id} /> : null}
         </>
       ) : null}
     </div>

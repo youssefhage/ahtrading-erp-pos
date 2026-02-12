@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -66,6 +67,7 @@ export default function JournalTemplateDetailPage() {
   const [memo, setMemo] = useState("");
   const [runResult, setRunResult] = useState<{ id: string; journal_no: string } | null>(null);
   const [running, setRunning] = useState(false);
+  const searchParams = useSearchParams();
 
   const totals = useMemo(() => {
     let dUsd = 0;
@@ -155,6 +157,17 @@ export default function JournalTemplateDetailPage() {
     primeExchangeRate(journalDate, rateType);
   }, [runOpen, journalDate, rateType, primeExchangeRate]);
 
+  const activeTab = (() => {
+    const tab = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (tab === "memo" || tab === "lines") return tab;
+    return "overview";
+  })();
+  const templateTabs = [
+    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
+    { label: "Memo", href: "?tab=memo", activeQuery: { key: "tab", value: "memo" } },
+    { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
+  ];
+
   async function runTemplate() {
     if (!id) return;
     setRunning(true);
@@ -183,7 +196,10 @@ export default function JournalTemplateDetailPage() {
     <div className="mx-auto max-w-7xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-      <Card>
+      <TabBar tabs={templateTabs} />
+
+      {activeTab === "overview" ? (
+        <Card>
         <CardHeader>
           <CardTitle>Journal Template</CardTitle>
           <CardDescription className="flex flex-wrap items-center justify-between gap-2">
@@ -256,10 +272,11 @@ export default function JournalTemplateDetailPage() {
               </DialogContent>
             </Dialog>
           </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : null}
 
-      {data?.template?.memo ? (
+      {data?.template?.memo && activeTab === "memo" ? (
         <Card>
           <CardHeader>
             <CardTitle>Memo</CardTitle>
@@ -268,25 +285,27 @@ export default function JournalTemplateDetailPage() {
         </Card>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Lines</CardTitle>
-          <CardDescription>
-            Debits {fmtUsdLbp(totals.dUsd, totals.dLbp, { usd: { maximumFractionDigits: 4 }, lbp: { maximumFractionDigits: 2 } })} · Credits{" "}
-            {fmtUsdLbp(totals.cUsd, totals.cLbp, { usd: { maximumFractionDigits: 4 }, lbp: { maximumFractionDigits: 2 } })}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable<LineRow>
-            tableId={`accounting.journalTemplates.${id}.lines`}
-            rows={data?.lines || []}
-            columns={lineColumns}
-            initialSort={{ columnId: "line_no", dir: "asc" }}
-            globalFilterPlaceholder="Search account / memo / dims..."
-            emptyText="No lines."
-          />
-        </CardContent>
-      </Card>
+      {activeTab === "lines" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Lines</CardTitle>
+            <CardDescription>
+              Debits {fmtUsdLbp(totals.dUsd, totals.dLbp, { usd: { maximumFractionDigits: 4 }, lbp: { maximumFractionDigits: 2 } })} · Credits{" "}
+              {fmtUsdLbp(totals.cUsd, totals.cLbp, { usd: { maximumFractionDigits: 4 }, lbp: { maximumFractionDigits: 2 } })}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataTable<LineRow>
+              tableId={`accounting.journalTemplates.${id}.lines`}
+              rows={data?.lines || []}
+              columns={lineColumns}
+              initialSort={{ columnId: "line_no", dir: "asc" }}
+              globalFilterPlaceholder="Search account / memo / dims..."
+              emptyText="No lines."
+            />
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

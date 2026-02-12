@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
@@ -12,6 +12,8 @@ import { ErrorBanner } from "@/components/error-banner";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { MoneyInput } from "@/components/money-input";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { ViewRaw } from "@/components/view-raw";
+import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -36,6 +38,11 @@ type InvoiceRow = {
   total_usd: string | number;
   total_lbp: string | number;
   exchange_rate: string | number;
+  settlement_currency?: string | null;
+  subtotal_usd?: string | number | null;
+  subtotal_lbp?: string | number | null;
+  discount_total_usd?: string | number | null;
+  discount_total_lbp?: string | number | null;
   tax_code_id?: string | null;
   invoice_date: string;
   due_date: string;
@@ -88,6 +95,8 @@ type SupplierPayment = {
   method: string;
   amount_usd: string | number;
   amount_lbp: string | number;
+  tender_usd?: string | number | null;
+  tender_lbp?: string | number | null;
   reference?: string | null;
   auth_code?: string | null;
   provider?: string | null;
@@ -124,6 +133,15 @@ function fmtIso(iso?: string | null) {
   return String(iso || "").slice(0, 10) || "-";
 }
 
+function n(v: unknown) {
+  const x = Number(v || 0);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function hasTender(p: SupplierPayment) {
+  return n((p as any).tender_usd) !== 0 || n((p as any).tender_lbp) !== 0;
+}
+
 function SupplierInvoiceShowInner() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -150,6 +168,7 @@ function SupplierInvoiceShowInner() {
   const [cancelDate, setCancelDate] = useState(() => todayIso());
   const [cancelReason, setCancelReason] = useState("");
   const [canceling, setCanceling] = useState(false);
+  const searchParams = useSearchParams();
 
   const [cancelDraftOpen, setCancelDraftOpen] = useState(false);
   const [cancelDraftReason, setCancelDraftReason] = useState("");
@@ -394,6 +413,86 @@ function SupplierInvoiceShowInner() {
     if (!String(inv?.tax_code_id || "").trim()) warnings.push("Tax code is empty (ok if this supplier invoice has no tax).");
 
     return { blocking, warnings };
+  }, [detail]);
+
+  const activeTab = (() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "lines") return "lines";
+    if (t === "payments") return "payments";
+    if (t === "tax") return "tax";
+    if (t === "ai") return "ai";
+    return "overview";
+  })();
+
+  const supplierInvoiceTabs = useMemo(
+    () => [
+      { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
+      { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
+      { label: "Payments", href: "?tab=payments", activeQuery: { key: "tab", value: "payments" } },
+      { label: "Tax", href: "?tab=tax", activeQuery: { key: "tab", value: "tax" } },
+      { label: "AI", href: "?tab=ai", activeQuery: { key: "tab", value: "ai" } }
+    ],
+    []
+  );
+
+  const supplierOverview = useMemo(() => {
+    if (!detail) return null;
+    const paidUsd = (detail.payments || []).reduce((a, p) => a + Number(p.amount_usd || 0), 0);
+    const paidLbp = (detail.payments || []).reduce((a, p) => a + Number(p.amount_lbp || 0), 0);
+    const tenderUsd = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_usd) : 0), 0);
+    const tenderLbp = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_lbp) : 0), 0);
+    const hasAnyTender = (detail.payments || []).some((p) => hasTender(p));
+    const vatUsd = (detail.tax_lines || []).reduce((a, t) => a + n((t as any).tax_usd), 0);
+    const vatLbp = (detail.tax_lines || []).reduce((a, t) => a + n((t as any).tax_lbp), 0);
+    const totalUsd = Number(detail.invoice.total_usd || 0);
+    const totalLbp = Number(detail.invoice.total_lbp || 0);
+    const settle = String(detail.invoice.settlement_currency || "USD").toUpperCase();
+    const balUsd = totalUsd - paidUsd;
+    const balLbp = totalLbp - paidLbp;
+    const subUsd = Number(detail.invoice.subtotal_usd ?? detail.invoice.total_usd ?? 0);
+    const subLbp = Number(detail.invoice.subtotal_lbp ?? detail.invoice.total_lbp ?? 0);
+    const discUsd = Number(detail.invoice.discount_total_usd ?? 0);
+    const discLbp = Number(detail.invoice.discount_total_lbp ?? 0);
+    const rate = Number(detail.invoice.exchange_rate || 0);
+
+    const primaryTotal = settle === "LBP" ? totalLbp : totalUsd;
+    const primaryPaid = settle === "LBP" ? paidLbp : paidUsd;
+    const primaryBal = settle === "LBP" ? balLbp : balUsd;
+    const secondaryTotal = settle === "LBP" ? totalUsd : totalLbp;
+    const secondaryPaid = settle === "LBP" ? paidUsd : paidLbp;
+    const secondaryBal = settle === "LBP" ? balUsd : balLbp;
+    const primaryFmt = settle === "LBP" ? fmtLbp : fmtUsd;
+    const secondaryFmt = settle === "LBP" ? fmtUsd : fmtLbp;
+    const primaryTone = settle === "LBP" ? "ui-tone-lbp" : "ui-tone-usd";
+
+    return {
+      paidUsd,
+      paidLbp,
+      tenderUsd,
+      tenderLbp,
+      hasAnyTender,
+      vatUsd,
+      vatLbp,
+      totalUsd,
+      totalLbp,
+      settle,
+      balUsd,
+      balLbp,
+      subUsd,
+      subLbp,
+      discUsd,
+      discLbp,
+      rate,
+      primaryTotal,
+      primaryPaid,
+      primaryBal,
+      secondaryTotal,
+      secondaryPaid,
+      secondaryBal,
+      primaryFmt,
+      secondaryFmt,
+      primaryTone
+    };
   }, [detail]);
 
   async function openPostDialog() {
@@ -651,372 +750,401 @@ function SupplierInvoiceShowInner() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                <div className="ui-panel p-5 md:col-span-8">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-[220px]">
-                      <p className="ui-panel-title">Supplier</p>
-                      <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
-                        {detail.invoice.supplier_id ? (
-                          <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(detail.invoice.supplier_id)}`} title="Open supplier">
-                            {detail.invoice.supplier_name || detail.invoice.supplier_id}
-                          </ShortcutLink>
-                        ) : (
-                          "-"
-                        )}
-                      </p>
-                      <p className="mt-1 text-xs text-fg-muted">
-                        Created{" "}
-                        <span className="data-mono">
-                          {String(detail.invoice.created_at || "").slice(0, 19).replace("T", " ") || "-"}
-                        </span>
-                      </p>
-                    </div>
+              <TabBar tabs={supplierInvoiceTabs} />
 
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <span className="ui-chip ui-chip-default">
-                        <span className="text-fg-subtle">Exchange</span>
-                        <span className="data-mono text-foreground">{Number(detail.invoice.exchange_rate || 0).toFixed(0)}</span>
-                      </span>
-                      <span className="ui-chip ui-chip-default">
-                        <span className="text-fg-subtle">Status</span>
-                        <span className="data-mono text-foreground">{detail.invoice.status}</span>
-                      </span>
-                      {detail.invoice.is_on_hold ? (
-                        <span className="ui-chip ui-chip-default">
-                          <span className="text-fg-subtle">Hold</span>
-                          <span className="data-mono text-foreground">{detail.invoice.hold_reason || "on hold"}</span>
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                      <p className="ui-panel-title">Dates</p>
-                      <div className="mt-2 space-y-1">
-                        <div className="ui-kv">
-                          <span className="ui-kv-label">Invoice</span>
-                          <span className="ui-kv-value">{fmtIso(detail.invoice.invoice_date)}</span>
+              {activeTab === "overview" ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+                    <div className="ui-panel p-5 md:col-span-8">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-[220px]">
+                          <p className="ui-panel-title">Supplier</p>
+                          <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
+                            {detail.invoice.supplier_id ? (
+                              <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(detail.invoice.supplier_id)}`} title="Open supplier">
+                                {detail.invoice.supplier_name || detail.invoice.supplier_id}
+                              </ShortcutLink>
+                            ) : (
+                              "-"
+                            )}
+                          </p>
+                          <p className="mt-1 text-xs text-fg-muted">
+                            Created{" "}
+                            <span className="data-mono">
+                              {String(detail.invoice.created_at || "").slice(0, 19).replace("T", " ") || "-"}
+                            </span>
+                          </p>
                         </div>
-                        <div className="ui-kv">
-                          <span className="ui-kv-label">Due</span>
-                          <span className="ui-kv-value">{fmtIso(detail.invoice.due_date)}</span>
+
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <span className="ui-chip ui-chip-default">
+                            <span className="text-fg-subtle">Exchange</span>
+                            <span className="data-mono text-foreground">{supplierOverview?.rate || "-"}</span>
+                          </span>
+                          <span className="ui-chip ui-chip-default">
+                            <span className="text-fg-subtle">Status</span>
+                            <span className="data-mono text-foreground">{detail.invoice.status}</span>
+                          </span>
+                          {detail.invoice.is_on_hold ? (
+                            <span className="ui-chip ui-chip-default">
+                              <span className="text-fg-subtle">Hold</span>
+                              <span className="data-mono text-foreground">{detail.invoice.hold_reason || "on hold"}</span>
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                          <p className="ui-panel-title">Dates</p>
+                          <div className="mt-2 space-y-1">
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Invoice</span>
+                              <span className="ui-kv-value">{fmtIso(detail.invoice.invoice_date)}</span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Due</span>
+                              <span className="ui-kv-value">{fmtIso(detail.invoice.due_date)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                          <p className="ui-panel-title">Document</p>
+                          <div className="mt-2 space-y-1">
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Invoice No</span>
+                              <span className="ui-kv-value">{detail.invoice.invoice_no || "(draft)"}</span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Supplier Ref</span>
+                              <span className="ui-kv-value">{(detail.invoice.supplier_ref as any) || "-"}</span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Goods Receipt</span>
+                              <span className="ui-kv-value">
+                                {detail.invoice.goods_receipt_id ? (
+                                  <ShortcutLink
+                                    href={`/purchasing/goods-receipts/${encodeURIComponent(detail.invoice.goods_receipt_id)}`}
+                                    title="Open goods receipt"
+                                    className="data-mono"
+                                  >
+                                    {detail.invoice.goods_receipt_no || detail.invoice.goods_receipt_id.slice(0, 8)}
+                                  </ShortcutLink>
+                                ) : (
+                                  detail.invoice.goods_receipt_no || "-"
+                                )}
+                              </span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                      <p className="ui-panel-title">Document</p>
-                      <div className="mt-2 space-y-1">
-                        <div className="ui-kv">
-                          <span className="ui-kv-label">Invoice No</span>
-                          <span className="ui-kv-value">{detail.invoice.invoice_no || "(draft)"}</span>
+                    <div className="ui-panel p-5 md:col-span-4">
+                      <p className="ui-panel-title">Totals</p>
+                      <div className="mt-3">
+                        <div className="text-xs text-fg-muted">Total</div>
+                        <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${supplierOverview?.primaryTone || "ui-tone-usd"}`}>
+                          {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryTotal) : fmtUsd(0)}
                         </div>
-                        <div className="ui-kv">
-                          <span className="ui-kv-label">Supplier Ref</span>
-                          <span className="ui-kv-value">{(detail.invoice.supplier_ref as any) || "-"}</span>
+                        <div className="data-mono mt-1 text-sm text-fg-muted">
+                          {supplierOverview ? supplierOverview.secondaryFmt(supplierOverview.secondaryTotal) : fmtLbp(0)}
                         </div>
-                        <div className="ui-kv">
-                          <span className="ui-kv-label">Goods Receipt</span>
+                      </div>
+                      <div className="mt-4 space-y-2">
+                        <div className="ui-kv ui-kv-strong">
+                          <span className="ui-kv-label">Balance</span>
                           <span className="ui-kv-value">
-                            {detail.invoice.goods_receipt_id ? (
-                              <ShortcutLink
-                                href={`/purchasing/goods-receipts/${encodeURIComponent(detail.invoice.goods_receipt_id)}`}
-                                title="Open goods receipt"
-                                className="data-mono"
-                              >
-                                {detail.invoice.goods_receipt_no || detail.invoice.goods_receipt_id.slice(0, 8)}
-                              </ShortcutLink>
-                            ) : (
-                              detail.invoice.goods_receipt_no || "-"
-                            )}
+                            {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryBal) : fmtUsd(0)}
+                          </span>
+                        </div>
+                        <div className="ui-kv ui-kv-sub">
+                          <span className="ui-kv-label">Balance (other)</span>
+                          <span className="ui-kv-value">
+                            {supplierOverview ? supplierOverview.secondaryFmt(supplierOverview.secondaryBal) : fmtLbp(0)}
                           </span>
                         </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="ui-panel p-5 md:col-span-4">
-                  <p className="ui-panel-title">Totals</p>
-                  <div className="mt-3">
-                    <div className="text-xs text-fg-muted">Total</div>
-                    <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{fmtUsd(detail.invoice.total_usd)}</div>
-                    <div className="data-mono mt-1 text-sm text-fg-muted">{fmtLbp(detail.invoice.total_lbp)}</div>
-                  </div>
-                  <div className="mt-4 space-y-2">
-                    <div className="ui-kv ui-kv-strong">
-                      <span className="ui-kv-label">Total USD</span>
-                      <span className="ui-kv-value">{fmtUsd(detail.invoice.total_usd)}</span>
-                    </div>
-                    <div className="ui-kv ui-kv-sub">
-                      <span className="ui-kv-label">Total LL</span>
-                      <span className="ui-kv-value">{fmtLbp(detail.invoice.total_lbp)}</span>
-                    </div>
-                  </div>
+                  {detail.invoice.is_on_hold ? (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Hold Details</CardTitle>
+                        <CardDescription>Posting and paying are blocked until you unhold.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <div className="text-xs text-fg-muted">
+                          Reason: <span className="font-mono">{detail.invoice.hold_reason || "-"}</span>
+                        </div>
+                        {(() => {
+                          const hd: any = detail.invoice.hold_details || {};
+                          const flags: any[] = Array.isArray(hd?.flags) ? hd.flags : [];
+                          if (!flags.length) {
+                            return (
+                              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3 text-xs text-fg-muted">
+                                No structured hold details available.
+                              </div>
+                            );
+                          }
+                          return (
+                            <DataTable<any>
+                              tableId="purchasing.supplier_invoice.hold_flags"
+                              rows={flags.slice(0, 20)}
+                              columns={[
+                                {
+                                  id: "kind",
+                                  header: "Kind",
+                                  sortable: true,
+                                  mono: true,
+                                  accessor: (f) => String(f?.kind || "unknown"),
+                                  cell: (f) => <span className="text-xs font-mono text-fg-muted">{String(f?.kind || "unknown")}</span>,
+                                },
+                                {
+                                  id: "details",
+                                  header: "Details",
+                                  accessor: (f) => JSON.stringify(f || {}),
+                                  cell: (f) => {
+                                    const kind = String(f?.kind || "unknown");
+                                    if (kind === "unit_cost_variance") {
+                                      return (
+                                        <div className="text-xs">
+                                          <div className="font-medium text-foreground">
+                                            {f.item_id ? (
+                                              <ShortcutLink href={`/catalog/items/${encodeURIComponent(String(f.item_id))}`} title="Open item">
+                                                <span className="font-mono">{f.item_sku || String(f.item_id).slice(0, 8)}</span>
+                                                {f.item_name ? <span> · {f.item_name}</span> : null}
+                                              </ShortcutLink>
+                                            ) : "-"}
+                                          </div>
+                                          <div className="mt-1 text-[11px] text-fg-muted">
+                                            Expected: <span className="font-mono">{String(f.expected_unit_cost_usd || "0")}</span> USD{" · "}
+                                            Actual: <span className="font-mono">{String(f.actual_unit_cost_usd || "0")}</span> USD
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    if (kind === "qty_exceeds_received") {
+                                      return (
+                                        <div className="text-xs">
+                                          <div className="text-foreground">Invoiced qty exceeds received qty.</div>
+                                          <div className="mt-1 text-[11px] text-fg-muted font-mono">
+                                            line {String(f.goods_receipt_line_id || "").slice(0, 8)} · received {String(f.received_qty || "0")} · prev{" "}
+                                            {String(f.previously_invoiced_qty || "0")} · this {String(f.this_invoice_qty || "0")}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    if (kind === "tax_variance") {
+                                      return (
+                                        <div className="text-xs">
+                                          <div className="text-foreground">Invoice tax does not match item-level expected tax.</div>
+                                          <div className="mt-1 text-[11px] text-fg-muted font-mono">
+                                            invoice_tax {String(f.invoice_tax_lbp || "0")} · expected {String(f.expected_tax_lbp || "0")} · diff{" "}
+                                            {String(f.diff_lbp || "0")} · items {String(f.mismatch_count || 0)}
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                    return <ViewRaw value={f} label="Raw hold details" />;
+                                  },
+                                },
+                                {
+                                  id: "variance",
+                                  header: "Variance",
+                                  align: "right",
+                                  mono: true,
+                                  accessor: (f) => Number(f?.pct_variance_usd || f?.diff_pct_of_base || 0),
+                                  cell: (f) => (
+                                    <span className="text-xs font-mono text-fg-muted">
+                                      {f?.pct_variance_usd
+                                        ? `${(Number(f.pct_variance_usd) * 100).toFixed(1)}%`
+                                        : f?.diff_pct_of_base
+                                          ? `${(Number(f.diff_pct_of_base) * 100).toFixed(2)}%`
+                                          : f?.total_after
+                                            ? `+${String(f.total_after)}`
+                                            : "-"}
+                                    </span>
+                                  ),
+                                },
+                              ]}
+                              getRowId={(_, idx) => String(idx)}
+                              enableGlobalFilter={false}
+                              emptyText="No hold flags."
+                            />
+                          );
+                        })()}
+                      </CardContent>
+                    </Card>
+                  ) : null}
                 </div>
-              </div>
-              {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
+              ) : null}
 
-              {aiInsight ? (
+              {activeTab === "ai" ? (
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">AI: Price Impact</CardTitle>
                     <CardDescription>Signals detected from this invoice (review recommended).</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    <DataTable<any>
-                      tableId="purchasing.supplier_invoice.ai_price_impact"
-                      rows={(((aiInsight as any).recommendation_json?.price_changes as any[]) || []).slice(0, 10)}
-                      columns={[
-                        {
-                          id: "item",
-                          header: "Item",
-                          accessor: (c) => `${c.item_id || ""} ${c.supplier_item_name || ""}`,
-                          cell: (c) => (
-                            <div className="text-xs">
-                              {c.item_id ? (
-                                <ShortcutLink
-                                  href={`/catalog/items/${encodeURIComponent(String(c.item_id))}`}
-                                  title="Open item"
-                                  className="font-mono text-[10px] text-fg-subtle"
-                                >
-                                  {String(c.item_id)}
-                                </ShortcutLink>
-                              ) : (
-                                <div className="font-mono text-[10px] text-fg-subtle">-</div>
-                              )}
-                              <div className="text-xs text-foreground">
-                                {c.supplier_item_code ? <span className="font-mono">{c.supplier_item_code}</span> : null}
-                                {c.supplier_item_name ? <span>{c.supplier_item_code ? " · " : ""}{c.supplier_item_name}</span> : null}
-                              </div>
-                            </div>
-                          ),
-                        },
-                        { id: "prev", header: "Prev", sortable: true, align: "right", mono: true, accessor: (c) => c.prev_unit_cost_usd || c.prev_unit_cost_lbp || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.prev_unit_cost_usd || c.prev_unit_cost_lbp || "-"}</span> },
-                        { id: "new", header: "New", sortable: true, align: "right", mono: true, accessor: (c) => c.new_unit_cost_usd || c.new_unit_cost_lbp || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.new_unit_cost_usd || c.new_unit_cost_lbp || "-"}</span> },
-                        { id: "pct", header: "% +", sortable: true, align: "right", mono: true, accessor: (c) => Number(c.pct_increase || 0), cell: (c) => <span className="font-mono text-xs text-fg-muted">{typeof c.pct_increase === "number" ? `${(c.pct_increase * 100).toFixed(1)}%` : "-"}</span> },
-                        { id: "sell", header: "Sell USD", sortable: true, align: "right", mono: true, accessor: (c) => c.sell_price_usd || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.sell_price_usd || "-"}</span> },
-                        { id: "margin", header: "Margin", align: "right", mono: true, accessor: (c) => `${c.margin_before || ""}${c.margin_after || ""}`, cell: (c) => <span className="font-mono text-xs text-fg-muted">{typeof c.margin_before === "number" && typeof c.margin_after === "number" ? `${(c.margin_before * 100).toFixed(1)}% → ${(c.margin_after * 100).toFixed(1)}%` : "-"}</span> },
-                      ]}
-                      getRowId={(c, idx) => String(c.item_id || idx)}
-                      emptyText="No AI price-change rows."
-                      enableGlobalFilter={false}
-                    />
-                    <div className="flex justify-end">
-                      <Button asChild variant="outline" size="sm">
-                        <a href="/automation/ai-hub">Open AI Hub</a>
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : null}
-
-              {detail.invoice.is_on_hold ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Hold Details</CardTitle>
-                    <CardDescription>Posting and paying are blocked until you unhold.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <div className="text-xs text-fg-muted">
-                      Reason: <span className="font-mono">{detail.invoice.hold_reason || "-"}</span>
-                    </div>
-                    {(() => {
-                      const hd: any = detail.invoice.hold_details || {};
-                      const flags: any[] = Array.isArray(hd?.flags) ? hd.flags : [];
-                      if (!flags.length) {
-                        return (
-                          <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3 text-xs text-fg-muted">
-                            No structured hold details available.
-                          </div>
-                        );
-                      }
-                      return (
+                    {aiInsight ? (
+                      <>
                         <DataTable<any>
-                          tableId="purchasing.supplier_invoice.hold_flags"
-                          rows={flags.slice(0, 20)}
+                          tableId="purchasing.supplier_invoice.ai_price_impact"
+                          rows={(((aiInsight as any).recommendation_json?.price_changes as any[]) || []).slice(0, 10)}
                           columns={[
                             {
-                              id: "kind",
-                              header: "Kind",
-                              sortable: true,
-                              mono: true,
-                              accessor: (f) => String(f?.kind || "unknown"),
-                              cell: (f) => <span className="text-xs font-mono text-fg-muted">{String(f?.kind || "unknown")}</span>,
-                            },
-                            {
-                              id: "details",
-                              header: "Details",
-                              accessor: (f) => JSON.stringify(f || {}),
-                              cell: (f) => {
-                                const kind = String(f?.kind || "unknown");
-                                if (kind === "unit_cost_variance") {
-                                  return (
-                                    <div className="text-xs">
-                                      <div className="font-medium text-foreground">
-                                        {f.item_id ? (
-                                          <ShortcutLink href={`/catalog/items/${encodeURIComponent(String(f.item_id))}`} title="Open item">
-                                            <span className="font-mono">{f.item_sku || String(f.item_id).slice(0, 8)}</span>
-                                            {f.item_name ? <span> · {f.item_name}</span> : null}
-                                          </ShortcutLink>
-                                        ) : "-"}
-                                      </div>
-                                      <div className="mt-1 text-[11px] text-fg-muted">
-                                        Expected: <span className="font-mono">{String(f.expected_unit_cost_usd || "0")}</span> USD{" · "}
-                                        Actual: <span className="font-mono">{String(f.actual_unit_cost_usd || "0")}</span> USD
-                                      </div>
-                                    </div>
-                                  );
-                                }
-                                if (kind === "qty_exceeds_received") {
-                                  return (
-                                    <div className="text-xs">
-                                      <div className="text-foreground">Invoiced qty exceeds received qty.</div>
-                                      <div className="mt-1 text-[11px] text-fg-muted font-mono">
-                                        line {String(f.goods_receipt_line_id || "").slice(0, 8)} · received {String(f.received_qty || "0")} · prev {String(f.previously_invoiced_qty || "0")} · this {String(f.this_invoice_qty || "0")}
-                                      </div>
-                                    </div>
-                                  );
-                                }
-                                if (kind === "tax_variance") {
-                                  return (
-                                    <div className="text-xs">
-                                      <div className="text-foreground">Invoice tax does not match item-level expected tax.</div>
-                                      <div className="mt-1 text-[11px] text-fg-muted font-mono">
-                                        invoice_tax {String(f.invoice_tax_lbp || "0")} · expected {String(f.expected_tax_lbp || "0")} · diff {String(f.diff_lbp || "0")} · items {String(f.mismatch_count || 0)}
-                                      </div>
-                                    </div>
-                                  );
-                                }
-                                return (
-                                  <pre className="max-h-24 overflow-auto rounded-md border border-border-subtle bg-bg-sunken/40 p-2 text-[11px] text-fg-muted">
-{JSON.stringify(f, null, 2)}
-                                  </pre>
-                                );
-                              },
-                            },
-                            {
-                              id: "variance",
-                              header: "Variance",
-                              align: "right",
-                              mono: true,
-                              accessor: (f) => Number(f?.pct_variance_usd || f?.diff_pct_of_base || 0),
-                              cell: (f) => (
-                                <span className="text-xs font-mono text-fg-muted">
-                                  {f?.pct_variance_usd
-                                    ? `${(Number(f.pct_variance_usd) * 100).toFixed(1)}%`
-                                    : f?.diff_pct_of_base
-                                      ? `${(Number(f.diff_pct_of_base) * 100).toFixed(2)}%`
-                                      : f?.total_after
-                                        ? `+${String(f.total_after)}`
-                                        : "-"}
-                                </span>
+                              id: "item",
+                              header: "Item",
+                              accessor: (c) => `${c.item_id || ""} ${c.supplier_item_name || ""}`,
+                              cell: (c) => (
+                                <div className="text-xs">
+                                  {c.item_id ? (
+                                    <ShortcutLink
+                                      href={`/catalog/items/${encodeURIComponent(String(c.item_id))}`}
+                                      title="Open item"
+                                      className="font-mono text-[10px] text-fg-subtle"
+                                    >
+                                      {String(c.item_id)}
+                                    </ShortcutLink>
+                                  ) : (
+                                    <div className="font-mono text-[10px] text-fg-subtle">-</div>
+                                  )}
+                                  <div className="text-xs text-foreground">
+                                    {c.supplier_item_code ? <span className="font-mono">{c.supplier_item_code}</span> : null}
+                                    {c.supplier_item_name ? <span>{c.supplier_item_code ? " · " : ""}{c.supplier_item_name}</span> : null}
+                                  </div>
+                                </div>
                               ),
                             },
+                            { id: "prev", header: "Prev", sortable: true, align: "right", mono: true, accessor: (c) => c.prev_unit_cost_usd || c.prev_unit_cost_lbp || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.prev_unit_cost_usd || c.prev_unit_cost_lbp || "-"}</span> },
+                            { id: "new", header: "New", sortable: true, align: "right", mono: true, accessor: (c) => c.new_unit_cost_usd || c.new_unit_cost_lbp || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.new_unit_cost_usd || c.new_unit_cost_lbp || "-"}</span> },
+                            { id: "pct", header: "% +", sortable: true, align: "right", mono: true, accessor: (c) => Number(c.pct_increase || 0), cell: (c) => <span className="font-mono text-xs text-fg-muted">{typeof c.pct_increase === "number" ? `${(c.pct_increase * 100).toFixed(1)}%` : "-"}</span> },
+                            { id: "sell", header: "Sell USD", sortable: true, align: "right", mono: true, accessor: (c) => c.sell_price_usd || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.sell_price_usd || "-"}</span> },
+                            { id: "margin", header: "Margin", align: "right", mono: true, accessor: (c) => `${c.margin_before || ""}${c.margin_after || ""}`, cell: (c) => <span className="font-mono text-xs text-fg-muted">{typeof c.margin_before === "number" && typeof c.margin_after === "number" ? `${(c.margin_before * 100).toFixed(1)}% → ${(c.margin_after * 100).toFixed(1)}%` : "-"}</span> },
                           ]}
-                          getRowId={(_, idx) => String(idx)}
+                          getRowId={(c, idx) => String(c.item_id || idx)}
+                          emptyText="No AI price-change rows."
                           enableGlobalFilter={false}
-                          emptyText="No hold flags."
                         />
-                      );
-                    })()}
+                        <div className="flex justify-end">
+                          <Button asChild variant="outline" size="sm">
+                            <a href="/automation/ai-hub">Open AI Hub</a>
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-xs text-fg-subtle">No AI insight available.</p>
+                    )}
                   </CardContent>
                 </Card>
               ) : null}
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Lines</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <DataTable<InvoiceLine>
-                    tableId="purchasing.supplier_invoice.lines"
-                    rows={detail.lines}
-                    columns={invoiceLineColumns}
-                    getRowId={(l) => l.id}
-                    emptyText="No lines."
-                    enableGlobalFilter={false}
-                    initialSort={{ columnId: "item", dir: "asc" }}
-                  />
-                </CardContent>
-              </Card>
+              {activeTab === "lines" ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Lines</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <DataTable<InvoiceLine>
+                      tableId="purchasing.supplier_invoice.lines"
+                      rows={detail.lines}
+                      columns={invoiceLineColumns}
+                      getRowId={(l) => l.id}
+                      emptyText="No lines."
+                      enableGlobalFilter={false}
+                      initialSort={{ columnId: "item", dir: "asc" }}
+                    />
+                  </CardContent>
+                </Card>
+              ) : null}
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                  <p className="text-sm font-medium text-foreground">Payments</p>
-	                  <div className="mt-2 space-y-1 text-xs text-fg-muted">
-	                    {detail.payments.map((p) => (
-	                      <div key={p.id} className="flex items-center justify-between gap-2">
-	                        <span className="data-mono">
-	                          {p.method}
-	                          {p.reference ? <span className="text-fg-subtle"> · {p.reference}</span> : null}
-	                        </span>
-	                        <span className="data-mono">
-	                          {fmtUsdLbp(p.amount_usd, p.amount_lbp)}
-	                        </span>
-	                      </div>
-	                    ))}
-                    {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
-                  </div>
-                </div>
+              {activeTab === "payments" ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Payments</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="mt-2 space-y-1 text-xs text-fg-muted">
+                      {detail.payments.map((p) => (
+                        <div key={p.id} className="flex items-center justify-between gap-2">
+                          <span className="data-mono">
+                            {p.method}
+                            {p.reference ? <span className="text-fg-subtle"> · {p.reference}</span> : null}
+                          </span>
+                          <span className="data-mono">
+                            {fmtUsdLbp(p.amount_usd, p.amount_lbp)}
+                          </span>
+                        </div>
+                      ))}
+                      {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
 
-                <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3">
-                  <p className="text-sm font-medium text-foreground">Tax Lines</p>
-                  <div className="mt-2 space-y-1 text-xs text-fg-muted">
-                    {taxBreakdown.map((r) => (
-                      <div key={r.tax_code_id} className="rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="data-mono">{r.tax_code_id}</span>
-                          <span className="data-mono text-foreground">
-                            {fmtUsdLbp(r.tax_usd, r.tax_lbp)}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
-                          <span className="text-fg-subtle">Base</span>
-                          <span className="data-mono">
-                            {fmtUsdLbp(r.base_usd, r.base_lbp)}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                    {taxBreakdown.length ? (
-                      <div className="mt-2 rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Total</span>
-                          <span className="data-mono text-foreground">
-                            {fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
-                          <span className="text-fg-subtle">Taxable base</span>
-                          <span className="data-mono">
-                            {fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}
-                          </span>
-                        </div>
-                        <details className="mt-2">
-                          <summary className="cursor-pointer text-[11px] font-medium text-fg-subtle">Raw tax lines</summary>
-                          <div className="mt-2 space-y-1">
-                            {(detail.tax_lines || []).map((t) => (
-                              <div key={t.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/30 p-2">
-                                <span className="data-mono">
-                                  {t.tax_code_id}
-                                  {t.tax_date ? <span className="text-fg-subtle"> · {String(t.tax_date).slice(0, 10)}</span> : null}
-                                </span>
-                                <span className="data-mono">
-                                  {fmtUsdLbp(t.tax_usd, t.tax_lbp)}
-                                </span>
-                              </div>
-                            ))}
+              {activeTab === "tax" ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Tax Lines</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1 text-xs text-fg-muted">
+                      {taxBreakdown.map((r) => (
+                        <div key={r.tax_code_id} className="rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="data-mono">{r.tax_code_id}</span>
+                            <span className="data-mono text-foreground">
+                              {fmtUsdLbp(r.tax_usd, r.tax_lbp)}
+                            </span>
                           </div>
-                        </details>
-                      </div>
-                    ) : null}
-                    {detail.tax_lines.length === 0 ? <p className="text-fg-subtle">No tax lines.</p> : null}
-                  </div>
-                </div>
-              </div>
+                          <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                            <span className="text-fg-subtle">Base</span>
+                            <span className="data-mono">
+                              {fmtUsdLbp(r.base_usd, r.base_lbp)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                      {taxBreakdown.length ? (
+                        <div className="mt-2 rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Total</span>
+                            <span className="data-mono text-foreground">
+                              {fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                            <span className="text-fg-subtle">Taxable base</span>
+                            <span className="data-mono">
+                              {fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}
+                            </span>
+                          </div>
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-[11px] font-medium text-fg-subtle">Raw tax lines</summary>
+                            <div className="mt-2 space-y-1">
+                              {(detail.tax_lines || []).map((t) => (
+                                <div key={t.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/30 p-2">
+                                  <span className="data-mono">
+                                    {t.tax_code_id}
+                                    {t.tax_date ? <span className="text-fg-subtle"> · {String(t.tax_date).slice(0, 10)}</span> : null}
+                                  </span>
+                                  <span className="data-mono">
+                                    {fmtUsdLbp(t.tax_usd, t.tax_lbp)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        </div>
+                      ) : null}
+                      {detail.tax_lines.length === 0 ? <p className="text-fg-subtle">No tax lines.</p> : null}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
             </CardContent>
           </Card>
 

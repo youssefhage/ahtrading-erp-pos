@@ -3,16 +3,18 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Check, Copy } from "lucide-react";
 
 import { apiGet, apiUrl } from "@/lib/api";
-import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
+import { fmtLbpMaybe, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
+import { ViewRaw } from "@/components/view-raw";
+import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Chip } from "@/components/ui/chip";
@@ -249,6 +251,27 @@ function CopyIconButton(props: { text: string; label?: string; className?: strin
   );
 }
 
+function KeyField(props: { label: string; value: string; mono?: boolean; copyText?: string; hint?: string }) {
+  return (
+    <div className="rounded-lg border border-border-subtle bg-bg-elevated/45 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
+        {props.copyText ? <CopyIconButton text={props.copyText} label={props.label} className="h-7 w-7" /> : null}
+      </div>
+      <p
+        className={cn(
+          "mt-1 text-sm font-semibold leading-snug text-foreground",
+          props.mono && "font-mono font-medium text-[13px]"
+        )}
+        title={props.value}
+      >
+        {props.value}
+      </p>
+      {props.hint ? <p className="mt-1 text-xs text-fg-subtle">{props.hint}</p> : null}
+    </div>
+  );
+}
+
 function SummaryField(props: { label: string; value: string; mono?: boolean; copyText?: string; hint?: string }) {
   return (
     <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
@@ -295,6 +318,7 @@ export default function ItemViewPage() {
   const [warehousePolicies, setWarehousePolicies] = useState<ItemWarehousePolicyRow[]>([]);
   const [legacyPrices, setLegacyPrices] = useState<ItemPriceRow[]>([]);
   const [priceChanges, setPriceChanges] = useState<PriceChangeRow[]>([]);
+  const searchParams = useSearchParams();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -451,6 +475,31 @@ export default function ItemViewPage() {
     }
     return { on_hand, reserved, available, incoming };
   }, [stock]);
+
+  const tabId = useMemo<"overview" | "pricing" | "inventory" | "logistics">(() => {
+    const next = String(searchParams.get("tab") || "").toLowerCase();
+    if (next === "pricing" || next === "inventory" || next === "logistics") return next;
+    return "overview";
+  }, [searchParams]);
+
+  const tabBaseHref = `/catalog/items/${encodeURIComponent(id)}`;
+  const itemTabs = useMemo(
+    () => [
+      { label: "Overview", href: `${tabBaseHref}?tab=overview`, activeQuery: { key: "tab", value: "overview" } },
+      { label: "Pricing", href: `${tabBaseHref}?tab=pricing`, activeQuery: { key: "tab", value: "pricing" } },
+      { label: "Inventory", href: `${tabBaseHref}?tab=inventory`, activeQuery: { key: "tab", value: "inventory" } },
+      { label: "Logistics", href: `${tabBaseHref}?tab=logistics`, activeQuery: { key: "tab", value: "logistics" } },
+    ],
+    [tabBaseHref]
+  );
+
+  useEffect(() => {
+    if (!item) return;
+    const currentTab = String(searchParams.get("tab") || "").toLowerCase();
+    if (currentTab !== "overview" && currentTab !== "pricing" && currentTab !== "inventory" && currentTab !== "logistics") {
+      router.replace(`${tabBaseHref}?tab=overview`);
+    }
+  }, [router, item, searchParams, tabBaseHref]);
 
   const stockColumns = useMemo((): Array<DataTableColumn<StockRow>> => {
     return [
@@ -791,7 +840,12 @@ export default function ItemViewPage() {
   if (!loading && !item) {
     return (
       <div className="mx-auto max-w-6xl space-y-6">
-        <EmptyState title="Item not found" description="This item may have been deleted or you may not have access." actionLabel="Back" onAction={() => router.push("/catalog/items/list")} />
+        <EmptyState
+          title="Item not found"
+          description="This item may have been deleted or you may not have access."
+          actionLabel="Back"
+          onAction={() => router.push("/catalog/items/list")}
+        />
       </div>
     );
   }
@@ -828,375 +882,385 @@ export default function ItemViewPage() {
         </div>
       </div>
 
+      <TabBar tabs={itemTabs} />
+
       {item ? (
         <>
+      {tabId === "overview" && (
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <CardTitle>Pricing</CardTitle>
-                  <CardDescription>Read-only pricing details. Edit prices from the Edit screen.</CardDescription>
+                  <CardTitle>Item Profile</CardTitle>
+                  <CardDescription>Core identity and configuration.</CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button asChild variant="outline" size="sm" disabled={loading}>
-                    <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Edit Prices</Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm" disabled={loading}>
-                    <Link href="/catalog/price-lists">Price Lists</Link>
-                  </Button>
-                </div>
+                <Button asChild variant="outline" size="sm" disabled={loading}>
+                  <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Edit</Link>
+                </Button>
               </div>
             </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-              <SummaryField
-                label="Effective Sell Price"
-                value={`${fmtUsdMaybe(priceSuggest?.current?.price_usd)} · ${fmtLbpMaybe(priceSuggest?.current?.price_lbp, { dashIfZero: true })}`}
-                hint={`Default list: ${defaultListLabel}${pricingSecondaryMissing ? " (LL derived from exchange rate)" : ""}`}
-              />
-              <SummaryField
-                label="Average Cost"
-                value={`${fmtUsdMaybe(priceSuggest?.current?.avg_cost_usd)} · ${fmtLbpMaybe(priceSuggest?.current?.avg_cost_lbp, { dashIfZero: true })}`}
-              />
-              <SummaryField
-                label="Margin"
-                value={`${fmtPctFrac(priceSuggest?.current?.margin_usd)} (USD) · ${fmtPctFrac(priceSuggest?.current?.margin_lbp)} (LL)`}
-                hint={priceSuggest ? `Target: ${fmtPctFrac(priceSuggest.target_margin_pct)}` : undefined}
-              />
-              <SummaryField
-                label="WHOLESALE (Effective)"
-                value={
-                  wholesaleEffective
-                    ? `${fmtUsdMaybe(wholesaleEffective?.price_usd, { dashIfZero: true })} · ${fmtLbpMaybe(wholesaleEffective?.price_lbp, { dashIfZero: true })}`
-                    : "-"
-                }
-                hint={wholesaleEffective?.effective_from ? `From: ${String(wholesaleEffective.effective_from).slice(0, 10)}` : "No override row"}
-              />
-              <SummaryField
-                label="RETAIL (Effective)"
-                value={
-                  retailEffective
-                    ? `${fmtUsdMaybe(retailEffective?.price_usd, { dashIfZero: true })} · ${fmtLbpMaybe(retailEffective?.price_lbp, { dashIfZero: true })}`
-                    : "-"
-                }
-                hint={retailEffective?.effective_from ? `From: ${String(retailEffective.effective_from).slice(0, 10)}` : "No override row"}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <CardTitle>Price Change History</CardTitle>
-                  <CardDescription>Sell price changes derived from item price inserts.</CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button asChild variant="outline" size="sm" disabled={loading}>
-                    <Link href={`/inventory/price-changes/list?q=${encodeURIComponent(item.sku || "")}`}>Open Full Log</Link>
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <DataTable<PriceChangeRow>
-                tableId="catalog.item.priceChanges"
-                rows={priceChanges}
-                columns={priceChangeColumns}
-                getRowId={(r) => r.id}
-                emptyText="No price changes yet."
-                enablePagination
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "when", dir: "desc" }}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Summary</CardTitle>
-              <CardDescription>Core catalog fields.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-              <SummaryField label="SKU" value={item.sku || "-"} copyText={item.sku || ""} mono />
-              <SummaryField label="UOM" value={item.unit_of_measure || "-"} />
-              <SummaryField label="Primary Barcode" value={item.barcode || "-"} copyText={item.barcode || ""} mono />
-              <SummaryField label="Type" value={itemTypeLabel(item.item_type)} />
-              <SummaryField label="Category" value={item.category_id ? (categoryMeta?.name || shortId(item.category_id)) : "-"} hint={item.category_id ? `ID: ${shortId(item.category_id)}` : undefined} copyText={item.category_id || ""} />
-              <SummaryField label="Brand" value={item.brand || "-"} />
-              <SummaryField
-                label="Tax"
-                value={
-                  item.tax_code_id
-                    ? taxMeta
-                      ? `${taxMeta.name}${taxMeta.rate !== undefined && taxMeta.rate !== null ? ` (${fmtRate(taxMeta.rate)})` : ""}`
-                      : shortId(item.tax_code_id)
-                    : "-"
-                }
-                copyText={item.tax_code_id || ""}
-                hint={item.tax_code_id && taxMeta ? `ID: ${shortId(item.tax_code_id)}` : undefined}
-              />
-              <SummaryField
-                label="Reorder"
-                value={
-                  item.reorder_point == null && item.reorder_qty == null
-                    ? "-"
-                    : `Point: ${String(item.reorder_point ?? "-")}  Qty: ${String(item.reorder_qty ?? "-")}`
-                }
-                mono
-              />
-              <SummaryField label="Negative Stock" value={negativeStockPolicy.label} />
-              <SummaryField label="Standard Cost" value={fmtUsdLbp(item.standard_cost_usd, item.standard_cost_lbp, { sep: " · " })} />
-              <SummaryField label="Costing Method" value={String(item.costing_method || "-").toUpperCase()} />
-              <SummaryField label="Min Margin" value={item.min_margin_pct != null ? fmtPctFrac(item.min_margin_pct) : "-"} />
-              <SummaryField label="Purchase / Sales UOM" value={`${String(item.purchase_uom_code || "-").toUpperCase()} / ${String(item.sales_uom_code || "-").toUpperCase()}`} mono />
-              <SummaryField label="Case / Inner Pack" value={`${String(item.case_pack_qty ?? "-")} / ${String(item.inner_pack_qty ?? "-")}`} mono />
-              <SummaryField label="Preferred Supplier" value={preferredSupplierName || "-"} hint={item.preferred_supplier_id ? `ID: ${shortId(item.preferred_supplier_id)}` : undefined} copyText={item.preferred_supplier_id || ""} />
-              <SummaryField label="Weight / Volume" value={`${String(item.weight ?? "-")} / ${String(item.volume ?? "-")}`} mono />
-              <SummaryField label="Created" value={fmtIso(item.created_at)} mono />
-              <SummaryField label="Updated" value={fmtIso(item.updated_at)} mono />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Details</CardTitle>
-              <CardDescription>Operational flags, tags, and long text.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                <Chip variant={item.track_batches ? "primary" : "default"}>{item.track_batches ? "batches: on" : "batches: off"}</Chip>
-                <Chip variant={item.track_expiry ? "primary" : "default"}>{item.track_expiry ? "expiry: on" : "expiry: off"}</Chip>
-                <Chip variant={negativeStockPolicy.variant}>{`negative stock: ${negativeStockPolicy.label}`}</Chip>
-                <Chip variant={item.is_excise ? "primary" : "default"}>{item.is_excise ? "excise: yes" : "excise: no"}</Chip>
-                {item.tax_category ? <Chip variant="default">{`tax category: ${String(item.tax_category).toLowerCase()}`}</Chip> : null}
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
-                  <div className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Short Name</div>
-                  <div className="mt-1 text-sm text-foreground">{item.short_name || "-"}</div>
-                </div>
-                <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
-                  <div className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Shelf Life</div>
-                  <div className="mt-1 text-sm text-foreground">
-                    Default {String(item.default_shelf_life_days ?? "-")}d · Min for sale {String(item.min_shelf_life_days_for_sale ?? "-")}d · Warn {String(item.expiry_warning_days ?? "-")}d
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Tags</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {(item.tags || []).length ? (item.tags || []).map((t) => <Chip key={t} variant="default">{t}</Chip>) : <span className="text-sm text-fg-subtle">No tags.</span>}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
-                <div className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Description</div>
-                <div className="mt-2 whitespace-pre-wrap text-sm text-foreground">{item.description || "-"}</div>
-              </div>
-
-              {item.external_ids ? (
-                <details className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
-                  <summary className="cursor-pointer text-sm font-medium text-foreground">External IDs</summary>
-                  <pre className="mt-3 whitespace-pre-wrap text-xs text-fg-muted">{JSON.stringify(item.external_ids, null, 2)}</pre>
-                </details>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Inventory</CardTitle>
-              <CardDescription>
-                On-hand, reserved (draft invoices with reserve_stock), available, and incoming (posted POs not fully received).
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <SummaryField label="Total On Hand" value={fmtQty(stockTotals.on_hand)} mono />
-                <SummaryField label="Total Reserved" value={fmtQty(stockTotals.reserved)} mono />
-                <SummaryField label="Total Available" value={fmtQty(stockTotals.available)} mono />
-                <SummaryField label="Total Incoming" value={fmtQty(stockTotals.incoming)} mono />
-              </div>
-
-              <DataTable<StockRow>
-                tableId="catalog.item.stock"
-                rows={stock}
-                columns={stockColumns}
-                getRowId={(r) => `${r.warehouse_id}`}
-                emptyText="No stock moves yet."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "warehouse", dir: "asc" }}
-              />
-
-              {(item.track_batches || item.track_expiry) ? (
-                <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                  <summary className="cursor-pointer text-sm font-medium text-foreground">Batches</summary>
-                  <div className="mt-3">
-                    <DataTable<StockBatchRow>
-                      tableId="catalog.item.stockBatches"
-                      rows={stockBatches}
-                      columns={stockBatchColumns}
-                      getRowId={(r) => `${r.warehouse_id}:${r.batch_id || r.batch_no || ""}:${r.expiry_date || ""}`}
-                      emptyText="No batch stock yet."
-                      enableGlobalFilter={false}
-                      initialSort={{ columnId: "expiry", dir: "asc" }}
+            <CardContent className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="space-y-3">
+                <section className="rounded-xl border border-border-subtle bg-bg-elevated/45 p-4">
+                  <p className="ui-panel-title">Core identity</p>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    <KeyField label="SKU" value={item.sku || "-"} copyText={item.sku || ""} />
+                    <KeyField label="Name" value={item.name || "-"} />
+                    <KeyField label="Type" value={itemTypeLabel(item.item_type)} />
+                    <KeyField label="UOM" value={item.unit_of_measure || "-"} />
+                    <KeyField label="Primary Barcode" value={item.barcode || "-"} copyText={item.barcode || ""} />
+                    <KeyField
+                      label="Category"
+                      value={item.category_id ? (categoryMeta?.name || shortId(item.category_id)) : "-"}
+                      hint={item.category_id ? `ID: ${shortId(item.category_id)}` : undefined}
+                      copyText={item.category_id || ""}
                     />
+                    <KeyField
+                      label="Tax"
+                      value={
+                        item.tax_code_id
+                          ? `${taxMeta ? `${taxMeta.name}${taxMeta.rate !== undefined && taxMeta.rate !== null ? ` (${fmtRate(taxMeta.rate)})` : ""}` : item.tax_code_id}`
+                          : "-"
+                      }
+                      copyText={item.tax_code_id || ""}
+                      hint={item.tax_code_id && taxMeta ? `ID: ${shortId(item.tax_code_id)}` : undefined}
+                    />
+                    <KeyField label="Status" value={item.is_active === false ? "Inactive" : "Active"} />
+                    <KeyField label="Track Batches" value={item.track_batches ? "On" : "Off"} />
+                    <KeyField label="Track Expiry" value={item.track_expiry ? "On" : "Off"} />
                   </div>
-                </details>
-              ) : null}
-            </CardContent>
-          </Card>
+                </section>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>UOM Conversions</CardTitle>
-              <CardDescription>How non-base units convert into the base UOM for inventory.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataTable<UomConversionRow>
-                tableId="catalog.item.uomConversions"
-                rows={uomConversions}
-                columns={conversionColumns}
-                getRowId={(r) => r.uom_code}
-                emptyText="No conversions."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "uom", dir: "asc" }}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Warehouse Policies</CardTitle>
-              <CardDescription>Per-warehouse min/max and replenishment hints.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataTable<ItemWarehousePolicyRow>
-                tableId="catalog.item.warehousePolicies"
-                rows={warehousePolicies}
-                columns={policyColumns}
-                getRowId={(p) => p.id}
-                emptyText="No warehouse policies."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "warehouse", dir: "asc" }}
-              />
-            </CardContent>
-          </Card>
-
-          {legacyPrices.length ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Legacy Item Prices</CardTitle>
-                <CardDescription>`item_prices` history (if used). Modern pricing uses price lists.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm text-fg-muted">
-                <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                  <summary className="cursor-pointer text-sm font-medium text-foreground">Show history ({legacyPrices.length})</summary>
-                  <div className="mt-3 space-y-2">
-                    {legacyPrices.slice(0, 25).map((p) => (
-                      <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
-                        <span className="font-mono text-xs text-fg-subtle">
-                          {String(p.effective_from).slice(0, 10)}
-                          {p.effective_to ? ` → ${String(p.effective_to).slice(0, 10)}` : ""}
-                        </span>
-                        <span className="data-mono text-xs text-foreground">
-                          {fmtUsdLbp(p.price_usd, p.price_lbp, { sep: " · " })}
-                        </span>
+                <details className="rounded-xl border border-border-subtle bg-bg-sunken/20 p-4">
+                  <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.14em] text-fg-subtle">Item notes and metadata</summary>
+                  <div className="mt-3 space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      {item.tags?.length ? (
+                        item.tags.map((tag) => <Chip key={tag} variant="default">{tag}</Chip>)
+                      ) : (
+                        <span className="text-xs text-fg-subtle">No tags assigned.</span>
+                      )}
+                    </div>
+                    <SummaryField
+                      label="Short Name"
+                      value={item.short_name || "-"}
+                      hint={item.short_name ? "Friendly label used on reports/receipts." : undefined}
+                    />
+                    <div className="rounded-md border border-border-subtle bg-bg-elevated/45 p-3">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Description</p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{item.description || "—"}</p>
+                    </div>
+                    {item.external_ids ? (
+                      <div className="rounded-md border border-border-subtle bg-bg-elevated/45 p-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">External IDs</p>
+                        <div className="mt-2">
+                          <ViewRaw value={item.external_ids} label="View external IDs" defaultOpen={false} />
+                        </div>
                       </div>
-                    ))}
+                    ) : null}
                   </div>
                 </details>
-              </CardContent>
-            </Card>
-          ) : null}
+              </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Image</CardTitle>
-              <CardDescription>Primary item image (optional).</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {item.image_attachment_id ? (
-                <div className="flex flex-wrap items-start gap-4">
-                  <div className="rounded-md border border-border-subtle bg-bg-sunken/30 p-2">
-                    <Image
-                      src={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)}
-                      alt={item.image_alt || item.name}
-                      width={220}
-                      height={220}
-                      className="h-[220px] w-[220px] object-contain"
-                      // Attachments are permissioned (cookie/session). Avoid Next.js optimization fetching without auth.
-                      unoptimized
-                    />
+              <div className="space-y-3">
+                <section className="rounded-xl border border-border-subtle bg-bg-elevated/45 p-4">
+                  <p className="ui-panel-title">Operations</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Chip variant={item.track_batches ? "primary" : "default"}>{item.track_batches ? "batches: on" : "batches: off"}</Chip>
+                    <Chip variant={item.track_expiry ? "primary" : "default"}>{item.track_expiry ? "expiry: on" : "expiry: off"}</Chip>
+                    <Chip variant={negativeStockPolicy.variant}>{`negative stock: ${negativeStockPolicy.label}`}</Chip>
+                    <Chip variant={item.is_excise ? "primary" : "default"}>{item.is_excise ? "excise: yes" : "excise: no"}</Chip>
+                    <Chip variant={item.is_active === false ? "default" : "success"}>{item.is_active === false ? "inactive" : "active"}</Chip>
                   </div>
-                  <div className="space-y-2 text-sm">
+                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <SummaryField label="Reorder Point" value={String(item.reorder_point ?? "-")} mono />
+                    <SummaryField label="Reorder Qty" value={String(item.reorder_qty ?? "-")} mono />
+                    <SummaryField label="Shelf Life" value={`${item.default_shelf_life_days ?? "-"}d`} />
+                    <SummaryField label="Min for Sale" value={`${item.min_shelf_life_days_for_sale ?? "-"}d`} />
+                    <SummaryField label="Expiry Warning" value={`${item.expiry_warning_days ?? "-"}d`} />
+                    <SummaryField label="Excise Flag" value={item.is_excise ? "enabled" : "disabled"} />
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-border-subtle bg-bg-sunken/20 p-4">
+                  <p className="ui-panel-title">Primary image</p>
+                  <div className="mt-3">
+                    {item.image_attachment_id ? (
+                      <div className="space-y-3">
+                        <div className="rounded-md border border-border-subtle bg-bg-sunken/30 p-2">
+                          <Image
+                            src={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)}
+                            alt={item.image_alt || item.name}
+                            width={220}
+                            height={220}
+                            className="mx-auto h-[220px] w-[220px] object-contain"
+                            unoptimized
+                          />
+                        </div>
+                        <div className="text-xs text-fg-muted">
+                          <span className="text-fg-subtle">Alt:</span> {item.image_alt || "-"}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button asChild size="sm" variant="outline">
+                            <a href={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)} target="_blank" rel="noreferrer">
+                              View
+                            </a>
+                          </Button>
+                          <Button asChild size="sm" variant="outline">
+                            <a href={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/download`)} target="_blank" rel="noreferrer">
+                              Download
+                            </a>
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-sm text-fg-subtle">No image currently on file.</p>
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Attach image</Link>
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            </CardContent>
+          </Card>
+          </div>
+          )}
+
+          {tabId === "pricing" && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <span className="text-fg-subtle">Alt</span>: {item.image_alt || "-"}
+                      <CardTitle>Pricing</CardTitle>
+                      <CardDescription>Read-only pricing details. Edit prices from the Edit screen.</CardDescription>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button asChild size="sm" variant="outline">
-                        <a href={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)} target="_blank" rel="noreferrer">
-                          View
-                        </a>
+                      <Button asChild variant="outline" size="sm" disabled={loading}>
+                        <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Edit Prices</Link>
                       </Button>
-                      <Button asChild size="sm" variant="outline">
-                        <a href={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/download`)} target="_blank" rel="noreferrer">
-                          Download
-                        </a>
+                      <Button asChild variant="outline" size="sm" disabled={loading}>
+                        <Link href="/catalog/price-lists">Price Lists</Link>
                       </Button>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-sm text-fg-subtle">No image.</p>
-                  <Button asChild size="sm" variant="outline">
-                    <Link href={`/catalog/items/${encodeURIComponent(item.id)}/edit`}>Add image</Link>
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  <SummaryField
+                    label="Effective Sell Price"
+                    value={`${fmtUsdMaybe(priceSuggest?.current?.price_usd)} · ${fmtLbpMaybe(priceSuggest?.current?.price_lbp, { dashIfZero: true })}`}
+                    hint={`Default list: ${defaultListLabel}${pricingSecondaryMissing ? " (LL derived from exchange rate)" : ""}`}
+                  />
+                  <SummaryField
+                    label="Average Cost"
+                    value={`${fmtUsdMaybe(priceSuggest?.current?.avg_cost_usd)} · ${fmtLbpMaybe(priceSuggest?.current?.avg_cost_lbp, { dashIfZero: true })}`}
+                  />
+                  <SummaryField
+                    label="Margin"
+                    value={`${fmtPctFrac(priceSuggest?.current?.margin_usd)} (USD) · ${fmtPctFrac(priceSuggest?.current?.margin_lbp)} (LL)`}
+                    hint={priceSuggest ? `Target: ${fmtPctFrac(priceSuggest.target_margin_pct)}` : undefined}
+                  />
+                  <SummaryField
+                    label="WHOLESALE (Effective)"
+                    value={
+                      wholesaleEffective
+                        ? `${fmtUsdMaybe(wholesaleEffective?.price_usd, { dashIfZero: true })} · ${fmtLbpMaybe(wholesaleEffective?.price_lbp, { dashIfZero: true })}`
+                        : "-"
+                    }
+                    hint={wholesaleEffective?.effective_from ? `From: ${String(wholesaleEffective.effective_from).slice(0, 10)}` : "No override row"}
+                  />
+                  <SummaryField
+                    label="RETAIL (Effective)"
+                    value={
+                      retailEffective
+                        ? `${fmtUsdMaybe(retailEffective?.price_usd, { dashIfZero: true })} · ${fmtLbpMaybe(retailEffective?.price_lbp, { dashIfZero: true })}`
+                        : "-"
+                    }
+                    hint={retailEffective?.effective_from ? `From: ${String(retailEffective.effective_from).slice(0, 10)}` : "No override row"}
+                  />
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Barcodes</CardTitle>
-              <CardDescription>Primary and alternate barcodes. UOM + factor drive quantity behavior; label is optional note text.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataTable<ItemBarcode>
-                tableId="catalog.item.barcodes"
-                rows={barcodes}
-                columns={barcodeColumns}
-                getRowId={(b) => b.id}
-                emptyText="No barcodes."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "is_primary", dir: "desc" }}
-              />
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <CardTitle>Price Change History</CardTitle>
+                      <CardDescription>Sell price changes derived from item price inserts.</CardDescription>
+                    </div>
+                    <Button asChild variant="outline" size="sm" disabled={loading}>
+                      <Link href={`/inventory/price-changes/list?q=${encodeURIComponent(item.sku || "")}`}>Open Full Log</Link>
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <DataTable<PriceChangeRow>
+                    tableId="catalog.item.priceChanges"
+                    rows={priceChanges}
+                    columns={priceChangeColumns}
+                    getRowId={(r) => r.id}
+                    emptyText="No price changes yet."
+                    enablePagination
+                    enableGlobalFilter={false}
+                    initialSort={{ columnId: "when", dir: "desc" }}
+                  />
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Suppliers</CardTitle>
-              <CardDescription>Preferred supplier and last cost.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataTable<ItemSupplierLinkRow>
-                tableId="catalog.item.suppliers"
-                rows={suppliers}
-                columns={supplierColumns}
-                getRowId={(s) => s.id}
-                emptyText="No suppliers linked."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "is_primary", dir: "desc" }}
-              />
-            </CardContent>
-          </Card>
+              {legacyPrices.length ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Legacy Item Prices</CardTitle>
+                    <CardDescription>`item_prices` history (if used). Modern pricing uses price lists.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm text-fg-muted">
+                    <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                      <summary className="cursor-pointer text-sm font-medium text-foreground">Show history ({legacyPrices.length})</summary>
+                      <div className="mt-3 space-y-2">
+                        {legacyPrices.slice(0, 25).map((p) => (
+                          <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                            <span className="font-mono text-xs text-fg-subtle">
+                              {String(p.effective_from).slice(0, 10)}
+                              {p.effective_to ? ` → ${String(p.effective_to).slice(0, 10)}` : ""}
+                            </span>
+                            <span className="data-mono text-xs text-foreground">
+                              {fmtUsdLbp(p.price_usd, p.price_lbp, { sep: " · " })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  </CardContent>
+                </Card>
+              ) : null}
+            </div>
+          )}
 
-          {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
+          {tabId === "inventory" && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Inventory</CardTitle>
+                  <CardDescription>On-hand, reserved, available, and incoming.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                    <SummaryField label="Total On Hand" value={fmtQty(stockTotals.on_hand)} mono />
+                    <SummaryField label="Total Reserved" value={fmtQty(stockTotals.reserved)} mono />
+                    <SummaryField label="Total Available" value={fmtQty(stockTotals.available)} mono />
+                    <SummaryField label="Total Incoming" value={fmtQty(stockTotals.incoming)} mono />
+                  </div>
+                  <DataTable<StockRow>
+                    tableId="catalog.item.stock"
+                    rows={stock}
+                    columns={stockColumns}
+                    getRowId={(r) => `${r.warehouse_id}`}
+                    emptyText="No stock moves yet."
+                    enableGlobalFilter={false}
+                    initialSort={{ columnId: "warehouse", dir: "asc" }}
+                  />
+                  {(item.track_batches || item.track_expiry) ? (
+                    <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                      <summary className="cursor-pointer text-sm font-medium text-foreground">Batches</summary>
+                      <div className="mt-3">
+                        <DataTable<StockBatchRow>
+                          tableId="catalog.item.stockBatches"
+                          rows={stockBatches}
+                          columns={stockBatchColumns}
+                          getRowId={(r) => `${r.warehouse_id}:${r.batch_id || r.batch_no || ""}:${r.expiry_date || ""}`}
+                          emptyText="No batch stock yet."
+                          enableGlobalFilter={false}
+                          initialSort={{ columnId: "expiry", dir: "asc" }}
+                        />
+                      </div>
+                    </details>
+                  ) : null}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {tabId === "logistics" && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>UOM Conversions</CardTitle>
+                  <CardDescription>How non-base units convert into base UOM.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <DataTable<UomConversionRow>
+                    tableId="catalog.item.uomConversions"
+                    rows={uomConversions}
+                    columns={conversionColumns}
+                    getRowId={(r) => r.uom_code}
+                    emptyText="No conversions."
+                    enableGlobalFilter={false}
+                    initialSort={{ columnId: "uom", dir: "asc" }}
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Warehouse Policies</CardTitle>
+                  <CardDescription>Per-warehouse min/max and replenishment hints.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <DataTable<ItemWarehousePolicyRow>
+                    tableId="catalog.item.warehousePolicies"
+                    rows={warehousePolicies}
+                    columns={policyColumns}
+                    getRowId={(p) => p.id}
+                    emptyText="No warehouse policies."
+                    enableGlobalFilter={false}
+                    initialSort={{ columnId: "warehouse", dir: "asc" }}
+                  />
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Barcodes</CardTitle>
+                    <CardDescription>Primary + alternate barcodes.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <DataTable<ItemBarcode>
+                      tableId="catalog.item.barcodes"
+                      rows={barcodes}
+                      columns={barcodeColumns}
+                      getRowId={(b) => b.id}
+                      emptyText="No barcodes."
+                      enableGlobalFilter={false}
+                      initialSort={{ columnId: "is_primary", dir: "desc" }}
+                    />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Suppliers</CardTitle>
+                    <CardDescription>Preferred supplier and last cost.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <DataTable<ItemSupplierLinkRow>
+                      tableId="catalog.item.suppliers"
+                      rows={suppliers}
+                      columns={supplierColumns}
+                      getRowId={(s) => s.id}
+                      emptyText="No suppliers linked."
+                      enableGlobalFilter={false}
+                      initialSort={{ columnId: "is_primary", dir: "desc" }}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
         </>
       ) : null}
     </div>

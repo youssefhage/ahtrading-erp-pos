@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
@@ -11,6 +11,7 @@ import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
+import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -53,6 +54,7 @@ function Inner({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<unknown>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const searchParams = useSearchParams();
 
   const [postOpen, setPostOpen] = useState(false);
   const [posting, setPosting] = useState(false);
@@ -163,6 +165,16 @@ function Inner({ id }: { id: string }) {
     );
   }
 
+  const activeTab = (() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "lines") return "lines";
+    return "overview";
+  })();
+  const landedCostTabs = [
+    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
+    { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
+  ];
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -208,9 +220,11 @@ function Inner({ id }: { id: string }) {
         </Card>
       ) : null}
 
+      <TabBar tabs={landedCostTabs} />
       {lc ? (
         <>
-          <Card>
+          {activeTab === "overview" ? (
+            <Card>
             <CardHeader>
               <CardTitle>Header</CardTitle>
               <CardDescription>Status, totals, and linked receipt.</CardDescription>
@@ -255,23 +269,27 @@ function Inner({ id }: { id: string }) {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Lines</CardTitle>
-              <CardDescription>Cost components included in this allocation.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataTable<LandedCostLine>
-                tableId="inventory.landed_cost.lines"
-                rows={lines}
-                columns={lineColumns}
-                getRowId={(ln) => ln.id}
-                emptyText="No lines."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "description", dir: "asc" }}
-              />
-            </CardContent>
-          </Card>
+          ) : null}
+
+          {activeTab === "lines" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Lines</CardTitle>
+                <CardDescription>Cost components included in this allocation.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DataTable<LandedCostLine>
+                  tableId="inventory.landed_cost.lines"
+                  rows={lines}
+                  columns={lineColumns}
+                  getRowId={(ln) => ln.id}
+                  emptyText="No lines."
+                  enableGlobalFilter={false}
+                  initialSort={{ columnId: "description", dir: "asc" }}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
 
           {/* Audit trail is available via the right-rail utilities drawer. */}
         </>

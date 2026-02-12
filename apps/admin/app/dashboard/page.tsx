@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   TrendingUp,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { ApiError, apiGet } from "@/lib/api";
+import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { getFxRateUsdToLbp, upsertFxRateUsdToLbp } from "@/lib/fx";
 import { cn } from "@/lib/utils";
 import { Banner } from "@/components/ui/banner";
@@ -51,6 +52,17 @@ type ApiHealth = {
   version?: string;
   request_id?: string;
   error?: string;
+};
+
+type PosOutboxSummary = {
+  total: number;
+  by_status: Record<string, number>;
+  by_device?: Record<string, Record<string, number>>;
+  oldest_by_status?: Record<string, string | null>;
+};
+
+type MeContext = {
+  permissions?: string[];
 };
 
 function fmtNumber(value: string | number) {
@@ -238,6 +250,8 @@ export default function DashboardPage() {
   const [lastErrorRequestId, setLastErrorRequestId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [hasLoadedMetrics, setHasLoadedMetrics] = useState(false);
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [outboxSummary, setOutboxSummary] = useState<PosOutboxSummary | null>(null);
   const hasLoadedMetricsRef = useRef(false);
   const metricsRef = useRef<Metrics | null>(null);
   const refreshingRef = useRef(false);
@@ -250,7 +264,7 @@ export default function DashboardPage() {
     return Number(aiSummary[agentCode] || 0);
   }
 
-  async function loadFx() {
+  const loadFx = useCallback(async () => {
     setFxLoading(true);
     try {
       const r = await getFxRateUsdToLbp();
@@ -259,15 +273,17 @@ export default function DashboardPage() {
     } finally {
       setFxLoading(false);
     }
-  }
+  }, []);
 
-  async function loadDashboard() {
-    const [metricsResult, aiResult, healthResult] = await Promise.allSettled([
+  const loadDashboard = useCallback(async () => {
+    const [metricsResult, aiResult, healthResult, meResult, outboxResult] = await Promise.allSettled([
       apiGet<{ metrics: Metrics }>("/reports/metrics"),
       apiGet<{ rows: { agent_code: string; status: string; count: number }[] }>(
         "/ai/recommendations/summary?status=pending"
       ),
-      apiGet<ApiHealth>("/health")
+      apiGet<ApiHealth>("/health"),
+      apiGet<MeContext>("/auth/me"),
+      apiGet<PosOutboxSummary>("/pos/outbox/summary")
     ]);
 
     const nextAiSummary: Record<string, number> = {};
@@ -308,44 +324,31 @@ export default function DashboardPage() {
       });
     }
 
+    if (meResult.status === "fulfilled") {
+      setPermissions(Array.isArray((meResult.value as MeContext)?.permissions) ? [...((meResult.value as MeContext).permissions || [])] : []);
+    } else {
+      setPermissions([]);
+    }
+
+    if (outboxResult.status === "fulfilled") {
+      setOutboxSummary(outboxResult.value || null);
+    } else {
+      setOutboxSummary(null);
+    }
+
     setLastUpdatedAt(new Date());
     if (!metricLoadFailed) {
       setStatus("");
       setLastErrorRequestId(null);
     }
-  }
+  }, []);
 
   useEffect(() => {
     metricsRef.current = metrics;
     hasLoadedMetricsRef.current = hasLoadedMetrics;
   }, [metrics, hasLoadedMetrics]);
 
-  useEffect(() => {
-    async function run() {
-      setStatus("Loading...");
-      try {
-        await loadDashboard();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setStatus(message);
-      }
-    }
-    run();
-  }, []);
-
-  useEffect(() => {
-    loadFx();
-  }, []);
-
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (document.hidden || refreshingRef.current) return;
-      void refresh();
-    }, 60000);
-    return () => window.clearInterval(id);
-  }, []);
-
-  async function refresh() {
+  const refresh = useCallback(async () => {
     if (refreshingRef.current) return;
     setRefreshing(true);
     refreshingRef.current = true;
@@ -361,9 +364,47 @@ export default function DashboardPage() {
       refreshingRef.current = false;
       setRefreshing(false);
     }
-  }
+  }, [loadDashboard, loadFx]);
+
+  useEffect(() => {
+    async function run() {
+      setStatus("Loading...");
+      try {
+        await loadDashboard();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setStatus(message);
+      }
+    }
+    run();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    loadFx();
+  }, [loadFx]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (document.hidden || refreshingRef.current) return;
+      void refresh();
+    }, 60000);
+    return () => window.clearInterval(id);
+  }, [refresh]);
 
   const isLoading = !hasLoadedMetrics && status === "Loading...";
+
+  const canWriteSales = hasPermission({ permissions }, "sales:write");
+  const canWritePurchases = hasPermission({ permissions }, "purchases:write");
+  const canReadInventory = hasPermission({ permissions }, "inventory:read");
+  const canReadCustomers = hasPermission({ permissions }, "customers:read");
+  const canReadAi = hasAnyPermission({ permissions }, ["ai:read", "ai:write"]);
+  const canManagePos = hasPermission({ permissions }, "pos:manage");
+  const canManageConfig = hasPermission({ permissions }, "config:read");
+
+  const outboxPending = Number(outboxSummary?.by_status?.pending || 0);
+  const outboxFailed = Number(outboxSummary?.by_status?.failed || 0) + Number(outboxSummary?.by_status?.dead || 0);
+  const outboxQueued = Number(outboxSummary?.by_status?.processed || 0);
+  const outboxTotal = Number(outboxSummary?.total || 0);
 
   return (
     <div className="space-y-6">
@@ -414,17 +455,28 @@ export default function DashboardPage() {
       )}
 
       {/* Quick actions (compact, top) */}
-      <div className="rounded-xl border border-border-subtle bg-bg-sunken/20 p-3">
+        <div className="rounded-xl border border-border-subtle bg-bg-sunken/20 p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="text-sm font-medium text-foreground">Quick Actions</div>
             <div className="text-xs text-fg-subtle">Common tasks</div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <QuickActionCompact icon={ShoppingCart} label="Sales Invoice" onClick={() => router.push("/sales/invoices")} />
-            <QuickActionCompact icon={Truck} label="Purchase Order" onClick={() => router.push("/purchasing/purchase-orders")} />
-            <QuickActionCompact icon={Package} label="Stock" onClick={() => router.push("/inventory/stock")} />
-            <QuickActionCompact icon={Users} label="Customers" onClick={() => router.push("/partners/customers")} />
+            {canWriteSales ? (
+              <QuickActionCompact icon={ShoppingCart} label="Sales Invoice" onClick={() => router.push("/sales/invoices")} />
+            ) : null}
+            {canWritePurchases ? (
+              <QuickActionCompact icon={Truck} label="Purchase Order" onClick={() => router.push("/purchasing/purchase-orders")} />
+            ) : null}
+            {canReadInventory ? (
+              <QuickActionCompact icon={Package} label="Stock" onClick={() => router.push("/inventory/stock")} />
+            ) : null}
+            {canReadCustomers ? (
+              <QuickActionCompact icon={Users} label="Customers" onClick={() => router.push("/partners/customers")} />
+            ) : null}
+            {canManageConfig ? (
+              <QuickActionCompact icon={Activity} label="System Config" onClick={() => router.push("/system/config")} />
+            ) : null}
           </div>
         </div>
       </div>
@@ -552,7 +604,9 @@ export default function DashboardPage() {
             <div className="flex items-start justify-between">
               <div className="flex flex-col gap-1">
                 <CardTitle className="text-sm font-medium text-fg-muted">AI Insights</CardTitle>
-                <CardDescription className="text-xs">Pending recommendations</CardDescription>
+                <CardDescription className="text-xs">
+                  {canReadAi ? "Pending recommendations" : "Read-only: no AI permission"}
+                </CardDescription>
               </div>
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-sunken text-fg-muted">
                 <AlertTriangle className="h-4 w-4" />
@@ -587,9 +641,18 @@ export default function DashboardPage() {
                   </span>
                 </div>
                 <div className="pt-2">
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => router.push("/automation/ai-hub")}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => router.push("/automation/ai-hub")}
+                    disabled={!canReadAi}
+                  >
                     Open AI Hub
                   </Button>
+                  {!canReadAi ? (
+                    <div className="pt-1 text-center text-[11px] text-fg-subtle">Ask your admin for ai:read</div>
+                  ) : null}
                 </div>
               </>
             )}
@@ -619,8 +682,25 @@ export default function DashboardPage() {
               value={dataIsStale ? "stale" : "fresh"}
               status={dataIsStale ? "warning" : "good"}
             />
-            <StatusIndicator label="POS Integration" value="Active" status="good" />
-            <StatusIndicator label="Outbox Queue" value={metrics ? fmtNumber(0) : "-"} status="good" />
+            <StatusIndicator
+              label="POS Integration"
+              value={canManagePos ? "Active" : "No permission"}
+              status={canManagePos ? "good" : "warning"}
+            />
+            <StatusIndicator
+              label="Outbox Queue"
+              value={canManagePos ? `${outboxFailed} failed / ${outboxPending} pending` : "-"}
+              status={
+                !canManagePos ? "warning" : outboxFailed > 0 ? "critical" : outboxPending > 0 ? "warning" : "good"
+              }
+            />
+            {outboxSummary ? (
+            <StatusIndicator
+              label="Outbox Total"
+              value={fmtNumber(outboxTotal)}
+              status={outboxTotal >= 500 ? "critical" : outboxTotal > 150 ? "warning" : "good"}
+            />
+            ) : null}
             <StatusIndicator
               label="Low Stock Items"
               value={metrics ? fmtNumber(metrics.low_stock_count) : "-"}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { hasAnyPermission, permissionsToStringArray } from "@/lib/permissions";
 import { ErrorBanner } from "@/components/error-banner";
 import { AiSetupGate } from "@/components/ai-setup-gate";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -18,6 +19,10 @@ type CopilotQueryResp = {
   answer: string;
   overview: unknown;
   cards: Array<{ type: string; rows: unknown[] }>;
+};
+
+type MeContext = {
+  permissions?: string[];
 };
 
 type Message = { role: "user" | "assistant"; content: string; createdAt: string };
@@ -68,6 +73,8 @@ export default function CopilotChatPage() {
   const [q, setQ] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [last, setLast] = useState<CopilotQueryResp | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
 
   const suggestions = useMemo(
     () => [
@@ -79,20 +86,42 @@ export default function CopilotChatPage() {
     []
   );
 
-  async function loadOverview() {
-    // Prime the page with something useful without requiring a prompt.
+  const canReadAi = hasAnyPermission({ permissions }, ["ai:read", "ai:write"]);
+
+  async function loadInitial() {
+    setPermissionsLoaded(false);
+    setErr(null);
     try {
-      await apiGet("/ai/copilot/overview");
-    } catch {
-      // ignore
+      const me = await apiGet<MeContext>("/auth/me");
+      const nextPermissions = permissionsToStringArray(me);
+      setPermissions(nextPermissions);
+      if (!hasAnyPermission({ permissions: nextPermissions }, ["ai:read", "ai:write"])) {
+        setErr(null);
+        return;
+      }
+      setErr(null);
+      try {
+        await apiGet("/ai/copilot/overview");
+      } catch (overviewErr) {
+        // Optional endpoint; keeps UX fresh without blocking conversation.
+        console.error(overviewErr);
+      }
+    } catch (err) {
+      setErr(err);
+    } finally {
+      setPermissionsLoaded(true);
     }
   }
 
   useEffect(() => {
-    loadOverview();
+    loadInitial();
   }, []);
 
   async function ask(text: string) {
+    if (!canReadAi) {
+      setErr(new Error("You need ai:read permission to use Copilot."));
+      return;
+    }
     const prompt = (text || "").trim();
     if (!prompt) return;
     setErr(null);
@@ -118,12 +147,27 @@ export default function CopilotChatPage() {
         <Card>
           <CardHeader>
             <CardTitle>Ask Copilot</CardTitle>
-            <CardDescription>Read-only operational assistant. It never executes actions directly.</CardDescription>
+            <CardDescription>
+              Read-only operational assistant. It never executes actions directly.
+              {!canReadAi ? " Ask your administrator for ai:read permission." : ""}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            {permissionsLoaded && !canReadAi ? (
+              <p className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-fg-subtle">
+                Copilot is disabled because you do not have AI read permissions.
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               {suggestions.map((s) => (
-                <Button key={s} type="button" variant="outline" size="sm" onClick={() => ask(s)} disabled={thinking}>
+                <Button
+                  key={s}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => ask(s)}
+                  disabled={thinking || !canReadAi}
+                >
                   {s}
                 </Button>
               ))}
@@ -137,9 +181,14 @@ export default function CopilotChatPage() {
               }}
             >
               <div className="flex-1">
-                <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type a question..." disabled={thinking} />
+                <Input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Type a question..."
+                  disabled={thinking || !canReadAi}
+                />
               </div>
-              <Button type="submit" disabled={thinking}>
+              <Button type="submit" disabled={thinking || !canReadAi}>
                 {thinking ? "..." : "Ask"}
               </Button>
             </form>

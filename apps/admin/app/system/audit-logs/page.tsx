@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Page, PageHeader, Section } from "@/components/page";
+import { ViewRaw } from "@/components/view-raw";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
@@ -98,9 +99,7 @@ export default function AuditLogsPage() {
         accessor: (r) => "",
         globalSearch: false,
         defaultHidden: true,
-        cell: (r) => (
-          <pre className="max-w-[680px] whitespace-pre-wrap text-left text-xs text-fg-subtle">{JSON.stringify(r.details ?? {}, null, 2)}</pre>
-        ),
+        cell: (r) => <ViewRaw value={r.details ?? {}} label="Details" />,
       },
       {
         id: "id",

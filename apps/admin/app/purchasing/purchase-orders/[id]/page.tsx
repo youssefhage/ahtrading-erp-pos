@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd } from "@/lib/money";
@@ -10,6 +10,7 @@ import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { ViewRaw } from "@/components/view-raw";
+import { TabBar } from "@/components/tab-bar";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Banner } from "@/components/ui/banner";
@@ -71,6 +72,7 @@ export default function PurchaseOrderViewPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
   const [busy, setBusy] = useState(false);
+  const searchParams = useSearchParams();
 
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [receiveWarehouseId, setReceiveWarehouseId] = useState("");
@@ -231,6 +233,15 @@ export default function PurchaseOrderViewPage() {
   const canPost = order?.status === "draft" && lines.length > 0;
   const canCancel = order && order.status !== "canceled";
   const canCreateReceipt = order?.status === "posted";
+  const activeTab = (() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "lines") return "lines";
+    return "overview";
+  })();
+  const purchaseOrderTabs = [
+    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
+    { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
+  ];
 
   const totals = useMemo(() => {
     return {
@@ -388,116 +399,122 @@ export default function PurchaseOrderViewPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-        <div className="ui-panel p-5 md:col-span-8">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-[220px]">
-              <p className="ui-panel-title">Supplier</p>
-              <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
-                {order?.supplier_id ? (
-                  <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(order.supplier_id)}`} title="Open supplier">
-                    {order.supplier_name || order.supplier_id}
-                  </ShortcutLink>
-                ) : (
-                  "-"
-                )}
-              </p>
-              <p className="mt-1 text-xs text-fg-muted">
-                Created{" "}
-                <span className="data-mono">
-                  {order ? String(order.created_at || "").slice(0, 19).replace("T", " ") || "-" : "-"}
+      <TabBar tabs={purchaseOrderTabs} />
+
+      {activeTab === "overview" ? (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+          <div className="ui-panel p-5 md:col-span-8">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-[220px]">
+                <p className="ui-panel-title">Supplier</p>
+                <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
+                  {order?.supplier_id ? (
+                    <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(order.supplier_id)}`} title="Open supplier">
+                      {order.supplier_name || order.supplier_id}
+                    </ShortcutLink>
+                  ) : (
+                    "-"
+                  )}
+                </p>
+                <p className="mt-1 text-xs text-fg-muted">
+                  Created{" "}
+                  <span className="data-mono">
+                    {order ? String(order.created_at || "").slice(0, 19).replace("T", " ") || "-" : "-"}
+                  </span>
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="ui-chip ui-chip-default">
+                  <span className="text-fg-subtle">Warehouse</span>
+                  <span className="data-mono text-foreground">{order?.warehouse_name || order?.warehouse_id || "-"}</span>
                 </span>
-              </p>
+                <span className="ui-chip ui-chip-default">
+                  <span className="text-fg-subtle">Exchange</span>
+                  <span className="data-mono text-foreground">{order ? Number(order.exchange_rate || 0).toFixed(0) : "-"}</span>
+                </span>
+                <span className="ui-chip ui-chip-default">
+                  <span className="text-fg-subtle">Status</span>
+                  <span className="data-mono text-foreground">{order?.status || "-"}</span>
+                </span>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <span className="ui-chip ui-chip-default">
-                <span className="text-fg-subtle">Warehouse</span>
-                <span className="data-mono text-foreground">{order?.warehouse_name || order?.warehouse_id || "-"}</span>
-              </span>
-              <span className="ui-chip ui-chip-default">
-                <span className="text-fg-subtle">Exchange</span>
-                <span className="data-mono text-foreground">{order ? Number(order.exchange_rate || 0).toFixed(0) : "-"}</span>
-              </span>
-              <span className="ui-chip ui-chip-default">
-                <span className="text-fg-subtle">Status</span>
-                <span className="data-mono text-foreground">{order?.status || "-"}</span>
-              </span>
-            </div>
-          </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                <p className="ui-panel-title">Dates</p>
+                <div className="mt-2 space-y-1">
+                  <div className="ui-kv">
+                    <span className="ui-kv-label">Expected Delivery</span>
+                    <span className="ui-kv-value">{order?.expected_delivery_date || "-"}</span>
+                  </div>
+                </div>
+              </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-              <p className="ui-panel-title">Dates</p>
-              <div className="mt-2 space-y-1">
-                <div className="ui-kv">
-                  <span className="ui-kv-label">Expected Delivery</span>
-                  <span className="ui-kv-value">{order?.expected_delivery_date || "-"}</span>
+              <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                <p className="ui-panel-title">Document</p>
+                <div className="mt-2 space-y-1">
+                  <div className="ui-kv">
+                    <span className="ui-kv-label">Order No</span>
+                    <span className="ui-kv-value">{order?.order_no || "(draft)"}</span>
+                  </div>
+                  <div className="ui-kv">
+                    <span className="ui-kv-label">Supplier Ref</span>
+                    <span className="ui-kv-value">{order?.supplier_ref || "-"}</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-              <p className="ui-panel-title">Document</p>
-              <div className="mt-2 space-y-1">
-                <div className="ui-kv">
-                  <span className="ui-kv-label">Order No</span>
-                  <span className="ui-kv-value">{order?.order_no || "(draft)"}</span>
-                </div>
-                <div className="ui-kv">
-                  <span className="ui-kv-label">Supplier Ref</span>
-                  <span className="ui-kv-value">{order?.supplier_ref || "-"}</span>
-                </div>
+            {!canPost && order?.status === "draft" && lines.length === 0 ? (
+              <div className="mt-3">
+                <Banner variant="warning" size="sm" title="Cannot post yet" description="Add at least one line before posting." />
               </div>
-            </div>
+            ) : null}
           </div>
 
-          {!canPost && order?.status === "draft" && lines.length === 0 ? (
+          <div className="ui-panel p-5 md:col-span-4">
+            <p className="ui-panel-title">Totals</p>
+
             <div className="mt-3">
-              <Banner variant="warning" size="sm" title="Cannot post yet" description="Add at least one line before posting." />
+              <div className="text-xs text-fg-muted">Total</div>
+              <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{totals.usd}</div>
+              <div className="data-mono mt-1 text-sm text-fg-muted">{totals.lbp}</div>
             </div>
-          ) : null}
-        </div>
 
-        <div className="ui-panel p-5 md:col-span-4">
-          <p className="ui-panel-title">Totals</p>
-
-          <div className="mt-3">
-            <div className="text-xs text-fg-muted">Total</div>
-            <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{totals.usd}</div>
-            <div className="data-mono mt-1 text-sm text-fg-muted">{totals.lbp}</div>
-          </div>
-
-          <div className="mt-4 space-y-2">
-            <div className="ui-kv ui-kv-strong">
-              <span className="ui-kv-label">Total USD</span>
-              <span className="ui-kv-value">{totals.usd}</span>
-            </div>
-            <div className="ui-kv ui-kv-sub">
-              <span className="ui-kv-label">Total LL</span>
-              <span className="ui-kv-value">{totals.lbp}</span>
+            <div className="mt-4 space-y-2">
+              <div className="ui-kv ui-kv-strong">
+                <span className="ui-kv-label">Total USD</span>
+                <span className="ui-kv-value">{totals.usd}</span>
+              </div>
+              <div className="ui-kv ui-kv-sub">
+                <span className="ui-kv-label">Total LL</span>
+                <span className="ui-kv-value">{totals.lbp}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Lines</CardTitle>
-          <CardDescription>Ordered vs received vs invoiced.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable<PurchaseOrderLine>
-            tableId="purchasing.purchase_order.lines"
-            rows={lines}
-            columns={lineColumns}
-            getRowId={(l) => l.id}
-            emptyText="No lines."
-            enableGlobalFilter={false}
-            initialSort={{ columnId: "item", dir: "asc" }}
-          />
-        </CardContent>
-      </Card>
+      {activeTab === "lines" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Lines</CardTitle>
+            <CardDescription>Ordered vs received vs invoiced.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataTable<PurchaseOrderLine>
+              tableId="purchasing.purchase_order.lines"
+              rows={lines}
+              columns={lineColumns}
+              getRowId={(l) => l.id}
+              emptyText="No lines."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "item", dir: "asc" }}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Attachments + audit trail are available via the right-rail utilities drawer. */}
 

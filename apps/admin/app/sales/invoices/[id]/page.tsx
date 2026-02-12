@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
@@ -13,6 +13,7 @@ import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer"
 import { ConfirmButton } from "@/components/confirm-button";
 import { MoneyInput } from "@/components/money-input";
 import { ShortcutLink } from "@/components/shortcut-link";
+import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -144,6 +145,7 @@ function SalesInvoiceShowInner() {
   const [cancelDraftOpen, setCancelDraftOpen] = useState(false);
   const [cancelDraftReason, setCancelDraftReason] = useState("");
   const [cancelDrafting, setCancelDrafting] = useState(false);
+  const searchParams = useSearchParams();
 
   const methodChoices = useMemo(() => {
     const base = ["cash", "bank", "card", "transfer", "other"];
@@ -152,6 +154,84 @@ function SalesInvoiceShowInner() {
     merged.sort();
     return merged;
   }, [paymentMethods]);
+
+  const activeTab = (() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "lines") return "lines";
+    if (t === "payments") return "payments";
+    if (t === "tax") return "tax";
+    return "overview";
+  })();
+
+  const salesInvoiceTabs = useMemo(
+    () => [
+      { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
+      { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
+      { label: "Payments", href: "?tab=payments", activeQuery: { key: "tab", value: "payments" } },
+      { label: "Tax", href: "?tab=tax", activeQuery: { key: "tab", value: "tax" } }
+    ],
+    []
+  );
+
+  const salesOverview = useMemo(() => {
+    if (!detail) return null;
+
+    const paidUsd = (detail.payments || []).reduce((a, p) => a + Number(p.amount_usd || 0), 0);
+    const paidLbp = (detail.payments || []).reduce((a, p) => a + Number(p.amount_lbp || 0), 0);
+    const tenderUsd = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_usd) : 0), 0);
+    const tenderLbp = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_lbp) : 0), 0);
+    const hasAnyTender = (detail.payments || []).some((p) => hasTender(p));
+    const vatUsd = (detail.tax_lines || []).reduce((a, t) => a + n((t as any).tax_usd), 0);
+    const vatLbp = (detail.tax_lines || []).reduce((a, t) => a + n((t as any).tax_lbp), 0);
+    const totalUsd = Number(detail.invoice.total_usd || 0);
+    const totalLbp = Number(detail.invoice.total_lbp || 0);
+    const settle = String(detail.invoice.settlement_currency || "USD").toUpperCase();
+    const balUsd = totalUsd - paidUsd;
+    const balLbp = totalLbp - paidLbp;
+    const subUsd = Number(detail.invoice.subtotal_usd ?? detail.invoice.total_usd ?? 0);
+    const subLbp = Number(detail.invoice.subtotal_lbp ?? detail.invoice.total_lbp ?? 0);
+    const discUsd = Number(detail.invoice.discount_total_usd ?? 0);
+    const discLbp = Number(detail.invoice.discount_total_lbp ?? 0);
+    const rate = Number(detail.invoice.exchange_rate || 0);
+    const primaryTotal = settle === "LBP" ? totalLbp : totalUsd;
+    const primaryPaid = settle === "LBP" ? paidLbp : paidUsd;
+    const primaryBal = settle === "LBP" ? balLbp : balUsd;
+    const secondaryTotal = settle === "LBP" ? totalUsd : totalLbp;
+    const secondaryPaid = settle === "LBP" ? paidUsd : paidLbp;
+    const secondaryBal = settle === "LBP" ? balUsd : balLbp;
+    const primaryFmt = settle === "LBP" ? fmtLbp : fmtUsd;
+    const secondaryFmt = settle === "LBP" ? fmtUsd : fmtLbp;
+    const primaryTone = settle === "LBP" ? "ui-tone-lbp" : "ui-tone-usd";
+
+    return {
+      paidUsd,
+      paidLbp,
+      tenderUsd,
+      tenderLbp,
+      hasAnyTender,
+      vatUsd,
+      vatLbp,
+      totalUsd,
+      totalLbp,
+      settle,
+      balUsd,
+      balLbp,
+      subUsd,
+      subLbp,
+      discUsd,
+      discLbp,
+      rate,
+      primaryTotal,
+      primaryPaid,
+      primaryBal,
+      secondaryTotal,
+      secondaryPaid,
+      secondaryBal,
+      primaryFmt,
+      secondaryFmt,
+      primaryTone
+    };
+  }, [detail]);
 
   const taxById = useMemo(() => {
     return new Map((taxCodes || []).map((t) => [String(t.id), t]));
@@ -647,390 +727,324 @@ function SalesInvoiceShowInner() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              {(() => {
-                const paidUsd = (detail.payments || []).reduce((a, p) => a + Number(p.amount_usd || 0), 0);
-                const paidLbp = (detail.payments || []).reduce((a, p) => a + Number(p.amount_lbp || 0), 0);
-                const tenderUsd = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_usd) : 0), 0);
-                const tenderLbp = (detail.payments || []).reduce((a, p) => a + (hasTender(p) ? n(p.tender_lbp) : 0), 0);
-                const hasAnyTender = (detail.payments || []).some((p) => hasTender(p));
-                const vatUsd = (detail.tax_lines || []).reduce((a, t) => a + n((t as any).tax_usd), 0);
-                const vatLbp = (detail.tax_lines || []).reduce((a, t) => a + n((t as any).tax_lbp), 0);
-                const totalUsd = Number(detail.invoice.total_usd || 0);
-                const totalLbp = Number(detail.invoice.total_lbp || 0);
-                const settle = String(detail.invoice.settlement_currency || "USD").toUpperCase();
-                const balUsd = totalUsd - paidUsd;
-                const balLbp = totalLbp - paidLbp;
-                const subUsd = Number(detail.invoice.subtotal_usd ?? detail.invoice.total_usd ?? 0);
-                const subLbp = Number(detail.invoice.subtotal_lbp ?? detail.invoice.total_lbp ?? 0);
-                const discUsd = Number(detail.invoice.discount_total_usd ?? 0);
-                const discLbp = Number(detail.invoice.discount_total_lbp ?? 0);
-                const rate = Number(detail.invoice.exchange_rate || 0);
+              <TabBar tabs={salesInvoiceTabs} />
 
-                const primaryTotal = settle === "LBP" ? totalLbp : totalUsd;
-                const primaryPaid = settle === "LBP" ? paidLbp : paidUsd;
-                const primaryBal = settle === "LBP" ? balLbp : balUsd;
-                const secondaryTotal = settle === "LBP" ? totalUsd : totalLbp;
-                const secondaryPaid = settle === "LBP" ? paidUsd : paidLbp;
-                const secondaryBal = settle === "LBP" ? balUsd : balLbp;
-                const primaryFmt = settle === "LBP" ? fmtLbp : fmtUsd;
-                const secondaryFmt = settle === "LBP" ? fmtUsd : fmtLbp;
-                const primaryTone = settle === "LBP" ? "ui-tone-lbp" : "ui-tone-usd";
-
-                return (
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                    <div className="space-y-3 md:col-span-8">
-                      <div className="ui-panel p-5">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-[220px]">
-                            <p className="ui-panel-title">Customer</p>
-                            <p className="mt-1 text-lg font-semibold text-foreground leading-tight">
-                              {detail.invoice.customer_id ? (
-                                <ShortcutLink
-                                  href={`/partners/customers/${encodeURIComponent(detail.invoice.customer_id)}`}
-                                  title="Open customer"
-                                >
-                                  {detail.invoice.customer_name || detail.invoice.customer_id}
-                                </ShortcutLink>
-                              ) : (
-                                "Walk-in"
-                              )}
-                            </p>
-                            <p className="mt-1 text-xs text-fg-muted">
-                              Created <span className="data-mono">{String(detail.invoice.created_at || "").slice(0, 19).replace("T", " ") || "-"}</span>
-                            </p>
-                          </div>
-
-                          <div className="flex flex-wrap items-center justify-end gap-2">
-                            <span className="ui-chip ui-chip-default">
-                              <span className="text-fg-subtle">Warehouse</span>
-                              <span className="data-mono text-foreground">{detail.invoice.warehouse_name || detail.invoice.warehouse_id || "-"}</span>
-                            </span>
-                            <span className="ui-chip ui-chip-default">
-                              <span className="text-fg-subtle">Settle</span>
-                              <span className="data-mono text-foreground">{settle}</span>
-                            </span>
-                            <span className="ui-chip ui-chip-default">
-                              <span className="text-fg-subtle">Rate</span>
-                              <span className="data-mono text-foreground">{rate ? rate.toLocaleString("en-US") : "-"}</span>
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                          <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                            <p className="ui-panel-title">Dates</p>
-                            <div className="mt-2 space-y-1">
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">Invoice</span>
-                                <span className="ui-kv-value">{fmtIso(detail.invoice.invoice_date)}</span>
-                              </div>
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">Due</span>
-                                <span className="ui-kv-value">{fmtIso(detail.invoice.due_date)}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                            <p className="ui-panel-title">Document</p>
-                            <div className="mt-2 space-y-1">
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">Invoice No</span>
-                                <span className="ui-kv-value">{detail.invoice.invoice_no || "(draft)"}</span>
-                              </div>
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">Receipt</span>
-                                <span className="ui-kv-value">{detail.invoice.receipt_no || "-"}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="ui-panel p-4">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground">Payments</p>
-                          {detail.invoice.status === "posted" ? (
-                            <Button asChild variant="outline" size="sm">
-                              <Link href={`/sales/payments?invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`}>
-                                Record Payment
-                              </Link>
-                            </Button>
+              {activeTab === "overview" && salesOverview ? (
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+                  <div className="ui-panel p-5 md:col-span-8">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-[220px]">
+                        <p className="ui-panel-title">Customer</p>
+                        <p className="mt-1 text-lg font-semibold text-foreground leading-tight">
+                          {detail.invoice.customer_id ? (
+                            <ShortcutLink href={`/partners/customers/${encodeURIComponent(detail.invoice.customer_id)}`} title="Open customer">
+                              {detail.invoice.customer_name || detail.invoice.customer_id}
+                            </ShortcutLink>
                           ) : (
-                            <Button variant="outline" size="sm" disabled>
-                              Record Payment
-                            </Button>
+                            "Walk-in"
                           )}
-                        </div>
-                        {detail.invoice.status !== "posted" ? (
-                          <p className="mt-2 text-xs text-fg-subtle">Payments are recorded after posting.</p>
-                        ) : null}
-                        <div className="mt-2 space-y-1 text-xs text-fg-muted">
-                          {detail.payments.map((p) => (
-                            <div key={p.id} className="flex items-center justify-between gap-2">
-                              <span className="data-mono">{p.method}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="data-mono text-right">
-                                  {hasTender(p) ? (
-                                    <>
-                                      <span className="text-foreground">
-                                        Tender {fmtUsdLbp(n(p.tender_usd), n(p.tender_lbp))}
-                                      </span>
-                                      <span className="text-fg-subtle"> · </span>
-                                      <span className="text-fg-muted">
-                                        Applied {fmtUsdLbp(n(p.amount_usd), n(p.amount_lbp))}
-                                      </span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <span className="text-foreground">
-                                        Applied {fmtUsdLbp(n(p.amount_usd), n(p.amount_lbp))}
-                                      </span>
-                                    </>
-                                  )}
-                                </span>
-                                <Button variant="outline" size="sm" onClick={() => recomputePayment(p.id)}>
-                                  Fix
-                                </Button>
-                                <ConfirmButton
-                                  variant="destructive"
-                                  size="sm"
-                                  title="Void Payment?"
-                                  description="This will create a reversing GL entry."
-                                  confirmText="Void"
-                                  confirmVariant="destructive"
-                                  onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
-                                  onConfirm={() => voidPayment(p.id)}
-                                >
-                                  Void
-                                </ConfirmButton>
-                              </div>
-                            </div>
-                          ))}
-                          {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
-                        </div>
+                        </p>
+                        <p className="mt-1 text-xs text-fg-muted">
+                          Created{" "}
+                          <span className="data-mono">
+                            {String(detail.invoice.created_at || "").slice(0, 19).replace("T", " ") || "-"}
+                          </span>
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <span className="ui-chip ui-chip-default">
+                          <span className="text-fg-subtle">Warehouse</span>
+                          <span className="data-mono text-foreground">{detail.invoice.warehouse_name || detail.invoice.warehouse_id || "-"}</span>
+                        </span>
+                        <span className="ui-chip ui-chip-default">
+                          <span className="text-fg-subtle">Settle</span>
+                          <span className="data-mono text-foreground">{salesOverview.settle}</span>
+                        </span>
+                        <span className="ui-chip ui-chip-default">
+                          <span className="text-fg-subtle">Rate</span>
+                          <span className="data-mono text-foreground">{salesOverview.rate ? salesOverview.rate.toLocaleString("en-US") : "-"}</span>
+                        </span>
                       </div>
                     </div>
 
-                    <div className="space-y-3 md:col-span-4">
-                      <div className="ui-panel p-5">
-                        <p className="ui-panel-title">Totals</p>
-
-                        <div className="mt-3">
-                          <div className="text-xs text-fg-muted">Balance</div>
-                          <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${primaryTone}`}>{primaryFmt(primaryBal)}</div>
-                          <div className="data-mono mt-1 text-sm text-fg-muted">{secondaryFmt(secondaryBal)}</div>
-                        </div>
-
-                        <div className="mt-4 space-y-2">
-                          <div className="ui-kv ui-kv-strong">
-                            <span className="ui-kv-label">Total</span>
-                            <span className="ui-kv-value">{primaryFmt(primaryTotal)}</span>
-                          </div>
-                          <div className="ui-kv ui-kv-sub">
-                            <span className="ui-kv-label">Total (other)</span>
-                            <span className="ui-kv-value">{secondaryFmt(secondaryTotal)}</span>
-                          </div>
-
-                          <div className="section-divider my-3" />
-
+                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                        <p className="ui-panel-title">Dates</p>
+                        <div className="mt-2 space-y-1">
                           <div className="ui-kv">
-                            <span className="ui-kv-label">Applied (settles invoice)</span>
-                            <span className="ui-kv-value">{primaryFmt(primaryPaid)}</span>
+                            <span className="ui-kv-label">Invoice</span>
+                            <span className="ui-kv-value">{fmtIso(detail.invoice.invoice_date)}</span>
                           </div>
-                          <div className="ui-kv ui-kv-sub">
-                            <span className="ui-kv-label">Applied (other)</span>
-                            <span className="ui-kv-value">{secondaryFmt(secondaryPaid)}</span>
+                          <div className="ui-kv">
+                            <span className="ui-kv-label">Due</span>
+                            <span className="ui-kv-value">{fmtIso(detail.invoice.due_date)}</span>
                           </div>
-
-                          {hasAnyTender ? (
-                            <>
-                              <div className="section-divider my-3" />
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">Tender received</span>
-                                <span className="ui-kv-value">
-                                  {fmtUsdLbp(tenderUsd, tenderLbp)}
-                                </span>
-                              </div>
-                            </>
-                          ) : null}
-
-                          {(detail.tax_lines || []).length ? (
-                            <>
-                              <div className="section-divider my-3" />
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">VAT</span>
-                                <span className="ui-kv-value">
-                                  {fmtUsdLbp(vatUsd, vatLbp)}
-                                </span>
-                              </div>
-                            </>
-                          ) : null}
-
-                          <div className="section-divider my-3" />
-                          <div className="ui-kv ui-kv-strong">
-                            <span className="ui-kv-label">Balance</span>
-                            <span className="ui-kv-value">{primaryFmt(primaryBal)}</span>
-                          </div>
-                          <div className="ui-kv ui-kv-sub">
-                            <span className="ui-kv-label">Balance (other)</span>
-                            <span className="ui-kv-value">{secondaryFmt(secondaryBal)}</span>
-                          </div>
-
-                          <details className="mt-3 rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                            <summary className="cursor-pointer text-xs font-medium text-fg-muted">Breakdown</summary>
-                            <div className="mt-2 space-y-2">
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">Subtotal</span>
-                                <span className="ui-kv-value">
-                                  {fmtUsdLbp(subUsd, subLbp)}
-                                </span>
-                              </div>
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">Discount</span>
-                                <span className="ui-kv-value">
-                                  {fmtUsdLbp(discUsd, discLbp)}
-                                </span>
-                              </div>
-                            </div>
-                          </details>
                         </div>
                       </div>
-
-                      <div className="ui-panel p-4">
-                        <p className="text-sm font-medium text-foreground">Tax Lines</p>
-                        <div className="mt-2 space-y-1 text-xs text-fg-muted">
-                          {detail.invoice.status === "draft" ? (
-                            <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
-                              <div className="ui-kv">
-                                <span className="ui-kv-label">VAT preview</span>
-                                <span className="ui-kv-value">
-                                  {taxPreview ? fmtUsdLbp(taxPreview.tax_usd, taxPreview.tax_lbp) : "-"}
-                                </span>
-                              </div>
-                              <div className="mt-1 text-[11px] text-fg-subtle">
-                                Tax lines are created when you post the invoice.
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {detail.invoice.status !== "draft" && taxBreakdown.length ? (
-                            <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Tax breakdown</span>
-                                <span className="text-[11px] text-fg-subtle">{taxBreakdown.length} code(s)</span>
-                              </div>
-
-                              <div className="mt-2 space-y-1">
-                                <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-[11px] text-fg-subtle">
-                                  <span>Code</span>
-                                  <span className="text-right">Tax</span>
-                                </div>
-                                {taxBreakdown.map((r) => {
-                                  const effectivePctUsd = r.base_usd > 0 ? (r.tax_usd / r.base_usd) * 100 : null;
-                                  const effectivePctLbp = r.base_lbp > 0 ? (r.tax_lbp / r.base_lbp) * 100 : null;
-                                  const effectivePct = Number.isFinite(Number(effectivePctUsd))
-                                    ? effectivePctUsd
-                                    : Number.isFinite(Number(effectivePctLbp))
-                                      ? effectivePctLbp
-                                      : null;
-
-                                  return (
-                                    <div key={r.tax_code_id} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
-                                      <div className="min-w-0">
-                                        <div className="truncate data-mono text-foreground">
-                                          {r.label}
-                                          {r.ratePct !== null ? <span className="text-fg-subtle"> · {r.ratePct.toFixed(2)}%</span> : null}
-                                          {effectivePct !== null ? <span className="text-fg-subtle"> · eff {effectivePct.toFixed(2)}%</span> : null}
-                                        </div>
-                                        <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
-                                          <span className="text-fg-subtle">Base</span>
-                                          <span className="data-mono">
-                                            {fmtUsdLbp(r.base_usd, r.base_lbp)}
-                                          </span>
-                                        </div>
-                                      </div>
-                                      <div className="text-right data-mono text-foreground">
-                                        {fmtUsdLbp(r.tax_usd, r.tax_lbp)}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-
-                                <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-[11px]">
-                                  <span className="text-fg-subtle">Total</span>
-                                  <span className="text-right data-mono text-foreground">
-                                    {fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}
-                                  </span>
-                                </div>
-                                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-[11px] text-fg-muted">
-                                  <span className="text-fg-subtle">Taxable base</span>
-                                  <span className="text-right data-mono">
-                                    {fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <details className="mt-2">
-                                <summary className="cursor-pointer text-[11px] font-medium text-fg-subtle">Raw tax lines</summary>
-                                <div className="mt-2 space-y-1">
-                                  {detail.tax_lines.map((t) => {
-                                    const tc = taxById.get(String(t.tax_code_id));
-                                    const label = tc?.name ? `${tc.name}` : t.tax_code_id;
-                                    const ratePct = tc ? taxRateToPercent(tc.rate) : null;
-                                    return (
-                                      <div key={t.id} className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
-                                        <div className="flex items-center justify-between gap-2">
-                                          <span className="data-mono">
-                                            {label}
-                                            {ratePct !== null ? <span className="text-fg-subtle"> · {ratePct.toFixed(2)}%</span> : null}
-                                          </span>
-                                          <span className="data-mono text-foreground">
-                                            {fmtUsdLbp(t.tax_usd, t.tax_lbp)}
-                                          </span>
-                                        </div>
-                                        <div className="mt-1 flex items-center justify-between gap-2">
-                                          <span className="text-[11px] text-fg-subtle">Base</span>
-                                          <span className="data-mono text-[11px] text-fg-muted">
-                                            {fmtUsdLbp(t.base_usd, t.base_lbp)}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </details>
-                            </div>
-                          ) : null}
-
-                          {detail.invoice.status === "posted" && detail.tax_lines.length === 0 ? (
-                            <p className="text-fg-subtle">
-                              No tax lines. VAT is only created at posting time and requires a VAT tax code (System {">"} Config) and item tax codes if you use overrides.
-                            </p>
-                          ) : null}
+                      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                        <p className="ui-panel-title">Document</p>
+                        <div className="mt-2 space-y-1">
+                          <div className="ui-kv">
+                            <span className="ui-kv-label">Invoice No</span>
+                            <span className="ui-kv-value">{detail.invoice.invoice_no || "(draft)"}</span>
+                          </div>
+                          <div className="ui-kv">
+                            <span className="ui-kv-label">Receipt</span>
+                            <span className="ui-kv-value">{detail.invoice.receipt_no || "-"}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
-                );
-              })()}
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Lines</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <DataTable<InvoiceLine>
-                    tableId="sales.invoice.lines"
-                    rows={detail.lines}
-                    columns={invoiceLineColumns}
-                    getRowId={(l) => l.id}
-                    emptyText="No lines."
-                    enableGlobalFilter={false}
-                    initialSort={{ columnId: "item", dir: "asc" }}
-                  />
-                </CardContent>
-              </Card>
+                  <div className="ui-panel p-5 md:col-span-4">
+                    <p className="ui-panel-title">Totals</p>
+                    <div className="mt-3">
+                      <div className="text-xs text-fg-muted">Balance</div>
+                      <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${salesOverview.primaryTone}`}>{salesOverview.primaryFmt(salesOverview.primaryBal)}</div>
+                      <div className="data-mono mt-1 text-sm text-fg-muted">{salesOverview.secondaryFmt(salesOverview.secondaryBal)}</div>
+                    </div>
+                    <div className="mt-4 space-y-2">
+                      <div className="ui-kv ui-kv-strong">
+                        <span className="ui-kv-label">Total</span>
+                        <span className="ui-kv-value">{salesOverview.primaryFmt(salesOverview.primaryTotal)}</span>
+                      </div>
+                      <div className="ui-kv ui-kv-sub">
+                        <span className="ui-kv-label">Total (other)</span>
+                        <span className="ui-kv-value">{salesOverview.secondaryFmt(salesOverview.secondaryTotal)}</span>
+                      </div>
+
+                      <div className="section-divider my-3" />
+                      <div className="ui-kv">
+                        <span className="ui-kv-label">Applied (settles)</span>
+                        <span className="ui-kv-value">{salesOverview.primaryFmt(salesOverview.primaryPaid)}</span>
+                      </div>
+                      <div className="ui-kv ui-kv-sub">
+                        <span className="ui-kv-label">Applied (other)</span>
+                        <span className="ui-kv-value">{salesOverview.secondaryFmt(salesOverview.secondaryPaid)}</span>
+                      </div>
+
+                      {salesOverview.hasAnyTender ? (
+                        <>
+                          <div className="section-divider my-3" />
+                          <div className="ui-kv">
+                            <span className="ui-kv-label">Tender received</span>
+                            <span className="ui-kv-value">{fmtUsdLbp(salesOverview.tenderUsd, salesOverview.tenderLbp)}</span>
+                          </div>
+                        </>
+                      ) : null}
+
+                      {(detail.tax_lines || []).length ? (
+                        <>
+                          <div className="section-divider my-3" />
+                          <div className="ui-kv">
+                            <span className="ui-kv-label">VAT</span>
+                            <span className="ui-kv-value">{fmtUsdLbp(salesOverview.vatUsd, salesOverview.vatLbp)}</span>
+                          </div>
+                        </>
+                      ) : null}
+
+                      <div className="section-divider my-3" />
+                      <details className="mt-3 rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                        <summary className="cursor-pointer text-xs font-medium text-fg-muted">Breakdown</summary>
+                        <div className="mt-2 space-y-2">
+                          <div className="ui-kv">
+                            <span className="ui-kv-label">Subtotal</span>
+                            <span className="ui-kv-value">{fmtUsdLbp(salesOverview.subUsd, salesOverview.subLbp)}</span>
+                          </div>
+                          <div className="ui-kv">
+                            <span className="ui-kv-label">Discount</span>
+                            <span className="ui-kv-value">{fmtUsdLbp(salesOverview.discUsd, salesOverview.discLbp)}</span>
+                          </div>
+                        </div>
+                      </details>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeTab === "lines" ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Lines</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <DataTable<InvoiceLine>
+                      tableId="sales.invoice.lines"
+                      rows={detail.lines}
+                      columns={invoiceLineColumns}
+                      getRowId={(l) => l.id}
+                      emptyText="No lines."
+                      enableGlobalFilter={false}
+                      initialSort={{ columnId: "item", dir: "asc" }}
+                    />
+                  </CardContent>
+                </Card>
+              ) : null}
+
+              {activeTab === "payments" ? (
+                <Card>
+                  <CardHeader>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <CardTitle className="text-base">Payments</CardTitle>
+                        <CardDescription className="mt-1">Recorded and tender amounts.</CardDescription>
+                      </div>
+                      {detail.invoice.status === "posted" ? (
+                        <Button asChild variant="outline" size="sm">
+                          <Link href={`/sales/payments?invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`}>Record Payment</Link>
+                        </Button>
+                      ) : (
+                        <Button variant="outline" size="sm" disabled>
+                          Record Payment
+                        </Button>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {detail.invoice.status !== "posted" ? <p className="mb-2 text-xs text-fg-subtle">Payments are recorded after posting.</p> : null}
+                    <div className="space-y-1 text-xs text-fg-muted">
+                      {detail.payments.map((p) => (
+                        <div key={p.id} className="flex items-center justify-between gap-2">
+                          <span className="data-mono">{p.method}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="data-mono text-right">
+                              {hasTender(p) ? (
+                                <>
+                                  <span className="text-foreground">Tender {fmtUsdLbp(n(p.tender_usd), n(p.tender_lbp))}</span>
+                                  <span className="text-fg-subtle"> · </span>
+                                  <span className="text-fg-muted">Applied {fmtUsdLbp(n(p.amount_usd), n(p.amount_lbp))}</span>
+                                </>
+                              ) : (
+                                <span className="text-foreground">Applied {fmtUsdLbp(n(p.amount_usd), n(p.amount_lbp))}</span>
+                              )}
+                            </span>
+                            <Button variant="outline" size="sm" onClick={() => recomputePayment(p.id)}>
+                              Fix
+                            </Button>
+                            <ConfirmButton
+                              variant="destructive"
+                              size="sm"
+                              title="Void Payment?"
+                              description="This will create a reversing GL entry."
+                              confirmText="Void"
+                              confirmVariant="destructive"
+                              onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+                              onConfirm={() => voidPayment(p.id)}
+                            >
+                              Void
+                            </ConfirmButton>
+                          </div>
+                        </div>
+                      ))}
+                      {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
+
+              {activeTab === "tax" ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Tax Lines</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1 text-xs text-fg-muted">
+                      {detail.invoice.status === "draft" ? (
+                        <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                          <div className="ui-kv">
+                            <span className="ui-kv-label">VAT preview</span>
+                            <span className="ui-kv-value">{taxPreview ? fmtUsdLbp(taxPreview.tax_usd, taxPreview.tax_lbp) : "-"}</span>
+                          </div>
+                          <div className="mt-1 text-[11px] text-fg-subtle">Tax lines are created when you post the invoice.</div>
+                        </div>
+                      ) : null}
+
+                      {detail.invoice.status !== "draft" && taxBreakdown.length ? (
+                        <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Tax breakdown</span>
+                            <span className="text-[11px] text-fg-subtle">{taxBreakdown.length} code(s)</span>
+                          </div>
+                          <div className="mt-2 space-y-1">
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-[11px] text-fg-subtle">
+                              <span>Code</span>
+                              <span className="text-right">Tax</span>
+                            </div>
+                            {taxBreakdown.map((r) => {
+                              const effectivePctUsd = r.base_usd > 0 ? (r.tax_usd / r.base_usd) * 100 : null;
+                              const effectivePctLbp = r.base_lbp > 0 ? (r.tax_lbp / r.base_lbp) * 100 : null;
+                              const effectivePct = Number.isFinite(Number(effectivePctUsd))
+                                ? effectivePctUsd
+                                : Number.isFinite(Number(effectivePctLbp))
+                                  ? effectivePctLbp
+                                  : null;
+
+                              return (
+                                <div key={r.tax_code_id} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                                  <div className="min-w-0">
+                                    <div className="truncate data-mono text-foreground">
+                                      {r.label}
+                                      {r.ratePct !== null ? <span className="text-fg-subtle"> · {r.ratePct.toFixed(2)}%</span> : null}
+                                      {effectivePct !== null ? <span className="text-fg-subtle"> · eff {effectivePct.toFixed(2)}%</span> : null}
+                                    </div>
+                                    <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                                      <span className="text-fg-subtle">Base</span>
+                                      <span className="data-mono">{fmtUsdLbp(r.base_usd, r.base_lbp)}</span>
+                                    </div>
+                                  </div>
+                                  <div className="text-right data-mono text-foreground">{fmtUsdLbp(r.tax_usd, r.tax_lbp)}</div>
+                                </div>
+                              );
+                            })}
+
+                            <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-[11px]">
+                              <span className="text-fg-subtle">Total</span>
+                              <span className="text-right data-mono text-foreground">{fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}</span>
+                            </div>
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-[11px] text-fg-muted">
+                              <span className="text-fg-subtle">Taxable base</span>
+                              <span className="text-right data-mono">{fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}</span>
+                            </div>
+                          </div>
+
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-[11px] font-medium text-fg-subtle">Raw tax lines</summary>
+                            <div className="mt-2 space-y-1">
+                              {detail.tax_lines.map((t) => {
+                                const tc = taxById.get(String(t.tax_code_id));
+                                const label = tc?.name ? `${tc.name}` : t.tax_code_id;
+                                const ratePct = tc ? taxRateToPercent(tc.rate) : null;
+                                return (
+                                  <div key={t.id} className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="data-mono">
+                                        {label}
+                                        {ratePct !== null ? <span className="text-fg-subtle"> · {ratePct.toFixed(2)}%</span> : null}
+                                      </span>
+                                      <span className="data-mono text-foreground">{fmtUsdLbp(t.tax_usd, t.tax_lbp)}</span>
+                                    </div>
+                                    <div className="mt-1 flex items-center justify-between gap-2">
+                                      <span className="text-[11px] text-fg-subtle">Base</span>
+                                      <span className="data-mono text-[11px] text-fg-muted">{fmtUsdLbp(t.base_usd, t.base_lbp)}</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </details>
+                        </div>
+                      ) : null}
+
+                      {detail.invoice.status === "posted" && detail.tax_lines.length === 0 ? (
+                        <p className="text-fg-subtle">
+                          No tax lines. VAT is only created at posting time and requires a VAT tax code (System {">"} Config) and item tax codes if you use overrides.
+                        </p>
+                      ) : null}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null}
             </CardContent>
           </Card>
 

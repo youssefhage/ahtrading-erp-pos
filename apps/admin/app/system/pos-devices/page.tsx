@@ -12,6 +12,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { SearchableSelect } from "@/components/searchable-select";
 import { ConfirmButton } from "@/components/confirm-button";
 import { Page, PageHeader, Section } from "@/components/page";
+import { ViewRaw } from "@/components/view-raw";
 
 type DeviceRow = {
   id: string;
@@ -114,10 +115,6 @@ export default function PosDevicesPage() {
     if (!lastSetup) return null;
     return buildPosConfigPayload(lastSetup, effectiveApiBaseUrl);
   }, [lastSetup, effectiveApiBaseUrl]);
-  const setupPayloadJson = useMemo(
-    () => (setupPayload ? JSON.stringify(setupPayload, null, 2) : ""),
-    [setupPayload]
-  );
 
   async function load() {
     setStatus("Loading...");
@@ -343,9 +340,8 @@ async function resetToken(device: DeviceRow) {
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-medium text-fg-muted">POS Config JSON</div>
-                  <CopyValueButton text={setupPayloadJson} label="config json" />
                 </div>
-                <pre className="whitespace-pre-wrap rounded-md border border-border bg-bg-sunken/30 p-3 text-xs">{setupPayloadJson}</pre>
+                <ViewRaw value={setupPayload} label="POS Config JSON" defaultOpen={false} />
               </div>
             ) : null}
 

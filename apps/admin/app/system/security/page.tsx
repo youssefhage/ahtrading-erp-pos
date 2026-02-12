@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
 import { Page, PageHeader, Section } from "@/components/page";
+import { Chip } from "@/components/ui/chip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -14,6 +15,8 @@ type Me = {
   full_name?: string | null;
   phone?: string | null;
   mfa_enabled?: boolean;
+  permissions?: string[];
+  roles?: string[];
 };
 
 type MfaStatus = { enabled: boolean; pending: boolean };
@@ -153,6 +156,31 @@ export default function SecurityPage() {
               </Button>
             </div>
           </form>
+      </Section>
+
+      <Section title="Active company roles and permissions" description="Computed from your active company role assignment." >
+        <div className="space-y-3">
+          <div>
+            <p className="text-xs font-medium text-fg-muted">Roles</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(me?.roles || []).length ? (
+                (me?.roles || []).map((r) => <Chip key={r} variant="primary">{r}</Chip>)
+              ) : (
+                <span className="text-xs text-fg-subtle">No role mapping found for active company.</span>
+              )}
+            </div>
+          </div>
+          <div>
+            <p className="text-xs font-medium text-fg-muted">Permissions</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(me?.permissions || []).length ? (
+                (me?.permissions || []).map((perm) => <Chip key={perm} variant="default">{perm}</Chip>)
+              ) : (
+                <span className="text-xs text-fg-subtle">No permissions loaded for active company.</span>
+              )}
+            </div>
+          </div>
+        </div>
       </Section>
 
       <Section title="MFA (Authenticator App)" description="Optional, recommended for admin users.">

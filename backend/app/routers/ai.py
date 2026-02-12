@@ -9,6 +9,29 @@ from ..validation import AiActionStatus, AiRecommendationStatus, AiRecommendatio
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
+EXECUTABLE_AGENT_CODES = frozenset({"AI_PURCHASE", "AI_DEMAND", "AI_PRICING"})
+
+
+def _normalize_agent_code(agent_code: Optional[str]) -> str:
+    return (agent_code or "").strip().upper()
+
+
+def _is_executable_agent(agent_code: str) -> bool:
+    return _normalize_agent_code(agent_code) in EXECUTABLE_AGENT_CODES
+
+
+def _with_execution_mode(row: dict[str, Any]) -> dict[str, Any]:
+    agent_code = str(row.get("agent_code") or "")
+    return {
+        **row,
+        "is_executable": _is_executable_agent(agent_code),
+        "execution_mode": _execution_mode(agent_code),
+    }
+
+
+def _execution_mode(agent_code: str) -> str:
+    return "executable" if _is_executable_agent(agent_code) else "review_only"
+
 
 class RecommendationDecision(BaseModel):
     status: AiRecommendationDecisionStatus
@@ -19,8 +42,8 @@ class RecommendationDecision(BaseModel):
 class AgentSetting(BaseModel):
     agent_code: str
     auto_execute: bool = False
-    max_amount_usd: float = 0
-    max_actions_per_day: int = 0
+    max_amount_usd: float = Field(default=0, ge=0)
+    max_actions_per_day: int = Field(default=0, ge=0)
 
 
 class CopilotQueryIn(BaseModel):
@@ -32,6 +55,74 @@ class JobScheduleIn(BaseModel):
     enabled: bool = True
     interval_seconds: int = 3600
     options_json: dict[str, Any] = Field(default_factory=dict)
+
+
+def _normalize_text(value: Optional[str]) -> Optional[str]:
+    s = (value or "").strip()
+    return s or None
+
+
+def _upsert_ai_action_from_recommendation(cur, company_id: str, rec: dict[str, Any], user_id: str) -> str | None:
+    if not _is_executable_agent(rec.get("agent_code") or ""):
+        return None
+
+    cur.execute(
+        """
+        SELECT auto_execute
+        FROM ai_agent_settings
+        WHERE company_id = %s AND agent_code = %s
+        """,
+        (company_id, rec["agent_code"]),
+    )
+    setting = cur.fetchone() or {"auto_execute": False}
+    action_status = "queued" if bool(setting.get("auto_execute")) else "approved"
+
+    cur.execute(
+        """
+        INSERT INTO ai_actions
+          (id, company_id, agent_code, recommendation_id, action_json, status,
+           approved_by_user_id, approved_at,
+           queued_by_user_id, queued_at)
+        VALUES
+          (gen_random_uuid(), %s, %s, %s, %s::jsonb, %s,
+           %s, now(),
+           CASE WHEN %s = 'queued' THEN %s ELSE NULL END,
+           CASE WHEN %s = 'queued' THEN now() ELSE NULL END)
+        ON CONFLICT (company_id, recommendation_id) DO UPDATE
+        SET status = EXCLUDED.status,
+                action_json = EXCLUDED.action_json,
+            approved_by_user_id = EXCLUDED.approved_by_user_id,
+            approved_at = EXCLUDED.approved_at,
+            queued_by_user_id = CASE
+              WHEN EXCLUDED.status = 'queued' THEN EXCLUDED.queued_by_user_id
+              ELSE NULL
+            END,
+            queued_at = CASE
+              WHEN EXCLUDED.status = 'queued' THEN EXCLUDED.queued_at
+              ELSE NULL
+            END,
+            error_message = NULL,
+            attempt_count = CASE
+              WHEN ai_actions.status IN ('failed', 'blocked', 'canceled') THEN 0
+              ELSE ai_actions.attempt_count
+            END,
+            updated_at = now()
+        RETURNING id
+        """,
+        (
+            company_id,
+            rec["agent_code"],
+            rec["id"],
+            json.dumps(rec["recommendation_json"]),
+            action_status,
+            user_id,
+            action_status,
+            user_id,
+            action_status,
+        ),
+    )
+    action = cur.fetchone()
+    return str(action["id"]) if action else None
 
 
 @router.get("/recommendations", dependencies=[Depends(require_permission("ai:read"))])
@@ -47,7 +138,9 @@ def list_recommendations(
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
             sql = """
-                SELECT id, agent_code, status, recommendation_json, created_at
+                SELECT
+                  id, agent_code, status, recommendation_json, created_at,
+                  decided_at, decided_by_user_id, decision_reason, decision_notes
                 FROM ai_recommendations
                 WHERE company_id = %s
             """
@@ -61,7 +154,8 @@ def list_recommendations(
             sql += " ORDER BY created_at DESC LIMIT %s"
             params.append(limit)
             cur.execute(sql, params)
-            return {"recommendations": cur.fetchall()}
+            rows = cur.fetchall()
+            return {"recommendations": [_with_execution_mode(dict(r)) for r in rows]}
 
 
 @router.get("/recommendations/summary", dependencies=[Depends(require_permission("ai:read"))])
@@ -104,11 +198,26 @@ def list_settings(company_id: str = Depends(get_company_id)):
                 """,
                 (company_id,),
             )
-            return {"settings": cur.fetchall()}
+            rows = cur.fetchall()
+            return {
+                "settings": [
+                    _with_execution_mode(dict(row))
+                    for row in rows
+                ]
+            }
 
 
 @router.post("/settings", dependencies=[Depends(require_permission("ai:write"))])
 def upsert_setting(data: AgentSetting, company_id: str = Depends(get_company_id)):
+    agent_code = _normalize_agent_code(data.agent_code)
+    if not agent_code:
+        raise HTTPException(status_code=400, detail="agent_code is required")
+    if data.auto_execute and not _is_executable_agent(agent_code):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{agent_code} is review-only and cannot auto-execute in this release.",
+        )
+
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -123,7 +232,7 @@ def upsert_setting(data: AgentSetting, company_id: str = Depends(get_company_id)
                     max_amount_usd = EXCLUDED.max_amount_usd,
                     max_actions_per_day = EXCLUDED.max_actions_per_day
                 """,
-                (company_id, data.agent_code, data.auto_execute, data.max_amount_usd, data.max_actions_per_day),
+                (company_id, agent_code, data.auto_execute, data.max_amount_usd, data.max_actions_per_day),
             )
             return {"ok": True}
 
@@ -167,73 +276,108 @@ def decide_recommendation(
                     (
                         data.status,
                         user["user_id"],
-                        (data.reason or "").strip() or None,
-                        (data.notes or "").strip() or None,
+                        _normalize_text(data.reason),
+                        _normalize_text(data.notes),
                         rec_id,
                         company_id,
                     ),
-                )
+                    )
 
-                # For supported agents, approval creates an executable action.
-                if data.status == "approved" and rec["agent_code"] in {"AI_PURCHASE", "AI_PRICING", "AI_DEMAND"}:
-                    cur.execute(
-                        """
-                        SELECT auto_execute, max_amount_usd, max_actions_per_day
-                        FROM ai_agent_settings
-                        WHERE company_id = %s AND agent_code = %s
-                        """,
-                        (company_id, rec["agent_code"]),
-                    )
-                    setting = cur.fetchone() or {"auto_execute": False, "max_amount_usd": 0, "max_actions_per_day": 0}
-                    auto_execute = bool(setting.get("auto_execute"))
-                    # When auto_execute is disabled, we still create an action row, but it sits in
-                    # "approved" until a human explicitly queues it.
-                    action_status = "queued" if auto_execute else "approved"
-                    cur.execute(
-                        """
-                        INSERT INTO ai_actions
-                          (id, company_id, agent_code, recommendation_id, action_json, status,
-                           approved_by_user_id, approved_at,
-                           queued_by_user_id, queued_at)
-                        VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s::jsonb, %s,
-                           %s, now(),
-                           CASE WHEN %s = 'queued' THEN %s ELSE NULL END,
-                           CASE WHEN %s = 'queued' THEN now() ELSE NULL END)
-                        ON CONFLICT DO NOTHING
-                        RETURNING id
-                        """,
-                        (
+                reason = _normalize_text(data.reason)
+                notes = _normalize_text(data.notes)
+                agent_code = str(rec["agent_code"] or "")
+                is_executable_agent = _is_executable_agent(agent_code)
+                decision_log = {
+                    "agent_code": rec["agent_code"],
+                    "decision_status": data.status,
+                    "execution_mode": _execution_mode(agent_code),
+                    "reason": reason,
+                    "notes": notes,
+                }
+
+                cur.execute(
+                    """
+                    SELECT id FROM ai_actions
+                    WHERE company_id = %s AND recommendation_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    (company_id, rec_id),
+                )
+                action_row = cur.fetchone()
+                action_id = action_row["id"] if action_row else None
+
+                # For executable agents, approval creates/updates an action row.
+                if data.status == "approved":
+                    if _is_executable_agent(agent_code):
+                        action_id = _upsert_ai_action_from_recommendation(
+                            cur,
                             company_id,
-                            rec["agent_code"],
-                            rec_id,
-                            json.dumps(rec["recommendation_json"]),
-                            action_status,
+                            {**dict(rec), "agent_code": agent_code},
                             user["user_id"],
-                            action_status,
-                            user["user_id"],
-                            action_status,
-                        ),
-                    )
-                    action = cur.fetchone()
+                        )
+                        if action_id:
+                            decision_log["action_id"] = action_id
                     cur.execute(
                         """
                         INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                         VALUES (gen_random_uuid(), %s, %s, 'ai_approve', 'ai_recommendation', %s, %s::jsonb)
                         """,
-                        (company_id, user["user_id"], rec_id, json.dumps({"agent_code": rec["agent_code"], "action_status": action_status})),
+                        (
+                            company_id,
+                            user["user_id"],
+                            rec_id,
+                            json.dumps(decision_log),
+                        ),
                     )
-                    return {"ok": True, "action_id": (action["id"] if action else None)}
 
-                # Reject cancels any queued action.
-                if data.status == "rejected":
+                elif data.status == "executed":
+                    if action_id:
+                        cur.execute(
+                            """
+                            UPDATE ai_actions
+                            SET status = 'executed',
+                                executed_by_user_id = %s,
+                                executed_at = now(),
+                                error_message = NULL,
+                                updated_at = now()
+                            WHERE id = %s
+                            """,
+                            (user["user_id"], action_id),
+                        )
+                    elif is_executable_agent:
+                        decision_log["non_executable_path_comment"] = "executed_without_action_row"
+                    else:
+                        decision_log["non_executable_path_comment"] = "review_only_marked"
+                    cur.execute(
+                        """
+                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                        VALUES (gen_random_uuid(), %s, %s, 'ai_executed', 'ai_recommendation', %s, %s::jsonb)
+                        """,
+                        (
+                            company_id,
+                            user["user_id"],
+                            rec_id,
+                            json.dumps(decision_log),
+                        ),
+                    )
+
+                elif data.status == "rejected":
+                    reject_reason = reason or notes or "Rejected by user"
                     cur.execute(
                         """
                         UPDATE ai_actions
-                        SET status = 'canceled', updated_at = now()
-                        WHERE company_id = %s AND recommendation_id = %s AND status IN ('queued', 'approved', 'blocked')
+                        SET status = 'canceled',
+                            error_message = %s,
+                            queued_by_user_id = NULL,
+                            queued_at = NULL,
+                            attempt_count = 0,
+                            updated_at = now()
+                        WHERE company_id = %s
+                          AND recommendation_id = %s
+                          AND status IN ('queued', 'approved', 'blocked', 'failed')
                         """,
-                        (company_id, rec_id),
+                        (reject_reason, company_id, rec_id),
                     )
                     cur.execute(
                         """
@@ -244,11 +388,11 @@ def decide_recommendation(
                             company_id,
                             user["user_id"],
                             rec_id,
-                            json.dumps({"agent_code": rec["agent_code"], "reason": (data.reason or "").strip() or None}),
+                            json.dumps(decision_log),
                         ),
                     )
 
-                return {"ok": True}
+                return {"ok": True, "action_id": str(action_id) if action_id else None}
 
 
 @router.get("/actions", dependencies=[Depends(require_permission("ai:read"))])
@@ -266,6 +410,7 @@ def list_actions(
             sql = """
                 SELECT id, agent_code, recommendation_id, status,
                        attempt_count, error_message,
+                       result_entity_type, result_entity_id, result_json,
                        action_json,
                        approved_by_user_id, approved_at,
                        queued_by_user_id, queued_at,
@@ -284,7 +429,8 @@ def list_actions(
             sql += " ORDER BY created_at DESC LIMIT %s"
             params.append(limit)
             cur.execute(sql, params)
-            return {"actions": cur.fetchall()}
+            rows = cur.fetchall()
+            return {"actions": [_with_execution_mode(dict(r)) for r in rows]}
 
 @router.get("/copilot/overview", dependencies=[Depends(require_permission("ai:read"))])
 def copilot_overview(company_id: str = Depends(get_company_id)):
@@ -556,6 +702,19 @@ def queue_action(
         with conn.cursor() as cur:
             cur.execute(
                 """
+                SELECT agent_code FROM ai_actions
+                WHERE company_id = %s AND id = %s AND status IN ('approved', 'blocked', 'failed', 'canceled')
+                """,
+                (company_id, action_id),
+            )
+            action = cur.fetchone()
+            if not action:
+                raise HTTPException(status_code=404, detail="action not found or not queueable")
+            if not _is_executable_agent(action["agent_code"]):
+                raise HTTPException(status_code=400, detail="Agent does not support queueing actions in this product version")
+
+            cur.execute(
+                """
                 UPDATE ai_actions
                 SET status = 'queued',
                     queued_by_user_id = %s,
@@ -587,6 +746,17 @@ def cancel_action(action_id: str, company_id: str = Depends(get_company_id), use
         with conn.cursor() as cur:
             cur.execute(
                 """
+                SELECT agent_code FROM ai_actions
+                WHERE company_id = %s AND id = %s AND status = 'queued'
+                """,
+                (company_id, action_id),
+            )
+            action = cur.fetchone()
+            if action and not _is_executable_agent(action["agent_code"]):
+                raise HTTPException(status_code=400, detail="Agent does not support queue actions in this product version")
+
+            cur.execute(
+                """
                 UPDATE ai_actions
                 SET status = 'canceled', updated_at = now()
                 WHERE company_id = %s AND id = %s AND status = 'queued'
@@ -612,6 +782,17 @@ def requeue_action(action_id: str, company_id: str = Depends(get_company_id), us
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT agent_code FROM ai_actions
+                WHERE company_id = %s AND id = %s AND status IN ('failed', 'canceled', 'blocked')
+                """,
+                (company_id, action_id),
+            )
+            action = cur.fetchone()
+            if action and not _is_executable_agent(action["agent_code"]):
+                raise HTTPException(status_code=400, detail="Agent does not support queue actions in this product version")
+
             cur.execute(
                 """
                 UPDATE ai_actions

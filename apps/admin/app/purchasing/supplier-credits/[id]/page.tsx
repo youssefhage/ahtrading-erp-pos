@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { MoneyInput } from "@/components/money-input";
+import { TabBar } from "@/components/tab-bar";
 
 type CreditDoc = {
   id: string;
@@ -87,6 +88,7 @@ export default function SupplierCreditDetailPage() {
   const [cancelDate, setCancelDate] = useState(todayIso());
   const [cancelReason, setCancelReason] = useState("");
   const [canceling, setCanceling] = useState(false);
+  const searchParams = useSearchParams();
 
   const appliedTotals = useMemo(() => {
     let usd = 0;
@@ -103,6 +105,21 @@ export default function SupplierCreditDetailPage() {
     const totalLbp = toNum(data?.credit?.total_lbp);
     return { usd: totalUsd - appliedTotals.usd, lbp: totalLbp - appliedTotals.lbp };
   }, [data, appliedTotals]);
+
+  const activeTab = (() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "lines") return "lines";
+    if (t === "applications") return "applications";
+    if (t === "allocations") return "allocations";
+    return "overview";
+  })();
+
+  const creditTabs = [
+    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
+    { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
+    { label: "Applications", href: "?tab=applications", activeQuery: { key: "tab", value: "applications" } },
+    { label: "Allocations", href: "?tab=allocations", activeQuery: { key: "tab", value: "allocations" } },
+  ];
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -525,26 +542,65 @@ export default function SupplierCreditDetailPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <TabBar tabs={creditTabs} />
+
+      {activeTab === "overview" ? (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Totals</CardTitle>
+              <CardDescription>
+                Total: {fmtUsdLbp(credit?.total_usd, credit?.total_lbp)} · Applied: {fmtUsdLbp(appliedTotals.usd, appliedTotals.lbp)}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div className="rounded-md border border-border bg-bg-elevated p-3">
+                <div className="text-xs text-fg-subtle">Remaining USD</div>
+                <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(remaining.usd)}</div>
+              </div>
+              <div className="rounded-md border border-border bg-bg-elevated p-3">
+                <div className="text-xs text-fg-subtle">Remaining LL</div>
+                <div className="mt-1 data-mono text-sm">{fmtLbpMaybe(remaining.lbp, { dashIfZero: remaining.usd !== 0 })}</div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Summary</CardTitle>
+              <CardDescription>Quick status and application count.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-2 text-xs text-fg-muted md:grid-cols-2">
+              <div>Status: <span className="font-mono">{credit?.status || "-"}</span></div>
+              <div>Applications: <span className="font-mono">{data?.applications?.length || 0}</span></div>
+              <div>Lines: <span className="font-mono">{data?.lines?.length || 0}</span></div>
+              <div>Allocations: <span className="font-mono">{data?.allocations?.length || 0}</span></div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
+      {activeTab === "lines" ? (
         <Card>
           <CardHeader>
-            <CardTitle>Totals</CardTitle>
-            <CardDescription>
-              Total: {fmtUsdLbp(credit?.total_usd, credit?.total_lbp)} · Applied: {fmtUsdLbp(appliedTotals.usd, appliedTotals.lbp)}
-            </CardDescription>
+            <CardTitle>Lines</CardTitle>
+            <CardDescription>{data?.lines?.length || 0} lines</CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            <div className="rounded-md border border-border bg-bg-elevated p-3">
-              <div className="text-xs text-fg-subtle">Remaining USD</div>
-              <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(remaining.usd)}</div>
-            </div>
-            <div className="rounded-md border border-border bg-bg-elevated p-3">
-              <div className="text-xs text-fg-subtle">Remaining LL</div>
-              <div className="mt-1 data-mono text-sm">{fmtLbpMaybe(remaining.lbp, { dashIfZero: remaining.usd !== 0 })}</div>
-            </div>
+          <CardContent>
+            <DataTable<LineRow>
+              tableId="purchasing.supplier_credit.lines"
+              rows={data?.lines || []}
+              columns={lineColumns}
+              getRowId={(l) => l.id}
+              emptyText="No lines."
+              enableGlobalFilter={false}
+              initialSort={{ columnId: "line_no", dir: "asc" }}
+            />
           </CardContent>
         </Card>
+      ) : null}
 
+      {activeTab === "applications" ? (
         <Card>
           <CardHeader>
             <CardTitle>Applications</CardTitle>
@@ -562,42 +618,28 @@ export default function SupplierCreditDetailPage() {
             />
           </CardContent>
         </Card>
-      </div>
+      ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Lines</CardTitle>
-          <CardDescription>{data?.lines?.length || 0} lines</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable<LineRow>
-            tableId="purchasing.supplier_credit.lines"
-            rows={data?.lines || []}
-            columns={lineColumns}
-            getRowId={(l) => l.id}
-            emptyText="No lines."
-            enableGlobalFilter={false}
-            initialSort={{ columnId: "line_no", dir: "asc" }}
-          />
-        </CardContent>
-      </Card>
-
-      {data?.allocations?.length ? (
+      {activeTab === "allocations" ? (
         <Card>
           <CardHeader>
             <CardTitle>Allocations (Receipt Credits)</CardTitle>
             <CardDescription>Rebate allocations applied to goods receipt lines/batches.</CardDescription>
           </CardHeader>
           <CardContent>
-            <DataTable<AllocRow>
-              tableId="purchasing.supplier_credit.allocations"
-              rows={data?.allocations || []}
-              columns={allocColumns}
-              getRowId={(a) => a.id}
-              emptyText="No allocations."
-              enableGlobalFilter={false}
-              initialSort={{ columnId: "goods_receipt_line_id", dir: "asc" }}
-            />
+            {data?.allocations?.length ? (
+              <DataTable<AllocRow>
+                tableId="purchasing.supplier_credit.allocations"
+                rows={data?.allocations || []}
+                columns={allocColumns}
+                getRowId={(a) => a.id}
+                emptyText="No allocations."
+                enableGlobalFilter={false}
+                initialSort={{ columnId: "goods_receipt_line_id", dir: "asc" }}
+              />
+            ) : (
+              <p className="text-sm text-fg-subtle">No allocations yet.</p>
+            )}
           </CardContent>
         </Card>
       ) : null}

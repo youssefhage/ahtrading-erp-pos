@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { hasAnyPermission, permissionsToStringArray } from "@/lib/permissions";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { AiSetupGate } from "@/components/ai-setup-gate";
@@ -74,6 +75,10 @@ type CopilotOverview = {
   };
 };
 
+type MeContext = {
+  permissions?: string[];
+};
+
 function pill(label: string, value: string) {
   return (
     <div className="rounded-md border border-border bg-bg-elevated px-3 py-2">
@@ -113,16 +118,32 @@ function fmtInterval(seconds: number): string {
 export default function OpsCopilotPage() {
   const [err, setErr] = useState<unknown>(null);
   const [data, setData] = useState<CopilotOverview | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
 
   async function load() {
     setErr(null);
+    setPermissionsLoaded(false);
     try {
+      const me = await apiGet<MeContext>("/auth/me");
+      const nextPermissions = permissionsToStringArray(me);
+      setPermissions(nextPermissions);
+
+      if (!hasAnyPermission({ permissions: nextPermissions }, ["ai:read", "ai:write"])) {
+        setData(null);
+        setErr(null);
+        return;
+      }
       const res = await apiGet<CopilotOverview>("/ai/copilot/overview");
       setData(res);
     } catch (err) {
       setErr(err);
+    } finally {
+      setPermissionsLoaded(true);
     }
   }
+
+  const canReadAi = hasAnyPermission({ permissions }, ["ai:read", "ai:write"]);
 
   useEffect(() => {
     load();
@@ -209,6 +230,19 @@ export default function OpsCopilotPage() {
     <Page>
         {err ? <AiSetupGate error={err} /> : null}
         {err ? <ErrorBanner error={err} onRetry={load} /> : null}
+        {permissionsLoaded && !canReadAi ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>AI Ops Copilot Access Required</CardTitle>
+              <CardDescription>Request ai:read from your administrator to view the AI ops snapshot.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-fg-muted">
+                You’re currently missing the AI permission for the active company.
+              </p>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -217,7 +251,7 @@ export default function OpsCopilotPage() {
               <span className="font-mono text-xs text-foreground">{data?.generated_at || "-"}</span>
             </p>
           </div>
-          <Button variant="outline" onClick={load}>
+          <Button variant="outline" onClick={load} disabled={!canReadAi} title={canReadAi ? "Refresh" : "Requires ai:read"}>
             Refresh
           </Button>
         </div>

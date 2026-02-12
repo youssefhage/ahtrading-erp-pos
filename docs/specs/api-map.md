@@ -69,6 +69,14 @@
 - POST /ai/recommendations/{rec_id}/decide
 - GET /ai/settings
 - POST /ai/settings
+- GET /ai/actions
+- POST /ai/actions/{action_id}/queue
+- POST /ai/actions/{action_id}/cancel
+- POST /ai/actions/{action_id}/requeue
+- GET /ai/jobs/schedules
+- POST /ai/jobs/schedules
+- POST /ai/jobs/{job_code}/run-now
+- GET /ai/jobs/runs
 
 ## Suppliers
 - GET /suppliers

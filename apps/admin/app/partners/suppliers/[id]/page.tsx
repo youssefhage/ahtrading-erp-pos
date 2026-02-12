@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { PartyAddresses } from "@/components/party-addresses";
 import { PartyContacts } from "@/components/party-contacts";
+import { TabBar } from "@/components/tab-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -42,6 +43,7 @@ export default function SupplierViewPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<unknown>(null);
   const [supplier, setSupplier] = useState<Supplier | null>(null);
+  const searchParams = useSearchParams();
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -57,6 +59,17 @@ export default function SupplierViewPage() {
       setLoading(false);
     }
   }, [id]);
+
+  const activeTab = (() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "contacts" || t === "addresses") return t;
+    return "overview";
+  })();
+  const supplierTabs = [
+    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
+    { label: "Contacts", href: "?tab=contacts", activeQuery: { key: "tab", value: "contacts" } },
+    { label: "Addresses", href: "?tab=addresses", activeQuery: { key: "tab", value: "addresses" } },
+  ];
 
   useEffect(() => {
     if (!id) {
@@ -117,53 +130,57 @@ export default function SupplierViewPage() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Summary</CardTitle>
-          <CardDescription>Supplier identity and terms.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <div>
-            <span className="text-fg-subtle">Active:</span> {supplier?.is_active === false ? "No" : "Yes"}
-          </div>
-          <div>
-            <span className="text-fg-subtle">Phone:</span> {supplier?.phone || "-"}
-          </div>
-          <div>
-            <span className="text-fg-subtle">Email:</span> {supplier?.email || "-"}
-          </div>
-          <div>
-            <span className="text-fg-subtle">Terms:</span> {Number(supplier?.payment_terms_days || 0)} day(s)
-          </div>
-          <div>
-            <span className="text-fg-subtle">VAT No:</span> {(supplier as any)?.vat_no || "-"}
-          </div>
-          <div>
-            <span className="text-fg-subtle">Tax ID:</span> {(supplier as any)?.tax_id || "-"}
-          </div>
-          {(supplier as any)?.bank_name ? (
-            <div>
-              <span className="text-fg-subtle">Bank:</span> {(supplier as any)?.bank_name}
-            </div>
+      <TabBar tabs={supplierTabs} />
+      {supplier ? (
+        <>
+          {activeTab === "overview" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Summary</CardTitle>
+                <CardDescription>Supplier identity and terms.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div>
+                  <span className="text-fg-subtle">Active:</span> {supplier?.is_active === false ? "No" : "Yes"}
+                </div>
+                <div>
+                  <span className="text-fg-subtle">Phone:</span> {supplier?.phone || "-"}
+                </div>
+                <div>
+                  <span className="text-fg-subtle">Email:</span> {supplier?.email || "-"}
+                </div>
+                <div>
+                  <span className="text-fg-subtle">Terms:</span> {Number(supplier?.payment_terms_days || 0)} day(s)
+                </div>
+                <div>
+                  <span className="text-fg-subtle">VAT No:</span> {(supplier as any)?.vat_no || "-"}
+                </div>
+                <div>
+                  <span className="text-fg-subtle">Tax ID:</span> {(supplier as any)?.tax_id || "-"}
+                </div>
+                {(supplier as any)?.bank_name ? (
+                  <div>
+                    <span className="text-fg-subtle">Bank:</span> {(supplier as any)?.bank_name}
+                  </div>
+                ) : null}
+                {(supplier as any)?.bank_iban ? (
+                  <div>
+                    <span className="text-fg-subtle">IBAN:</span> {(supplier as any)?.bank_iban}
+                  </div>
+                ) : null}
+                {(supplier as any)?.payment_instructions ? (
+                  <div className="rounded-md border border-border bg-bg-sunken p-3 text-sm text-fg-muted whitespace-pre-wrap">
+                    {(supplier as any)?.payment_instructions}
+                  </div>
+                ) : null}
+                {supplier?.notes ? <div className="rounded-md border border-border bg-bg-sunken p-3 text-sm text-fg-muted whitespace-pre-wrap">{supplier.notes}</div> : null}
+              </CardContent>
+            </Card>
           ) : null}
-          {(supplier as any)?.bank_iban ? (
-            <div>
-              <span className="text-fg-subtle">IBAN:</span> {(supplier as any)?.bank_iban}
-            </div>
-          ) : null}
-          {(supplier as any)?.payment_instructions ? (
-            <div className="rounded-md border border-border bg-bg-sunken p-3 text-sm text-fg-muted whitespace-pre-wrap">
-              {(supplier as any)?.payment_instructions}
-            </div>
-          ) : null}
-          {supplier?.notes ? (
-            <div className="rounded-md border border-border bg-bg-sunken p-3 text-sm text-fg-muted whitespace-pre-wrap">{supplier.notes}</div>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      {supplier ? <PartyContacts partyKind="supplier" partyId={supplier.id} /> : null}
-      {supplier ? <PartyAddresses partyKind="supplier" partyId={supplier.id} /> : null}
+          {activeTab === "contacts" ? <PartyContacts partyKind="supplier" partyId={supplier.id} /> : null}
+          {activeTab === "addresses" ? <PartyAddresses partyKind="supplier" partyId={supplier.id} /> : null}
+        </>
+      ) : null}
     </div>
   );
 }

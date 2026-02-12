@@ -15,6 +15,41 @@ SESSION_DAYS = 7
 MFA_CHALLENGE_MINUTES = 10
 
 
+def _company_permissions(cur, user_id: str, company_id: Optional[str]) -> list[str]:
+    if not company_id:
+        return []
+    cur.execute(
+        """
+        SELECT DISTINCT p.code
+        FROM user_roles ur
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        JOIN permissions p ON p.id = rp.permission_id
+        WHERE ur.user_id = %s
+          AND ur.company_id = %s
+        ORDER BY p.code
+        """,
+        (user_id, company_id),
+    )
+    return [str(r["code"]) for r in cur.fetchall()]
+
+
+def _company_roles(cur, user_id: str, company_id: Optional[str]) -> list[str]:
+    if not company_id:
+        return []
+    cur.execute(
+        """
+        SELECT DISTINCT r.name
+        FROM user_roles ur
+        JOIN roles r ON r.id = ur.role_id
+        WHERE ur.user_id = %s
+          AND ur.company_id = %s
+        ORDER BY r.name
+        """,
+        (user_id, company_id),
+    )
+    return [str(r["name"]) for r in cur.fetchall()]
+
+
 class LoginIn(BaseModel):
     email: str
     password: str
@@ -403,6 +438,7 @@ def mfa_disable(data: MfaDisableIn, session=Depends(get_session)):
 
 @router.get("/me")
 def me(session=Depends(get_session)):
+    active_company_id = str(session.get("active_company_id")) if session.get("active_company_id") else None
     with get_admin_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -414,6 +450,8 @@ def me(session=Depends(get_session)):
                 (session["user_id"],),
             )
             u = cur.fetchone() or {}
+            permissions: list[str] = []
+            roles: list[str] = []
 
             cur.execute(
                 """
@@ -425,6 +463,10 @@ def me(session=Depends(get_session)):
                 (session["user_id"],),
             )
             companies = [str(r["company_id"]) for r in cur.fetchall()]
+
+            if active_company_id:
+                permissions = _company_permissions(cur, session["user_id"], active_company_id)
+                roles = _company_roles(cur, session["user_id"], active_company_id)
     return {
         "user_id": session["user_id"],
         "email": session["email"],
@@ -433,6 +475,8 @@ def me(session=Depends(get_session)):
         "mfa_enabled": bool(u.get("mfa_enabled")),
         "active_company_id": str(session.get("active_company_id")) if session.get("active_company_id") else None,
         "companies": companies,
+        "permissions": permissions,
+        "roles": roles,
     }
 
 

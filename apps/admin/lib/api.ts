@@ -218,10 +218,12 @@ async function requestJson<T>(path: string, init: RequestInit, opts: ApiCallOpti
   const retryDelayMs = resolveRetryDelay(opts.retryDelayMs);
   const requestId = (() => {
     if (!init.headers) return undefined;
-    if (init.headers instanceof Headers) return init.headers.get("x-request-id") || init.headers.get("X-Request-Id");
+    if (init.headers instanceof Headers) {
+      return init.headers.get("x-request-id") ?? init.headers.get("X-Request-Id") ?? undefined;
+    }
     if (typeof init.headers === "object" && !Array.isArray(init.headers)) {
       const map = init.headers as Record<string, string>;
-      return map["X-Request-Id"] || map["x-request-id"];
+      return map["X-Request-Id"] ?? map["x-request-id"] ?? undefined;
     }
     return undefined;
   })();

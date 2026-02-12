@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { Button } from "@/components/ui/button";
+import { TabBar } from "@/components/tab-bar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -135,6 +136,7 @@ export default function GoodsReceiptViewPage() {
   const [postOpen, setPostOpen] = useState(false);
   const [postingDate, setPostingDate] = useState(() => todayIso());
   const [posting, setPosting] = useState(false);
+  const searchParams = useSearchParams();
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelDate, setCancelDate] = useState(() => todayIso());
@@ -144,6 +146,16 @@ export default function GoodsReceiptViewPage() {
   const [cancelDraftOpen, setCancelDraftOpen] = useState(false);
   const [cancelDraftReason, setCancelDraftReason] = useState("");
   const [cancelDrafting, setCancelDrafting] = useState(false);
+
+  const activeTab = (() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "lines") return "lines";
+    return "overview";
+  })();
+  const receiptTabs = [
+    { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
+    { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
+  ];
 
   const [createInvOpen, setCreateInvOpen] = useState(false);
   const [createInvSubmitting, setCreateInvSubmitting] = useState(false);
@@ -380,122 +392,127 @@ export default function GoodsReceiptViewPage() {
 
       {detail ? (
         <>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-            <div className="ui-panel p-5 md:col-span-8">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-[220px]">
-                  <p className="ui-panel-title">Supplier</p>
-                  <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
-                    {detail.receipt.supplier_id ? (
-                      <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(detail.receipt.supplier_id)}`} title="Open supplier">
-                        {supplierById.get(detail.receipt.supplier_id)?.name || detail.receipt.supplier_id}
-                      </ShortcutLink>
-                    ) : (
-                      "-"
-                    )}
-                  </p>
-                  <p className="mt-1 text-xs text-fg-muted">
-                    Created{" "}
-                    <span className="data-mono">{String(detail.receipt.created_at || "").slice(0, 19).replace("T", " ") || "-"}</span>
-                  </p>
-                </div>
+          <TabBar tabs={receiptTabs} />
+          {activeTab === "overview" ? (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+              <div className="ui-panel p-5 md:col-span-8">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-[220px]">
+                    <p className="ui-panel-title">Supplier</p>
+                    <p className="mt-1 text-lg font-semibold leading-tight text-foreground">
+                      {detail.receipt.supplier_id ? (
+                        <ShortcutLink href={`/partners/suppliers/${encodeURIComponent(detail.receipt.supplier_id)}`} title="Open supplier">
+                          {supplierById.get(detail.receipt.supplier_id)?.name || detail.receipt.supplier_id}
+                        </ShortcutLink>
+                      ) : (
+                        "-"
+                      )}
+                    </p>
+                    <p className="mt-1 text-xs text-fg-muted">
+                      Created{" "}
+                      <span className="data-mono">{String(detail.receipt.created_at || "").slice(0, 19).replace("T", " ") || "-"}</span>
+                    </p>
+                  </div>
 
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <span className="ui-chip ui-chip-default">
-                    <span className="text-fg-subtle">Warehouse</span>
-                    <span className="data-mono text-foreground">{whById.get(detail.receipt.warehouse_id || "")?.name || "-"}</span>
-                  </span>
-                  <span className="ui-chip ui-chip-default">
-                    <span className="text-fg-subtle">Exchange</span>
-                    <span className="data-mono text-foreground">{Number(detail.receipt.exchange_rate || 0).toFixed(0)}</span>
-                  </span>
-                  <span className="ui-chip ui-chip-default">
-                    <span className="text-fg-subtle">Status</span>
-                    <span className="data-mono text-foreground">{detail.receipt.status}</span>
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                  <p className="ui-panel-title">Dates</p>
-                  <div className="mt-2 space-y-1">
-                    <div className="ui-kv">
-                      <span className="ui-kv-label">Received At</span>
-                      <span className="ui-kv-value">{(detail.receipt.received_at as string) || "-"}</span>
-                    </div>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <span className="ui-chip ui-chip-default">
+                      <span className="text-fg-subtle">Warehouse</span>
+                      <span className="data-mono text-foreground">{whById.get(detail.receipt.warehouse_id || "")?.name || "-"}</span>
+                    </span>
+                    <span className="ui-chip ui-chip-default">
+                      <span className="text-fg-subtle">Exchange</span>
+                      <span className="data-mono text-foreground">{Number(detail.receipt.exchange_rate || 0).toFixed(0)}</span>
+                    </span>
+                    <span className="ui-chip ui-chip-default">
+                      <span className="text-fg-subtle">Status</span>
+                      <span className="data-mono text-foreground">{detail.receipt.status}</span>
+                    </span>
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                  <p className="ui-panel-title">Document</p>
-                  <div className="mt-2 space-y-1">
-                    <div className="ui-kv">
-                      <span className="ui-kv-label">Receipt No</span>
-                      <span className="ui-kv-value">{detail.receipt.receipt_no || "(draft)"}</span>
-                    </div>
-                    <div className="ui-kv">
-                      <span className="ui-kv-label">Supplier Ref</span>
-                      <span className="ui-kv-value">{(detail.receipt as any).supplier_ref || "-"}</span>
-                    </div>
-                    {detail.receipt.purchase_order_id ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                    <p className="ui-panel-title">Dates</p>
+                    <div className="mt-2 space-y-1">
                       <div className="ui-kv">
-                        <span className="ui-kv-label">PO</span>
-                        <span className="ui-kv-value">
-                          <ShortcutLink
-                            href={`/purchasing/purchase-orders/${encodeURIComponent(detail.receipt.purchase_order_id)}`}
-                            title="Open purchase order"
-                            className="data-mono"
-                          >
-                            {detail.receipt.purchase_order_no || detail.receipt.purchase_order_id.slice(0, 8)}
-                          </ShortcutLink>
-                        </span>
+                        <span className="ui-kv-label">Received At</span>
+                        <span className="ui-kv-value">{(detail.receipt.received_at as string) || "-"}</span>
                       </div>
-                    ) : null}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                    <p className="ui-panel-title">Document</p>
+                    <div className="mt-2 space-y-1">
+                      <div className="ui-kv">
+                        <span className="ui-kv-label">Receipt No</span>
+                        <span className="ui-kv-value">{detail.receipt.receipt_no || "(draft)"}</span>
+                      </div>
+                      <div className="ui-kv">
+                        <span className="ui-kv-label">Supplier Ref</span>
+                        <span className="ui-kv-value">{(detail.receipt as any).supplier_ref || "-"}</span>
+                      </div>
+                      {detail.receipt.purchase_order_id ? (
+                        <div className="ui-kv">
+                          <span className="ui-kv-label">PO</span>
+                          <span className="ui-kv-value">
+                            <ShortcutLink
+                              href={`/purchasing/purchase-orders/${encodeURIComponent(detail.receipt.purchase_order_id)}`}
+                              title="Open purchase order"
+                              className="data-mono"
+                            >
+                              {detail.receipt.purchase_order_no || detail.receipt.purchase_order_id.slice(0, 8)}
+                            </ShortcutLink>
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="ui-panel p-5 md:col-span-4">
+                <p className="ui-panel-title">Totals</p>
+
+                <div className="mt-3">
+                  <div className="text-xs text-fg-muted">Total</div>
+                  <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{fmtUsd(detail.receipt.total_usd)}</div>
+                  <div className="data-mono mt-1 text-sm text-fg-muted">{fmtLbp(detail.receipt.total_lbp)}</div>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  <div className="ui-kv ui-kv-strong">
+                    <span className="ui-kv-label">Total USD</span>
+                    <span className="ui-kv-value">{fmtUsd(detail.receipt.total_usd)}</span>
+                  </div>
+                  <div className="ui-kv ui-kv-sub">
+                    <span className="ui-kv-label">Total LL</span>
+                    <span className="ui-kv-value">{fmtLbp(detail.receipt.total_lbp)}</span>
                   </div>
                 </div>
               </div>
             </div>
+          ) : null}
 
-            <div className="ui-panel p-5 md:col-span-4">
-              <p className="ui-panel-title">Totals</p>
-
-              <div className="mt-3">
-                <div className="text-xs text-fg-muted">Total</div>
-                <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{fmtUsd(detail.receipt.total_usd)}</div>
-                <div className="data-mono mt-1 text-sm text-fg-muted">{fmtLbp(detail.receipt.total_lbp)}</div>
-              </div>
-
-              <div className="mt-4 space-y-2">
-                <div className="ui-kv ui-kv-strong">
-                  <span className="ui-kv-label">Total USD</span>
-                  <span className="ui-kv-value">{fmtUsd(detail.receipt.total_usd)}</span>
-                </div>
-                <div className="ui-kv ui-kv-sub">
-                  <span className="ui-kv-label">Total LL</span>
-                  <span className="ui-kv-value">{fmtLbp(detail.receipt.total_lbp)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Lines</CardTitle>
-              <CardDescription>Received quantities.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <DataTable<ReceiptLine>
-                tableId="purchasing.goods_receipt.lines"
-                rows={detail.lines || []}
-                columns={lineColumns}
-                getRowId={(l) => l.id}
-                emptyText="No lines."
-                enableGlobalFilter={false}
-                initialSort={{ columnId: "item", dir: "asc" }}
-              />
-            </CardContent>
-          </Card>
+          {activeTab === "lines" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Lines</CardTitle>
+                <CardDescription>Received quantities.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DataTable<ReceiptLine>
+                  tableId="purchasing.goods_receipt.lines"
+                  rows={detail.lines || []}
+                  columns={lineColumns}
+                  getRowId={(l) => l.id}
+                  emptyText="No lines."
+                  enableGlobalFilter={false}
+                  initialSort={{ columnId: "item", dir: "asc" }}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Dialog open={postOpen} onOpenChange={setPostOpen}>
             <DialogContent className="max-w-lg">
