@@ -256,11 +256,25 @@ def suggested_price(
                     cost_usd = Decimal(str(a.get("a_cost_usd") or 0))
                     cost_lbp = Decimal(str(a.get("a_cost_lbp") or 0))
 
-            # If we still have no warehouse-derived average cost (common right after go-live import),
-            # fall back to item standard cost so pricing screens remain meaningful.
-            if cost_usd <= 0 and standard_cost_usd > 0:
+            warehouse_cost_usd = cost_usd
+            warehouse_cost_lbp = cost_lbp
+
+            # If both warehouse avg and standard cost exist, pick whichever is closer to current selling price.
+            if price_usd > 0 and warehouse_cost_usd > 0 and standard_cost_usd > 0:
+                if abs(price_usd - standard_cost_usd) < abs(price_usd - warehouse_cost_usd):
+                    cost_usd = standard_cost_usd
+                else:
+                    cost_usd = warehouse_cost_usd
+            elif cost_usd <= 0 and standard_cost_usd > 0:
+                # If warehouse avg is missing, fall back to standard cost.
                 cost_usd = standard_cost_usd
-            if cost_lbp <= 0 and standard_cost_lbp > 0:
+
+            if price_lbp > 0 and warehouse_cost_lbp > 0 and standard_cost_lbp > 0:
+                if abs(price_lbp - standard_cost_lbp) < abs(price_lbp - warehouse_cost_lbp):
+                    cost_lbp = standard_cost_lbp
+                else:
+                    cost_lbp = warehouse_cost_lbp
+            elif cost_lbp <= 0 and standard_cost_lbp > 0:
                 cost_lbp = standard_cost_lbp
 
             def margin(price: Decimal, cost: Decimal) -> Optional[Decimal]:
