@@ -137,10 +137,31 @@ def list_tax_codes(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, rate, tax_type, reporting_currency
-                FROM tax_codes
-                ORDER BY name
+                SELECT t.id,
+                       t.name,
+                       t.rate,
+                       t.tax_type,
+                       t.reporting_currency,
+                       COALESCE(i.n, 0) AS item_refs,
+                       COALESCE(l.n, 0) AS tax_line_refs
+                FROM tax_codes t
+                LEFT JOIN (
+                    SELECT tax_code_id, COUNT(*)::int AS n
+                    FROM items
+                    WHERE company_id = %s AND tax_code_id IS NOT NULL
+                    GROUP BY tax_code_id
+                ) i ON i.tax_code_id = t.id
+                LEFT JOIN (
+                    SELECT tax_code_id, COUNT(*)::int AS n
+                    FROM tax_lines
+                    WHERE company_id = %s
+                    GROUP BY tax_code_id
+                ) l ON l.tax_code_id = t.id
+                WHERE t.company_id = %s
+                ORDER BY t.name
                 """
+                ,
+                (company_id, company_id, company_id),
             )
             return {"tax_codes": cur.fetchall()}
 
@@ -179,6 +200,171 @@ def create_tax_code(data: TaxCodeIn, company_id: str = Depends(get_company_id), 
                 ),
             )
             return {"id": tid}
+
+
+@router.patch("/tax-codes/{tax_code_id}", dependencies=[Depends(require_permission("config:write"))])
+def update_tax_code(
+    tax_code_id: str,
+    data: TaxCodeIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, rate, tax_type, reporting_currency
+                FROM tax_codes
+                WHERE company_id = %s AND id = %s
+                """,
+                (company_id, tax_code_id),
+            )
+            before = cur.fetchone()
+            if not before:
+                raise HTTPException(status_code=404, detail="tax code not found")
+
+            cur.execute(
+                """
+                UPDATE tax_codes
+                SET name = %s,
+                    rate = %s,
+                    tax_type = %s,
+                    reporting_currency = %s
+                WHERE company_id = %s AND id = %s
+                RETURNING id
+                """,
+                (
+                    data.name,
+                    data.rate,
+                    data.tax_type,
+                    data.reporting_currency,
+                    company_id,
+                    tax_code_id,
+                ),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="tax code not found")
+
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'config.tax_code.update', 'tax_code', %s, %s::jsonb)
+                """,
+                (
+                    company_id,
+                    user["user_id"],
+                    tax_code_id,
+                    json.dumps(
+                        {
+                            "before": {
+                                "name": before["name"],
+                                "rate": str(before["rate"]),
+                                "tax_type": before["tax_type"],
+                                "reporting_currency": before["reporting_currency"],
+                            },
+                            "after": {
+                                "name": data.name,
+                                "rate": str(data.rate),
+                                "tax_type": data.tax_type,
+                                "reporting_currency": data.reporting_currency,
+                            },
+                        }
+                    ),
+                ),
+            )
+            return {"id": row["id"]}
+
+
+@router.delete("/tax-codes/{tax_code_id}", dependencies=[Depends(require_permission("config:write"))])
+def delete_tax_code(
+    tax_code_id: str,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, rate, tax_type, reporting_currency
+                FROM tax_codes
+                WHERE company_id = %s AND id = %s
+                """,
+                (company_id, tax_code_id),
+            )
+            before = cur.fetchone()
+            if not before:
+                raise HTTPException(status_code=404, detail="tax code not found")
+
+            ref_checks = [
+                ("items", "SELECT COUNT(*)::int AS n FROM items WHERE company_id=%s AND tax_code_id=%s"),
+                ("tax_lines", "SELECT COUNT(*)::int AS n FROM tax_lines WHERE company_id=%s AND tax_code_id=%s"),
+            ]
+
+            cur.execute(
+                """
+                SELECT EXISTS(
+                  SELECT 1
+                  FROM information_schema.columns
+                  WHERE table_schema='public'
+                    AND table_name='supplier_invoices'
+                    AND column_name='tax_code_id'
+                ) AS ok
+                """
+            )
+            has_supplier_invoice_tax = bool((cur.fetchone() or {}).get("ok"))
+            if has_supplier_invoice_tax:
+                ref_checks.append(
+                    ("supplier_invoices", "SELECT COUNT(*)::int AS n FROM supplier_invoices WHERE company_id=%s AND tax_code_id=%s")
+                )
+
+            in_use: list[str] = []
+            for label, sql in ref_checks:
+                cur.execute(sql, (company_id, tax_code_id))
+                n = int((cur.fetchone() or {}).get("n") or 0)
+                if n > 0:
+                    in_use.append(f"{label}:{n}")
+
+            if in_use:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"tax code is in use ({', '.join(in_use)}); reassign dependent records first",
+                )
+
+            cur.execute(
+                """
+                DELETE FROM tax_codes
+                WHERE company_id = %s AND id = %s
+                RETURNING id
+                """,
+                (company_id, tax_code_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="tax code not found")
+
+            cur.execute(
+                """
+                INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                VALUES (gen_random_uuid(), %s, %s, 'config.tax_code.delete', 'tax_code', %s, %s::jsonb)
+                """,
+                (
+                    company_id,
+                    user["user_id"],
+                    tax_code_id,
+                    json.dumps(
+                        {
+                            "name": before["name"],
+                            "rate": str(before["rate"]),
+                            "tax_type": before["tax_type"],
+                            "reporting_currency": before["reporting_currency"],
+                        }
+                    ),
+                ),
+            )
+            return {"id": row["id"]}
 
 
 @router.get("/exchange-rates", dependencies=[Depends(require_permission("config:read"))])

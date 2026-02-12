@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { apiGet, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 
-type TaxCode = { id: string; name: string; rate: string | number; tax_type: string; reporting_currency: string };
+type TaxCode = {
+  id: string;
+  name: string;
+  rate: string | number;
+  tax_type: string;
+  reporting_currency: string;
+  item_refs?: number;
+  tax_line_refs?: number;
+};
 type ExchangeRateRow = { id: string; rate_date: string; rate_type: string; usd_to_lbp: string | number };
 type AccountRole = { code: string; description: string };
 type CoaAccount = { id: string; account_code: string; name_en: string; is_postable: boolean };
@@ -22,6 +30,18 @@ function todayISO() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function taxRateToPercent(raw: string | number): number {
+  const n = Number(raw || 0);
+  if (!Number.isFinite(n)) return 0;
+  return n <= 1 ? n * 100 : n;
+}
+
+function taxRateInputToDecimal(raw: string): number {
+  const n = Number(raw || 0);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n > 1 ? n / 100 : n;
 }
 
 export default function ConfigPage() {
@@ -75,6 +95,14 @@ export default function ConfigPage() {
   const [taxCurrency, setTaxCurrency] = useState("LBP");
   const [taxOpen, setTaxOpen] = useState(false);
   const [savingTax, setSavingTax] = useState(false);
+  const [taxEditOpen, setTaxEditOpen] = useState(false);
+  const [taxEditId, setTaxEditId] = useState("");
+  const [taxEditName, setTaxEditName] = useState("");
+  const [taxEditRate, setTaxEditRate] = useState("0");
+  const [taxEditType, setTaxEditType] = useState("vat");
+  const [taxEditCurrency, setTaxEditCurrency] = useState("LBP");
+  const [savingTaxEdit, setSavingTaxEdit] = useState(false);
+  const [deletingTaxId, setDeletingTaxId] = useState<string | null>(null);
 
   // Exchange rate form
   const [rateDate, setRateDate] = useState(todayISO());
@@ -165,8 +193,7 @@ export default function ConfigPage() {
       },
     ];
   }, []);
-  const taxCodeColumns = useMemo((): Array<DataTableColumn<TaxCode>> => {
-    return [
+  const taxCodeColumns: Array<DataTableColumn<TaxCode>> = [
       {
         id: "name",
         header: "Name",
@@ -183,7 +210,7 @@ export default function ConfigPage() {
         accessor: (t) => Number(t.rate || 0),
         cell: (t) => (
           <span className="font-mono text-xs">
-            {Number(t.rate || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}%
+            {taxRateToPercent(t.rate).toLocaleString("en-US", { maximumFractionDigits: 2 })}%
           </span>
         ),
       },
@@ -201,8 +228,54 @@ export default function ConfigPage() {
         accessor: (t) => t.reporting_currency,
         cell: (t) => t.reporting_currency,
       },
+      {
+        id: "in_use",
+        header: "In Use",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (t) => Number(t.item_refs || 0) + Number(t.tax_line_refs || 0),
+        cell: (t) => (
+          <span className="font-mono text-xs">
+            {(Number(t.item_refs || 0) + Number(t.tax_line_refs || 0)).toLocaleString("en-US")}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        align: "right",
+        globalSearch: false,
+        cell: (t) => (
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setTaxEditId(t.id);
+                setTaxEditName(t.name || "");
+                setTaxEditRate(String(taxRateToPercent(t.rate)));
+                setTaxEditType(t.tax_type || "vat");
+                setTaxEditCurrency(t.reporting_currency || "LBP");
+                setTaxEditOpen(true);
+              }}
+            >
+              Edit
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={deletingTaxId === t.id}
+              onClick={() => deleteTaxCode(t)}
+            >
+              {deletingTaxId === t.id ? "Deleting..." : "Delete"}
+            </Button>
+          </div>
+        ),
+      },
     ];
-  }, []);
   const exchangeRateColumns = useMemo((): Array<DataTableColumn<ExchangeRateRow>> => {
     return [
       {
@@ -325,7 +398,7 @@ export default function ConfigPage() {
     try {
       await apiPost("/config/tax-codes", {
         name: taxName.trim(),
-        rate: Number(taxRate || 0),
+        rate: taxRateInputToDecimal(taxRate),
         tax_type: taxType || "vat",
         reporting_currency: taxCurrency || "LBP"
       });
@@ -338,6 +411,53 @@ export default function ConfigPage() {
       setStatus(message);
     } finally {
       setSavingTax(false);
+    }
+  }
+
+  async function updateTaxCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!taxEditId) {
+      setStatus("tax code id is required");
+      return;
+    }
+    if (!taxEditName.trim()) {
+      setStatus("tax code name is required");
+      return;
+    }
+    setSavingTaxEdit(true);
+    setStatus("Updating tax code...");
+    try {
+      await apiPatch(`/config/tax-codes/${taxEditId}`, {
+        name: taxEditName.trim(),
+        rate: taxRateInputToDecimal(taxEditRate),
+        tax_type: taxEditType || "vat",
+        reporting_currency: taxEditCurrency || "LBP"
+      });
+      setTaxEditOpen(false);
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSavingTaxEdit(false);
+    }
+  }
+
+  async function deleteTaxCode(taxCode: TaxCode) {
+    const confirmed = window.confirm(`Delete tax code "${taxCode.name}"?`);
+    if (!confirmed) return;
+    setDeletingTaxId(taxCode.id);
+    setStatus(`Deleting tax code "${taxCode.name}"...`);
+    try {
+      await apiDelete(`/config/tax-codes/${taxCode.id}`);
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setDeletingTaxId(null);
     }
   }
 
@@ -911,7 +1031,7 @@ export default function ConfigPage() {
                   <form onSubmit={createTaxCode} className="grid grid-cols-1 gap-3 md:grid-cols-4">
                     <div className="space-y-1 md:col-span-2">
                       <label className="text-xs font-medium text-fg-muted">Name</label>
-                      <Input value={taxName} onChange={(e) => setTaxName(e.target.value)} placeholder="VAT 11%" />
+                      <Input value={taxName} onChange={(e) => setTaxName(e.target.value)} placeholder="11%" />
                     </div>
                     <div className="space-y-1 md:col-span-1">
                       <label className="text-xs font-medium text-fg-muted">Rate (%)</label>
@@ -935,6 +1055,44 @@ export default function ConfigPage() {
                     <div className="md:col-span-2 flex items-end justify-end">
                       <Button type="submit" disabled={savingTax}>
                         {savingTax ? "..." : "Save"}
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={taxEditOpen} onOpenChange={setTaxEditOpen}>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Edit Tax Code</DialogTitle>
+                    <DialogDescription>Update VAT code fields used in invoices and reports.</DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={updateTaxCode} className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-xs font-medium text-fg-muted">Name</label>
+                      <Input value={taxEditName} onChange={(e) => setTaxEditName(e.target.value)} placeholder="11%" />
+                    </div>
+                    <div className="space-y-1 md:col-span-1">
+                      <label className="text-xs font-medium text-fg-muted">Rate (%)</label>
+                      <Input value={taxEditRate} onChange={(e) => setTaxEditRate(e.target.value)} />
+                    </div>
+                    <div className="space-y-1 md:col-span-1">
+                      <label className="text-xs font-medium text-fg-muted">Reporting Currency</label>
+                      <select
+                        className="ui-select"
+                        value={taxEditCurrency}
+                        onChange={(e) => setTaxEditCurrency(e.target.value)}
+                      >
+                        <option value="LBP">LL</option>
+                        <option value="USD">USD</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <label className="text-xs font-medium text-fg-muted">Tax Type</label>
+                      <Input value={taxEditType} onChange={(e) => setTaxEditType(e.target.value)} placeholder="vat" />
+                    </div>
+                    <div className="md:col-span-2 flex items-end justify-end">
+                      <Button type="submit" disabled={savingTaxEdit}>
+                        {savingTaxEdit ? "..." : "Save Changes"}
                       </Button>
                     </div>
                   </form>
