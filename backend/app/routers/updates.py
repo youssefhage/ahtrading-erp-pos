@@ -97,6 +97,12 @@ def _cache_control_for_rel(rel: str) -> str:
 def _find_latest_installer_rel(app: str, platform: str) -> str:
     app_key = (app or "").strip().lower()
     plat = (platform or "").strip().lower()
+    # Backwards compatibility: we historically called the back-office app "portal".
+    # Externally, we want to present it as "admin" (more obvious for new installs),
+    # but keep the same storage layout under /updates/portal.
+    if app_key == "admin":
+        app_key = "portal"
+
     if app_key not in {"pos", "portal", "setup"}:
         raise HTTPException(status_code=400, detail="invalid app")
     if plat not in {"windows", "macos"}:
@@ -288,6 +294,11 @@ def get_update_file(rel_path: str):
     """
     Public read-only access to update artifacts.
     """
+    # Alias /updates/admin/* -> /updates/portal/* (see note in _find_latest_installer_rel).
+    rel_path_norm = (rel_path or "").strip().lstrip("/")
+    if rel_path_norm == "admin" or rel_path_norm.startswith("admin/"):
+        rel_path = "portal" + rel_path_norm[len("admin") :]
+
     base = _updates_dir()
     target = _resolve_rel_path(rel_path)
 
