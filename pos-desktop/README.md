@@ -1,17 +1,19 @@
-# POS Desktop (Lightweight)
+# POS Agent (Python) + POS UI (Svelte)
 
-## Why this approach
-- Pure Python + SQLite + static HTML.
-- No heavy frameworks; runs on low-spec hardware.
-- Offline-first with local outbox queue.
+This folder contains the **local POS agent** (Python + SQLite) and the **POS UI** (Svelte + Vite) that it serves.
 
-## Run
+In production we typically run this via **Melqard POS Desktop** (Tauri), which:
+- starts one or two local agents (Official + Unofficial),
+- hosts a single unified cashier UI,
+- and auto-updates remotely via the updater URL configured in the desktop app.
+
+## Run (Dev / Manual)
 ```bash
 python3 pos-desktop/agent.py
 ```
 Open:
 - http://localhost:7070
-- Unified pilot UI (two-company mode): http://localhost:7070/unified.html
+- Unified cashier UI: http://localhost:7070
 
 ### Svelte + Vite UI development
 ```bash
@@ -69,6 +71,13 @@ During pull, the agent also fetches `/pos/config` from the backend to populate:
 - `warehouse_id`
 - `tax_code_id`
 - `vat_rate`
+
+## Unified Mode (Two Companies)
+Run two agents (one per company) and point the UI to the second agent using **Other Agent** in the header.
+
+Unified behaviors:
+- Mixed cart automatically splits into **two invoices** (Official + Unofficial) from one interface.
+- **Flag to Official** forces a single Official invoice even if items belong to Unofficial, and marks it for **manual review** (stock moves skipped).
 
 ## Local API
 - GET /api/health

@@ -1,893 +1,1666 @@
 <script>
   import { onMount } from "svelte";
+  import Shell from "./components/Shell.svelte";
+  import ProductGrid from "./components/ProductGrid.svelte";
+  import Cart from "./components/Cart.svelte";
+  import CustomerSelect from "./components/CustomerSelect.svelte";
+  import PaymentModal from "./components/PaymentModal.svelte";
+  import SaleSummary from "./components/SaleSummary.svelte";
 
   const API_BASE_STORAGE_KEY = "pos_ui_api_base";
   const SESSION_STORAGE_KEY = "pos_ui_session_token";
+  const OTHER_AGENT_URL_STORAGE_KEY = "pos_ui_other_agent_url";
+  const UNOFFICIAL_SESSION_STORAGE_KEY = "pos_ui_session_token_unofficial";
+  const INVOICE_MODE_STORAGE_KEY = "pos_ui_invoice_company_mode";
+  const FLAG_OFFICIAL_STORAGE_KEY = "pos_ui_flag_official";
+  const THEME_STORAGE_KEY = "pos_ui_theme";
   const DEFAULT_API_BASE = "/api";
+  const DEFAULT_OTHER_AGENT_URL = "http://localhost:7072";
 
-  const money = (value) => Math.max(0, Number(value) || 0);
+  // These are seeded in backend/db/seeds/seed_companies.sql and used in sample POS configs.
+  const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
+  const UNOFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000002";
 
-  const normalizeApiBase = (value) => {
-    let v = (value || "").trim();
-    if (!v) {
-      return DEFAULT_API_BASE;
-    }
-    if (v.startsWith("http://") || v.startsWith("https://")) {
-      return v.endsWith("/") ? v.slice(0, -1) : v;
-    }
-    if (!v.startsWith("/")) {
-      v = `/${v}`;
-    }
-    return v.endsWith("/") ? v.slice(0, -1) : v;
-  };
-
+  // Utility functions
   const toNum = (value, fallback = 0) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
+  
+  const toRate = (value) => toNum(value, 0);
 
-  const toRate = (value) => {
-    const parsed = toNum(value, 0);
-    if (parsed === 0) return 0;
-    return parsed;
-  };
-
-  const fmtQty = (value) => {
-    const v = toNum(value, 0);
-    return Number.isInteger(v) ? `${v}` : v.toFixed(2).replace(/\.00$/, "");
-  };
-
-  const fmtMoney = (value, currency = "USD") => {
-    const v = money(value);
-    if (currency === "LBP") {
-      return `${Math.round(v).toLocaleString()} LBP`;
+  const normalizeApiBase = (value) => {
+    let v = (value || "").trim();
+    if (!v) return DEFAULT_API_BASE;
+    if (v.startsWith("http://") || v.startsWith("https://")) {
+      return v.endsWith("/") ? v.slice(0, -1) : v;
     }
-    return `${v.toFixed(2)} USD`;
+    return v.startsWith("/") ? (v.endsWith("/") ? v.slice(0, -1) : v) : `/${v}`;
   };
 
+  // State
   let apiBase = normalizeApiBase(DEFAULT_API_BASE);
-  let apiBaseInput = apiBase;
   let sessionToken = "";
-  let sessionInput = "";
-
+  let otherAgentUrl = DEFAULT_OTHER_AGENT_URL;
+  let unofficialSessionToken = "";
+  let showOtherAgentModal = false;
+  let otherAgentDraftUrl = "";
+  
   let status = "Booting...";
+  let unofficialStatus = "Pending";
   let loading = false;
   let notice = "";
   let error = "";
 
+  // Unified: map "official/unofficial" keys onto (origin agent) + (other agent).
+  // If the UI is loaded from the Unofficial agent, we flip routing automatically.
+  let originCompanyKey = "official";
+  let otherCompanyKey = "unofficial";
+  
   let config = {
     company_id: "",
-    device_id: "",
-    device_token: "",
-    shift_id: "",
-    warehouse_id: "",
     cashier_id: "",
-    api_base_url: "",
     pricing_currency: "USD",
     exchange_rate: 0,
     vat_rate: 0,
     tax_code_id: null,
-    edge_ok: false,
-    outbox_pending: 0,
   };
   let edge = null;
-
+  let unofficialEdge = null;
+  
   let items = [];
   let barcodes = [];
+  let barcodesByItemIdOrigin = new Map();
   let customers = [];
-  let customerResults = [];
   let cashiers = [];
   let outbox = [];
   let lastReceipt = null;
 
+  let unofficialConfig = {
+    company_id: "",
+    cashier_id: "",
+    pricing_currency: "USD",
+    exchange_rate: 0,
+    vat_rate: 0,
+    tax_code_id: null,
+  };
+  let unofficialItems = [];
+  let unofficialBarcodes = [];
+  let barcodesByItemIdOther = new Map();
+  let unofficialCustomers = [];
+  let unofficialCashiers = [];
+  let unofficialOutbox = [];
+  let unofficialLastReceipt = null;
+
+  // Search & Cart State
   let scanTerm = "";
-  let scanSuggestions = [];
   let cart = [];
   let activeCustomer = null;
+
+  // Unified invoice routing
+  let invoiceCompanyMode = "auto"; // "auto" | "official" | "unofficial"
+  let flagOfficial = false;
+
+  // Layout
+  let catalogCollapsed = true;
+  
+  // Customer Select State
   let customerSearch = "";
-  let paymentMethod = "cash";
-  let cashierPin = "";
+  let customerResults = [];
+  let customerSearching = false;
   let addCustomerMode = false;
-  let customerDraft = {
-    name: "",
-    phone: "",
-    email: "",
-  };
+  let customerDraft = { name: "", phone: "", email: "" };
+  let _customerSearchSeq = 0;
 
-  const requestHeaders = () => {
-    const headers = {
-      "Content-Type": "application/json",
-    };
-    if (sessionToken) {
-      headers["X-POS-Session"] = sessionToken;
-    }
-    return headers;
-  };
+  // Theme
+  let theme = "dark"; // "dark" | "light"
+  
+  // Checkout State
+  let showPaymentModal = false;
+  let saleMode = "sale"; // "sale" | "return"
 
-  const buildApiUrl = (path) => {
-    const base = normalizeApiUrl(apiBase);
-    const route = path.startsWith("/") ? path : `/${path}`;
-    if (/^https?:\/\//.test(base)) {
-      return `${base}${route}`;
-    }
-    return `${base}${route}`;
-  };
+  // Admin unlock (POS agent can require a local admin PIN when LAN-exposed)
+  let showAdminPinModal = false;
+  let adminPin = "";
+  let adminPinMode = "unlock"; // "unlock" | "set"
 
-  const normalizeApiUrl = (value) => normalizeApiBase(value);
+  // Cashier
+  let showCashierModal = false;
+  let cashierPin = "";
 
-  const reportNotice = (message) => {
-    notice = message || "";
-    error = "";
-  };
+  // Shift
+  let showShiftModal = false;
+  let shift = null;
+  let openingCashUsd = 0;
+  let openingCashLbp = 0;
+  let closingCashUsd = 0;
+  let closingCashLbp = 0;
 
-  const reportError = (message) => {
-    error = message || "Something failed.";
-    notice = "";
-  };
-
-  const clearMessage = () => {
-    error = "";
-    notice = "";
-  };
-
-  const apiCall = async (path, options = {}) => {
-    const url = buildApiUrl(path);
-    const response = await fetch(url, {
-      method: options.method || "GET",
-      headers: requestHeaders(),
-      credentials: "same-origin",
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    });
-    const raw = await response.text();
-    let payload = null;
-    try {
-      payload = raw ? JSON.parse(raw) : null;
-    } catch {
-      payload = raw || null;
-    }
-
-    if (!response.ok) {
-      const message =
-        (payload && typeof payload === "object" && (payload.error || payload.detail)) ||
-        payload ||
-        response.statusText ||
-        "Request failed";
-      const err = new Error(typeof message === "string" ? message : "Request failed");
-      err.status = response.status;
-      err.payload = payload;
-      throw err;
-    }
-
-    return payload;
-  };
-
-  const fetchConfig = async () => {
-    const data = await apiCall("/config");
-    config = { ...config, ...data };
-  };
-
-  const fetchItems = async () => {
-    const data = await apiCall("/items");
-    items = Array.isArray(data?.items) ? data.items : [];
-  };
-
-  const fetchBarcodes = async () => {
-    const data = await apiCall("/barcodes");
-    barcodes = Array.isArray(data?.barcodes) ? data.barcodes : [];
-  };
-
-  const fetchCustomers = async (query = "") => {
-    const route =
-      "/customers" + (query ? `?query=${encodeURIComponent(query)}&limit=20` : "");
-    const data = await apiCall(route);
-    const list = Array.isArray(data?.customers) ? data.customers : [];
-    if (query) {
-      customerResults = list;
-    } else {
-      customers = list;
-    }
-  };
-
-  const fetchCashiers = async () => {
-    const data = await apiCall("/cashiers");
-    cashiers = Array.isArray(data?.cashiers) ? data.cashiers : [];
-  };
-
-  const fetchOutbox = async () => {
-    const data = await apiCall("/outbox");
-    outbox = Array.isArray(data?.outbox) ? data.outbox : [];
-  };
-
-  const fetchEdgeStatus = async () => {
-    const data = await apiCall("/edge/status");
-    edge = data || null;
-  };
-
-  const fetchLastReceipt = async () => {
-    const data = await apiCall("/receipts/last");
-    lastReceipt = data?.receipt || null;
-  };
-
-  const syncPull = async () => {
-    await apiCall("/sync/pull", { method: "POST" });
-    await Promise.all([fetchItems(), fetchBarcodes(), fetchCustomers(), fetchCashiers(), fetchOutbox()]);
-    reportNotice("Catalog sync complete.");
-  };
-
-  const syncPush = async () => {
-    const data = await apiCall("/sync/push", { method: "POST" });
-    reportNotice(`Synced ${data?.sent || 0} pending sale event(s).`);
-    await fetchOutbox();
-  };
-
-  const refreshAll = async () => {
-    clearMessage();
-    loading = true;
-    status = "Loading data...";
-    try {
-      await fetchConfig();
-      await Promise.all([
-        fetchItems(),
-        fetchBarcodes(),
-        fetchCustomers(),
-        fetchCashiers(),
-        fetchOutbox(),
-        fetchEdgeStatus(),
-        fetchLastReceipt(),
-      ]);
-      status = "Ready";
-    } catch (err) {
-      reportError(err?.message || "Unable to load workspace.");
-      status = "Offline";
-      if (err?.status === 503) {
-        const hint = err?.payload?.hint || "This endpoint may require an admin session.";
-        reportError(hint);
-      } else if (err?.status === 401) {
-        reportError("Unauthorized (check admin unlock and session token).");
-      }
-    } finally {
-      loading = false;
-      await tickUi();
-    }
-  };
-
-  const applySettings = () => {
-    apiBase = normalizeApiBase(apiBaseInput);
-    sessionToken = (sessionInput || "").trim();
-    localStorage.setItem(API_BASE_STORAGE_KEY, apiBase);
-    if (sessionToken) {
-      localStorage.setItem(SESSION_STORAGE_KEY, sessionToken);
-    } else {
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-    }
-    reportNotice(`API base set to ${apiBase}`);
-    void refreshAll();
-  };
-
-  const clearSessionToken = () => {
-    sessionInput = "";
-    sessionToken = "";
-    localStorage.removeItem(SESSION_STORAGE_KEY);
-    reportNotice("Session token removed.");
-  };
-
-  const findBarcode = (term) => {
-    const normalized = (term || "").trim().toLowerCase();
-    if (!normalized) {
-      return null;
-    }
-    return (
-      barcodes.find((entry) =>
-        (entry?.barcode || "").toLowerCase() === normalized,
-      ) || null
-    );
-  };
-
-  const mapBarcodeToItem = (barcode) => {
-    if (!barcode || !barcode.item_id) {
-      return null;
-    }
-    const item = items.find((entry) => entry.id === barcode.item_id);
-    return item || null;
-  };
-
-  const buildLine = (item, barcode = null, enteredQty = 1) => {
-    const factor = toNum(barcode?.qty_factor || 1, 1);
-    const qtyEntered = Math.max(toNum(enteredQty, 1), 0.01);
-    const baseQty = qtyEntered * factor;
-    return {
-      id: item.id,
-      sku: item.sku || "",
-      name: item.name || "",
-      unit_of_measure: barcode?.uom_code || item.unit_of_measure || "pcs",
-      price_usd: toNum(item.price_usd, 0),
-      price_lbp: toNum(item.price_lbp, 0),
-      tax_code_id: item.tax_code_id || config.tax_code_id || null,
-      qty_factor: factor,
-      qty_entered: qtyEntered,
-      qty: baseQty,
-    };
-  };
-
-  const addToCart = (item, enteredQty = 1, barcode = null) => {
-    if (!item?.id) {
-      return;
-    }
-    const line = buildLine(item, barcode, enteredQty);
-    const idx = cart.findIndex(
-      (entry) =>
-        entry.id === line.id &&
-        entry.qty_factor === line.qty_factor &&
-        entry.price_usd === line.price_usd &&
-        entry.price_lbp === line.price_lbp,
-    );
-    if (idx >= 0) {
-      const next = [...cart];
-      next[idx] = {
-        ...next[idx],
-        qty_entered: next[idx].qty_entered + line.qty_entered,
-        qty: next[idx].qty + line.qty,
-      };
-      cart = next;
-      reportNotice(`Added ${item.name || item.sku || "item"} to cart.`);
-      scanTerm = "";
-      return;
-    }
-    cart = [line, ...cart];
-    reportNotice(`Added ${item.name || item.sku || "item"} to cart.`);
-    scanTerm = "";
-  };
-
-  const addFromScan = () => {
-    clearMessage();
-    const term = scanTerm.trim();
-    if (!term) {
-      return;
-    }
-    const barcode = findBarcode(term);
-    if (barcode) {
-      const linked = mapBarcodeToItem(barcode);
-      if (linked) {
-        addToCart(linked, 1, barcode);
-        return;
-      }
-    }
-
-    const matchBySku = items.find(
-      (entry) => (entry.sku || "").toLowerCase() === term.toLowerCase(),
-    );
-    if (matchBySku) {
-      addToCart(matchBySku);
-      return;
-    }
-
-    const exactName = items.find(
-      (entry) => (entry.name || "").toLowerCase() === term.toLowerCase(),
-    );
-    if (exactName) {
-      addToCart(exactName);
-      return;
-    }
-
-    const fuzzy = scanSuggestions[0];
-    if (fuzzy) {
-      addToCart(fuzzy);
-      return;
-    }
-    reportError("Item not found. Scan exact barcode, SKU, or choose from suggestions.");
-  };
-
-  const onScanKeydown = (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      addFromScan();
-    }
-  };
-
-  const setLineEnteredQty = (index, value) => {
-    const entered = Math.max(toNum(value, 0), 0);
-    if (entered <= 0) {
-      removeLine(index);
-      return;
-    }
-    const next = [...cart];
-    if (!next[index]) {
-      return;
-    }
-    const factor = Math.max(toNum(next[index].qty_factor, 1), 1);
-    next[index] = {
-      ...next[index],
-      qty_entered: entered,
-      qty: entered * factor,
-    };
-    cart = next;
-  };
-
-  const removeLine = (index) => {
-    const next = [...cart];
-    next.splice(index, 1);
-    cart = next;
-  };
-
-  const clearCart = () => {
-    cart = [];
-    reportNotice("Cart cleared.");
-  };
-
-  const selectCustomer = (customer) => {
-    activeCustomer = customer || null;
-    customerSearch = activeCustomer?.name || "";
-    customerResults = [];
-  };
-
-  const searchCustomers = async () => {
-    const query = customerSearch.trim();
-    if (!query) {
-      customerResults = [];
-      return;
-    }
-    try {
-      await fetchCustomers(query);
-    } catch (err) {
-      reportError(err?.message || "Customer search failed.");
-      customerResults = [];
-    }
-  };
-
-  const createCustomer = async () => {
-    if (!customerDraft.name.trim()) {
-      reportError("Customer name is required.");
-      return;
-    }
-    try {
-      const data = await apiCall("/customers/create", {
-        method: "POST",
-        body: {
-          name: customerDraft.name.trim(),
-          phone: customerDraft.phone.trim(),
-          email: customerDraft.email.trim(),
-        },
-      });
-      if (data?.customer) {
-        activeCustomer = data.customer;
-        customerSearch = activeCustomer.name || "";
-        customerDraft = { name: "", phone: "", email: "" };
-        addCustomerMode = false;
-        await fetchCustomers();
-        reportNotice(`Customer ${activeCustomer.name} added.`);
-      } else {
-        reportError("Customer not returned by server.");
-      }
-    } catch (err) {
-      reportError(err?.message || "Create customer failed.");
-    }
-  };
-
-  let activeCashier = null;
-  let cashierName = "";
-  let syncBadge = "";
-  let hasConnection = false;
-  let currencyPrimary = "USD";
-  let currencySecondary = "LBP";
-  let totals = {
-    subtotalUsd: 0,
-    subtotalLbp: 0,
-    subtotalUsdFallback: 0,
-    taxUsd: 0,
-    taxLbp: 0,
-    totalUsd: 0,
-    totalLbp: 0,
-    vatRate: 0,
-  };
-
-  $: activeCashier = cashiers.find((entry) => entry.id === config.cashier_id) || null;
-  $: cashierName = activeCashier
-    ? activeCashier.name
-    : config.cashier_id
-      ? "Signed in (unknown)"
-      : "Not signed in";
-  $: syncBadge = outbox.length ? `${outbox.length} pending` : "No pending";
+  // Derived
+  $: activeCashier = cashiers.find((c) => c.id === config.cashier_id);
+  $: cashierName = activeCashier ? activeCashier.name : (config.cashier_id ? "Unknown" : "Not Signed In");
+  $: syncBadge = (() => {
+    const o = (outbox || []).length;
+    const u = (unofficialOutbox || []).length;
+    if (!o && !u) return "Synced";
+    return `Off ${o} · Un ${u}`;
+  })();
   $: hasConnection = status === "Ready";
+
+  $: originCompanyKey = (config.company_id === UNOFFICIAL_COMPANY_ID) ? "unofficial" : "official";
+  $: otherCompanyKey = originCompanyKey === "official" ? "unofficial" : "official";
+  
   $: currencyPrimary = (config.pricing_currency || "USD").toUpperCase();
-  $: currencySecondary = currencyPrimary === "USD" ? "LBP" : "USD";
-
-  const loginCashier = async () => {
-    if (!cashierPin.trim()) {
-      reportError("Enter cashier PIN.");
-      return;
-    }
-    try {
-      const data = await apiCall("/cashiers/login", {
-        method: "POST",
-        body: { pin: cashierPin.trim() },
-      });
-      if (data?.config) {
-        config = { ...config, ...data.config };
-      }
-      reportNotice(`Cashier ${data?.cashier?.name || ""} signed in.`);
-      cashierPin = "";
-      await refreshAll();
-    } catch (err) {
-      reportError(err?.message || "Cashier login failed.");
-    }
-  };
-
-  const logoutCashier = async () => {
-    try {
-      await apiCall("/cashiers/logout", { method: "POST" });
-      config.cashier_id = "";
-      reportNotice("Cashier logged out.");
-      await refreshAll();
-    } catch (err) {
-      reportError(err?.message || "Cashier logout failed.");
-    }
-  };
-
-  const checkout = async () => {
-    if (!cart.length) {
-      reportError("Add at least one item to checkout.");
-      return;
-    }
-    if (paymentMethod === "credit" && !activeCustomer?.id) {
-      reportError("Credit sales require a customer.");
-      return;
-    }
-    const payload = {
-      cart: cart.map((line) => ({
-        id: line.id,
-        qty: toNum(line.qty, 0),
-        qty_factor: toNum(line.qty_factor, 1),
-        qty_entered: toNum(line.qty_entered, 0),
-        unit_of_measure: line.unit_of_measure,
-        price_usd: toNum(line.price_usd, 0),
-        price_lbp: toNum(line.price_lbp, 0),
-        tax_code_id: line.tax_code_id || null,
-      })),
-      customer_id: activeCustomer?.id || null,
-      payment_method: paymentMethod,
-      pricing_currency: config.pricing_currency || "USD",
-      exchange_rate: toNum(config.exchange_rate, 0),
-    };
-    try {
-      loading = true;
-      const data = await apiCall("/sale", {
-        method: "POST",
-        body: payload,
-      });
-      cart = [];
-      reportNotice(`Sale posted. Event: ${data?.event_id || "N/A"}`);
-      await Promise.all([fetchOutbox(), fetchLastReceipt(), fetchConfig()]);
-    } catch (err) {
-      const hint = err?.payload?.hint || "";
-      reportError(
-        hint
-          ? `${err.message}${hint ? ` — ${hint}` : ""}`
-          : err?.message || "Sale failed.",
-      );
-    } finally {
-      loading = false;
-    }
-  };
-
-  const viewReceiptSummary = () => {
-    if (!lastReceipt) {
-      return "No last receipt yet.";
-    }
-    const created = lastReceipt.created_at
-      ? new Date(lastReceipt.created_at).toLocaleString()
-      : "Unknown time";
-    return `${lastReceipt.receipt_type || "receipt"} (${created})`;
-  };
-
-  const getLinePrice = (line, currency = currencyPrimary) => {
-    const price = currency === "USD" ? toNum(line.price_usd, 0) : toNum(line.price_lbp, 0);
-    return price;
-  };
-
-  const lineSubtotal = (line, currency = currencyPrimary) => {
-    const unit = getLinePrice(line, currency);
-    return unit * toNum(line.qty, 0);
-  };
-
-  const baseCurrencyRates = () => {
+  $: shiftText = config.shift_id ? "Shift: Open" : "Shift: Closed";
+  $: checkoutTotal = currencyPrimary === "LBP" ? (totals.totalLbp || 0) : (totals.totalUsd || 0);
+  
+  // Totals Calculation
+  $: totals = (() => {
     const usd = cart.reduce((sum, line) => sum + toNum(line.price_usd, 0) * toNum(line.qty, 0), 0);
     const lbp = cart.reduce((sum, line) => sum + toNum(line.price_lbp, 0) * toNum(line.qty, 0), 0);
     const rate = toRate(config.exchange_rate);
-    return {
-      subtotalUsd: usd,
-      subtotalLbp: lbp === 0 && rate > 0 ? usd * rate : lbp,
-      subtotalUsdFallback: lbp > 0 && rate > 0 ? lbp / rate : usd,
-    };
-  };
-
-  $: totals = (() => {
-    const { subtotalUsd, subtotalLbp } = baseCurrencyRates();
     const vatRate = toRate(config.vat_rate);
+    
+    const subtotalUsd = usd;
+    const subtotalLbp = lbp === 0 && rate > 0 ? usd * rate : lbp;
+    
     const taxUsd = subtotalUsd * vatRate;
     const taxLbp = subtotalLbp * vatRate;
-    const totalUsd = subtotalUsd + taxUsd;
-    const totalLbp = subtotalLbp + taxLbp;
+    
     return {
       subtotalUsd,
       subtotalLbp,
       taxUsd,
       taxLbp,
-      totalUsd,
-      totalLbp,
-      vatRate,
+      totalUsd: subtotalUsd + taxUsd,
+      totalLbp: subtotalLbp + taxLbp,
+      vatRate
     };
   })();
 
-  const edgeStateText = () => {
-    if (!edge) {
-      return "Edge check pending...";
+  $: totalsByCompany = (() => {
+    const out = {
+      official: { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
+      unofficial: { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
+    };
+    for (const ln of cart || []) {
+      const k = ln?.companyKey === "unofficial" ? "unofficial" : "official";
+      out[k].subtotalUsd += toNum(ln.price_usd, 0) * toNum(ln.qty, 0);
     }
-    if (!edge.ok) {
-      return `Edge: offline (${edge.edge_error || "unreachable"})`;
+    const cfgOff = (otherCompanyKey === "official") ? unofficialConfig : config;
+    const cfgUn = (otherCompanyKey === "unofficial") ? unofficialConfig : config;
+    const vOff = toRate(cfgOff.vat_rate);
+    const vUn = toRate(cfgUn.vat_rate);
+    out.official.taxUsd = out.official.subtotalUsd * vOff;
+    out.unofficial.taxUsd = out.unofficial.subtotalUsd * vUn;
+    out.official.totalUsd = out.official.subtotalUsd + out.official.taxUsd;
+    out.unofficial.totalUsd = out.unofficial.subtotalUsd + out.unofficial.taxUsd;
+    return out;
+  })();
+
+  const _itemHay = (e) => `${e?.sku || ""} ${e?.name || ""} ${e?.barcode || ""}`.toLowerCase();
+
+  const _buildBarcodeIndex = (list) => {
+    const m = new Map();
+    for (const b of list || []) {
+      const key = (b?.barcode || "").trim();
+      if (!key) continue;
+      if (!m.has(key)) m.set(key, b);
     }
-    if (!edge.edge_auth_ok) {
-      return `Edge auth failed (${edge.edge_auth_status || 401})`;
-    }
-    return "Edge connected";
+    return m;
   };
 
-  const cartLineLabel = (line) => `${line.name || line.sku || "Item"} (${line.unit_of_measure || "pc"})`;
-
-  const tickUi = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+  const _buildItemsById = (list) => {
+    const m = new Map();
+    for (const it of list || []) {
+      if (it?.id) m.set(String(it.id), it);
+    }
+    return m;
   };
 
-  $: scanSuggestions = (scanTerm.trim()
-    ? items
-        .filter((entry) => {
-          const hay = `${entry.sku || ""} ${entry.name || ""} ${entry.barcode || ""}`
-            .toLowerCase();
-          return hay.includes(scanTerm.trim().toLowerCase());
-        })
-        .slice(0, 10)
-    : []);
+  $: barcodeIndexOrigin = _buildBarcodeIndex(barcodes);
+  $: barcodeIndexOther = _buildBarcodeIndex(unofficialBarcodes);
+  $: itemsByIdOrigin = _buildItemsById(items);
+  $: itemsByIdOther = _buildItemsById(unofficialItems);
 
-  onMount(async () => {
-    apiBase = normalizeApiBase(localStorage.getItem(API_BASE_STORAGE_KEY) || DEFAULT_API_BASE);
-    apiBaseInput = apiBase;
+  const _buildBarcodesByItemId = (list) => {
+    const m = new Map();
+    for (const b of list || []) {
+      const itemId = b?.item_id;
+      if (!itemId) continue;
+      const k = String(itemId);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(b);
+    }
+    for (const [k, arr] of m.entries()) {
+      arr.sort((a, b) => (toNum(b?.is_primary, 0) - toNum(a?.is_primary, 0)));
+      m.set(k, arr);
+    }
+    return m;
+  };
+
+  $: barcodesByItemIdOrigin = _buildBarcodesByItemId(barcodes);
+  $: barcodesByItemIdOther = _buildBarcodesByItemId(unofficialBarcodes);
+
+  const uomOptionsFor = (item) => {
+    const companyKey = item?.companyKey || "official";
+    const baseUom = String(item?.unit_of_measure || "pcs") || "pcs";
+    const map = companyKey === otherCompanyKey ? barcodesByItemIdOther : barcodesByItemIdOrigin;
+    const rows = map?.get(String(item?.id || "")) || [];
+    const opts = [];
+    const seen = new Set();
+
+    const pushOpt = (uom, qty_factor, label, is_primary = false) => {
+      const u = String(uom || "").trim() || baseUom;
+      const f = toNum(qty_factor, 1) || 1;
+      const key = `${u}|${f}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      opts.push({
+        uom: u,
+        qty_factor: f,
+        label: String(label || "").trim() || (f !== 1 ? `${u} x${f}` : u),
+        is_primary: !!is_primary,
+      });
+    };
+
+    // Always include base UOM option first.
+    pushOpt(baseUom, 1, baseUom, true);
+
+    for (const b of rows) {
+      const u = (b?.uom_code || baseUom);
+      const f = toNum(b?.qty_factor, 1) || 1;
+      // Skip duplicate base entry (already included).
+      if (String(u).trim() === String(baseUom).trim() && f === 1) continue;
+      pushOpt(u, f, b?.label || "", !!b?.is_primary);
+    }
+
+    // Keep primary options first, then smaller factors first.
+    opts.sort((a, b) => {
+      if (a.is_primary !== b.is_primary) return a.is_primary ? -1 : 1;
+      return toNum(a.qty_factor, 1) - toNum(b.qty_factor, 1);
+    });
+
+    return opts;
+  };
+
+  $: scanSuggestions = (() => {
+    const q = scanTerm.trim().toLowerCase();
+    if (!q) return [];
+    const out = [];
+    const pushMatches = (list, companyKey) => {
+      for (const e of list || []) {
+        if (!e) continue;
+        if (_itemHay(e).includes(q)) out.push({ ...e, companyKey });
+        if (out.length >= 24) break;
+      }
+    };
+    pushMatches(items, originCompanyKey);
+    pushMatches(unofficialItems, otherCompanyKey);
+    return out.slice(0, 24);
+  })();
+
+  $: allItems = ([]).concat(items || [], unofficialItems || []);
+
+  const companyLabel = (obj) => {
+    const k = obj?.companyKey;
+    if (k === "official") return "Official";
+    if (k === "unofficial") return "Unofficial";
+    return "";
+  };
+
+  const companyTone = (obj) => {
+    const k = obj?.companyKey;
+    if (k === "official" || k === "unofficial") return k;
+    return "";
+  };
+
+  // API Client
+  const _normalizeAgentOrigin = (value) => {
+    let v = String(value || "").trim();
+    if (!v) return "";
+    if (v.endsWith("/")) v = v.slice(0, -1);
+    return v;
+  };
+
+  const _agentApiPrefix = (companyKey) => {
+    if (companyKey === otherCompanyKey) return `${_normalizeAgentOrigin(otherAgentUrl)}${apiBase}`;
+    return apiBase;
+  };
+
+  const _agentReceiptUrl = (companyKey) => {
+    if (companyKey === otherCompanyKey) return `${_normalizeAgentOrigin(otherAgentUrl)}/receipt/last`;
+    return "/receipt/last";
+  };
+
+  const requestHeaders = (companyKey = "official") => {
+    const h = { "Content-Type": "application/json" };
+    const tok = companyKey === otherCompanyKey ? unofficialSessionToken : sessionToken;
+    if (tok) h["X-POS-Session"] = tok;
+    return h;
+  };
+
+  const apiCallFor = async (companyKey, path, options = {}) => {
+    const prefix = _agentApiPrefix(companyKey);
+    const url = `${prefix}${path.startsWith("/") ? path : "/" + path}`;
+    const res = await fetch(url, {
+      method: options.method || "GET",
+      headers: requestHeaders(companyKey),
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+    const text = await res.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (_) {
+      data = { raw: text };
+    }
+    
+    if (!res.ok) {
+      const err = new Error(data?.error || res.statusText);
+      err.status = res.status;
+      err.payload = data;
+      throw err;
+    }
+    return data;
+  };
+
+  // Wrapper for the agent serving this UI (origin).
+  const apiCall = (path, options = {}) => apiCallFor(originCompanyKey, path, options);
+
+  // Actions
+  const reportNotice = (msg) => { notice = msg; setTimeout(() => notice = "", 3000); };
+  const reportError = (msg) => { alert(msg); error = msg; }; // Simple alert for now, can be improved
+
+  const setSessionToken = (companyKey, token) => {
+    const t = (token || "").trim();
+    if (companyKey === otherCompanyKey) {
+      unofficialSessionToken = t;
+      if (t) localStorage.setItem(UNOFFICIAL_SESSION_STORAGE_KEY, t);
+      else localStorage.removeItem(UNOFFICIAL_SESSION_STORAGE_KEY);
+      return;
+    }
+    sessionToken = t;
+    if (t) localStorage.setItem(SESSION_STORAGE_KEY, t);
+    else localStorage.removeItem(SESSION_STORAGE_KEY);
+  };
+
+  // Mock Data
+  const MOCK_ITEMS = Array.from({ length: 12 }).map((_, i) => ({
+    id: `item-${i}`,
+    sku: `SKU-${1000 + i}`,
+    name: `Premium Product ${i + 1}`,
+    price_usd: (5 + i * 2.5).toFixed(2),
+    price_lbp: ((5 + i * 2.5) * 89500).toFixed(0),
+    unit_of_measure: "pcs"
+  }));
+
+  const MOCK_Customers = [
+    { id: "c1", name: "John Doe", phone: "555-0123" },
+    { id: "c2", name: "Jane Smith", phone: "555-9876" }
+  ];
+
+  const fetchData = async () => {
+    try {
+      loading = true;
+      const results = await Promise.allSettled([
+        apiCall("/config"),
+        apiCall("/items"),
+        apiCall("/barcodes"),
+        apiCall("/customers"),
+        apiCall("/cashiers"),
+        apiCall("/outbox"),
+        apiCall("/edge/status"),
+        apiCall("/receipts/last"),
+      ]);
+
+      const cfgRes = results[0];
+      if (cfgRes.status === "rejected") {
+        const p = cfgRes.reason?.payload;
+        if (p?.error === "pos_auth_required") {
+          status = "Locked";
+          // If the agent is protected and the PIN isn't set yet, the API returns a hint.
+          adminPinMode = (p?.hint && String(p.hint).includes("admin PIN")) ? "set" : "unlock";
+          showAdminPinModal = true;
+          return;
+        }
+        throw cfgRes.reason;
+      }
+
+      const cfg = cfgRes.value || {};
+      config = { ...config, ...cfg };
+
+      const setIfOk = (idx, setter, fallback) => {
+        const r = results[idx];
+        if (r.status === "fulfilled") setter(r.value);
+        else if (fallback !== undefined) setter(fallback);
+      };
+
+      setIfOk(1, (v) => (items = v.items || []));
+      setIfOk(2, (v) => (barcodes = v.barcodes || []), []);
+      setIfOk(3, (v) => (customers = v.customers || []), []);
+      setIfOk(4, (v) => (cashiers = v.cashiers || []), []);
+      setIfOk(5, (v) => (outbox = v.outbox || []), []);
+      setIfOk(6, (v) => (edge = v), null);
+      setIfOk(7, (v) => (lastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
+
+      status = "Ready";
+
+      // Unofficial agent (best-effort; the UI still works as single-company if unreachable)
+      try {
+        const uOrigin = _normalizeAgentOrigin(otherAgentUrl);
+        if (!uOrigin) {
+          unofficialStatus = "Disabled";
+          unofficialItems = [];
+          unofficialBarcodes = [];
+          unofficialCustomers = [];
+          unofficialCashiers = [];
+          unofficialOutbox = [];
+          unofficialEdge = null;
+          unofficialLastReceipt = null;
+        } else {
+          const uResults = await Promise.allSettled([
+            apiCallFor(otherCompanyKey, "/config"),
+            apiCallFor(otherCompanyKey, "/items"),
+            apiCallFor(otherCompanyKey, "/barcodes"),
+            apiCallFor(otherCompanyKey, "/customers"),
+            apiCallFor(otherCompanyKey, "/cashiers"),
+            apiCallFor(otherCompanyKey, "/outbox"),
+            apiCallFor(otherCompanyKey, "/edge/status"),
+            apiCallFor(otherCompanyKey, "/receipts/last"),
+          ]);
+
+          const uCfgRes = uResults[0];
+          if (uCfgRes.status === "fulfilled") {
+            unofficialConfig = { ...unofficialConfig, ...(uCfgRes.value || {}) };
+            const setIfOkU = (idx, setter, fallback) => {
+              const r = uResults[idx];
+              if (r.status === "fulfilled") setter(r.value);
+              else if (fallback !== undefined) setter(fallback);
+            };
+            setIfOkU(1, (v) => (unofficialItems = v.items || []), []);
+            setIfOkU(2, (v) => (unofficialBarcodes = v.barcodes || []), []);
+            setIfOkU(3, (v) => (unofficialCustomers = v.customers || []), []);
+            setIfOkU(4, (v) => (unofficialCashiers = v.cashiers || []), []);
+            setIfOkU(5, (v) => (unofficialOutbox = v.outbox || []), []);
+            setIfOkU(6, (v) => (unofficialEdge = v), null);
+            setIfOkU(7, (v) => (unofficialLastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
+            unofficialStatus = "Ready";
+          } else {
+            unofficialStatus = "Offline";
+          }
+        }
+      } catch (_) {
+        unofficialStatus = "Offline";
+      }
+    } catch(e) {
+      console.warn("API Error", e);
+      error = e?.message || String(e);
+      status = "Offline";
+      // If we don't have any real data loaded yet, keep a minimal demo catalog
+      // so the UI isn't blank (useful during design/dev).
+      if (!items || items.length === 0) items = MOCK_ITEMS;
+      if (!customers || customers.length === 0) customers = MOCK_Customers;
+      if (!unofficialItems || unofficialItems.length === 0) unofficialItems = [];
+    } finally {
+      loading = false;
+    }
+  };
+
+  // Cart Logic
+  const buildLine = (item, qtyEntered = 1, extra = {}) => {
+    const companyKey = extra.companyKey || item.companyKey || "official";
+    const qtyFactor = toNum(extra.qty_factor, 1) || 1;
+    const qtyBase = toNum(qtyEntered, 0) * qtyFactor;
+    const uom = extra.uom || extra.uom_code || item.unit_of_measure || "pcs";
+    const lineKey = `${companyKey}|${String(item.id)}|${String(qtyFactor)}|${String(uom)}`;
+    return {
+      key: lineKey,
+      companyKey,
+      id: item.id,
+      sku: item.sku,
+      name: item.name,
+      unit_of_measure: item.unit_of_measure || "pcs",
+      price_usd: toNum(item.price_usd),
+      price_lbp: toNum(item.price_lbp),
+      qty_factor: qtyFactor,
+      qty_entered: toNum(qtyEntered, 0),
+      qty: qtyBase,
+      uom,
+      tax_code_id: item.tax_code_id,
+      batch_no: extra.batch_no || null,
+      expiry_date: extra.expiry_date || null,
+    };
+  };
+
+  const addToCart = (item, extra = {}) => {
+    const companyKey = extra.companyKey || item.companyKey || "official";
+    const qtyFactor = toNum(extra.qty_factor, 1) || 1;
+    const uom = extra.uom || extra.uom_code || item.unit_of_measure || "pcs";
+    const existingIdx = cart.findIndex(
+      (x) =>
+        x.companyKey === companyKey &&
+        x.id === item.id &&
+        toNum(x.qty_factor, 1) === qtyFactor &&
+        (x.uom || x.unit_of_measure) === uom
+    );
+    if (existingIdx >= 0) {
+      const copy = [...cart];
+      copy[existingIdx].qty_entered = toNum(copy[existingIdx].qty_entered, 0) + 1;
+      copy[existingIdx].qty = toNum(copy[existingIdx].qty_entered, 0) * qtyFactor;
+      cart = copy;
+    } else {
+      cart = [buildLine(item, 1, { companyKey, qty_factor: qtyFactor, uom }), ...cart];
+    }
+    scanTerm = "";
+    reportNotice(`Added ${item.name}`);
+    return true;
+  };
+
+  const cartCompaniesSet = () => new Set((cart || []).map((c) => c.companyKey).filter(Boolean));
+
+  const primaryCompanyFromCart = () => {
+    const s = cartCompaniesSet();
+    if (s.size === 1) return Array.from(s.values())[0];
+    return null;
+  };
+
+  const effectiveInvoiceCompany = () => {
+    const v = String(invoiceCompanyMode || "auto").trim().toLowerCase();
+    if (v === "official" || v === "unofficial") return v;
+    return primaryCompanyFromCart() || "unofficial";
+  };
+
+  const addByBarcode = (barcode) => {
+    const code = (barcode || "").trim();
+    if (!code) return false;
+
+    const pick = (companyKey) => {
+      const idx = companyKey === otherCompanyKey ? barcodeIndexOther : barcodeIndexOrigin;
+      const b = idx?.get(code);
+      if (!b) return null;
+      const itemsById = companyKey === otherCompanyKey ? itemsByIdOther : itemsByIdOrigin;
+      const item = itemsById?.get(String(b.item_id));
+      if (!item) return null;
+      return { b, item };
+    };
+
+    const mO = pick("official");
+    const mU = pick("unofficial");
+    if (!mO && !mU) return false;
+
+    let companyKey = "official";
+    if (mO && !mU) companyKey = "official";
+    else if (mU && !mO) companyKey = "unofficial";
+    else companyKey = effectiveInvoiceCompany();
+
+    const { b, item } = companyKey === "unofficial" ? mU : mO;
+    if (!b || !item) return false;
+
+    const qtyFactor = toNum(b.qty_factor, 1) || 1;
+    const uom = (b.uom_code || item.unit_of_measure || "pcs");
+    const it = { ...item, companyKey };
+    return addToCart(it, { companyKey, qty_factor: qtyFactor, uom });
+  };
+
+  const addBySkuExact = (sku) => {
+    const key = (sku || "").trim().toLowerCase();
+    if (!key) return false;
+    const findIn = (list, companyKey) => {
+      const it = (list || []).find((i) => String(i?.sku || "").trim().toLowerCase() === key);
+      return it ? { ...it, companyKey } : null;
+    };
+    const a = findIn(items, originCompanyKey);
+    const b = findIn(unofficialItems, otherCompanyKey);
+    if (!a && !b) return false;
+    if (a && !b) { addToCart(a); return true; }
+    if (b && !a) { addToCart(b); return true; }
+    // Both match: pick based on invoice mode / cart
+    const companyKey = effectiveInvoiceCompany();
+    addToCart(companyKey === b.companyKey ? b : a);
+    return true;
+  };
+
+  const handleScanKeyDown = (e) => {
+    if (e.key !== "Enter") return false;
+    e.preventDefault();
+    const term = scanTerm.trim();
+    if (!term) return false;
+    if (addByBarcode(term)) {
+      scanTerm = "";
+      return true;
+    }
+    if (addBySkuExact(term)) {
+      scanTerm = "";
+      return true;
+    }
+    return false;
+  };
+
+  const onInvoiceCompanyModeChange = (v) => {
+    const vv = String(v || "auto").trim().toLowerCase();
+    invoiceCompanyMode = (vv === "official" || vv === "unofficial") ? vv : "auto";
+    try { localStorage.setItem(INVOICE_MODE_STORAGE_KEY, invoiceCompanyMode); } catch (_) {}
+  };
+
+  const onFlagOfficialChange = (v) => {
+    flagOfficial = !!v;
+    try { localStorage.setItem(FLAG_OFFICIAL_STORAGE_KEY, flagOfficial ? "1" : "0"); } catch (_) {}
+  };
+
+  const configureOtherAgent = async () => {
+    otherAgentDraftUrl = otherAgentUrl || DEFAULT_OTHER_AGENT_URL;
+    showOtherAgentModal = true;
+  };
+
+  const saveOtherAgent = async () => {
+    const raw = String(otherAgentDraftUrl || "").trim();
+    const v = _normalizeAgentOrigin(raw);
+    otherAgentUrl = v;
+    try { localStorage.setItem(OTHER_AGENT_URL_STORAGE_KEY, v); } catch (_) {}
+    showOtherAgentModal = false;
+    await fetchData();
+    reportNotice(v ? `Other agent set: ${v}` : "Other agent disabled");
+  };
+
+  const toggleCatalog = () => {
+    catalogCollapsed = !catalogCollapsed;
+  };
+
+  const toggleTheme = () => {
+    theme = theme === "light" ? "dark" : "light";
+    try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch (_) {}
+    try { document.documentElement.dataset.theme = theme; } catch (_) {}
+  };
+
+  const updateLineQty = (index, qty) => {
+    const q = Math.max(0, Number(qty));
+    if (q === 0) {
+      removeLine(index);
+      return;
+    }
+    const copy = [...cart];
+    copy[index].qty_entered = q;
+    copy[index].qty = q * toNum(copy[index].qty_factor, 1);
+    cart = copy;
+  };
+
+  const removeLine = (index) => {
+    cart = cart.filter((_, i) => i !== index);
+  };
+
+  // Customer Logic
+  const searchCustomers = async () => {
+    if (!customerSearch.trim()) { customerResults = []; return; }
+    try {
+      const seq = ++_customerSearchSeq;
+      customerSearching = true;
+      const companyKey = effectiveInvoiceCompany();
+      const res = await apiCallFor(companyKey, `/customers?query=${encodeURIComponent(customerSearch)}`);
+      if (seq !== _customerSearchSeq) return;
+      customerResults = res.customers || [];
+    } catch(e) { reportError(e.message); }
+    finally { customerSearching = false; }
+  };
+
+  const selectCustomer = (c) => {
+    activeCustomer = c;
+    customerSearch = "";
+    customerResults = [];
+  };
+  
+  const createCustomer = async () => {
+    try {
+      const companyKey = effectiveInvoiceCompany();
+      const res = await apiCallFor(companyKey, "/customers/create", { method: "POST", body: customerDraft });
+      if (res.customer) {
+        selectCustomer(res.customer);
+        addCustomerMode = false;
+        customerDraft = { name: "", phone: "", email: "" };
+        fetchData();
+      }
+    } catch(e) { reportError(e.message); }
+  };
+
+  // Checkout
+  const handleCheckoutRequest = () => {
+    if (cart.length === 0) return;
+    showPaymentModal = true;
+  };
+
+  const handleProcessSale = async (method) => {
+    showPaymentModal = false;
+    loading = true;
+    
+    try {
+      const payment_method = String(method || "cash").trim().toLowerCase();
+
+      // Returns: keep single-agent for now (official), since Unified pilot only covers sales.
+      if (saleMode !== "sale") {
+        const payload = {
+          cart: cart.map(line => ({
+            id: line.id,
+            qty: toNum(line.qty, 0),
+            qty_factor: toNum(line.qty_factor, 1),
+            qty_entered: toNum(line.qty_entered, 0),
+            uom: line.uom || line.unit_of_measure,
+            price_usd: toNum(line.price_usd, 0),
+            price_lbp: toNum(line.price_lbp, 0),
+            tax_code_id: line.tax_code_id,
+            batch_no: line.batch_no || null,
+            expiry_date: line.expiry_date || null,
+          })),
+          customer_id: null,
+          payment_method,
+          pricing_currency: config.pricing_currency,
+          exchange_rate: config.exchange_rate,
+          shift_id: config.shift_id || null,
+          cashier_id: config.cashier_id || null,
+        };
+
+        const res = await apiCall("/return", { method: "POST", body: payload });
+        reportNotice(`Return complete: ${res.event_id}`);
+        cart = [];
+        activeCustomer = null;
+        fetchData();
+        try { window.open("/receipt/last", "_blank", "noopener,noreferrer"); } catch (_) {}
+        return;
+      }
+
+      const requested_customer_id = (activeCustomer?.id || "").trim() || null;
+      if (payment_method === "credit" && !requested_customer_id) {
+        reportError("Credit sales require a customer.");
+        return;
+      }
+
+      const cartCompanies = cartCompaniesSet();
+      const mixedCompanies = cartCompanies.size > 1;
+      const inferredPrimary = primaryCompanyFromCart();
+      const invForPay = effectiveInvoiceCompany();
+      const crossCompanyCredit = !!inferredPrimary && !mixedCompanies && invForPay !== inferredPrimary;
+      if (!flagOfficial && crossCompanyCredit && payment_method === "credit") {
+        reportError("Credit is disabled for cross-company invoices. Use cash/card/transfer, or Flag to invoice Official for review.");
+        return;
+      }
+
+      const resolveCustomerId = async (companyKey) => {
+        if (!requested_customer_id) return null;
+        try {
+          const res = await apiCallFor(companyKey, `/customers/by-id?customer_id=${encodeURIComponent(requested_customer_id)}`);
+          const ok = !!(res && res.customer && res.customer.id);
+          if (!ok && payment_method === "credit") {
+            throw new Error(`Customer not found on ${companyKey}. Credit sale requires a valid customer.`);
+          }
+          return ok ? requested_customer_id : null;
+        } catch (e) {
+          if (payment_method === "credit") throw e;
+          return null;
+        }
+      };
+
+      const mapCartLines = (lines) => {
+        return (lines || []).map((line) => ({
+          id: line.id,
+          sku: line.sku,
+          name: line.name,
+          price_usd: toNum(line.price_usd, 0),
+          price_lbp: toNum(line.price_lbp, 0),
+          qty: toNum(line.qty, 0),
+          qty_factor: toNum(line.qty_factor, 1),
+          qty_entered: toNum(line.qty_entered, 0),
+          uom: line.uom || line.unit_of_measure,
+          tax_code_id: line.tax_code_id,
+          batch_no: line.batch_no || null,
+          expiry_date: line.expiry_date || null,
+        }));
+      };
+
+      const cfgFor = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
+
+      // Flag override: issue ONE invoice on Official for later review (even if items are mixed).
+      if (flagOfficial) {
+        const invoiceCompany = "official";
+        const crossCompany = mixedCompanies || !cartCompanies.has(invoiceCompany);
+        const customer_id = await resolveCustomerId(invoiceCompany);
+        if (requested_customer_id && !customer_id) {
+          reportNotice("Customer not found on Official. Proceeding as walk-in.");
+        }
+
+        const receipt_meta = {
+          pilot: {
+            mode: "flag-to-official",
+            invoice_company: invoiceCompany,
+            line_companies: Array.from(cartCompanies.values()),
+            cross_company: crossCompany,
+            flagged_for_adjustment: true,
+            customer_id_requested: requested_customer_id,
+            customer_id_applied: customer_id,
+            note: "Flagged: invoice issued by Official for later review."
+          }
+        };
+
+        // Pre-open receipt window to reduce popup blocking.
+        let receiptWin = null;
+        try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
+
+        const cfg = cfgFor(invoiceCompany);
+        const res = await apiCallFor(invoiceCompany, "/sale", {
+          method: "POST",
+          body: {
+            cart: mapCartLines(cart),
+            customer_id,
+            payment_method,
+            receipt_meta,
+            pricing_currency: cfg.pricing_currency,
+            exchange_rate: cfg.exchange_rate,
+            shift_id: cfg.shift_id || null,
+            cashier_id: cfg.cashier_id || null,
+            skip_stock_moves: crossCompany ? true : false,
+          }
+        });
+
+        try { await apiCallFor(invoiceCompany, "/sync/push", { method: "POST", body: {} }); } catch (_) {}
+
+        cart = [];
+        activeCustomer = null;
+        fetchData();
+        reportNotice(`Sale queued (official): ${res.event_id || "ok"}`);
+        try {
+          if (receiptWin) receiptWin.location = _agentReceiptUrl(invoiceCompany);
+          else window.open(_agentReceiptUrl(invoiceCompany), "_blank", "noopener,noreferrer");
+        } catch (_) {}
+        return;
+      }
+
+      // Mixed cart: automatically split into two invoices (one per company) with a single Pay.
+      if (mixedCompanies) {
+        if (payment_method === "credit") {
+          reportError("Split invoices support cash/card/transfer only. Use Flag to invoice Official, or sell per-company.");
+          return;
+        }
+
+        const groupId = `split-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+        const companiesInOrder = ["official", "unofficial"].filter((k) => cart.some((c) => c.companyKey === k));
+
+        const customerByCompany = {};
+        if (requested_customer_id) {
+          for (const k of companiesInOrder) customerByCompany[k] = await resolveCustomerId(k);
+          const missing = companiesInOrder.filter((k) => !customerByCompany[k]);
+          if (missing.length) reportNotice(`Customer not found on: ${missing.join(", ")}. Those invoices will be walk-in.`);
+        }
+
+        const receiptWins = {};
+        for (const k of companiesInOrder) {
+          try { receiptWins[k] = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
+        }
+
+        const done = [];
+        for (const companyKey of companiesInOrder) {
+          const lines = cart.filter((c) => c.companyKey === companyKey);
+          if (!lines.length) continue;
+
+          const customer_id = requested_customer_id ? (customerByCompany[companyKey] || null) : null;
+          const receipt_meta = {
+            pilot: {
+              mode: "split-by-company",
+              split_group_id: groupId,
+              invoice_company: companyKey,
+              line_companies: [companyKey],
+              cross_company: false,
+              flagged_for_adjustment: false,
+              customer_id_requested: requested_customer_id,
+              customer_id_applied: customer_id,
+              note: null
+            }
+          };
+
+          const cfg = cfgFor(companyKey);
+          const res = await apiCallFor(companyKey, "/sale", {
+            method: "POST",
+            body: {
+              cart: mapCartLines(lines),
+              customer_id,
+              payment_method,
+              receipt_meta,
+              pricing_currency: cfg.pricing_currency,
+              exchange_rate: cfg.exchange_rate,
+              shift_id: cfg.shift_id || null,
+              cashier_id: cfg.cashier_id || null,
+              skip_stock_moves: false,
+            }
+          });
+
+          done.push({ companyKey, event_id: res.event_id || "ok" });
+          try { await apiCallFor(companyKey, "/sync/push", { method: "POST", body: {} }); } catch (_) {}
+
+          // Remove only the successfully invoiced lines.
+          cart = cart.filter((c) => c.companyKey !== companyKey);
+          const w = receiptWins[companyKey];
+          try {
+            if (w) w.location = _agentReceiptUrl(companyKey);
+            else window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer");
+          } catch (_) {}
+        }
+
+        cart = [];
+        activeCustomer = null;
+        fetchData();
+        reportNotice(`Split sale queued: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}`);
+        return;
+      }
+
+      // Single-company (or intentionally forced) flow.
+      const invoiceCompany = effectiveInvoiceCompany();
+      const crossCompany = cartCompanies.size > 1 || (cartCompanies.size === 1 && !cartCompanies.has(invoiceCompany));
+      const customer_id = await resolveCustomerId(invoiceCompany);
+      if (requested_customer_id && !customer_id) {
+        reportNotice(`Customer not found on ${invoiceCompany}. Proceeding as walk-in.`);
+      }
+
+      const receipt_meta = {
+        pilot: {
+          mode: "single",
+          invoice_company: invoiceCompany,
+          line_companies: Array.from(cartCompanies.values()),
+          cross_company: crossCompany,
+          flagged_for_adjustment: crossCompany,
+          customer_id_requested: requested_customer_id,
+          customer_id_applied: customer_id,
+          note: crossCompany
+            ? "Cross-company invoice: stock moves were skipped; requires later review/adjustment."
+            : null
+        }
+      };
+
+      let receiptWin = null;
+      try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
+
+      const cfg = cfgFor(invoiceCompany);
+      const res = await apiCallFor(invoiceCompany, "/sale", {
+        method: "POST",
+        body: {
+          cart: mapCartLines(cart),
+          customer_id,
+          payment_method,
+          receipt_meta,
+          pricing_currency: cfg.pricing_currency,
+          exchange_rate: cfg.exchange_rate,
+          shift_id: cfg.shift_id || null,
+          cashier_id: cfg.cashier_id || null,
+          skip_stock_moves: crossCompany ? true : false,
+        }
+      });
+
+      try { await apiCallFor(invoiceCompany, "/sync/push", { method: "POST", body: {} }); } catch (_) {}
+
+      reportNotice(`Sale queued: ${res.event_id || "ok"}`);
+      cart = [];
+      activeCustomer = null;
+      fetchData();
+      try {
+        if (receiptWin) receiptWin.location = _agentReceiptUrl(invoiceCompany);
+        else window.open(_agentReceiptUrl(invoiceCompany), "_blank", "noopener,noreferrer");
+      } catch (_) {}
+    } catch(e) {
+      const p = e?.payload;
+      if (p?.error === "pos_auth_required") {
+        status = "Locked";
+        adminPinMode = "unlock";
+        showAdminPinModal = true;
+      } else {
+        reportError(e.message);
+      }
+    } finally {
+      loading = false;
+    }
+  };
+
+  const syncPull = async () => {
+    try {
+      loading = true;
+      const results = await Promise.allSettled([
+        apiCallFor("official", "/sync/pull", { method: "POST", body: {} }),
+        apiCallFor("unofficial", "/sync/pull", { method: "POST", body: {} }),
+      ]);
+      const o = results[0].status === "fulfilled" ? results[0].value : null;
+      const u = results[1].status === "fulfilled" ? results[1].value : null;
+      reportNotice(
+        `Pulled: Off items ${o?.sync?.catalog?.count ?? "?"}, Un items ${u?.sync?.catalog?.count ?? "?"}`
+      );
+      await fetchData();
+    } catch (e) {
+      reportError(e.message);
+    } finally {
+      loading = false;
+    }
+  };
+
+  const syncPush = async () => {
+    try {
+      loading = true;
+      const results = await Promise.allSettled([
+        apiCallFor("official", "/sync/push", { method: "POST", body: {} }),
+        apiCallFor("unofficial", "/sync/push", { method: "POST", body: {} }),
+      ]);
+      const o = results[0].status === "fulfilled" ? results[0].value : null;
+      const u = results[1].status === "fulfilled" ? results[1].value : null;
+      reportNotice(
+        `Pushed: Off ${o?.sent ?? 0}, Un ${u?.sent ?? 0}`
+      );
+      await fetchData();
+    } catch (e) {
+      reportError(e.message);
+    } finally {
+      loading = false;
+    }
+  };
+
+  const cashierLogin = async () => {
+    const pin = (cashierPin || "").trim();
+    if (!pin) return;
+    try {
+      loading = true;
+      const res = await apiCall("/cashiers/login", { method: "POST", body: { pin } });
+      config = { ...config, ...(res.config || {}) };
+      showCashierModal = false;
+      cashierPin = "";
+      await fetchData();
+      reportNotice(`Signed in: ${res?.cashier?.name || "Cashier"}`);
+    } catch (e) {
+      reportError(e.message);
+    } finally {
+      loading = false;
+    }
+  };
+
+  const cashierLogout = async () => {
+    try {
+      loading = true;
+      const res = await apiCall("/cashiers/logout", { method: "POST", body: {} });
+      config = { ...config, ...(res.config || {}) };
+      await fetchData();
+      reportNotice("Signed out");
+    } catch (e) {
+      reportError(e.message);
+    } finally {
+      loading = false;
+    }
+  };
+
+  const adminPinSubmit = async () => {
+    const pin = (adminPin || "").trim();
+    if (!pin) return;
+    try {
+      loading = true;
+      if (adminPinMode === "set") {
+        await apiCall("/admin/pin/set", { method: "POST", body: { pin } });
+        adminPinMode = "unlock";
+      }
+      const res = await apiCall("/auth/pin", { method: "POST", body: { pin } });
+      setSessionToken(originCompanyKey, res?.token || "");
+      showAdminPinModal = false;
+      adminPin = "";
+      await fetchData();
+      reportNotice("Unlocked");
+    } catch (e) {
+      reportError(e.message);
+    } finally {
+      loading = false;
+    }
+  };
+
+  const shiftRefresh = async () => {
+    try {
+      loading = true;
+      const res = await apiCall("/shift/status", { method: "POST", body: {} });
+      shift = res?.shift || null;
+      await fetchData();
+      reportNotice(shift ? "Shift is open" : "No open shift");
+    } catch (e) {
+      reportError(e.message);
+    } finally {
+      loading = false;
+    }
+  };
+
+  const shiftOpen = async () => {
+    try {
+      loading = true;
+      const res = await apiCall("/shift/open", {
+        method: "POST",
+        body: {
+          opening_cash_usd: toNum(openingCashUsd, 0),
+          opening_cash_lbp: toNum(openingCashLbp, 0),
+          cashier_id: config.cashier_id || null,
+        },
+      });
+      shift = res?.shift || null;
+      await fetchData();
+      reportNotice("Shift opened");
+      showShiftModal = false;
+    } catch (e) {
+      reportError(e.message);
+    } finally {
+      loading = false;
+    }
+  };
+
+  const shiftClose = async () => {
+    try {
+      loading = true;
+      const res = await apiCall("/shift/close", {
+        method: "POST",
+        body: {
+          closing_cash_usd: toNum(closingCashUsd, 0),
+          closing_cash_lbp: toNum(closingCashLbp, 0),
+          cashier_id: config.cashier_id || null,
+        },
+      });
+      shift = res?.shift || null;
+      await fetchData();
+      reportNotice("Shift closed");
+      showShiftModal = false;
+    } catch (e) {
+      reportError(e.message);
+    } finally {
+      loading = false;
+    }
+  };
+
+  // Lifecycle
+  onMount(() => {
+    const stored = localStorage.getItem(API_BASE_STORAGE_KEY);
+    if (stored) apiBase = stored;
     sessionToken = localStorage.getItem(SESSION_STORAGE_KEY) || "";
-    sessionInput = sessionToken;
-    await refreshAll();
-    setInterval(() => {
-      void fetchOutbox();
-      void fetchEdgeStatus();
-    }, 15000);
+    unofficialSessionToken = localStorage.getItem(UNOFFICIAL_SESSION_STORAGE_KEY) || "";
+    otherAgentUrl = localStorage.getItem(OTHER_AGENT_URL_STORAGE_KEY) || DEFAULT_OTHER_AGENT_URL;
+    invoiceCompanyMode = localStorage.getItem(INVOICE_MODE_STORAGE_KEY) || "auto";
+    flagOfficial = localStorage.getItem(FLAG_OFFICIAL_STORAGE_KEY) === "1";
+
+    theme = localStorage.getItem(THEME_STORAGE_KEY) || "dark";
+    if (theme !== "light" && theme !== "dark") theme = "dark";
+    try { document.documentElement.dataset.theme = theme; } catch (_) {}
+
+    fetchData();
+
+    const poll = setInterval(fetchData, 30000); // Polling legacy style
+
+    // Global barcode scan capture (keyboard-wedge scanners often type fast chars + Enter).
+    // Captures scans even if focus isn't in the scan box, but avoids stealing normal typing.
+    let buf = "";
+    let lastAt = 0;
+    let clearTimer = null;
+
+    const reset = () => {
+      buf = "";
+      lastAt = 0;
+      if (clearTimer) {
+        clearTimeout(clearTimer);
+        clearTimer = null;
+      }
+    };
+
+    const isTextInput = (el) => {
+      const tag = (el?.tagName || "").toUpperCase();
+      if (tag === "INPUT" || tag === "TEXTAREA") return true;
+      return !!el?.isContentEditable;
+    };
+
+    const onKeyDown = (e) => {
+      if (!e) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const active = document.activeElement;
+      const focusedInText = isTextInput(active);
+      const isScanField = !!active?.getAttribute?.("data-scan-input");
+
+      // Don't hijack normal typing in other fields (customer search, etc.).
+      if (focusedInText && !isScanField) return;
+
+      if (e.key === "Enter") {
+        const term = buf.trim();
+        if (term && term.length >= 4) {
+          // Attempt immediate add by barcode/SKU. Keep scanTerm for visibility.
+          scanTerm = term;
+          const ok = addByBarcode(term) || addBySkuExact(term);
+          if (ok) scanTerm = "";
+        }
+        reset();
+        return;
+      }
+
+      if (typeof e.key === "string" && e.key.length === 1) {
+        const now = Date.now();
+        const dt = lastAt ? (now - lastAt) : 0;
+        // Scanner bursts are typically < 30ms between keys; anything slower is likely manual typing.
+        if (dt && dt > 60) buf = "";
+        buf += e.key;
+        lastAt = now;
+        if (clearTimer) clearTimeout(clearTimer);
+        clearTimer = setTimeout(reset, 250);
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+
+    return () => {
+      clearInterval(poll);
+      document.removeEventListener("keydown", onKeyDown, true);
+      reset();
+    };
   });
+
+  const _edgeState = (st) => {
+    if (!st) return "Pending";
+    if (st.edge_ok === false) return "Offline";
+    if (st.edge_ok === true && st.edge_auth_ok === true) return "Online";
+    if (st.edge_ok === true && st.edge_auth_ok === false) return "Auth";
+    return "Unknown";
+  };
+
+  const getEdgeStateText = () => {
+    return `Off ${_edgeState(edge)} · Un ${_edgeState(unofficialEdge)}`;
+  };
 </script>
 
-<div class="app-shell">
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-badge">WP</div>
-      <div>
-        <h1>Wholesale POS</h1>
-        <p>Compact, checkout-first FMCG workflow</p>
-      </div>
-    </div>
-    <div class="top-states">
-      <span class={"status-pill " + (hasConnection ? "ok" : "warn")}>{status}</span>
-      <span class="status-pill">{edgeStateText()}</span>
-      <span class="status-pill">{syncBadge}</span>
-    </div>
-  </header>
+<Shell 
+  status={status} 
+  edgeStateText={getEdgeStateText()} 
+  syncBadge={syncBadge}
+  hasConnection={hasConnection}
+  cashierName={cashierName}
+  shiftText={shiftText}
+>
+  <svelte:fragment slot="top-actions">
+    {@const topBtnBase = "px-3 py-2 rounded-full text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors whitespace-nowrap"}
+    {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
+    <button
+      class={topBtnBase}
+      on:click={syncPull}
+      disabled={loading}
+      title="Pull latest catalog/master data"
+    >
+      Sync Pull
+    </button>
+    <button
+      class={topBtnBase}
+      on:click={syncPush}
+      disabled={loading}
+      title="Push outbox events to edge"
+    >
+      Sync Push
+    </button>
+    <button
+      class={topBtnBase}
+      on:click={() => showCashierModal = true}
+      disabled={loading}
+      title="Cashier login"
+    >
+      Cashier
+    </button>
+    <button
+      class={topBtnBase}
+      on:click={() => { showShiftModal = true; shiftRefresh(); }}
+      disabled={loading}
+      title="Shift open/close"
+    >
+      Shift
+    </button>
+    <button
+      class={topBtnBase}
+      on:click={() => { try { window.open('/receipt/last', '_blank', 'noopener,noreferrer'); } catch (_) {} }}
+      title="Open printable last receipt"
+    >
+      Receipt
+    </button>
+    <button
+      class={topBtnBase}
+      on:click={configureOtherAgent}
+      disabled={loading}
+      title="Set the other agent URL (usually Unofficial on :7072)"
+    >
+      Other Agent
+    </button>
+    <button
+      class={`${topBtnBase} ${saleMode === "return" ? topBtnActive : "text-muted"}`}
+      on:click={() => { saleMode = (saleMode === "sale" ? "return" : "sale"); }}
+      title="Toggle return mode"
+    >
+      {saleMode === "sale" ? "Sale" : "Return"}
+    </button>
+    {#if config.cashier_id}
+      <button
+        class={topBtnBase}
+        on:click={cashierLogout}
+        disabled={loading}
+        title="Cashier logout"
+      >
+        Logout
+      </button>
+    {/if}
 
-  <section class="settings-strip">
-    <label class="field">
-      <span>POS API Base</span>
-      <input bind:value={apiBaseInput} type="text" />
-      <button on:click={applySettings} type="button">Apply</button>
-    </label>
-    <label class="field">
-      <span>Session Token</span>
-      <input bind:value={sessionInput} type="text" />
-      <button on:click={applySettings} type="button">Save</button>
-      <button on:click={clearSessionToken} type="button" class="ghost">Clear</button>
-    </label>
-    <div class="actions">
-      <button on:click={refreshAll} type="button">Reload</button>
-      <button on:click={syncPull} type="button">Sync Pull</button>
-      <button on:click={syncPush} type="button">Sync Push</button>
-    </div>
-  </section>
+    <button
+      class="h-9 w-9 rounded-full border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors flex items-center justify-center"
+      on:click={toggleTheme}
+      title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+      aria-label="Toggle theme"
+    >
+      {#if theme === "light"}
+        <!-- Sun -->
+        <svg class="w-4 h-4 text-ink/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m0-11.314L7.05 7.05m9.9 9.9 1.414 1.414M12 8a4 4 0 100 8 4 4 0 000-8z" />
+        </svg>
+      {:else}
+        <!-- Moon -->
+        <svg class="w-4 h-4 text-ink/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z" />
+        </svg>
+      {/if}
+    </button>
+  </svelte:fragment>
 
-  {#if notice}
-    <div class="message ok">{notice}</div>
-  {/if}
-  {#if error}
-    <div class="message bad">{error}</div>
-  {/if}
-
-  <section class="workspace">
-    <section class="panel">
-      <header class="panel-head">
-        <h2>Scan & Add</h2>
-        <span class="muted">{items.length} items in local catalog</span>
-      </header>
-      <div class="scan-row">
-        <input
-          bind:value={scanTerm}
-          type="text"
-          placeholder="Scan barcode or search item name / SKU"
-          on:keydown={onScanKeydown}
-        />
-        <button on:click={addFromScan} type="button">Add</button>
-      </div>
-
-      <div class="result-list">
-        {#if !scanTerm.trim()}
-          <p class="muted small">Start typing to search items or scan barcode.</p>
-        {:else if scanSuggestions.length === 0}
-          <p class="muted small">No matches found.</p>
-        {:else}
-          {#each scanSuggestions as entry}
-            <button
-              type="button"
-              class="result-item"
-              on:click={() => addToCart(entry)}
-            >
-              <span class="result-name">{entry.name || entry.sku}</span>
-              <span class="result-meta">
-                {entry.sku || "no sku"} · {fmtMoney(
-                  currencyPrimary === "USD" ? toNum(entry.price_usd, 0) : toNum(entry.price_lbp, 0),
-                  currencyPrimary,
-                )}
-              </span>
-            </button>
-          {/each}
-        {/if}
-      </div>
-    </section>
-
-    <section class="panel checkout">
-      <header class="panel-head">
-        <h2>Checkout</h2>
-        <span class="muted">{cart.length} lines</span>
-      </header>
-
-      <section class="section">
-        <div class="split">
-          <label class="field">
-            <span>Cashier</span>
-            <div class="compact-row">
-              <input type="text" value={cashierName} readonly />
-              {#if config.cashier_id}
-                <button on:click={logoutCashier} type="button" class="ghost">Logout</button>
-              {:else}
-                <button on:click={loginCashier} type="button" class="ghost">Sign in</button>
-              {/if}
-            </div>
-          </label>
-          {#if !config.cashier_id}
-            <label class="field">
-              <span>Cashier PIN</span>
-              <div class="compact-row">
-                <input bind:value={cashierPin} type="password" />
-                <button on:click={loginCashier} type="button">Login</button>
-              </div>
-            </label>
-          {/if}
+  <div
+    class={`grid h-full gap-6 ${
+      catalogCollapsed
+        ? "grid-cols-1 lg:grid-cols-[72px_1fr_420px]"
+        : "grid-cols-1 lg:grid-cols-[minmax(420px,1fr)_520px_420px]"
+    }`}
+  >
+    <!-- Catalog Column (collapsible) -->
+    {#if catalogCollapsed}
+      <section class="glass-panel rounded-2xl h-full overflow-hidden flex flex-col items-center justify-between p-3">
+        <button
+          class="w-full py-3 rounded-xl bg-ink/5 hover:bg-ink/10 border border-ink/10 text-xs font-bold text-muted transition-colors"
+          on:click={toggleCatalog}
+          title="Show Catalog"
+        >
+          Catalog
+        </button>
+        <div class="text-[10px] text-muted rotate-90 whitespace-nowrap select-none opacity-70">
+          Scan anywhere
         </div>
+        <button
+          class="w-full py-3 rounded-xl bg-accent/20 hover:bg-accent/30 border border-accent/30 text-xs font-bold text-accent transition-colors"
+          on:click={() => {
+            const scanEl = document.querySelector('[data-scan-input="1"]');
+            if (scanEl && scanEl.focus) scanEl.focus();
+          }}
+          title="Focus scan"
+        >
+          Scan
+        </button>
       </section>
+    {:else}
+      <ProductGrid
+        items={allItems}
+        bind:scanTerm={scanTerm}
+        suggestions={scanSuggestions}
+        addToCart={addToCart}
+        uomOptionsFor={uomOptionsFor}
+        collapseCatalog={toggleCatalog}
+        currencyPrimary={currencyPrimary}
+        onScanKeyDown={handleScanKeyDown}
+        companyLabel={companyLabel}
+        companyTone={companyTone}
+      />
+    {/if}
 
-      <section class="section">
-        <div class="split">
-          <label class="field">
-            <span>Customer (optional)</span>
-            <div class="compact-row">
-              <input
-                bind:value={customerSearch}
-                type="text"
-                placeholder="Search by name, phone, id"
-              />
-              <button on:click={searchCustomers} type="button">Find</button>
-            </div>
-          </label>
-          <button class="ghost" on:click={() => (addCustomerMode = !addCustomerMode)} type="button">
-            {addCustomerMode ? "Hide new customer" : "New customer"}
+    <!-- Cart Column (only scrollable region is inside Cart list) -->
+    <div class="h-full min-h-0">
+      <Cart
+        cart={cart}
+        config={config}
+        updateQty={updateLineQty}
+        removeLine={removeLine}
+        clearCart={() => cart = []}
+        companyLabelForLine={companyLabel}
+        companyToneForLine={companyTone}
+      />
+    </div>
+
+    <!-- Right Column: Customer + Current Sale -->
+    <div class="h-full min-h-0 flex flex-col gap-4 overflow-visible relative z-0">
+      <CustomerSelect
+        bind:customerSearch={customerSearch}
+        bind:activeCustomer={activeCustomer}
+        customerResults={customerResults}
+        customerSearching={customerSearching}
+        bind:addCustomerMode={addCustomerMode}
+        bind:customerDraft={customerDraft}
+        searchCustomers={searchCustomers}
+        selectCustomer={selectCustomer}
+        createCustomer={createCustomer}
+      />
+
+      <div class="flex-1 min-h-0 overflow-hidden relative z-0">
+        <SaleSummary
+          cart={cart}
+          totals={totals}
+          totalsByCompany={totalsByCompany}
+          invoiceCompanyMode={invoiceCompanyMode}
+          flagOfficial={flagOfficial}
+          onInvoiceCompanyModeChange={onInvoiceCompanyModeChange}
+          onFlagOfficialChange={onFlagOfficialChange}
+          onCheckout={handleCheckoutRequest}
+        />
+      </div>
+    </div>
+  </div>
+</Shell>
+
+<PaymentModal
+  isOpen={showPaymentModal}
+  total={checkoutTotal}
+  currency={currencyPrimary}
+  mode={saleMode}
+  onConfirm={handleProcessSale}
+  onCancel={() => showPaymentModal = false}
+/>
+
+{#if showCashierModal}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" on:click={() => showCashierModal = false}></div>
+    <div class="relative w-full max-w-sm bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
+      <div class="p-6 border-b border-ink/10 text-center">
+        <h2 class="text-xl font-bold text-ink">Cashier Login</h2>
+        <p class="text-sm text-muted mt-1">Enter PIN</p>
+      </div>
+      <div class="p-6 space-y-4">
+        <input
+          class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono text-lg tracking-widest focus:ring-2 focus:ring-accent/50 focus:outline-none"
+          type="password"
+          bind:value={cashierPin}
+          placeholder="PIN"
+          on:keydown={(e) => e.key === 'Enter' && cashierLogin()}
+          autofocus
+        />
+        <div class="flex gap-3">
+          <button
+            class="flex-1 py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
+            on:click={() => showCashierModal = false}
+          >
+            Cancel
+          </button>
+          <button
+            class="flex-[2] py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
+            on:click={cashierLogin}
+            disabled={loading}
+          >
+            Sign In
           </button>
         </div>
-        {#if customerSearch && customerResults.length > 0}
-          <div class="customer-list">
-            {#each customerResults as customer}
-              <button
-                type="button"
-                class="result-item"
-                on:click={() => selectCustomer(customer)}
-              >
-                <span>{customer.name}</span>
-                <span>{customer.phone || "no phone"} {customer.membership_no ? `· #${customer.membership_no}` : ""}</span>
-              </button>
-            {/each}
-          </div>
-        {/if}
-        {#if addCustomerMode}
-          <div class="customer-form">
-            <input bind:value={customerDraft.name} type="text" placeholder="Customer name *" />
-            <input bind:value={customerDraft.phone} type="text" placeholder="Phone" />
-            <input bind:value={customerDraft.email} type="email" placeholder="Email" />
-            <button on:click={createCustomer} type="button">Create customer</button>
-          </div>
-        {/if}
-        {#if activeCustomer}
-          <p class="muted small">Active: {activeCustomer.name} {activeCustomer.phone ? `(${activeCustomer.phone})` : ""}</p>
-        {/if}
-      </section>
-
-      <section class="section">
-        <div class="cart-head">
-          <h3>Cart</h3>
-          <button on:click={clearCart} class="ghost" type="button">Clear cart</button>
-        </div>
-        <div class="cart-list">
-          {#if cart.length === 0}
-            <p class="muted small">No items yet. Scan or add from search above.</p>
-          {:else}
-            {#each cart as line, index}
-              <div class="cart-row">
-                <div>
-                  <p>{cartLineLabel(line)}</p>
-                  <p class="muted">
-                    {line.qty_factor > 1
-                      ? `Pack factor ${fmtQty(line.qty_factor)}`
-                      : "Single unit"} · {fmtMoney(getLinePrice(line, "USD"), "USD")} / {line.unit_of_measure}
-                  </p>
-                </div>
-                <label class="qty">
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={line.qty_entered}
-                    on:change={(event) => setLineEnteredQty(index, event.currentTarget.value)}
-                  />
-                  <span>{line.unit_of_measure}</span>
-                </label>
-                <p>{fmtMoney(lineSubtotal(line, currencyPrimary), currencyPrimary)}</p>
-                <button on:click={() => removeLine(index)} class="ghost small" type="button">×</button>
-              </div>
-            {/each}
-          {/if}
-        </div>
-      </section>
-
-      <section class="section">
-        <label class="field">
-          <span>Payment method</span>
-          <select bind:value={paymentMethod}>
-            <option>cash</option>
-            <option>card</option>
-            <option>transfer</option>
-            <option>credit</option>
-          </select>
-        </label>
-
-        <div class="totals">
-          <div><span>Subtotal ({currencyPrimary})</span><strong>{fmtMoney(totals.subtotalUsd, currencyPrimary)}</strong></div>
-          <div><span>VAT ({(totals.vatRate * 100).toFixed(0)}%)</span><strong>{fmtMoney(totals.taxUsd, currencyPrimary)}</strong></div>
-          <div class="grand"><span>Total ({currencyPrimary})</span><strong>{fmtMoney(totals.totalUsd, currencyPrimary)}</strong></div>
-          <div class="muted small">
-            Total ({currencySecondary}): {fmtMoney(totals.totalLbp, currencySecondary)}
-          </div>
-        </div>
-      </section>
-
-      <div class="checkout-actions">
-        <button
-          on:click={checkout}
-          type="button"
-          class="primary"
-          disabled={loading || cart.length === 0}
-        >
-          {loading ? "Posting..." : "Post Sale"}
-        </button>
-        <button on:click={fetchLastReceipt} type="button" class="ghost">Last Receipt</button>
       </div>
-      <p class="muted small">Last receipt: {viewReceiptSummary()}</p>
-    </section>
-  </section>
-</div>
+    </div>
+  </div>
+{/if}
+
+{#if showAdminPinModal}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" on:click={() => showAdminPinModal = false}></div>
+    <div class="relative w-full max-w-sm bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
+      <div class="p-6 border-b border-ink/10 text-center">
+        <h2 class="text-xl font-bold text-ink">{adminPinMode === "set" ? "Set Admin PIN" : "Unlock POS"}</h2>
+        <p class="text-sm text-muted mt-1">
+          {adminPinMode === "set" ? "This is required when the POS agent is protected." : "Enter admin PIN to continue."}
+        </p>
+      </div>
+      <div class="p-6 space-y-4">
+        <input
+          class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono text-lg tracking-widest focus:ring-2 focus:ring-accent/50 focus:outline-none"
+          type="password"
+          bind:value={adminPin}
+          placeholder="Admin PIN"
+          on:keydown={(e) => e.key === 'Enter' && adminPinSubmit()}
+          autofocus
+        />
+        <div class="flex gap-3">
+          <button
+            class="flex-1 py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
+            on:click={() => showAdminPinModal = false}
+          >
+            Cancel
+          </button>
+          <button
+            class="flex-[2] py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
+            on:click={adminPinSubmit}
+            disabled={loading}
+          >
+            {adminPinMode === "set" ? "Set & Unlock" : "Unlock"}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showShiftModal}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" on:click={() => showShiftModal = false}></div>
+    <div class="relative w-full max-w-lg bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
+      <div class="p-6 border-b border-ink/10 flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold text-ink">Shift</h2>
+          <p class="text-sm text-muted mt-1">{config.shift_id ? "Open shift detected" : "No open shift"}</p>
+        </div>
+        <button
+          class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+          on:click={shiftRefresh}
+          disabled={loading}
+          title="Refresh"
+        >
+          Refresh
+        </button>
+      </div>
+
+      <div class="p-6 space-y-5">
+        {#if !config.shift_id}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-muted">Opening Cash (USD)</label>
+              <input
+                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                type="number"
+                step="0.01"
+                bind:value={openingCashUsd}
+              />
+            </div>
+            <div>
+              <label class="text-xs text-muted">Opening Cash (LBP)</label>
+              <input
+                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                type="number"
+                step="1"
+                bind:value={openingCashLbp}
+              />
+            </div>
+          </div>
+          <button
+            class="w-full py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
+            on:click={shiftOpen}
+            disabled={loading}
+          >
+            Open Shift
+          </button>
+        {:else}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-muted">Closing Cash (USD)</label>
+              <input
+                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                type="number"
+                step="0.01"
+                bind:value={closingCashUsd}
+              />
+            </div>
+            <div>
+              <label class="text-xs text-muted">Closing Cash (LBP)</label>
+              <input
+                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                type="number"
+                step="1"
+                bind:value={closingCashLbp}
+              />
+            </div>
+          </div>
+          <button
+            class="w-full py-3 px-4 rounded-xl bg-red-500 text-white font-bold hover:bg-red-400 transition-all active:scale-[0.98] disabled:opacity-60"
+            on:click={shiftClose}
+            disabled={loading}
+          >
+            Close Shift
+          </button>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showOtherAgentModal}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" on:click={() => showOtherAgentModal = false}></div>
+    <div class="relative w-full max-w-lg bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
+      <div class="p-6 border-b border-ink/10 flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold text-ink">Other Agent</h2>
+          <p class="text-sm text-muted mt-1">Set the second company agent URL (usually `http://127.0.0.1:7072`).</p>
+        </div>
+        <button
+          class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+          on:click={() => showOtherAgentModal = false}
+        >
+          Close
+        </button>
+      </div>
+      <div class="p-6 space-y-4">
+        <label class="text-xs text-muted">Other Agent URL (blank disables Unified mode)</label>
+        <input
+          class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+          placeholder="http://127.0.0.1:7072"
+          bind:value={otherAgentDraftUrl}
+          on:keydown={(e) => e.key === "Enter" && saveOtherAgent()}
+        />
+        <div class="flex gap-3 justify-end">
+          <button
+            class="py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
+            on:click={() => { otherAgentDraftUrl = ""; }}
+            type="button"
+          >
+            Disable
+          </button>
+          <button
+            class="py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
+            on:click={saveOtherAgent}
+            disabled={loading}
+            type="button"
+          >
+            Save & Reconnect
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}

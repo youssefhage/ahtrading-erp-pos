@@ -402,11 +402,11 @@ function agentBase(port) {
 
 function buildUnifiedUiUrl(port) {
   const ts = Date.now();
-  return `${agentBase(port)}/unified.html?cb=${ts}`;
+  return `${agentBase(port)}/?cb=${ts}`;
 }
 
 async function checkLatestUnifiedUi(port) {
-  const url = `${agentBase(port)}/unified.html?check=1`;
+  const url = `${agentBase(port)}/?check=1`;
   try {
     const resp = await fetch(url, {
       method: "GET",

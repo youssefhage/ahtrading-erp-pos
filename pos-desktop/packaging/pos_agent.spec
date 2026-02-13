@@ -25,7 +25,8 @@ hiddenimports = []
 hiddenimports += collect_submodules("bcrypt")
 
 datas = []
-datas += [(os.path.join(REPO_ROOT, "pos-desktop", "ui"), "ui")]
+# Bundle only the built UI (keeps binaries small; avoids node_modules).
+datas += [(os.path.join(REPO_ROOT, "pos-desktop", "ui", "dist"), os.path.join("ui", "dist"))]
 datas += [(os.path.join(REPO_ROOT, "pos", "sqlite_schema.sql"), ".")]
 
 a = Analysis(

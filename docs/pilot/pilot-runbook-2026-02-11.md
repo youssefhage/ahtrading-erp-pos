@@ -75,6 +75,12 @@ In Admin (`http://<EDGE_IP>:3000`):
 
 On each POS register machine:
 
+Option A (recommended): **Melqard POS Desktop** (Tauri)
+1. Install the latest POS Desktop from the downloads page.
+2. Paste the `tauri-launcher-prefill.json` (from onboarding output) into the **Setup Pack** field.
+3. Start agents (Official + Unofficial) from the Desktop app and open the cashier UI.
+
+Option B (manual): run two Python agents (example ports)
 1. Create a per-company POS agent config (two agents):
    - Official agent config points to Official company/device on the edge.
    - Unofficial agent config points to Unofficial company/device on the edge.
@@ -83,7 +89,7 @@ On each POS register machine:
    - `http://<EDGE_IP>:8001`
    - or `http://ah-edge.local:8001`
 
-3. Run two agents (example ports):
+3. Run two agents:
 ```bash
 cd "/Users/Youssef/oDocuments/Business/Codex POS/pos-desktop"
 
@@ -96,24 +102,30 @@ python3 agent.py --init-db --db ./pos.unofficial.sqlite --config ./config.unoffi
 python3 agent.py --db ./pos.unofficial.sqlite --config ./config.unofficial.json --port 7072
 ```
 
-4. Open the unified pilot UI:
-- `http://127.0.0.1:7070/unified.html`
+4. Open the unified cashier UI:
+- `http://127.0.0.1:7070`
+
+5. In the UI header, open **Other Agent** and set it to:
+   - `http://127.0.0.1:7072` (or the LAN hostname/port on the same machine)
 
 ## 5) “Start of Day” Checklist (per register)
 
 - Open unified UI.
 - Enter Cashier PIN (logs into both agents).
-- Press `Sync Both`.
-- Confirm top badges show:
-  - `official: OK ...`
-  - `unofficial: OK ...`
+- Press `Sync Pull` then `Sync Push`.
+- Confirm the top status pills show both agents:
+  - `Edge: Off Online · Un Online` (or similar)
+  - `Outbox: ...` decreasing after push
 - Print a test receipt.
 
 ## 6) What To Test in the Pilot (order)
 
 1. Barcode scan (exists in both companies): confirm Unofficial item is picked by default.
 2. Toggle invoice company to Official and scan again: confirm Official item is used.
-3. Cross-company cart: confirm invoice gets flagged for adjustment (Admin queue) and still prints.
+3. Force Official invoice with Unofficial items:
+   - Add an Unofficial-only item
+   - Turn on `Flag to Official`
+   - Checkout: confirm it passes and prints, and is marked for review (stock moves skipped)
 4. Cash sale, Card sale.
 5. Credit sale:
    - With edge reachable: should work.

@@ -18,6 +18,9 @@ pos-desktop/pos.sqlite
 pos-desktop/config.json
 pos-desktop/pos.unofficial.sqlite
 pos-desktop/config.unofficial.json
+pos-desktop/pos.*.sqlite
+pos-desktop/*.dev.json
+pos-desktop/ui/dist/
 backend/.env
 .env
 *.tsbuildinfo

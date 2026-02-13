@@ -1689,12 +1689,21 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         if path == '/':
             path = '/index.html'
+        # Backward compatibility: older launchers and runbooks referenced /unified.html.
+        # The Unified POS is now the main Svelte UI served at / (index.html).
+        if path == "/unified.html":
+            path = "/index.html"
         # Prevent path traversal outside UI_PATH.
         ui_root = os.path.realpath(_served_ui_root())
         requested = os.path.realpath(os.path.join(ui_root, path.lstrip('/')))
         if requested != ui_root and not requested.startswith(ui_root + os.sep):
             text_response(self, "Forbidden", status=403)
             return
+        # SPA fallback: when using the Vite dist build, route unknown paths to index.html.
+        # This keeps deep-links and legacy paths working without special casing each one.
+        if os.path.isdir(ui_root) and os.path.basename(ui_root) == "dist":
+            if (not os.path.exists(requested)) and (not os.path.splitext(path)[1]):
+                requested = os.path.realpath(os.path.join(ui_root, "index.html"))
         file_response(self, requested)
 
     def do_POST(self):
