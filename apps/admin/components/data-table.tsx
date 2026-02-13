@@ -94,6 +94,26 @@ function toSearchText(value: unknown): string {
   return String(value);
 }
 
+function humanizeKey(k: string): string {
+  const s = String(k || "").replace(/[_-]+/g, " ").trim();
+  if (!s) return "-";
+  return s.replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function renderCompactValue(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return Number.isFinite(v) ? v.toLocaleString("en-US") : String(v);
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (v instanceof Date) return v.toISOString();
+  try {
+    const raw = JSON.stringify(v);
+    return raw.length > 140 ? raw.slice(0, 140) + "..." : raw;
+  } catch {
+    return String(v);
+  }
+}
+
 function compareUnknown(a: unknown, b: unknown): number {
   if (a == null && b == null) return 0;
   if (a == null) return -1;
@@ -108,7 +128,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const {
     tableId,
     rows,
-    columns,
+    columns: baseColumns,
     getRowId,
     onRowClick,
     rowClassName,
@@ -136,11 +156,26 @@ export function DataTable<T>(props: DataTableProps<T>) {
   const storageKey = `admin.tablePrefs.${tableId}.v4`;
   const legacyStorageKey = `admin.tablePrefs.${tableId}.v3`;
 
+  const [dynamicColumns, setDynamicColumns] = useState<string[]>([]);
+  const [columnPickerSearch, setColumnPickerSearch] = useState("");
+
+  const allColumns = useMemo((): Array<DataTableColumn<T>> => {
+    const dyn: Array<DataTableColumn<T>> = (dynamicColumns || []).map((k) => ({
+      id: k,
+      header: humanizeKey(k),
+      accessor: (row) => (row as any)?.[k],
+      cell: (row) => <span className="data-mono text-xs text-fg-muted">{renderCompactValue((row as any)?.[k])}</span>,
+      sortable: true,
+      mono: true,
+    }));
+    return [...baseColumns, ...dyn];
+  }, [baseColumns, dynamicColumns]);
+
   const defaultVisibility = useMemo(() => {
     const vis: ColumnVisibility = {};
-    for (const c of columns) vis[c.id] = c.defaultHidden ? false : true;
+    for (const c of allColumns) vis[c.id] = c.defaultHidden ? false : true;
     return vis;
-  }, [columns]);
+  }, [allColumns]);
 
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>(defaultVisibility);
   const [globalFilter, setGlobalFilter] = useState("");
@@ -170,15 +205,21 @@ export function DataTable<T>(props: DataTableProps<T>) {
       }
     }
     const saved = safeJsonParse<{
+      dynamicColumns?: string[];
       columnVisibility?: ColumnVisibility;
       globalFilter?: string;
       sort?: { columnId: string; dir: SortDir } | null;
       pageSize?: number;
     }>(raw);
 
+    const savedDynamic = (saved?.dynamicColumns || []).filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim());
+    if (savedDynamic.length) setDynamicColumns(savedDynamic);
+
     if (saved?.columnVisibility) {
       const next: ColumnVisibility = { ...defaultVisibility };
-      for (const c of columns) {
+      // Ensure dynamic columns exist in the visibility map even if defaults were computed before they loaded.
+      for (const k of savedDynamic) next[k] = true;
+      for (const c of [...baseColumns, ...savedDynamic.map((k) => ({ id: k } as any))]) {
         const v = saved.columnVisibility[c.id];
         if (typeof v === "boolean") next[c.id] = v;
       }
@@ -198,27 +239,27 @@ export function DataTable<T>(props: DataTableProps<T>) {
   // Persist prefs.
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ columnVisibility, globalFilter, sort, pageSize }));
+      localStorage.setItem(storageKey, JSON.stringify({ dynamicColumns, columnVisibility, globalFilter, sort, pageSize }));
     } catch {
       // ignore
     }
-  }, [columnVisibility, globalFilter, sort, pageSize, storageKey]);
+  }, [dynamicColumns, columnVisibility, globalFilter, sort, pageSize, storageKey]);
 
   // If columns change, merge visibility with defaults (keeps persisted where possible).
   useEffect(() => {
     setColumnVisibility((prev) => {
       const next: ColumnVisibility = { ...defaultVisibility };
-      for (const c of columns) {
+      for (const c of allColumns) {
         const v = prev[c.id];
         if (typeof v === "boolean") next[c.id] = v;
       }
       return next;
     });
-  }, [columns, defaultVisibility]);
+  }, [allColumns, defaultVisibility]);
 
   const visibleColumns = useMemo(() => {
-    return columns.filter((c) => columnVisibility[c.id] !== false);
-  }, [columns, columnVisibility]);
+    return allColumns.filter((c) => columnVisibility[c.id] !== false);
+  }, [allColumns, columnVisibility]);
 
   const filteredRows = useMemo(() => {
     if (!enableGlobalFilter) return rows;
@@ -228,22 +269,22 @@ export function DataTable<T>(props: DataTableProps<T>) {
     const needle = effectiveGlobalFilter.trim();
     if (!needle) return rows;
 
-    const searchCols = columns.filter((c) => c.globalSearch !== false);
+    const searchCols = allColumns.filter((c) => c.globalSearch !== false);
     const out: T[] = [];
     for (const r of rows) {
       const hay = searchCols.map((c) => toSearchText(getCellValue(r, c))).join(" ");
       if (scoreFuzzyQuery(needle, hay) != null) out.push(r);
     }
     return out;
-  }, [rows, columns, effectiveGlobalFilter, enableGlobalFilter, isServer, onGlobalFilterValueChange]);
+  }, [rows, allColumns, effectiveGlobalFilter, enableGlobalFilter, isServer, onGlobalFilterValueChange]);
 
   const sortedRows = useMemo(() => {
     // Only use fuzzy-scoring to reorder results when we're doing client-side filtering.
     const allowFuzzy = enableGlobalFilter && !(isServer && onGlobalFilterValueChange);
     const needle = allowFuzzy ? effectiveGlobalFilter.trim() : "";
-    const searchCols = columns.filter((c) => c.globalSearch !== false);
+    const searchCols = allColumns.filter((c) => c.globalSearch !== false);
 
-    const col = sort ? columns.find((c) => c.id === sort.columnId) : null;
+    const col = sort ? allColumns.find((c) => c.id === sort.columnId) : null;
     const dir = sort?.dir === "asc" ? 1 : -1;
 
     const scored = filteredRows.map((row, idx) => {
@@ -266,7 +307,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
     });
 
     return scored.map((x) => x.row);
-  }, [filteredRows, sort, columns, enableGlobalFilter, effectiveGlobalFilter, isServer, onGlobalFilterValueChange]);
+  }, [filteredRows, sort, allColumns, enableGlobalFilter, effectiveGlobalFilter, isServer, onGlobalFilterValueChange]);
 
   // Reset to the first page whenever the view changes.
   useEffect(() => {
@@ -313,6 +354,55 @@ export function DataTable<T>(props: DataTableProps<T>) {
   };
 
   const visibleCount = Object.values(columnVisibility).filter(Boolean).length;
+
+  const rawFieldKeys = useMemo(() => {
+    const out = new Set<string>();
+    const take = Math.min(50, rows.length);
+    for (let i = 0; i < take; i++) {
+      const r = rows[i] as any;
+      if (!r || typeof r !== "object") continue;
+      for (const k of Object.keys(r)) {
+        if (!k) continue;
+        if (k.startsWith("_")) continue;
+        out.add(k);
+      }
+    }
+    const existing = new Set(allColumns.map((c) => c.id));
+    return Array.from(out)
+      .filter((k) => !existing.has(k))
+      .sort((a, b) => a.localeCompare(b));
+  }, [rows, allColumns]);
+
+  const filteredColumnPickerColumns = useMemo(() => {
+    const needle = columnPickerSearch.trim().toLowerCase();
+    if (!needle) return allColumns;
+    return allColumns.filter((c) => (c.id + " " + c.header).toLowerCase().includes(needle));
+  }, [allColumns, columnPickerSearch]);
+
+  const filteredRawFieldKeys = useMemo(() => {
+    const needle = columnPickerSearch.trim().toLowerCase();
+    if (!needle) return rawFieldKeys;
+    return rawFieldKeys.filter((k) => k.toLowerCase().includes(needle));
+  }, [rawFieldKeys, columnPickerSearch]);
+
+  const addDynamicColumn = (k: string) => {
+    const key = String(k || "").trim();
+    if (!key) return;
+    setDynamicColumns((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    setColumnVisibility((prev) => ({ ...prev, [key]: true }));
+  };
+
+  const removeDynamicColumn = (k: string) => {
+    const key = String(k || "").trim();
+    if (!key) return;
+    setDynamicColumns((prev) => prev.filter((x) => x !== key));
+    setColumnVisibility((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setSort((prev) => (prev?.columnId === key ? null : prev));
+  };
 
   const startRow =
     enablePagination && sortedRows.length
@@ -375,11 +465,15 @@ export function DataTable<T>(props: DataTableProps<T>) {
               </DialogHeader>
 
               <div className="space-y-2">
+                <div>
+                  <Input value={columnPickerSearch} onChange={(e) => setColumnPickerSearch(e.target.value)} placeholder="Search columns or fields..." />
+                </div>
+
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setColumnVisibility(Object.fromEntries(columns.map((c) => [c.id, true])) as ColumnVisibility)}
+                    onClick={() => setColumnVisibility(Object.fromEntries(allColumns.map((c) => [c.id, true])) as ColumnVisibility)}
                   >
                     Show all
                   </Button>
@@ -387,7 +481,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                     variant="outline"
                     size="sm"
                     onClick={() =>
-                      setColumnVisibility(Object.fromEntries(columns.map((c) => [c.id, c.defaultHidden ? false : true])) as ColumnVisibility)
+                      setColumnVisibility(Object.fromEntries(allColumns.map((c) => [c.id, c.defaultHidden ? false : true])) as ColumnVisibility)
                     }
                   >
                     Reset
@@ -395,23 +489,52 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 </div>
 
                 <div className="max-h-[50vh] space-y-2 overflow-auto rounded-md border border-border-subtle bg-bg-sunken/20 p-3">
-                  {columns.map((c) => {
+                  {filteredColumnPickerColumns.map((c) => {
                     const checked = columnVisibility[c.id] !== false;
                     const disableUncheck = checked && visibleCount <= 1;
+                    const isDynamic = dynamicColumns.includes(c.id);
                     return (
                       <label key={c.id} className={cn("flex items-center justify-between gap-3 text-sm", disableUncheck && "opacity-70")}>
-                        <span className="text-foreground">{c.header}</span>
-                        <input
-                          className="ui-checkbox"
-                          type="checkbox"
-                          checked={checked}
-                          disabled={disableUncheck}
-                          onChange={(e) => setColumnVisibility((prev) => ({ ...prev, [c.id]: e.target.checked }))}
-                        />
+                        <span className="min-w-0 text-foreground">
+                          <span className="truncate">{c.header}</span>
+                          {isDynamic ? <span className="ml-2 text-[10px] uppercase tracking-wider text-fg-subtle">Field</span> : null}
+                        </span>
+                        <span className="flex items-center gap-2">
+                          {isDynamic ? (
+                            <Button variant="outline" size="sm" onClick={() => removeDynamicColumn(c.id)} disabled={disableUncheck}>
+                              Remove
+                            </Button>
+                          ) : null}
+                          <input
+                            className="ui-checkbox"
+                            type="checkbox"
+                            checked={checked}
+                            disabled={disableUncheck}
+                            onChange={(e) => setColumnVisibility((prev) => ({ ...prev, [c.id]: e.target.checked }))}
+                          />
+                        </span>
                       </label>
                     );
                   })}
+                  {filteredColumnPickerColumns.length === 0 ? <div className="text-xs text-fg-subtle">No matching columns.</div> : null}
                 </div>
+
+                {filteredRawFieldKeys.length ? (
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-fg-muted">Add fields from data</div>
+                    <div className="max-h-[30vh] space-y-1 overflow-auto rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                      {filteredRawFieldKeys.slice(0, 250).map((k) => (
+                        <div key={k} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-sunken/20 px-2 py-1">
+                          <span className="min-w-0 truncate data-mono text-xs text-fg-muted">{k}</span>
+                          <Button variant="outline" size="sm" onClick={() => addDynamicColumn(k)}>
+                            Add
+                          </Button>
+                        </div>
+                      ))}
+                      {filteredRawFieldKeys.length > 250 ? <div className="text-xs text-fg-subtle">Showing first 250 fields.</div> : null}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </DialogContent>
           </Dialog>

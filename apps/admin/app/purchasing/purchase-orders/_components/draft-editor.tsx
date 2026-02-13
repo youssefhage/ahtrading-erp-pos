@@ -246,8 +246,8 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
       const unitUsd = toNum(l.unit_cost_usd);
       const unitLbp = toNum(l.unit_cost_lbp);
       if (!l.item_id) continue;
-      if (qty <= 0) return setErr(new Error(`Qty must be > 0 (line ${i + 1}).`));
-      if (unitUsd === 0 && unitLbp === 0) return setErr(new Error(`Set USD or LL unit cost (line ${i + 1}).`));
+      if (qty <= 0) return setErr(new Error(`Qty must be > 0 (item ${i + 1}).`));
+      if (unitUsd === 0 && unitLbp === 0) return setErr(new Error(`Set USD or LL unit cost (item ${i + 1}).`));
       linesOut.push({ item_id: l.item_id, qty, unit_cost_usd: unitUsd, unit_cost_lbp: unitLbp });
     }
 
@@ -348,7 +348,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
 
       <Card>
         <CardHeader>
-          <CardTitle>Lines</CardTitle>
+          <CardTitle>Items</CardTitle>
           <CardDescription>Add items and quantities. Costs auto-fill from supplier last cost when available.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -377,7 +377,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
             </div>
             <div className="md:col-span-12 flex justify-end">
               <Button type="submit" disabled={loading || saving}>
-                Add Line
+                Add Item
               </Button>
             </div>
           </form>
@@ -424,7 +424,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
                 {!lines.length ? (
                   <tr>
                     <td className="px-3 py-3 text-sm text-fg-muted" colSpan={5}>
-                      No lines yet.
+                      No items yet.
                     </td>
                   </tr>
                 ) : null}

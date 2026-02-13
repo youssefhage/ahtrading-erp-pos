@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { applyPrintSettingsFromQuery } from "@/lib/print/page-settings";
 import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdMaybe } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
@@ -73,6 +74,7 @@ function ProfitLossPrintInner() {
   }, [load]);
 
   useEffect(() => {
+    applyPrintSettingsFromQuery();
     // Optional: allow kiosk-style auto print via ?autoprint=1.
     try {
       const qs = new URLSearchParams(window.location.search);

@@ -190,7 +190,7 @@ export default function SupplierCreditEditPage() {
       }))
       .filter((l) => l.amount_usd !== 0 || l.amount_lbp !== 0);
 
-    if (!payloadLines.length) return setStatus("Add at least one non-zero line.");
+    if (!payloadLines.length) return setStatus("Add at least one non-zero item.");
 
     setSaving(true);
     setStatus("Saving...");
@@ -355,7 +355,7 @@ export default function SupplierCreditEditPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Lines</CardTitle>
+              <CardTitle>Items</CardTitle>
               <CardDescription>
                 Total: {fmtUsdLbp(totals.usd, totals.lbp)}
               </CardDescription>
@@ -364,7 +364,7 @@ export default function SupplierCreditEditPage() {
               {lines.map((l) => (
                 <div key={l.key} className="rounded-md border border-border bg-bg-elevated p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-medium text-fg-muted">Line</div>
+                    <div className="text-xs font-medium text-fg-muted">Item</div>
                     <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(l.key)} disabled={lines.length <= 1}>
                       Remove
                     </Button>
@@ -395,7 +395,7 @@ export default function SupplierCreditEditPage() {
               ))}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Button type="button" variant="outline" onClick={addLine}>
-                  + Add line
+                  + Add item
                 </Button>
                 <div className="flex items-center gap-2">
                   <Button type="button" variant="outline" onClick={() => router.push(`/purchasing/supplier-credits/${encodeURIComponent(id)}`)}>

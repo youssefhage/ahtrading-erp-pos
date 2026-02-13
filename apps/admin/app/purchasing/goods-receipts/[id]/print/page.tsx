@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { applyPrintSettingsFromQuery } from "@/lib/print/page-settings";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
@@ -96,6 +97,7 @@ export default function GoodsReceiptPrintPage() {
   }, [load]);
 
   useEffect(() => {
+    applyPrintSettingsFromQuery();
     // Optional: allow kiosk-style auto print via ?autoprint=1.
     try {
       const qs = new URLSearchParams(window.location.search);
@@ -174,7 +176,7 @@ export default function GoodsReceiptPrintPage() {
 
             <section className="rounded-md border border-black/15">
               <div className="border-b border-black/10 px-4 py-3">
-                <h2 className="text-sm font-semibold">Lines</h2>
+                <h2 className="text-sm font-semibold">Items</h2>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-xs">
@@ -206,7 +208,7 @@ export default function GoodsReceiptPrintPage() {
                     {lines.length === 0 ? (
                       <tr>
                         <td className="px-4 py-8 text-center text-black/60" colSpan={4}>
-                          No lines.
+                          No items.
                         </td>
                       </tr>
                     ) : null}

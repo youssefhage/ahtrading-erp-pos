@@ -405,11 +405,11 @@ function SupplierInvoiceShowInner() {
     const blocking: string[] = [];
     const warnings: string[] = [];
 
-    if (!lines.length) blocking.push("Add at least one line.");
+    if (!lines.length) blocking.push("Add at least one item.");
     if (rate <= 0) blocking.push("Exchange rate is missing (USD→LL).");
-    if (missingUom) blocking.push(`${missingUom} line(s) are missing UOM.`);
+    if (missingUom) blocking.push(`${missingUom} item(s) are missing UOM.`);
 
-    if (zeroCost) warnings.push(`${zeroCost} line(s) have zero unit cost.`);
+    if (zeroCost) warnings.push(`${zeroCost} item(s) have zero unit cost.`);
     if (!String(inv?.tax_code_id || "").trim()) warnings.push("Tax code is empty (ok if this supplier invoice has no tax).");
 
     return { blocking, warnings };
@@ -417,18 +417,23 @@ function SupplierInvoiceShowInner() {
 
   const activeTab = (() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "lines") return "lines";
-    if (t === "payments") return "payments";
+    if (t === "lines" || t === "items") return "items";
     if (t === "tax") return "tax";
     if (t === "ai") return "ai";
     return "overview";
   })();
 
+  // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
+  useEffect(() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "payments") router.replace("?tab=overview");
+    if (t === "lines") router.replace("?tab=items");
+  }, [router, searchParams]);
+
   const supplierInvoiceTabs = useMemo(
     () => [
       { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-      { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
-      { label: "Payments", href: "?tab=payments", activeQuery: { key: "tab", value: "payments" } },
+      { label: "Items", href: "?tab=items", activeQuery: { key: "tab", value: "items" } },
       { label: "Tax", href: "?tab=tax", activeQuery: { key: "tab", value: "tax" } },
       { label: "AI", href: "?tab=ai", activeQuery: { key: "tab", value: "ai" } }
     ],
@@ -503,7 +508,7 @@ function SupplierInvoiceShowInner() {
       return;
     }
     if (!(detail.lines || []).length) {
-      setStatus("Cannot post: add at least one line to this draft first.");
+      setStatus("Cannot post: add at least one item to this draft first.");
       return;
     }
     setPostPostingDate(todayIso());
@@ -867,6 +872,37 @@ function SupplierInvoiceShowInner() {
                         </div>
                       </div>
                     </div>
+
+                    <div className="ui-panel p-5 md:col-span-12">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="ui-panel-title">Payments</p>
+                          <p className="mt-1 text-xs text-fg-subtle">Payments belong to Overview for quick review.</p>
+                        </div>
+                        {detail.invoice.status === "posted" ? (
+                          <Button asChild variant="outline" size="sm">
+                            <Link href={`/purchasing/payments?supplier_invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`}>Record Payment</Link>
+                          </Button>
+                        ) : (
+                          <Button variant="outline" size="sm" disabled>
+                            Record Payment
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="mt-3 space-y-1 text-xs text-fg-muted">
+                        {detail.payments.map((p) => (
+                          <div key={p.id} className="flex items-center justify-between gap-2">
+                            <span className="data-mono">
+                              {p.method}
+                              {p.reference ? <span className="text-fg-subtle"> · {p.reference}</span> : null}
+                            </span>
+                            <span className="data-mono">{fmtUsdLbp(p.amount_usd, p.amount_lbp)}</span>
+                          </div>
+                        ))}
+                        {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
+                      </div>
+                    </div>
                   </div>
 
                   {detail.invoice.is_on_hold ? (
@@ -930,12 +966,12 @@ function SupplierInvoiceShowInner() {
                                       return (
                                         <div className="text-xs">
                                           <div className="text-foreground">Invoiced qty exceeds received qty.</div>
-                                          <div className="mt-1 text-[11px] text-fg-muted font-mono">
-                                            line {String(f.goods_receipt_line_id || "").slice(0, 8)} · received {String(f.received_qty || "0")} · prev{" "}
+                                        <div className="mt-1 text-[11px] text-fg-muted font-mono">
+                                            receipt line {String(f.goods_receipt_line_id || "").slice(0, 8)} · received {String(f.received_qty || "0")} · prev{" "}
                                             {String(f.previously_invoiced_qty || "0")} · this {String(f.this_invoice_qty || "0")}
-                                          </div>
                                         </div>
-                                      );
+                                      </div>
+                                    );
                                     }
                                     if (kind === "tax_variance") {
                                       return (
@@ -1042,10 +1078,10 @@ function SupplierInvoiceShowInner() {
                 </Card>
               ) : null}
 
-              {activeTab === "lines" ? (
+              {activeTab === "items" ? (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">Lines</CardTitle>
+                    <CardTitle className="text-base">Items</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <DataTable<InvoiceLine>
@@ -1053,34 +1089,10 @@ function SupplierInvoiceShowInner() {
                       rows={detail.lines}
                       columns={invoiceLineColumns}
                       getRowId={(l) => l.id}
-                      emptyText="No lines."
+                      emptyText="No items."
                       enableGlobalFilter={false}
                       initialSort={{ columnId: "item", dir: "asc" }}
                     />
-                  </CardContent>
-                </Card>
-              ) : null}
-
-              {activeTab === "payments" ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Payments</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="mt-2 space-y-1 text-xs text-fg-muted">
-                      {detail.payments.map((p) => (
-                        <div key={p.id} className="flex items-center justify-between gap-2">
-                          <span className="data-mono">
-                            {p.method}
-                            {p.reference ? <span className="text-fg-subtle"> · {p.reference}</span> : null}
-                          </span>
-                          <span className="data-mono">
-                            {fmtUsdLbp(p.amount_usd, p.amount_lbp)}
-                          </span>
-                        </div>
-                      ))}
-                      {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
-                    </div>
                   </CardContent>
                 </Card>
               ) : null}

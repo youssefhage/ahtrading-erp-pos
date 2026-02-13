@@ -100,10 +100,10 @@ export function SupplierCreditPdf(props: { detail: SupplierCreditDetail }) {
         ) : null}
 
         <View style={s.section}>
-          <Text style={s.h2}>Credit Lines</Text>
+          <Text style={s.h2}>Items</Text>
           <View style={[s.table, { marginTop: 6 }]}>
             <View style={s.thead} fixed>
-              <Text style={[s.th, { flex: 1.0 }]}>Line</Text>
+              <Text style={[s.th, { flex: 1.0 }]}>#</Text>
               <Text style={[s.th, { flex: 6.2 }]}>Description</Text>
               <Text style={[s.th, s.right, { flex: 2.4 }]}>USD</Text>
               <Text style={[s.th, s.right, { flex: 2.4 }]}>LL</Text>
@@ -118,7 +118,7 @@ export function SupplierCreditPdf(props: { detail: SupplierCreditDetail }) {
             ))}
             {lines.length === 0 ? (
               <View style={s.tr}>
-                <Text style={[s.td, s.muted, { flex: 1 }]}>No lines.</Text>
+                <Text style={[s.td, s.muted, { flex: 1 }]}>No items.</Text>
               </View>
             ) : null}
           </View>

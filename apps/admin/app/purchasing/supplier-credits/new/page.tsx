@@ -141,7 +141,7 @@ export default function SupplierCreditNewPage() {
       }))
       .filter((l) => l.amount_usd !== 0 || l.amount_lbp !== 0);
 
-    if (!payloadLines.length) return setStatus("Add at least one non-zero line.");
+    if (!payloadLines.length) return setStatus("Add at least one non-zero item.");
 
     setCreating(true);
     setStatus("Creating...");
@@ -308,7 +308,7 @@ export default function SupplierCreditNewPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Lines</CardTitle>
+              <CardTitle>Items</CardTitle>
               <CardDescription>
                 Total: {fmtUsdLbp(totals.usd, totals.lbp)}
               </CardDescription>
@@ -317,7 +317,7 @@ export default function SupplierCreditNewPage() {
               {lines.map((l) => (
                 <div key={l.key} className="rounded-md border border-border bg-bg-elevated p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-medium text-fg-muted">Line</div>
+                    <div className="text-xs font-medium text-fg-muted">Item</div>
                     <Button type="button" variant="ghost" size="sm" onClick={() => removeLine(l.key)} disabled={lines.length <= 1}>
                       Remove
                     </Button>
@@ -348,7 +348,7 @@ export default function SupplierCreditNewPage() {
               ))}
               <div className="flex items-center justify-between gap-2">
                 <Button type="button" variant="outline" onClick={addLine}>
-                  + Add line
+                  + Add item
                 </Button>
                 <Button type="button" onClick={create} disabled={creating}>
                   {creating ? "Creating..." : "Create Draft"}

@@ -20,7 +20,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { StatusChip } from "@/components/ui/status-chip";
 
 type Warehouse = { id: string; name: string };
-type Item = { id: string; sku: string; name: string; unit_of_measure?: string | null };
 
 type PurchaseOrderRow = {
   id: string;
@@ -41,6 +40,9 @@ type PurchaseOrderRow = {
 type PurchaseOrderLine = {
   id: string;
   item_id: string;
+  item_sku?: string | null;
+  item_name?: string | null;
+  unit_of_measure?: string | null;
   qty: string | number;
   received_qty?: string | number;
   invoiced_qty?: string | number;
@@ -68,7 +70,6 @@ export default function PurchaseOrderViewPage() {
   const [err, setErr] = useState<unknown>(null);
   const [detail, setDetail] = useState<OrderDetail | null>(null);
 
-  const [itemsById, setItemsById] = useState<Map<string, Item>>(new Map());
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
 
   const [busy, setBusy] = useState(false);
@@ -88,24 +89,6 @@ export default function PurchaseOrderViewPage() {
       ]);
       setDetail(d);
       setWarehouses(w.warehouses || []);
-
-      // Hydrate item labels for the lines (best-effort).
-      const ids = Array.from(new Set((d.lines || []).map((l) => l.item_id).filter(Boolean)));
-      if (ids.length) {
-        const results = await Promise.all(
-          ids.map(async (itemId) => {
-            try {
-              const r = await apiGet<{ item: Item }>(`/items/${encodeURIComponent(itemId)}`);
-              return r.item || null;
-            } catch {
-              return null;
-            }
-          })
-        );
-        setItemsById(new Map(results.filter(Boolean).map((it) => [(it as any).id, it as Item])));
-      } else {
-        setItemsById(new Map());
-      }
     } catch (e) {
       setDetail(null);
       setErr(e);
@@ -131,25 +114,18 @@ export default function PurchaseOrderViewPage() {
         header: "Item",
         sortable: true,
         accessor: (l) => {
-          const it = itemsById.get(l.item_id);
-          return `${it?.sku || ""} ${it?.name || l.item_id}`;
+          return `${l.item_sku || ""} ${l.item_name || l.item_id}`;
         },
         cell: (l) => {
-          const it = itemsById.get(l.item_id);
           return (
             <div className="flex flex-col gap-0.5">
               <div className="font-medium text-foreground">
-                {it ? (
-                  <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
-                    <span className="font-mono text-xs text-fg-muted">{it.sku}</span> · {it.name}
-                  </ShortcutLink>
-                ) : (
-                  <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
-                    {l.item_id}
-                  </ShortcutLink>
-                )}
+                <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item">
+                  <span className="font-mono text-xs text-fg-muted">{l.item_sku || l.item_id}</span>
+                  {l.item_name ? <span> · {l.item_name}</span> : null}
+                </ShortcutLink>
               </div>
-              {it?.unit_of_measure ? <div className="font-mono text-[10px] text-fg-subtle">UOM: {String(it.unit_of_measure)}</div> : null}
+              {l.unit_of_measure ? <div className="font-mono text-[10px] text-fg-subtle">UOM: {String(l.unit_of_measure)}</div> : null}
             </div>
           );
         },
@@ -227,7 +203,7 @@ export default function PurchaseOrderViewPage() {
         cell: (l) => <span className="font-mono text-xs">{Number(l.invoiced_unit_cost_usd || 0).toFixed(2)}</span>,
       },
     ];
-  }, [itemsById]);
+  }, []);
 
   const canEditDraft = order?.status === "draft";
   const canPost = order?.status === "draft" && lines.length > 0;
@@ -235,12 +211,19 @@ export default function PurchaseOrderViewPage() {
   const canCreateReceipt = order?.status === "posted";
   const activeTab = (() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "lines") return "lines";
+    if (t === "lines" || t === "items") return "items";
     return "overview";
   })();
+
+  // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
+  useEffect(() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "lines") router.replace("?tab=items");
+  }, [router, searchParams]);
+
   const purchaseOrderTabs = [
     { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-    { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
+    { label: "Items", href: "?tab=items", activeQuery: { key: "tab", value: "items" } },
   ];
 
   const totals = useMemo(() => {
@@ -468,7 +451,7 @@ export default function PurchaseOrderViewPage() {
 
             {!canPost && order?.status === "draft" && lines.length === 0 ? (
               <div className="mt-3">
-                <Banner variant="warning" size="sm" title="Cannot post yet" description="Add at least one line before posting." />
+                <Banner variant="warning" size="sm" title="Cannot post yet" description="Add at least one item before posting." />
               </div>
             ) : null}
           </div>
@@ -496,10 +479,10 @@ export default function PurchaseOrderViewPage() {
         </div>
       ) : null}
 
-      {activeTab === "lines" ? (
+      {activeTab === "items" ? (
         <Card>
           <CardHeader>
-            <CardTitle>Lines</CardTitle>
+            <CardTitle>Items</CardTitle>
             <CardDescription>Ordered vs received vs invoiced.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -508,7 +491,7 @@ export default function PurchaseOrderViewPage() {
               rows={lines}
               columns={lineColumns}
               getRowId={(l) => l.id}
-              emptyText="No lines."
+              emptyText="No items."
               enableGlobalFilter={false}
               initialSort={{ columnId: "item", dir: "asc" }}
             />

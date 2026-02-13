@@ -87,7 +87,7 @@ export function GoodsReceiptPdf(props: {
         </View>
 
         <View style={s.section}>
-          <Text style={s.h2}>Lines</Text>
+          <Text style={s.h2}>Items</Text>
           <View style={[s.table, { marginTop: 6 }]}>
             <View style={s.thead} fixed>
               <Text style={[s.th, { flex: 6 }]}>Item</Text>
@@ -111,7 +111,7 @@ export function GoodsReceiptPdf(props: {
             })}
             {lines.length === 0 ? (
               <View style={s.tr}>
-                <Text style={[s.td, s.muted, { flex: 1 }]}>No lines.</Text>
+                <Text style={[s.td, s.muted, { flex: 1 }]}>No items.</Text>
               </View>
             ) : null}
           </View>
@@ -125,4 +125,3 @@ export function GoodsReceiptPdf(props: {
     </Document>
   );
 }
-

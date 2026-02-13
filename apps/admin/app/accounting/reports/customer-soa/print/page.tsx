@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { applyPrintSettingsFromQuery } from "@/lib/print/page-settings";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,7 @@ export default function CustomerSoaPrintPage() {
   }, [load]);
 
   useEffect(() => {
+    applyPrintSettingsFromQuery();
     try {
       const qs = new URLSearchParams(window.location.search);
       if (qs.get("autoprint") === "1") setTimeout(() => window.print(), 250);

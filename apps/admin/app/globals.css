@@ -293,9 +293,34 @@
 
   /* Checkbox - industrial toggle style */
   .ui-checkbox {
-    @apply h-4 w-4 rounded border border-border-strong bg-bg-elevated;
-    @apply text-primary focus:ring-primary/20 focus:ring-offset-0;
+    appearance: none;
+    -webkit-appearance: none;
+    @apply inline-grid h-4 w-4 place-content-center rounded border border-border-strong bg-bg-elevated;
     @apply transition-colors;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-0;
+  }
+
+  .ui-checkbox::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    transform: scale(0);
+    transition: transform 120ms ease-in-out;
+    background: rgb(var(--primary));
+    clip-path: polygon(14% 44%, 0 65%, 42% 100%, 100% 18%, 78% 0, 40% 62%);
+  }
+
+  .ui-checkbox:checked {
+    @apply border-primary bg-primary;
+  }
+
+  .ui-checkbox:checked::before {
+    transform: scale(1);
+    background: white;
+  }
+
+  .ui-checkbox:disabled {
+    @apply cursor-not-allowed opacity-50;
   }
 
   /* Table styling - data terminal aesthetic */
@@ -723,6 +748,11 @@
 .print-paper {
   background: #fff;
   color: #000;
+}
+
+/* Thermal-style receipt container for on-screen preview; @page sizing is handled per-page via injected CSS. */
+.print-receipt {
+  max-width: 80mm;
 }
 
 @keyframes pulseSubtle {

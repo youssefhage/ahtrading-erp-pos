@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
 import { fmtUsd } from "@/lib/money";
@@ -39,6 +40,8 @@ type SupplierPaymentRow = {
   method: string;
   amount_usd: string | number;
   amount_lbp: string | number;
+  payment_date?: string | null;
+  bank_account_id?: string | null;
   created_at: string;
 };
 
@@ -48,6 +51,7 @@ function toNum(v: string) {
 }
 
 export default function SupplierPaymentsPage() {
+  const searchParams = useSearchParams();
   const toast = useToast();
   const [status, setStatus] = useState("");
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -132,6 +136,19 @@ export default function SupplierPaymentsPage() {
     loadAll();
   }, [loadAll]);
 
+  // Support deep-linking from invoice pages.
+  useEffect(() => {
+    const invId = String(searchParams.get("supplier_invoice_id") || "").trim();
+    const record = String(searchParams.get("record") || "").trim();
+    if (invId) {
+      setSupplierInvoiceId(invId);
+      setPayInvoiceId(invId);
+    }
+    if (record === "1") {
+      setCreateOpen(true);
+    }
+  }, [searchParams]);
+
   useEffect(() => {
     loadPayments();
   }, [loadPayments]);
@@ -174,7 +191,15 @@ export default function SupplierPaymentsPage() {
 
   const columns = useMemo((): Array<DataTableColumn<SupplierPaymentRow>> => {
     return [
-      { id: "created_at", header: "Created", accessor: (p) => p.created_at, sortable: true, mono: true, cell: (p) => <span className="text-xs">{p.created_at}</span> },
+      {
+        id: "payment_date",
+        header: "Date",
+        accessor: (p) => p.payment_date || "",
+        sortable: true,
+        mono: true,
+        cell: (p) => <span className="text-xs">{p.payment_date || String(p.created_at || "").slice(0, 10)}</span>,
+      },
+      { id: "created_at", header: "Created", accessor: (p) => p.created_at, sortable: true, mono: true, defaultHidden: true, cell: (p) => <span className="text-xs">{p.created_at}</span> },
       {
         id: "invoice",
         header: "Invoice",

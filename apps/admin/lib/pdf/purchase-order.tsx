@@ -81,7 +81,7 @@ export function PurchaseOrderPdf(props: { detail: PurchaseOrderDetail; itemsById
         </View>
 
         <View style={s.section}>
-          <Text style={s.h2}>Lines</Text>
+          <Text style={s.h2}>Items</Text>
           <View style={[s.table, { marginTop: 6 }]}>
             <View style={s.thead} fixed>
               <Text style={[s.th, { flex: 4.2 }]}>Item</Text>
@@ -90,8 +90,8 @@ export function PurchaseOrderPdf(props: { detail: PurchaseOrderDetail; itemsById
               <Text style={[s.th, s.right, { flex: 1.1 }]}>Inv</Text>
               <Text style={[s.th, s.right, { flex: 1.7 }]}>Unit USD</Text>
               <Text style={[s.th, s.right, { flex: 1.8 }]}>Unit LL</Text>
-              <Text style={[s.th, s.right, { flex: 1.8 }]}>Line USD</Text>
-              <Text style={[s.th, s.right, { flex: 1.9 }]}>Line LL</Text>
+              <Text style={[s.th, s.right, { flex: 1.8 }]}>Total USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.9 }]}>Total LL</Text>
             </View>
             {lines.map((l) => {
               const it = itemsById.get(l.item_id);
@@ -114,7 +114,7 @@ export function PurchaseOrderPdf(props: { detail: PurchaseOrderDetail; itemsById
             })}
             {lines.length === 0 ? (
               <View style={s.tr}>
-                <Text style={[s.td, s.muted, { flex: 1 }]}>No lines.</Text>
+                <Text style={[s.td, s.muted, { flex: 1 }]}>No items.</Text>
               </View>
             ) : null}
           </View>
@@ -128,4 +128,3 @@ export function PurchaseOrderPdf(props: { detail: PurchaseOrderDetail; itemsById
     </Document>
   );
 }
-

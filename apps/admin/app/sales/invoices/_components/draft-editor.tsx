@@ -730,7 +730,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	              <CardHeader>
 	                <div className="flex flex-wrap items-start justify-between gap-2">
 	                  <div>
-	                    <CardTitle className="text-base">Lines</CardTitle>
+	                    <CardTitle className="text-base">Items</CardTitle>
 	                    <CardDescription>Add items, then Post when ready.</CardDescription>
 	                  </div>
 	                  <div className="flex flex-wrap items-end justify-end gap-2">
@@ -753,7 +753,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                      />
 	                    </div>
 	                    <Button type="button" size="sm" variant="outline" onClick={applyInvoiceDiscountToAllLines} disabled={loading}>
-	                      Apply to Lines
+	                      Apply to Items
 	                    </Button>
 	                  </div>
 	                </div>

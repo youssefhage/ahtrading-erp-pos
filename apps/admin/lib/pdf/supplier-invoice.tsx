@@ -116,7 +116,7 @@ export function SupplierInvoicePdf(props: { detail: SupplierInvoiceDetail }) {
         </View>
 
         <View style={s.section}>
-          <Text style={s.h2}>Lines</Text>
+          <Text style={s.h2}>Items</Text>
           <View style={[s.table, { marginTop: 6 }]}>
             <View style={s.thead} fixed>
               <Text style={[s.th, { flex: 4.2 }]}>Item</Text>
@@ -148,7 +148,7 @@ export function SupplierInvoicePdf(props: { detail: SupplierInvoiceDetail }) {
             ))}
             {lines.length === 0 ? (
               <View style={s.tr}>
-                <Text style={[s.td, s.muted, { flex: 1 }]}>No lines.</Text>
+                <Text style={[s.td, s.muted, { flex: 1 }]}>No items.</Text>
               </View>
             ) : null}
           </View>

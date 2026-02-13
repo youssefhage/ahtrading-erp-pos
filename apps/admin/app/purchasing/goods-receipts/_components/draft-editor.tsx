@@ -442,21 +442,21 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
                       </td>
                     </tr>
                   ))}
-	                  {!lines.length ? (
-	                    <tr>
-	                      <td className="px-3 py-3 text-sm text-fg-muted" colSpan={10}>
-	                        No lines yet.
-	                      </td>
-	                    </tr>
-	                  ) : null}
+		                  {!lines.length ? (
+		                    <tr>
+		                      <td className="px-3 py-3 text-sm text-fg-muted" colSpan={10}>
+		                        No items yet.
+		                      </td>
+		                    </tr>
+		                  ) : null}
                 </tbody>
               </table>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Button type="button" variant="outline" onClick={addLine} disabled={saving || loading}>
-                Add Line
-              </Button>
+	              <Button type="button" variant="outline" onClick={addLine} disabled={saving || loading}>
+	                Add Item
+	              </Button>
               <Button type="submit" disabled={!canSubmit}>
                 {saving ? "..." : props.mode === "edit" ? "Save Draft" : "Create Draft"}
               </Button>

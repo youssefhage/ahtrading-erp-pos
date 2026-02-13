@@ -108,7 +108,7 @@ export default function SupplierCreditDetailPage() {
 
   const activeTab = (() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "lines") return "lines";
+    if (t === "lines" || t === "items") return "items";
     if (t === "applications") return "applications";
     if (t === "allocations") return "allocations";
     return "overview";
@@ -116,10 +116,16 @@ export default function SupplierCreditDetailPage() {
 
   const creditTabs = [
     { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-    { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
+    { label: "Items", href: "?tab=items", activeQuery: { key: "tab", value: "items" } },
     { label: "Applications", href: "?tab=applications", activeQuery: { key: "tab", value: "applications" } },
     { label: "Allocations", href: "?tab=allocations", activeQuery: { key: "tab", value: "allocations" } },
   ];
+
+  // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
+  useEffect(() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "lines") router.replace("?tab=items");
+  }, [router, searchParams]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -573,18 +579,18 @@ export default function SupplierCreditDetailPage() {
             <CardContent className="grid gap-2 text-xs text-fg-muted md:grid-cols-2">
               <div>Status: <span className="font-mono">{credit?.status || "-"}</span></div>
               <div>Applications: <span className="font-mono">{data?.applications?.length || 0}</span></div>
-              <div>Lines: <span className="font-mono">{data?.lines?.length || 0}</span></div>
+              <div>Items: <span className="font-mono">{data?.lines?.length || 0}</span></div>
               <div>Allocations: <span className="font-mono">{data?.allocations?.length || 0}</span></div>
             </CardContent>
           </Card>
         </div>
       ) : null}
 
-      {activeTab === "lines" ? (
+      {activeTab === "items" ? (
         <Card>
           <CardHeader>
-            <CardTitle>Lines</CardTitle>
-            <CardDescription>{data?.lines?.length || 0} lines</CardDescription>
+            <CardTitle>Items</CardTitle>
+            <CardDescription>{data?.lines?.length || 0} items</CardDescription>
           </CardHeader>
           <CardContent>
             <DataTable<LineRow>
@@ -592,7 +598,7 @@ export default function SupplierCreditDetailPage() {
               rows={data?.lines || []}
               columns={lineColumns}
               getRowId={(l) => l.id}
-              emptyText="No lines."
+              emptyText="No items."
               enableGlobalFilter={false}
               initialSort={{ columnId: "line_no", dir: "asc" }}
             />

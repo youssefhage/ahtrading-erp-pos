@@ -550,22 +550,22 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       const qtyRes = parseNumberInput(l.qty);
       const usdRes = parseNumberInput(l.unit_cost_usd);
       const lbpRes = parseNumberInput(l.unit_cost_lbp);
-      if (!qtyRes.ok && qtyRes.reason === "invalid") return setStatus(`Invalid qty on line ${i + 1}.`);
-      if (!usdRes.ok && usdRes.reason === "invalid") return setStatus(`Invalid unit USD on line ${i + 1}.`);
-      if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid unit LBP on line ${i + 1}.`);
+      if (!qtyRes.ok && qtyRes.reason === "invalid") return setStatus(`Invalid qty on item ${i + 1}.`);
+      if (!usdRes.ok && usdRes.reason === "invalid") return setStatus(`Invalid unit USD on item ${i + 1}.`);
+      if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid unit LBP on item ${i + 1}.`);
       const qtyEntered = qtyRes.ok ? qtyRes.value : 0;
       const qtyFactor = toNum(String(l.qty_factor || "1")) || 1;
       let unitEnteredUsd = usdRes.ok ? usdRes.value : 0;
       let unitEnteredLbp = lbpRes.ok ? lbpRes.value : 0;
-      if (qtyEntered <= 0) return setStatus(`Qty must be > 0 (line ${i + 1}).`);
-      if (qtyFactor <= 0) return setStatus(`qty_factor must be > 0 (line ${i + 1}).`);
+      if (qtyEntered <= 0) return setStatus(`Qty must be > 0 (item ${i + 1}).`);
+      if (qtyFactor <= 0) return setStatus(`qty_factor must be > 0 (item ${i + 1}).`);
       const uom = String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || null;
-      if (!uom) return setStatus(`Missing UOM (line ${i + 1}).`);
+      if (!uom) return setStatus(`Missing UOM (item ${i + 1}).`);
       if (ex > 0) {
         if (unitEnteredUsd === 0 && unitEnteredLbp > 0) unitEnteredUsd = unitEnteredLbp / ex;
         if (unitEnteredLbp === 0 && unitEnteredUsd > 0) unitEnteredLbp = unitEnteredUsd * ex;
       }
-      if (unitEnteredUsd === 0 && unitEnteredLbp === 0) return setStatus(`Set USD or LBP unit cost (line ${i + 1}).`);
+      if (unitEnteredUsd === 0 && unitEnteredLbp === 0) return setStatus(`Set USD or LBP unit cost (item ${i + 1}).`);
       const qtyBase = qtyEntered * qtyFactor;
       const unitUsd = unitEnteredUsd / qtyFactor;
       const unitLbp = unitEnteredLbp / qtyFactor;
@@ -768,7 +768,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
               {String(importStatus).toLowerCase() === "pending" || String(importStatus).toLowerCase() === "processing"
                 ? "Import is in progress. This page will refresh automatically."
                 : String(importStatus).toLowerCase() === "pending_review"
-                ? "Import is ready for review. Map each line to an item, then apply."
+                ? "Import is ready for review. Map each imported row to an item, then apply."
                 : "Import has finished."}
             </CardDescription>
           </CardHeader>
@@ -793,7 +793,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       {props.mode === "edit" && String(importStatus).toLowerCase() === "pending_review" ? (
         <Card>
           <CardHeader>
-            <CardTitle>Imported Lines (Review)</CardTitle>
+            <CardTitle>Imported Items (Review)</CardTitle>
             <CardDescription>Confirm item matches before we create invoice lines.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -887,7 +887,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 Refresh
               </Button>
               <Button type="button" onClick={applyImportLines} disabled={loading || importApplying || importLinesLoading}>
-                {importApplying ? "Applying..." : "Apply Lines"}
+                {importApplying ? "Applying..." : "Apply Items"}
               </Button>
             </div>
           </CardContent>
@@ -1084,7 +1084,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
               <CardHeader>
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <CardTitle className="text-base">Lines</CardTitle>
+                    <CardTitle className="text-base">Items</CardTitle>
                     <CardDescription>Add items and costs. Batch/expiry required if item tracking is enabled.</CardDescription>
                   </div>
                   <label className="inline-flex items-center gap-2 text-xs text-fg-muted">
@@ -1154,8 +1154,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     <Input type="date" value={addExpiry} onChange={(e) => setAddExpiry(e.target.value)} />
                   </div>
                   <div className="md:col-span-12 flex justify-end gap-2">
-                    <Button type="submit" variant="outline" disabled={loading}>
-                      Add Line
+                      <Button type="submit" variant="outline" disabled={loading}>
+                      Add Item
                     </Button>
                   </div>
                 </form>
@@ -1292,7 +1292,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                       {lines.length === 0 ? (
                         <tr>
                           <td className="px-3 py-6 text-center text-fg-subtle" colSpan={showSecondaryCurrency ? 8 : 7}>
-                            No lines yet.
+                            No items yet.
                           </td>
                         </tr>
                       ) : null}

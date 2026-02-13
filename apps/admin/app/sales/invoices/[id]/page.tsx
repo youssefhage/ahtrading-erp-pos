@@ -52,12 +52,20 @@ type InvoiceLine = {
   item_id: string;
   item_sku?: string | null;
   item_name?: string | null;
+  item_tax_code_id?: string | null;
   qty: string | number;
   uom?: string | null;
   qty_factor?: string | number | null;
   qty_entered?: string | number | null;
   unit_price_usd: string | number;
   unit_price_lbp: string | number;
+  unit_price_entered_usd?: string | number | null;
+  unit_price_entered_lbp?: string | number | null;
+  pre_discount_unit_price_usd?: string | number | null;
+  pre_discount_unit_price_lbp?: string | number | null;
+  discount_pct?: string | number | null;
+  discount_amount_usd?: string | number | null;
+  discount_amount_lbp?: string | number | null;
   line_total_usd: string | number;
   line_total_lbp: string | number;
 };
@@ -109,6 +117,12 @@ function taxRateToPercent(raw: unknown): number {
   return x <= 1 ? x * 100 : x;
 }
 
+function taxRateToFraction(raw: unknown): number {
+  const x = Number(raw || 0);
+  if (!Number.isFinite(x)) return 0;
+  return x > 1 ? x / 100 : x;
+}
+
 function hasTender(p: SalesPayment) {
   return n(p.tender_usd) !== 0 || n(p.tender_lbp) !== 0;
 }
@@ -124,7 +138,16 @@ function SalesInvoiceShowInner() {
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodMapping[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
-  const [taxPreview, setTaxPreview] = useState<{ tax_usd: number; tax_lbp: number } | null>(null);
+  const [taxPreview, setTaxPreview] = useState<{
+    base_usd: number;
+    base_lbp: number;
+    tax_usd: number;
+    tax_lbp: number;
+    total_usd: number;
+    total_lbp: number;
+    tax_code_id: string | null;
+    tax_rows: Array<{ tax_code_id: string; base_usd: number; base_lbp: number; tax_usd: number; tax_lbp: number }>;
+  } | null>(null);
 
   const [postOpen, setPostOpen] = useState(false);
   const [postApplyingVat, setPostApplyingVat] = useState(true);
@@ -157,17 +180,22 @@ function SalesInvoiceShowInner() {
 
   const activeTab = (() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "lines") return "lines";
-    if (t === "payments") return "payments";
+    if (t === "lines" || t === "items") return "items";
     if (t === "tax") return "tax";
     return "overview";
   })();
 
+  // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
+  useEffect(() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "payments") router.replace("?tab=overview");
+    if (t === "lines") router.replace("?tab=items");
+  }, [router, searchParams]);
+
   const salesInvoiceTabs = useMemo(
     () => [
       { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-      { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
-      { label: "Payments", href: "?tab=payments", activeQuery: { key: "tab", value: "payments" } },
+      { label: "Items", href: "?tab=items", activeQuery: { key: "tab", value: "items" } },
       { label: "Tax", href: "?tab=tax", activeQuery: { key: "tab", value: "tax" } }
     ],
     []
@@ -237,6 +265,13 @@ function SalesInvoiceShowInner() {
     return new Map((taxCodes || []).map((t) => [String(t.id), t]));
   }, [taxCodes]);
 
+  const defaultVatTaxCodeId = useMemo(() => {
+    const vats = (taxCodes || []).filter((t) => String(t.tax_type || "").toLowerCase() === "vat");
+    vats.sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+    const id = vats[0]?.id;
+    return id ? String(id) : null;
+  }, [taxCodes]);
+
   const taxBreakdown = useMemo(() => {
     const lines = detail?.tax_lines || [];
     const acc = new Map<
@@ -285,6 +320,53 @@ function SalesInvoiceShowInner() {
     return out;
   }, [detail?.tax_lines, taxById]);
 
+  const draftTaxBreakdown = useMemo(() => {
+    const lines = taxPreview?.tax_rows || [];
+    const acc = new Map<
+      string,
+      {
+        tax_code_id: string;
+        label: string;
+        ratePct: number | null;
+        base_usd: number;
+        base_lbp: number;
+        tax_usd: number;
+        tax_lbp: number;
+      }
+    >();
+
+    for (const t of lines) {
+      const id = String((t as any)?.tax_code_id || "").trim();
+      if (!id) continue;
+      const tc = taxById.get(id);
+      const label = tc?.name ? String(tc.name) : id;
+      const ratePct = tc ? taxRateToPercent(tc.rate) : null;
+
+      const prev = acc.get(id) || {
+        tax_code_id: id,
+        label,
+        ratePct,
+        base_usd: 0,
+        base_lbp: 0,
+        tax_usd: 0,
+        tax_lbp: 0,
+      };
+
+      prev.base_usd += n((t as any)?.base_usd);
+      prev.base_lbp += n((t as any)?.base_lbp);
+      prev.tax_usd += n((t as any)?.tax_usd);
+      prev.tax_lbp += n((t as any)?.tax_lbp);
+      prev.label = label;
+      prev.ratePct = ratePct;
+
+      acc.set(id, prev);
+    }
+
+    const out = Array.from(acc.values());
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  }, [taxPreview?.tax_rows, taxById]);
+
   const taxBreakdownTotals = useMemo(() => {
     let base_usd = 0;
     let base_lbp = 0;
@@ -299,7 +381,40 @@ function SalesInvoiceShowInner() {
     return { base_usd, base_lbp, tax_usd, tax_lbp };
   }, [taxBreakdown]);
 
+  const draftTaxBreakdownTotals = useMemo(() => {
+    let base_usd = 0;
+    let base_lbp = 0;
+    let tax_usd = 0;
+    let tax_lbp = 0;
+    for (const r of draftTaxBreakdown) {
+      base_usd += n(r.base_usd);
+      base_lbp += n(r.base_lbp);
+      tax_usd += n(r.tax_usd);
+      tax_lbp += n(r.tax_lbp);
+    }
+    return { base_usd, base_lbp, tax_usd, tax_lbp };
+  }, [draftTaxBreakdown]);
+
   const invoiceLineColumns = useMemo((): Array<DataTableColumn<InvoiceLine>> => {
+    const exchangeRate = n(detail?.invoice?.exchange_rate);
+    const vatApplied = detail ? (detail.invoice.status === "draft" ? true : (detail.tax_lines || []).length > 0) : true;
+
+    const lineTax = (l: InvoiceLine) => {
+      if (!vatApplied) return { tax_code_id: null as string | null, label: "-", ratePct: null as number | null, tax_usd: 0, tax_lbp: 0 };
+      const tcidRaw = String((l as any).item_tax_code_id || defaultVatTaxCodeId || "").trim();
+      if (!tcidRaw) return { tax_code_id: null as string | null, label: "-", ratePct: null as number | null, tax_usd: 0, tax_lbp: 0 };
+      const tc = taxById.get(tcidRaw);
+      if (!tc || String(tc.tax_type || "").toLowerCase() !== "vat") {
+        return { tax_code_id: tcidRaw, label: tc?.name ? String(tc.name) : tcidRaw, ratePct: null as number | null, tax_usd: 0, tax_lbp: 0 };
+      }
+      const rateFrac = taxRateToFraction(tc.rate);
+      const ratePct = taxRateToPercent(tc.rate);
+      const base_lbp = n((l as any).line_total_lbp);
+      const tax_lbp = base_lbp * rateFrac;
+      const tax_usd = exchangeRate ? tax_lbp / exchangeRate : n((l as any).line_total_usd) * rateFrac;
+      return { tax_code_id: tcidRaw, label: tc?.name ? String(tc.name) : tcidRaw, ratePct, tax_usd, tax_lbp };
+    };
+
     return [
       {
         id: "item",
@@ -317,7 +432,7 @@ function SalesInvoiceShowInner() {
             <ShortcutLink href={`/catalog/items/${encodeURIComponent(l.item_id)}`} title="Open item" className="font-mono text-xs">
               {l.item_id}
             </ShortcutLink>
-          ),
+        ),
       },
       {
         id: "qty",
@@ -341,6 +456,95 @@ function SalesInvoiceShowInner() {
         ),
       },
       {
+        id: "unit_price_usd",
+        header: "Unit USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        defaultHidden: true,
+        accessor: (l) => Number((l as any).unit_price_usd || 0),
+        cell: (l) => <span className="data-mono text-xs">{fmtUsd((l as any).unit_price_usd)}</span>,
+      },
+      {
+        id: "unit_price_lbp",
+        header: "Unit LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        defaultHidden: true,
+        accessor: (l) => Number((l as any).unit_price_lbp || 0),
+        cell: (l) => <span className="data-mono text-xs">{fmtLbp((l as any).unit_price_lbp)}</span>,
+      },
+      {
+        id: "discount_pct",
+        header: "Discount %",
+        sortable: true,
+        align: "right",
+        mono: true,
+        defaultHidden: true,
+        accessor: (l) => Number((l as any).discount_pct || 0),
+        cell: (l) => {
+          const pct = Number((l as any).discount_pct || 0);
+          return <span className="data-mono text-xs">{Number.isFinite(pct) ? `${(pct * 100).toFixed(2)}%` : "-"}</span>;
+        },
+      },
+      {
+        id: "discount_amount_usd",
+        header: "Discount USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        defaultHidden: true,
+        accessor: (l) => Number((l as any).discount_amount_usd || 0),
+        cell: (l) => <span className="data-mono text-xs">{fmtUsd((l as any).discount_amount_usd)}</span>,
+      },
+      {
+        id: "discount_amount_lbp",
+        header: "Discount LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        defaultHidden: true,
+        accessor: (l) => Number((l as any).discount_amount_lbp || 0),
+        cell: (l) => <span className="data-mono text-xs">{fmtLbp((l as any).discount_amount_lbp)}</span>,
+      },
+      {
+        id: "tax_code",
+        header: "Tax Code",
+        sortable: true,
+        defaultHidden: true,
+        accessor: (l) => lineTax(l).label,
+        cell: (l) => {
+          const tx = lineTax(l);
+          return (
+            <span className="data-mono text-xs">
+              {tx.label}
+              {tx.ratePct != null ? <span className="text-fg-subtle"> · {tx.ratePct.toFixed(2)}%</span> : null}
+            </span>
+          );
+        },
+      },
+      {
+        id: "tax_usd_calc",
+        header: "Tax USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        defaultHidden: true,
+        accessor: (l) => lineTax(l).tax_usd,
+        cell: (l) => <span className="data-mono text-xs">{fmtUsd(lineTax(l).tax_usd)}</span>,
+      },
+      {
+        id: "tax_lbp_calc",
+        header: "Tax LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        defaultHidden: true,
+        accessor: (l) => lineTax(l).tax_lbp,
+        cell: (l) => <span className="data-mono text-xs">{fmtLbp(lineTax(l).tax_lbp)}</span>,
+      },
+      {
         id: "line_total_usd",
         header: "Total USD",
         sortable: true,
@@ -359,7 +563,7 @@ function SalesInvoiceShowInner() {
         cell: (l) => <span className="data-mono text-xs">{fmtLbp(l.line_total_lbp)}</span>,
       },
     ];
-  }, []);
+  }, [detail, defaultVatTaxCodeId, taxById]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -375,12 +579,35 @@ function SalesInvoiceShowInner() {
       setTaxCodes(tc.tax_codes || []);
       setTaxPreview(null);
       if (det?.invoice?.status === "draft") {
-        // Drafts don't have persisted tax_lines yet; show a VAT preview so the "Tax Lines" card isn't misleading.
-        const prev = await apiGet<{ tax_usd: string | number; tax_lbp: string | number }>(
+        const prev = await apiGet<{
+          base_usd: string | number;
+          base_lbp: string | number;
+          tax_code_id: string | null;
+          tax_usd: string | number;
+          tax_lbp: string | number;
+          tax_rows?: Array<{ tax_code_id: string; base_usd: string | number; base_lbp: string | number; tax_usd: string | number; tax_lbp: string | number }>;
+          total_usd: string | number;
+          total_lbp: string | number;
+        }>(
           `/sales/invoices/${encodeURIComponent(det.invoice.id)}/post-preview?apply_vat=1`
         ).catch(() => null);
         if (prev) {
-          setTaxPreview({ tax_usd: Number(prev.tax_usd || 0), tax_lbp: Number(prev.tax_lbp || 0) });
+          setTaxPreview({
+            base_usd: Number(prev.base_usd || 0),
+            base_lbp: Number(prev.base_lbp || 0),
+            tax_code_id: prev.tax_code_id ? String(prev.tax_code_id) : null,
+            tax_usd: Number(prev.tax_usd || 0),
+            tax_lbp: Number(prev.tax_lbp || 0),
+            tax_rows: (prev.tax_rows || []).map((r) => ({
+              tax_code_id: String(r.tax_code_id),
+              base_usd: Number(r.base_usd || 0),
+              base_lbp: Number(r.base_lbp || 0),
+              tax_usd: Number(r.tax_usd || 0),
+              tax_lbp: Number(r.tax_lbp || 0),
+            })),
+            total_usd: Number(prev.total_usd || 0),
+            total_lbp: Number(prev.total_lbp || 0),
+          });
         }
       }
       setStatus("");
@@ -860,35 +1087,12 @@ function SalesInvoiceShowInner() {
                       </details>
                     </div>
                   </div>
-                </div>
-              ) : null}
 
-              {activeTab === "lines" ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Lines</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <DataTable<InvoiceLine>
-                      tableId="sales.invoice.lines"
-                      rows={detail.lines}
-                      columns={invoiceLineColumns}
-                      getRowId={(l) => l.id}
-                      emptyText="No lines."
-                      enableGlobalFilter={false}
-                      initialSort={{ columnId: "item", dir: "asc" }}
-                    />
-                  </CardContent>
-                </Card>
-              ) : null}
-
-              {activeTab === "payments" ? (
-                <Card>
-                  <CardHeader>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="ui-panel p-5 md:col-span-12">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <CardTitle className="text-base">Payments</CardTitle>
-                        <CardDescription className="mt-1">Recorded and tender amounts.</CardDescription>
+                        <p className="ui-panel-title">Payments</p>
+                        <p className="mt-1 text-xs text-fg-subtle">Applied and tender amounts (if any).</p>
                       </div>
                       {detail.invoice.status === "posted" ? (
                         <Button asChild variant="outline" size="sm">
@@ -900,10 +1104,12 @@ function SalesInvoiceShowInner() {
                         </Button>
                       )}
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    {detail.invoice.status !== "posted" ? <p className="mb-2 text-xs text-fg-subtle">Payments are recorded after posting.</p> : null}
-                    <div className="space-y-1 text-xs text-fg-muted">
+
+                    {detail.invoice.status !== "posted" ? (
+                      <p className="mt-2 text-xs text-fg-subtle">Payments are recorded after posting.</p>
+                    ) : null}
+
+                    <div className="mt-3 space-y-1 text-xs text-fg-muted">
                       {detail.payments.map((p) => (
                         <div key={p.id} className="flex items-center justify-between gap-2">
                           <span className="data-mono">{p.method}</span>
@@ -939,6 +1145,25 @@ function SalesInvoiceShowInner() {
                       ))}
                       {detail.payments.length === 0 ? <p className="text-fg-subtle">No payments.</p> : null}
                     </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {activeTab === "items" ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Items</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <DataTable<InvoiceLine>
+                      tableId="sales.invoice.lines"
+                      rows={detail.lines}
+                      columns={invoiceLineColumns}
+                      getRowId={(l) => l.id}
+                      emptyText="No lines."
+                      enableGlobalFilter={false}
+                      initialSort={{ columnId: "item", dir: "asc" }}
+                    />
                   </CardContent>
                 </Card>
               ) : null}
@@ -946,17 +1171,61 @@ function SalesInvoiceShowInner() {
               {activeTab === "tax" ? (
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">Tax Lines</CardTitle>
+                    <CardTitle className="text-base">Tax</CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-1 text-xs text-fg-muted">
-                      {detail.invoice.status === "draft" ? (
+                      {detail.invoice.status === "draft" && draftTaxBreakdown.length ? (
                         <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
-                          <div className="ui-kv">
-                            <span className="ui-kv-label">VAT preview</span>
-                            <span className="ui-kv-value">{taxPreview ? fmtUsdLbp(taxPreview.tax_usd, taxPreview.tax_lbp) : "-"}</span>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Tax breakdown (preview)</span>
+                            <span className="text-[11px] text-fg-subtle">{draftTaxBreakdown.length} code(s)</span>
                           </div>
-                          <div className="mt-1 text-[11px] text-fg-subtle">Tax lines are created when you post the invoice.</div>
+                          <div className="mt-2 space-y-1">
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-[11px] text-fg-subtle">
+                              <span>Code</span>
+                              <span className="text-right">Tax</span>
+                            </div>
+                            {draftTaxBreakdown.map((r) => {
+                              const effectivePctUsd = r.base_usd > 0 ? (r.tax_usd / r.base_usd) * 100 : null;
+                              const effectivePctLbp = r.base_lbp > 0 ? (r.tax_lbp / r.base_lbp) * 100 : null;
+                              const effectivePct = Number.isFinite(Number(effectivePctUsd))
+                                ? effectivePctUsd
+                                : Number.isFinite(Number(effectivePctLbp))
+                                  ? effectivePctLbp
+                                  : null;
+
+                              return (
+                                <div key={r.tax_code_id} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                                  <div className="min-w-0">
+                                    <div className="truncate data-mono text-foreground">
+                                      {r.label}
+                                      {r.ratePct !== null ? <span className="text-fg-subtle"> · {r.ratePct.toFixed(2)}%</span> : null}
+                                      {effectivePct !== null ? <span className="text-fg-subtle"> · eff {effectivePct.toFixed(2)}%</span> : null}
+                                    </div>
+                                    <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                                      <span className="text-fg-subtle">Base</span>
+                                      <span className="data-mono">{fmtUsdLbp(r.base_usd, r.base_lbp)}</span>
+                                    </div>
+                                  </div>
+                                  <div className="text-right data-mono text-foreground">{fmtUsdLbp(r.tax_usd, r.tax_lbp)}</div>
+                                </div>
+                              );
+                            })}
+
+                            <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-[11px]">
+                              <span className="text-fg-subtle">Total</span>
+                              <span className="text-right data-mono text-foreground">{fmtUsdLbp(draftTaxBreakdownTotals.tax_usd, draftTaxBreakdownTotals.tax_lbp)}</span>
+                            </div>
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-[11px] text-fg-muted">
+                              <span className="text-fg-subtle">Taxable base</span>
+                              <span className="text-right data-mono">{fmtUsdLbp(draftTaxBreakdownTotals.base_usd, draftTaxBreakdownTotals.base_lbp)}</span>
+                            </div>
+                          </div>
+
+                          <div className="mt-2 text-[11px] text-fg-subtle">
+                            Preview is calculated per item (item tax code or default VAT). Tax entries are recorded when you post.
+                          </div>
                         </div>
                       ) : null}
 
@@ -1036,11 +1305,11 @@ function SalesInvoiceShowInner() {
                         </div>
                       ) : null}
 
-                      {detail.invoice.status === "posted" && detail.tax_lines.length === 0 ? (
-                        <p className="text-fg-subtle">
-                          No tax lines. VAT is only created at posting time and requires a VAT tax code (System {">"} Config) and item tax codes if you use overrides.
-                        </p>
+                      {detail.invoice.status === "draft" && draftTaxBreakdown.length === 0 ? (
+                        <p className="text-fg-subtle">No tax preview (missing VAT tax code, or items have no tax code and no default VAT).</p>
                       ) : null}
+
+                      {detail.invoice.status === "posted" && detail.tax_lines.length === 0 ? <p className="text-fg-subtle">No tax lines.</p> : null}
                     </div>
                   </CardContent>
                 </Card>
@@ -1093,6 +1362,7 @@ function SalesInvoiceShowInner() {
                 <label className="md:col-span-6 flex items-center gap-2 text-xs text-fg-muted">
                   <input
                     type="checkbox"
+                    className="ui-checkbox"
                     checked={postApplyingVat}
                     onChange={(e) => {
                       const next = e.target.checked;
@@ -1105,6 +1375,7 @@ function SalesInvoiceShowInner() {
                 <label className="md:col-span-6 flex items-center gap-2 text-xs text-fg-muted">
                   <input
                     type="checkbox"
+                    className="ui-checkbox"
                     checked={postRecordPayment}
                     onChange={(e) => {
                       const next = e.target.checked;

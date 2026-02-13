@@ -149,13 +149,19 @@ export default function GoodsReceiptViewPage() {
 
   const activeTab = (() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
-    if (t === "lines") return "lines";
+    if (t === "lines" || t === "items") return "items";
     return "overview";
   })();
   const receiptTabs = [
     { label: "Overview", href: "?tab=overview", activeQuery: { key: "tab", value: "overview" } },
-    { label: "Lines", href: "?tab=lines", activeQuery: { key: "tab", value: "lines" } },
+    { label: "Items", href: "?tab=items", activeQuery: { key: "tab", value: "items" } },
   ];
+
+  // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
+  useEffect(() => {
+    const t = String(searchParams.get("tab") || "overview").toLowerCase();
+    if (t === "lines") router.replace("?tab=items");
+  }, [router, searchParams]);
 
   const [createInvOpen, setCreateInvOpen] = useState(false);
   const [createInvSubmitting, setCreateInvSubmitting] = useState(false);
@@ -202,7 +208,7 @@ export default function GoodsReceiptViewPage() {
     if (!detail) return;
     if (detail.receipt.status !== "draft") return;
     if (!(detail.lines || []).length) {
-      setErr(new Error("Cannot post: add at least one line to this draft first."));
+      setErr(new Error("Cannot post: add at least one item to this draft first."));
       return;
     }
     setPostingDate(todayIso());
@@ -242,7 +248,7 @@ export default function GoodsReceiptViewPage() {
     e.preventDefault();
     if (!detail) return;
     if (!(detail.lines || []).length) {
-      setErr(new Error("Cannot post: add at least one line to this draft first."));
+      setErr(new Error("Cannot post: add at least one item to this draft first."));
       return;
     }
     setPosting(true);
@@ -494,10 +500,10 @@ export default function GoodsReceiptViewPage() {
             </div>
           ) : null}
 
-          {activeTab === "lines" ? (
+          {activeTab === "items" ? (
             <Card>
               <CardHeader>
-                <CardTitle>Lines</CardTitle>
+                <CardTitle>Items</CardTitle>
                 <CardDescription>Received quantities.</CardDescription>
               </CardHeader>
               <CardContent>
@@ -506,7 +512,7 @@ export default function GoodsReceiptViewPage() {
                   rows={detail.lines || []}
                   columns={lineColumns}
                   getRowId={(l) => l.id}
-                  emptyText="No lines."
+                  emptyText="No items."
                   enableGlobalFilter={false}
                   initialSort={{ columnId: "item", dir: "asc" }}
                 />

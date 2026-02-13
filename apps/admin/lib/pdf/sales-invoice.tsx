@@ -4,6 +4,16 @@ import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { fmtIsoDate, generatedAtStamp } from "@/lib/pdf/format";
 import { pdfStyles as s } from "@/lib/pdf/styles";
 
+const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
+
+type Company = {
+  id: string;
+  name: string;
+  legal_name?: string | null;
+  registration_no?: string | null;
+  vat_no?: string | null;
+};
+
 type InvoiceRow = {
   id: string;
   invoice_no: string | null;
@@ -59,11 +69,13 @@ function toNum(v: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
-export function SalesInvoicePdf(props: { detail: SalesInvoiceDetail }) {
+export function SalesInvoicePdf(props: { detail: SalesInvoiceDetail; company?: Company | null }) {
   const inv = props.detail.invoice;
   const lines = props.detail.lines || [];
   const payments = props.detail.payments || [];
   const taxLines = props.detail.tax_lines || [];
+  const company = props.company || null;
+  const showHeader = company?.id === OFFICIAL_COMPANY_ID;
 
   const paidUsd = payments.reduce((a, p) => a + toNum(p.amount_usd), 0);
   const paidLbp = payments.reduce((a, p) => a + toNum(p.amount_lbp), 0);
@@ -78,6 +90,18 @@ export function SalesInvoicePdf(props: { detail: SalesInvoiceDetail }) {
   return (
     <Document title={`Sales Invoice ${docNo}`}>
       <Page size="A4" style={s.page} wrap>
+        {showHeader && company ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={[s.muted, { fontSize: 9 }]}>{company.legal_name || company.name}</Text>
+            {company.vat_no ? (
+              <Text style={[s.muted, s.mono, { fontSize: 8 }]}>VAT No: {String(company.vat_no)}</Text>
+            ) : null}
+            {company.registration_no ? (
+              <Text style={[s.muted, s.mono, { fontSize: 8 }]}>Reg No: {String(company.registration_no)}</Text>
+            ) : null}
+          </View>
+        ) : null}
+
         <View style={s.headerRow}>
           <View>
             <Text style={s.h1}>Sales Invoice</Text>
@@ -108,7 +132,7 @@ export function SalesInvoicePdf(props: { detail: SalesInvoiceDetail }) {
         </View>
 
         <View style={s.section}>
-          <Text style={s.h2}>Lines</Text>
+          <Text style={s.h2}>Items</Text>
           <View style={[s.table, { marginTop: 6 }]}>
             <View style={s.thead} fixed>
               <Text style={[s.th, { flex: 6 }]}>Item</Text>
@@ -129,7 +153,7 @@ export function SalesInvoicePdf(props: { detail: SalesInvoiceDetail }) {
             ))}
             {lines.length === 0 ? (
               <View style={s.tr}>
-                <Text style={[s.td, s.muted, { flex: 1 }]}>No lines.</Text>
+                <Text style={[s.td, s.muted, { flex: 1 }]}>No items.</Text>
               </View>
             ) : null}
           </View>

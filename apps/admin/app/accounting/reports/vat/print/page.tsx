@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { applyPrintSettingsFromQuery } from "@/lib/print/page-settings";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
 
@@ -40,6 +41,7 @@ export default function VatReportPrintPage() {
   }, [load]);
 
   useEffect(() => {
+    applyPrintSettingsFromQuery();
     // Optional: allow kiosk-style auto print via ?autoprint=1.
     try {
       const qs = new URLSearchParams(window.location.search);
@@ -116,4 +118,3 @@ export default function VatReportPrintPage() {
     </div>
   );
 }
-

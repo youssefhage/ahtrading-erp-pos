@@ -21,12 +21,20 @@ export class BackendHttpError extends Error {
 }
 
 export async function backendGetJson<T>(path: string): Promise<T> {
+  return backendGetJsonWithHeaders<T>(path);
+}
+
+export async function backendGetJsonWithHeaders<T>(path: string, extraHeaders?: Record<string, string>): Promise<T> {
   const h = await headers();
   const cookie = h.get("cookie") || "";
   const url = backendBaseUrl() + (path.startsWith("/") ? path : `/${path}`);
+  const merged = {
+    ...(cookie ? { cookie } : {}),
+    ...(extraHeaders || {})
+  } as Record<string, string>;
   const res = await fetch(url, {
     method: "GET",
-    headers: cookie ? { cookie } : undefined,
+    headers: Object.keys(merged).length ? merged : undefined,
     // Never cache PDFs or the data they depend on (auditability + correctness).
     cache: "no-store"
   });
