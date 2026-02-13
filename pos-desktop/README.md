@@ -93,6 +93,7 @@ Unified behaviors:
 ## POS UI Features
 - Barcode scan support (type/scan then Enter)
 - Tabbed navigation (POS + Item Lookup)
+- Settings screen to configure agent connectivity (Edge vs Cloud), device credentials, and per-agent sync
 - Customer ID input for credit sales
 - Payment method selection (cash/card/transfer/credit)
 - Loyalty points calculated from config loyalty_rate

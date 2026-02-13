@@ -7,6 +7,7 @@
   import PaymentModal from "./components/PaymentModal.svelte";
   import SaleSummary from "./components/SaleSummary.svelte";
   import ItemLookup from "./components/ItemLookup.svelte";
+  import SettingsScreen from "./components/SettingsScreen.svelte";
 
   const API_BASE_STORAGE_KEY = "pos_ui_api_base";
   const SESSION_STORAGE_KEY = "pos_ui_session_token";
@@ -134,7 +135,7 @@
   let theme = "dark"; // "dark" | "light"
 
   // Screens
-  let activeScreen = "pos"; // "pos" | "items"
+  let activeScreen = "pos"; // "pos" | "items" | "settings"
   let itemLookupQuery = "";
   let itemLookupAutoPick = 0;
   
@@ -1003,13 +1004,36 @@
   };
 
   const setActiveScreen = (scr) => {
-    const v = (scr === "items") ? "items" : "pos";
+    const v = (scr === "items" || scr === "settings") ? scr : "pos";
     activeScreen = v;
     try { localStorage.setItem(SCREEN_STORAGE_KEY, v); } catch (_) {}
     if (v === "items") {
       // Move scan focus to lookup, keep the POS scan field free.
       itemLookupAutoPick++;
     }
+  };
+
+  const saveConfigFor = async (companyKey, payload) => {
+    const body = { ...(payload || {}) };
+    const res = await apiCallFor(companyKey, "/config", { method: "POST", body });
+    if (companyKey === otherCompanyKey) unofficialConfig = { ...unofficialConfig, ...(res?.config || {}) };
+    else config = { ...config, ...(res?.config || {}) };
+    await fetchData();
+    return res;
+  };
+
+  const testEdgeFor = async (companyKey) => {
+    return await apiCallFor(companyKey, "/edge/status", { method: "GET" });
+  };
+
+  const syncPullFor = async (companyKey) => {
+    await apiCallFor(companyKey, "/sync/pull", { method: "POST", body: {} });
+    await fetchData();
+  };
+
+  const syncPushFor = async (companyKey) => {
+    await apiCallFor(companyKey, "/sync/push", { method: "POST", body: {} });
+    await fetchData();
   };
 
   const resolveByTerm = (term) => {
@@ -1654,7 +1678,7 @@
           if (activeScreen === "items") {
             itemLookupQuery = term;
             itemLookupAutoPick++;
-          } else {
+          } else if (activeScreen === "pos") {
             // Attempt immediate add by barcode/SKU. Keep scanTerm for visibility.
             scanTerm = term;
             const ok = addByBarcode(term) || addBySkuExact(term);
@@ -1728,6 +1752,14 @@
       title="Item lookup & details"
     >
       Items
+    </button>
+    <button
+      class={`${tabBase} ${activeScreen === "settings" ? tabOn : tabOff}`}
+      on:click={() => setActiveScreen("settings")}
+      type="button"
+      title="Connectivity & setup"
+    >
+      Settings
     </button>
   </svelte:fragment>
 
@@ -1919,7 +1951,7 @@
         </div>
       </div>
     </div>
-  {:else}
+  {:else if activeScreen === "items"}
     <ItemLookup
       items={allItemsTagged}
       bind:query={itemLookupQuery}
@@ -1934,6 +1966,20 @@
       addToCart={addToCart}
       loadBatches={loadBatchesFor}
       resolveByTerm={resolveByTerm}
+    />
+  {:else}
+    <SettingsScreen
+      officialConfig={config}
+      unofficialConfig={unofficialConfig}
+      unofficialEnabled={!!_normalizeAgentOrigin(otherAgentUrl)}
+      unofficialStatus={unofficialStatus}
+      otherAgentUrl={otherAgentUrl}
+      bind:otherAgentDraftUrl={otherAgentDraftUrl}
+      saveOtherAgent={saveOtherAgent}
+      saveConfigFor={saveConfigFor}
+      testEdgeFor={testEdgeFor}
+      syncPullFor={syncPullFor}
+      syncPushFor={syncPushFor}
     />
   {/if}
 </Shell>

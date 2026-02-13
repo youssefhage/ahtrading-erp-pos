@@ -301,6 +301,8 @@ def _public_config(cfg: dict) -> dict:
     backend device token or admin PIN hash via unauthenticated GET requests.
     """
     safe = dict(cfg or {})
+    # Allow the UI to show whether a token exists without exposing it.
+    safe["has_device_token"] = bool(((cfg or {}).get("device_token") or "").strip())
     safe.pop("device_token", None)
     safe.pop("admin_pin_hash", None)
     return safe
