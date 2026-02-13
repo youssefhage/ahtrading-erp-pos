@@ -1,7 +1,10 @@
 import './styles.css';
-import App from './App.runtime.js';
+import App from './App.svelte';
 
 const mount = document.getElementById('app') || document.body;
-if (mount && typeof App === 'function') {
-  App(mount);
+
+if (mount) {
+  new App({
+    target: mount,
+  });
 }
