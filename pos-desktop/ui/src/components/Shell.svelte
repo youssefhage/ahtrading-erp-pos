@@ -5,6 +5,7 @@
   export let hasConnection = false;
   export let cashierName = "";
   export let shiftText = "";
+  export let showTabs = false;
 
   const tone = (kind) => {
     if (kind === "ok") return "bg-emerald-500/10 border-emerald-500/25 text-ink/80";
@@ -94,6 +95,14 @@
           <slot name="top-actions" />
         </div>
       </div>
+
+      {#if showTabs}
+        <div class="mt-3 pt-3 border-t border-ink/10">
+          <nav class="flex items-center gap-2 overflow-x-auto no-scrollbar" aria-label="Screens">
+            <slot name="tabs" />
+          </nav>
+        </div>
+      {/if}
     </div>
   </header>
 

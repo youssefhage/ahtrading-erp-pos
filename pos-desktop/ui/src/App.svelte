@@ -6,6 +6,7 @@
   import CustomerSelect from "./components/CustomerSelect.svelte";
   import PaymentModal from "./components/PaymentModal.svelte";
   import SaleSummary from "./components/SaleSummary.svelte";
+  import ItemLookup from "./components/ItemLookup.svelte";
 
   const API_BASE_STORAGE_KEY = "pos_ui_api_base";
   const SESSION_STORAGE_KEY = "pos_ui_session_token";
@@ -14,6 +15,7 @@
   const INVOICE_MODE_STORAGE_KEY = "pos_ui_invoice_company_mode";
   const FLAG_OFFICIAL_STORAGE_KEY = "pos_ui_flag_official";
   const THEME_STORAGE_KEY = "pos_ui_theme";
+  const SCREEN_STORAGE_KEY = "pos_ui_screen";
   const DEFAULT_API_BASE = "/api";
   const DEFAULT_OTHER_AGENT_URL = "http://localhost:7072";
 
@@ -114,6 +116,11 @@
 
   // Theme
   let theme = "dark"; // "dark" | "light"
+
+  // Screens
+  let activeScreen = "pos"; // "pos" | "items"
+  let itemLookupQuery = "";
+  let itemLookupAutoPick = 0;
   
   // Checkout State
   let showPaymentModal = false;
@@ -241,6 +248,10 @@
 
   $: barcodesByItemIdOrigin = _buildBarcodesByItemId(barcodes);
   $: barcodesByItemIdOther = _buildBarcodesByItemId(unofficialBarcodes);
+
+  $: itemsOriginTagged = (items || []).map((i) => ({ ...i, companyKey: originCompanyKey }));
+  $: itemsOtherTagged = (unofficialItems || []).map((i) => ({ ...i, companyKey: otherCompanyKey }));
+  $: allItemsTagged = ([]).concat(itemsOriginTagged || [], itemsOtherTagged || []);
 
   const uomOptionsFor = (item) => {
     const companyKey = item?.companyKey || "official";
@@ -671,6 +682,52 @@
     theme = theme === "light" ? "dark" : "light";
     try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch (_) {}
     try { document.documentElement.dataset.theme = theme; } catch (_) {}
+  };
+
+  const setActiveScreen = (scr) => {
+    const v = (scr === "items") ? "items" : "pos";
+    activeScreen = v;
+    try { localStorage.setItem(SCREEN_STORAGE_KEY, v); } catch (_) {}
+    if (v === "items") {
+      // Move scan focus to lookup, keep the POS scan field free.
+      itemLookupAutoPick++;
+    }
+  };
+
+  const resolveByTerm = (term) => {
+    const code = String(term || "").trim();
+    if (!code) return null;
+
+    const pick = (companyKey) => {
+      const idx = companyKey === otherCompanyKey ? barcodeIndexOther : barcodeIndexOrigin;
+      const b = idx?.get(code);
+      if (!b) return null;
+      const itemsById = companyKey === otherCompanyKey ? itemsByIdOther : itemsByIdOrigin;
+      const item = itemsById?.get(String(b.item_id));
+      if (!item) return null;
+      return { b, item: { ...item, companyKey } };
+    };
+
+    const mO = pick("official");
+    const mU = pick("unofficial");
+    if (mO && !mU) return mO;
+    if (mU && !mO) return mU;
+    if (mO && mU) {
+      const companyKey = effectiveInvoiceCompany();
+      return companyKey === "unofficial" ? mU : mO;
+    }
+
+    // Try exact SKU as fallback.
+    const key = code.toLowerCase();
+    const findIn = (list, companyKey) => {
+      const it = (list || []).find((i) => String(i?.sku || "").trim().toLowerCase() === key);
+      return it ? { b: null, item: { ...it, companyKey } } : null;
+    };
+    return findIn(items, originCompanyKey) || findIn(unofficialItems, otherCompanyKey) || null;
+  };
+
+  const loadBatchesFor = async (companyKey, itemId) => {
+    return await apiCallFor(companyKey, `/items/${encodeURIComponent(String(itemId))}/batches`);
   };
 
   const updateLineQty = (index, qty) => {
@@ -1181,6 +1238,9 @@
     if (theme !== "light" && theme !== "dark") theme = "dark";
     try { document.documentElement.dataset.theme = theme; } catch (_) {}
 
+    const storedScreen = localStorage.getItem(SCREEN_STORAGE_KEY) || "pos";
+    activeScreen = (storedScreen === "items") ? "items" : "pos";
+
     fetchData();
 
     const poll = setInterval(fetchData, 30000); // Polling legacy style
@@ -1220,10 +1280,15 @@
       if (e.key === "Enter") {
         const term = buf.trim();
         if (term && term.length >= 4) {
-          // Attempt immediate add by barcode/SKU. Keep scanTerm for visibility.
-          scanTerm = term;
-          const ok = addByBarcode(term) || addBySkuExact(term);
-          if (ok) scanTerm = "";
+          if (activeScreen === "items") {
+            itemLookupQuery = term;
+            itemLookupAutoPick++;
+          } else {
+            // Attempt immediate add by barcode/SKU. Keep scanTerm for visibility.
+            scanTerm = term;
+            const ok = addByBarcode(term) || addBySkuExact(term);
+            if (ok) scanTerm = "";
+          }
         }
         reset();
         return;
@@ -1270,7 +1335,31 @@
   hasConnection={hasConnection}
   cashierName={cashierName}
   shiftText={shiftText}
+  showTabs={true}
 >
+  <svelte:fragment slot="tabs">
+    {@const tabBase = "px-4 py-2 rounded-full text-xs font-extrabold border transition-colors whitespace-nowrap"}
+    {@const tabOn = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
+    {@const tabOff = "bg-ink/5 text-muted border-ink/10 hover:bg-ink/10 hover:text-ink"}
+
+    <button
+      class={`${tabBase} ${activeScreen === "pos" ? tabOn : tabOff}`}
+      on:click={() => setActiveScreen("pos")}
+      type="button"
+      title="Cashier POS screen"
+    >
+      POS
+    </button>
+    <button
+      class={`${tabBase} ${activeScreen === "items" ? tabOn : tabOff}`}
+      on:click={() => setActiveScreen("items")}
+      type="button"
+      title="Item lookup & details"
+    >
+      Items
+    </button>
+  </svelte:fragment>
+
   <svelte:fragment slot="top-actions">
     {@const topBtnBase = "px-3 py-2 rounded-full text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors whitespace-nowrap"}
     {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
@@ -1321,13 +1410,15 @@
     >
       Other Agent
     </button>
-    <button
-      class={`${topBtnBase} ${saleMode === "return" ? topBtnActive : "text-muted"}`}
-      on:click={() => { saleMode = (saleMode === "sale" ? "return" : "sale"); }}
-      title="Toggle return mode"
-    >
-      {saleMode === "sale" ? "Sale" : "Return"}
-    </button>
+    {#if activeScreen === "pos"}
+      <button
+        class={`${topBtnBase} ${saleMode === "return" ? topBtnActive : "text-muted"}`}
+        on:click={() => { saleMode = (saleMode === "sale" ? "return" : "sale"); }}
+        title="Toggle return mode"
+      >
+        {saleMode === "sale" ? "Sale" : "Return"}
+      </button>
+    {/if}
     {#if config.cashier_id}
       <button
         class={topBtnBase}
@@ -1359,93 +1450,111 @@
     </button>
   </svelte:fragment>
 
-  <div
-    class={`grid h-full gap-6 ${
-      catalogCollapsed
-        ? "grid-cols-1 lg:grid-cols-[72px_1fr_420px]"
-        : "grid-cols-1 lg:grid-cols-[minmax(420px,1fr)_520px_420px]"
-    }`}
-  >
-    <!-- Catalog Column (collapsible) -->
-    {#if catalogCollapsed}
-      <section class="glass-panel rounded-2xl h-full overflow-hidden flex flex-col items-center justify-between p-3">
-        <button
-          class="w-full py-3 rounded-xl bg-ink/5 hover:bg-ink/10 border border-ink/10 text-xs font-bold text-muted transition-colors"
-          on:click={toggleCatalog}
-          title="Show Catalog"
-        >
-          Catalog
-        </button>
-        <div class="text-[10px] text-muted rotate-90 whitespace-nowrap select-none opacity-70">
-          Scan anywhere
-        </div>
-        <button
-          class="w-full py-3 rounded-xl bg-accent/20 hover:bg-accent/30 border border-accent/30 text-xs font-bold text-accent transition-colors"
-          on:click={() => {
-            const scanEl = document.querySelector('[data-scan-input="1"]');
-            if (scanEl && scanEl.focus) scanEl.focus();
-          }}
-          title="Focus scan"
-        >
-          Scan
-        </button>
-      </section>
-    {:else}
-      <ProductGrid
-        items={allItems}
-        bind:scanTerm={scanTerm}
-        suggestions={scanSuggestions}
-        addToCart={addToCart}
-        uomOptionsFor={uomOptionsFor}
-        collapseCatalog={toggleCatalog}
-        currencyPrimary={currencyPrimary}
-        onScanKeyDown={handleScanKeyDown}
-        companyLabel={companyLabel}
-        companyTone={companyTone}
-      />
-    {/if}
+  {#if activeScreen === "pos"}
+    <div
+      class={`grid h-full gap-6 ${
+        catalogCollapsed
+          ? "grid-cols-1 lg:grid-cols-[72px_1fr_420px]"
+          : "grid-cols-1 lg:grid-cols-[minmax(420px,1fr)_520px_420px]"
+      }`}
+    >
+      <!-- Catalog Column (collapsible) -->
+      {#if catalogCollapsed}
+        <section class="glass-panel rounded-2xl h-full overflow-hidden flex flex-col items-center justify-between p-3">
+          <button
+            class="w-full py-3 rounded-xl bg-ink/5 hover:bg-ink/10 border border-ink/10 text-xs font-bold text-muted transition-colors"
+            on:click={toggleCatalog}
+            title="Show Catalog"
+          >
+            Catalog
+          </button>
+          <div class="text-[10px] text-muted rotate-90 whitespace-nowrap select-none opacity-70">
+            Scan anywhere
+          </div>
+          <button
+            class="w-full py-3 rounded-xl bg-accent/20 hover:bg-accent/30 border border-accent/30 text-xs font-bold text-accent transition-colors"
+            on:click={() => {
+              const scanEl = document.querySelector('[data-scan-input="1"]');
+              if (scanEl && scanEl.focus) scanEl.focus();
+            }}
+            title="Focus scan"
+          >
+            Scan
+          </button>
+        </section>
+      {:else}
+        <ProductGrid
+          items={allItems}
+          bind:scanTerm={scanTerm}
+          suggestions={scanSuggestions}
+          addToCart={addToCart}
+          uomOptionsFor={uomOptionsFor}
+          collapseCatalog={toggleCatalog}
+          currencyPrimary={currencyPrimary}
+          onScanKeyDown={handleScanKeyDown}
+          companyLabel={companyLabel}
+          companyTone={companyTone}
+        />
+      {/if}
 
-    <!-- Cart Column (only scrollable region is inside Cart list) -->
-    <div class="h-full min-h-0">
-      <Cart
-        cart={cart}
-        config={config}
-        updateQty={updateLineQty}
-        removeLine={removeLine}
-        clearCart={() => cart = []}
-        companyLabelForLine={companyLabel}
-        companyToneForLine={companyTone}
-      />
-    </div>
-
-    <!-- Right Column: Customer + Current Sale -->
-    <div class="h-full min-h-0 flex flex-col gap-4 overflow-visible relative z-0">
-      <CustomerSelect
-        bind:customerSearch={customerSearch}
-        bind:activeCustomer={activeCustomer}
-        customerResults={customerResults}
-        customerSearching={customerSearching}
-        bind:addCustomerMode={addCustomerMode}
-        bind:customerDraft={customerDraft}
-        searchCustomers={searchCustomers}
-        selectCustomer={selectCustomer}
-        createCustomer={createCustomer}
-      />
-
-      <div class="flex-1 min-h-0 overflow-hidden relative z-0">
-        <SaleSummary
+      <!-- Cart Column (only scrollable region is inside Cart list) -->
+      <div class="h-full min-h-0">
+        <Cart
           cart={cart}
-          totals={totals}
-          totalsByCompany={totalsByCompany}
-          invoiceCompanyMode={invoiceCompanyMode}
-          flagOfficial={flagOfficial}
-          onInvoiceCompanyModeChange={onInvoiceCompanyModeChange}
-          onFlagOfficialChange={onFlagOfficialChange}
-          onCheckout={handleCheckoutRequest}
+          config={config}
+          updateQty={updateLineQty}
+          removeLine={removeLine}
+          clearCart={() => cart = []}
+          companyLabelForLine={companyLabel}
+          companyToneForLine={companyTone}
         />
       </div>
+
+      <!-- Right Column: Customer + Current Sale -->
+      <div class="h-full min-h-0 flex flex-col gap-4 overflow-visible relative z-0">
+        <CustomerSelect
+          bind:customerSearch={customerSearch}
+          bind:activeCustomer={activeCustomer}
+          customerResults={customerResults}
+          customerSearching={customerSearching}
+          bind:addCustomerMode={addCustomerMode}
+          bind:customerDraft={customerDraft}
+          searchCustomers={searchCustomers}
+          selectCustomer={selectCustomer}
+          createCustomer={createCustomer}
+        />
+
+        <div class="flex-1 min-h-0 overflow-hidden relative z-0">
+          <SaleSummary
+            cart={cart}
+            totals={totals}
+            totalsByCompany={totalsByCompany}
+            invoiceCompanyMode={invoiceCompanyMode}
+            flagOfficial={flagOfficial}
+            onInvoiceCompanyModeChange={onInvoiceCompanyModeChange}
+            onFlagOfficialChange={onFlagOfficialChange}
+            onCheckout={handleCheckoutRequest}
+          />
+        </div>
+      </div>
     </div>
-  </div>
+  {:else}
+    <ItemLookup
+      items={allItemsTagged}
+      bind:query={itemLookupQuery}
+      autoPick={itemLookupAutoPick}
+      isActive={activeScreen === "items"}
+      otherCompanyKey={otherCompanyKey}
+      barcodesByItemIdOrigin={barcodesByItemIdOrigin}
+      barcodesByItemIdOther={barcodesByItemIdOther}
+      uomOptionsFor={uomOptionsFor}
+      companyLabel={companyLabel}
+      companyTone={companyTone}
+      addToCart={addToCart}
+      loadBatches={loadBatchesFor}
+      resolveByTerm={resolveByTerm}
+    />
+  {/if}
 </Shell>
 
 <PaymentModal

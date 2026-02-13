@@ -56,6 +56,7 @@
             <button 
               class="w-6 h-6 rounded flex items-center justify-center bg-ink/5 hover:bg-accent hover:text-white text-muted transition-colors"
               on:click={() => updateQty(i, line.qty_entered + 1)}
+              aria-label="Increase quantity"
             >
               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" /></svg>
             </button>
@@ -64,10 +65,12 @@
               class="w-10 text-center bg-transparent font-mono text-sm font-bold focus:outline-none focus:text-accent"
               value={line.qty_entered} 
               on:change={(e) => updateQty(i, e.target.value)}
+              aria-label="Quantity"
             />
             <button 
               class="w-6 h-6 rounded flex items-center justify-center bg-ink/5 hover:bg-accent hover:text-white text-muted transition-colors"
               on:click={() => updateQty(i, line.qty_entered - 1)}
+              aria-label="Decrease quantity"
             >
               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
             </button>
