@@ -24,11 +24,12 @@
 {#if isOpen}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <!-- Backdrop -->
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <div 
-      class="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity cursor-pointer"
+    <button
+      class="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
+      type="button"
+      aria-label="Close payment"
       on:click={onCancel}
-    ></div>
+    ></button>
 
     <!-- Modal Content -->
     <div class="relative w-full max-w-md bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden transform transition-all scale-100 opacity-100 z-10">

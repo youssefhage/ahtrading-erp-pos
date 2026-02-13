@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import Shell from "./components/Shell.svelte";
   import ProductGrid from "./components/ProductGrid.svelte";
   import Cart from "./components/Cart.svelte";
@@ -146,6 +146,7 @@
   let showAdminPinModal = false;
   let adminPin = "";
   let adminPinMode = "unlock"; // "unlock" | "set"
+  let adminPinEl = null;
 
   // Printing settings
   let showPrintingModal = false;
@@ -160,6 +161,7 @@
   // Cashier
   let showCashierModal = false;
   let cashierPin = "";
+  let cashierPinEl = null;
 
   // Shift
   let showShiftModal = false;
@@ -488,6 +490,18 @@
     { id: "c2", name: "Jane Smith", phone: "555-9876" }
   ];
 
+  const openAdminPinModal = async () => {
+    showAdminPinModal = true;
+    await tick();
+    try { adminPinEl?.focus(); } catch (_) {}
+  };
+
+  const openCashierModal = async () => {
+    showCashierModal = true;
+    await tick();
+    try { cashierPinEl?.focus(); } catch (_) {}
+  };
+
   const fetchData = async () => {
     try {
       loading = true;
@@ -510,7 +524,7 @@
           status = "Locked";
           // If the agent is protected and the PIN isn't set yet, the API returns a hint.
           adminPinMode = (p?.hint && String(p.hint).includes("admin PIN")) ? "set" : "unlock";
-          showAdminPinModal = true;
+          openAdminPinModal();
           return;
         }
         throw cfgRes.reason;
@@ -1420,7 +1434,7 @@
       if (p?.error === "pos_auth_required") {
         status = "Locked";
         adminPinMode = "unlock";
-        showAdminPinModal = true;
+        openAdminPinModal();
       } else {
         reportError(e.message);
       }
@@ -1738,7 +1752,7 @@
     </button>
     <button
       class={topBtnBase}
-      on:click={() => showCashierModal = true}
+      on:click={openCashierModal}
       disabled={loading}
       title="Cashier login"
     >
@@ -1935,26 +1949,33 @@
 
 {#if showCashierModal}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" on:click={() => showCashierModal = false}></div>
+    <button
+      class="absolute inset-0 bg-black/80 backdrop-blur-sm"
+      type="button"
+      aria-label="Close cashier login"
+      on:click={() => showCashierModal = false}
+    ></button>
     <div class="relative w-full max-w-sm bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
       <div class="p-6 border-b border-ink/10 text-center">
         <h2 class="text-xl font-bold text-ink">Cashier Login</h2>
         <p class="text-sm text-muted mt-1">Enter PIN</p>
       </div>
       <div class="p-6 space-y-4">
+        <label class="sr-only" for="cashier-pin">PIN</label>
         <input
           class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono text-lg tracking-widest focus:ring-2 focus:ring-accent/50 focus:outline-none"
           type="password"
           bind:value={cashierPin}
+          bind:this={cashierPinEl}
+          id="cashier-pin"
           placeholder="PIN"
           on:keydown={(e) => e.key === 'Enter' && cashierLogin()}
-          autofocus
         />
         <div class="flex gap-3">
           <button
             class="flex-1 py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
             on:click={() => showCashierModal = false}
+            type="button"
           >
             Cancel
           </button>
@@ -1962,6 +1983,7 @@
             class="flex-[2] py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
             on:click={cashierLogin}
             disabled={loading}
+            type="button"
           >
             Sign In
           </button>
@@ -1973,8 +1995,12 @@
 
 {#if showAdminPinModal}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" on:click={() => showAdminPinModal = false}></div>
+    <button
+      class="absolute inset-0 bg-black/80 backdrop-blur-sm"
+      type="button"
+      aria-label="Close admin PIN modal"
+      on:click={() => showAdminPinModal = false}
+    ></button>
     <div class="relative w-full max-w-sm bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
       <div class="p-6 border-b border-ink/10 text-center">
         <h2 class="text-xl font-bold text-ink">{adminPinMode === "set" ? "Set Admin PIN" : "Unlock POS"}</h2>
@@ -1983,18 +2009,21 @@
         </p>
       </div>
       <div class="p-6 space-y-4">
+        <label class="sr-only" for="admin-pin">{adminPinMode === "set" ? "New Admin PIN" : "Admin PIN"}</label>
         <input
           class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono text-lg tracking-widest focus:ring-2 focus:ring-accent/50 focus:outline-none"
           type="password"
           bind:value={adminPin}
+          bind:this={adminPinEl}
+          id="admin-pin"
           placeholder="Admin PIN"
           on:keydown={(e) => e.key === 'Enter' && adminPinSubmit()}
-          autofocus
         />
         <div class="flex gap-3">
           <button
             class="flex-1 py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
             on:click={() => showAdminPinModal = false}
+            type="button"
           >
             Cancel
           </button>
@@ -2002,6 +2031,7 @@
             class="flex-[2] py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
             on:click={adminPinSubmit}
             disabled={loading}
+            type="button"
           >
             {adminPinMode === "set" ? "Set & Unlock" : "Unlock"}
           </button>
@@ -2013,8 +2043,12 @@
 
 {#if showShiftModal}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" on:click={() => showShiftModal = false}></div>
+    <button
+      class="absolute inset-0 bg-black/80 backdrop-blur-sm"
+      type="button"
+      aria-label="Close shift"
+      on:click={() => showShiftModal = false}
+    ></button>
     <div class="relative w-full max-w-lg bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
       <div class="p-6 border-b border-ink/10 flex items-center justify-between">
         <div>
@@ -2035,8 +2069,9 @@
         {#if !config.shift_id}
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="text-xs text-muted">Opening Cash (USD)</label>
+              <label class="text-xs text-muted" for="shift-opening-usd">Opening Cash (USD)</label>
               <input
+                id="shift-opening-usd"
                 class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
                 type="number"
                 step="0.01"
@@ -2044,8 +2079,9 @@
               />
             </div>
             <div>
-              <label class="text-xs text-muted">Opening Cash (LBP)</label>
+              <label class="text-xs text-muted" for="shift-opening-lbp">Opening Cash (LBP)</label>
               <input
+                id="shift-opening-lbp"
                 class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
                 type="number"
                 step="1"
@@ -2063,8 +2099,9 @@
         {:else}
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="text-xs text-muted">Closing Cash (USD)</label>
+              <label class="text-xs text-muted" for="shift-closing-usd">Closing Cash (USD)</label>
               <input
+                id="shift-closing-usd"
                 class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
                 type="number"
                 step="0.01"
@@ -2072,8 +2109,9 @@
               />
             </div>
             <div>
-              <label class="text-xs text-muted">Closing Cash (LBP)</label>
+              <label class="text-xs text-muted" for="shift-closing-lbp">Closing Cash (LBP)</label>
               <input
+                id="shift-closing-lbp"
                 class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
                 type="number"
                 step="1"
@@ -2096,8 +2134,12 @@
 
 {#if showOtherAgentModal}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" on:click={() => showOtherAgentModal = false}></div>
+    <button
+      class="absolute inset-0 bg-black/80 backdrop-blur-sm"
+      type="button"
+      aria-label="Close other agent"
+      on:click={() => showOtherAgentModal = false}
+    ></button>
     <div class="relative w-full max-w-lg bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
       <div class="p-6 border-b border-ink/10 flex items-center justify-between">
         <div>
@@ -2112,8 +2154,9 @@
         </button>
       </div>
       <div class="p-6 space-y-4">
-        <label class="text-xs text-muted">Other Agent URL (blank disables Unified mode)</label>
+        <label class="text-xs text-muted" for="other-agent-url">Other Agent URL (blank disables Unified mode)</label>
         <input
+          id="other-agent-url"
           class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
           placeholder="http://127.0.0.1:7072"
           bind:value={otherAgentDraftUrl}
@@ -2143,8 +2186,12 @@
 
 {#if showPrintingModal}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" on:click={() => showPrintingModal = false}></div>
+    <button
+      class="absolute inset-0 bg-black/80 backdrop-blur-sm"
+      type="button"
+      aria-label="Close printing settings"
+      on:click={() => showPrintingModal = false}
+    ></button>
     <div class="relative w-full max-w-2xl bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
       <div class="p-6 border-b border-ink/10 flex items-center justify-between">
         <div>
@@ -2167,26 +2214,27 @@
         {/if}
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div class="rounded-2xl border border-ink/10 bg-ink/5 p-4 space-y-3">
-            <div class="text-[11px] font-extrabold uppercase tracking-wider text-muted">Official</div>
-            <div>
-              <label class="text-xs text-muted">Printer</label>
-              <select class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm" bind:value={printOfficial.printer}>
-                <option value="">(None)</option>
-                {#each printersOfficial as p}
-                  <option value={p.name}>{p.name}{p.is_default ? " (default)" : ""}</option>
-                {/each}
-              </select>
-            </div>
-            <div>
-              <label class="text-xs text-muted">Admin URL (for A4 invoice PDFs)</label>
-              <input
-                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm font-mono"
-                placeholder="http://127.0.0.1:3000"
-                bind:value={printOfficial.baseUrl}
-              />
-              <div class="mt-1 text-[11px] text-muted">Must serve `/exports/sales-invoices/.../pdf`.</div>
-            </div>
+	          <div class="rounded-2xl border border-ink/10 bg-ink/5 p-4 space-y-3">
+	            <div class="text-[11px] font-extrabold uppercase tracking-wider text-muted">Official</div>
+	            <div>
+	              <label class="text-xs text-muted" for="print-official-printer">Printer</label>
+	              <select id="print-official-printer" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm" bind:value={printOfficial.printer}>
+	                <option value="">(None)</option>
+	                {#each printersOfficial as p}
+	                  <option value={p.name}>{p.name}{p.is_default ? " (default)" : ""}</option>
+	                {/each}
+	              </select>
+	            </div>
+	            <div>
+	              <label class="text-xs text-muted" for="print-official-admin-url">Admin URL (for A4 invoice PDFs)</label>
+	              <input
+	                id="print-official-admin-url"
+	                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm font-mono"
+	                placeholder="http://127.0.0.1:3000"
+	                bind:value={printOfficial.baseUrl}
+	              />
+	              <div class="mt-1 text-[11px] text-muted">Must serve `/exports/sales-invoices/.../pdf`.</div>
+	            </div>
             <div class="flex items-center justify-between gap-3">
               <label class="flex items-center gap-2 text-xs text-muted">
                 <input type="checkbox" bind:checked={printOfficial.auto} />
@@ -2208,17 +2256,17 @@
             </div>
           </div>
 
-          <div class="rounded-2xl border border-ink/10 bg-ink/5 p-4 space-y-3">
-            <div class="text-[11px] font-extrabold uppercase tracking-wider text-muted">Unofficial</div>
-            <div>
-              <label class="text-xs text-muted">Printer</label>
-              <select class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm" bind:value={printUnofficial.printer}>
-                <option value="">(None)</option>
-                {#each printersUnofficial as p}
-                  <option value={p.name}>{p.name}{p.is_default ? " (default)" : ""}</option>
-                {/each}
-              </select>
-            </div>
+	          <div class="rounded-2xl border border-ink/10 bg-ink/5 p-4 space-y-3">
+	            <div class="text-[11px] font-extrabold uppercase tracking-wider text-muted">Unofficial</div>
+	            <div>
+	              <label class="text-xs text-muted" for="print-unofficial-printer">Printer</label>
+	              <select id="print-unofficial-printer" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm" bind:value={printUnofficial.printer}>
+	                <option value="">(None)</option>
+	                {#each printersUnofficial as p}
+	                  <option value={p.name}>{p.name}{p.is_default ? " (default)" : ""}</option>
+	                {/each}
+	              </select>
+	            </div>
             <div class="flex items-center justify-between gap-3">
               <label class="flex items-center gap-2 text-xs text-muted">
                 <input type="checkbox" bind:checked={printUnofficial.auto} />
