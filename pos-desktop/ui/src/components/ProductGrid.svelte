@@ -15,6 +15,15 @@
 
   let activeIndex = 0;
   let uomIdxByKey = new Map(); // itemKey -> selected option index
+  let quickQty = 1;
+
+  const nameSizeClass = (name) => {
+    const n = String(name || "").trim().length;
+    if (n <= 18) return "text-base font-extrabold";
+    if (n <= 32) return "text-sm font-bold";
+    if (n <= 48) return "text-sm font-semibold";
+    return "text-xs font-semibold";
+  };
 
   const toNum = (value, fallback = 0) => {
     const parsed = Number(value);
@@ -81,12 +90,15 @@
 
   const addItem = (item) => {
     if (!item) return;
+    const q = Math.max(1, toNum(quickQty, 1) || 1);
     const sel = getUomSelected(item);
     if (sel && (toNum(sel.qty_factor, 1) !== 1 || String(sel.uom || "").trim())) {
-      addToCart(item, { qty_factor: toNum(sel.qty_factor, 1), uom: String(sel.uom || "").trim() });
+      addToCart(item, { qty_factor: toNum(sel.qty_factor, 1), uom: String(sel.uom || "").trim(), qty_entered: q });
+      quickQty = 1;
       return;
     }
-    addToCart(item);
+    addToCart(item, { qty_entered: q });
+    quickQty = 1;
   };
 
   const onSearchKeyDown = (e) => {
@@ -159,23 +171,38 @@
       </div>
     </div>
     
-    <!-- Search Bar -->
-    <div class="relative group">
-      <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-        <svg class="h-5 w-5 text-muted group-focus-within:text-accent transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
+    <!-- Search + Qty -->
+    <div class="grid grid-cols-[1fr_92px] gap-2">
+      <div class="relative group">
+        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+          <svg class="h-5 w-5 text-muted group-focus-within:text-accent transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+        <input
+          bind:value={scanTerm}
+          type="text"
+          class="block w-full pl-10 pr-3 py-3 rounded-xl bg-bg/50 border border-ink/10 
+                 text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent
+                 transition-all duration-200"
+          placeholder="Scan barcode or type to search..."
+          data-scan-input="1"
+          on:keydown={onSearchKeyDown}
+        />
       </div>
-      <input
-        bind:value={scanTerm}
-        type="text"
-        class="block w-full pl-10 pr-3 py-3 rounded-xl bg-bg/50 border border-ink/10 
-               text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent
-               transition-all duration-200"
-        placeholder="Scan barcode or type to search..."
-        data-scan-input="1"
-        on:keydown={onSearchKeyDown}
-      />
+
+      <div>
+        <input
+          bind:value={quickQty}
+          type="number"
+          min="1"
+          step="1"
+          class="block w-full px-3 py-3 rounded-xl bg-bg/50 border border-ink/10 text-ink font-mono text-sm font-bold
+                 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all duration-200"
+          title="Quick quantity (Enter adds this qty)"
+          aria-label="Quick quantity"
+        />
+      </div>
     </div>
   </header>
 
@@ -214,12 +241,12 @@
           >
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-3 min-w-0">
-                <span class="text-[11px] font-mono text-muted group-hover:text-accent/80 transition-colors shrink-0 w-24">
-                  {item.sku || "NO SKU"}
-                </span>
-                <span class="text-sm font-semibold text-ink truncate">
-                  {item.name || "Unknown Item"}
-                </span>
+                <div class="min-w-0 flex-1">
+                  <div class={`clamp-2 text-ink ${nameSizeClass(item.name)}`}>{item.name || "Unknown Item"}</div>
+                  <div class="mt-1 text-[10px] font-mono text-muted group-hover:text-accent/80 transition-colors truncate">
+                    {item.sku || "NO SKU"}
+                  </div>
+                </div>
               </div>
               {#if item.barcode}
                 <div class="mt-1 text-[11px] text-muted truncate">

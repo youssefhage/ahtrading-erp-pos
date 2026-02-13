@@ -28,6 +28,14 @@
 
   let uomIdx = 0;
 
+  const nameSizeClass = (name) => {
+    const n = String(name || "").trim().length;
+    if (n <= 18) return "text-base font-extrabold";
+    if (n <= 32) return "text-sm font-bold";
+    if (n <= 48) return "text-sm font-semibold";
+    return "text-xs font-semibold";
+  };
+
   const toNum = (value, fallback = 0) => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -261,14 +269,14 @@
               on:click={() => pick(it)}
             >
               <div class="flex items-start gap-3">
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span class="text-[11px] font-mono text-muted shrink-0 w-24">{it.sku || "NO SKU"}</span>
-                    <span class="text-sm font-semibold text-ink truncate">{it.name || "Unknown Item"}</span>
-                  </div>
-                  <div class="mt-1 flex items-center gap-2 text-[11px] text-muted">
-                    {#if it.barcode}<span class="font-mono">{it.barcode}</span>{/if}
-                    {#if it.track_batches || it.track_expiry}
+	                <div class="min-w-0 flex-1">
+	                  <div class="min-w-0">
+	                    <div class={`clamp-2 text-ink ${nameSizeClass(it.name)}`}>{it.name || "Unknown Item"}</div>
+	                    <div class="mt-1 text-[10px] font-mono text-muted truncate">{it.sku || "NO SKU"}</div>
+	                  </div>
+	                  <div class="mt-1 flex items-center gap-2 text-[11px] text-muted">
+	                    {#if it.barcode}<span class="font-mono">{it.barcode}</span>{/if}
+	                    {#if it.track_batches || it.track_expiry}
                       <span class="px-2 py-0.5 rounded-full border border-ink/10 bg-ink/5 text-[10px] font-bold">
                         {it.track_batches ? "Batch" : ""}{it.track_batches && it.track_expiry ? "+" : ""}{it.track_expiry ? "Expiry" : ""}
                       </span>

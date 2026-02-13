@@ -66,6 +66,13 @@
     exchange_rate: 0,
     vat_rate: 0,
     tax_code_id: null,
+    print_base_url: "",
+    receipt_printer: "",
+    receipt_print_copies: 1,
+    auto_print_receipt: false,
+    invoice_printer: "",
+    invoice_print_copies: 1,
+    auto_print_invoice: false,
   };
   let edge = null;
   let unofficialEdge = null;
@@ -77,6 +84,7 @@
   let cashiers = [];
   let outbox = [];
   let lastReceipt = null;
+  let promotions = [];
 
   let unofficialConfig = {
     company_id: "",
@@ -85,6 +93,13 @@
     exchange_rate: 0,
     vat_rate: 0,
     tax_code_id: null,
+    print_base_url: "",
+    receipt_printer: "",
+    receipt_print_copies: 1,
+    auto_print_receipt: false,
+    invoice_printer: "",
+    invoice_print_copies: 1,
+    auto_print_invoice: false,
   };
   let unofficialItems = [];
   let unofficialBarcodes = [];
@@ -93,6 +108,7 @@
   let unofficialCashiers = [];
   let unofficialOutbox = [];
   let unofficialLastReceipt = null;
+  let unofficialPromotions = [];
 
   // Search & Cart State
   let scanTerm = "";
@@ -130,6 +146,16 @@
   let showAdminPinModal = false;
   let adminPin = "";
   let adminPinMode = "unlock"; // "unlock" | "set"
+
+  // Printing settings
+  let showPrintingModal = false;
+  let printersOfficial = [];
+  let printersUnofficial = [];
+  let printingStatus = "";
+  let printingError = "";
+  // Official: A4 invoice PDF
+  let printOfficial = { printer: "", copies: 1, auto: false, baseUrl: "" };
+  let printUnofficial = { printer: "", copies: 1, auto: false };
 
   // Cashier
   let showCashierModal = false;
@@ -376,6 +402,57 @@
     return data;
   };
 
+  const cfgForCompanyKey = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
+
+  const printAfterSale = async (companyKey, eventId = "", receiptWin = null) => {
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const eid = String(eventId || "").trim();
+
+    if (companyKey === "official") {
+      const auto = !!cfg.auto_print_invoice;
+      if (auto && eid) {
+        try {
+          await apiCallFor(companyKey, "/invoices/print-by-event", { method: "POST", body: { event_id: eid } });
+          try { if (receiptWin) receiptWin.close(); } catch (_) {}
+          return;
+        } catch (_) {
+          // Fall back to opening the PDF if direct printing fails.
+        }
+      }
+      if (eid) {
+        try {
+          const resolved = await apiCallFor(companyKey, "/invoices/resolve-by-event", { method: "POST", body: { event_id: eid } });
+          const invId = String(resolved?.invoice_id || "").trim();
+          const pb = String(cfg.print_base_url || "").trim().replace(/\/+$/, "");
+          if (invId && pb) {
+            const u = `${pb}/exports/sales-invoices/${encodeURIComponent(invId)}/pdf?inline=1`;
+            if (receiptWin) receiptWin.location = u;
+            else window.open(u, "_blank", "noopener,noreferrer");
+            return;
+          }
+        } catch (_) {}
+      }
+      try { if (receiptWin) receiptWin.close(); } catch (_) {}
+      return;
+    }
+
+    // Unofficial: thermal receipt.
+    const auto = !!cfg.auto_print_receipt;
+    if (auto) {
+      try {
+        await apiCallFor(companyKey, "/receipts/print-last", { method: "POST", body: {} });
+        try { if (receiptWin) receiptWin.close(); } catch (_) {}
+        return;
+      } catch (_) {
+        // Fall back to the printable HTML view if direct printing isn't available.
+      }
+    }
+    try {
+      if (receiptWin) receiptWin.location = _agentReceiptUrl(companyKey);
+      else window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer");
+    } catch (_) {}
+  };
+
   // Wrapper for the agent serving this UI (origin).
   const apiCall = (path, options = {}) => apiCallFor(originCompanyKey, path, options);
 
@@ -423,6 +500,7 @@
         apiCall("/outbox"),
         apiCall("/edge/status"),
         apiCall("/receipts/last"),
+        apiCall("/promotions"),
       ]);
 
       const cfgRes = results[0];
@@ -454,6 +532,7 @@
       setIfOk(5, (v) => (outbox = v.outbox || []), []);
       setIfOk(6, (v) => (edge = v), null);
       setIfOk(7, (v) => (lastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
+      setIfOk(8, (v) => (promotions = v.promotions || []), []);
 
       status = "Ready";
 
@@ -479,6 +558,7 @@
             apiCallFor(otherCompanyKey, "/outbox"),
             apiCallFor(otherCompanyKey, "/edge/status"),
             apiCallFor(otherCompanyKey, "/receipts/last"),
+            apiCallFor(otherCompanyKey, "/promotions"),
           ]);
 
           const uCfgRes = uResults[0];
@@ -496,6 +576,7 @@
             setIfOkU(5, (v) => (unofficialOutbox = v.outbox || []), []);
             setIfOkU(6, (v) => (unofficialEdge = v), null);
             setIfOkU(7, (v) => (unofficialLastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
+            setIfOkU(8, (v) => (unofficialPromotions = v.promotions || []), []);
             unofficialStatus = "Ready";
           } else {
             unofficialStatus = "Offline";
@@ -504,6 +585,9 @@
       } catch (_) {
         unofficialStatus = "Offline";
       }
+
+      // Promotions can affect cart pricing (min qty tiers). Reprice after refresh.
+      try { cart = (cart || []).map((ln) => applyPromotionToLine(ln)); } catch (_) {}
     } catch(e) {
       console.warn("API Error", e);
       error = e?.message || String(e);
@@ -519,19 +603,143 @@
   };
 
   // Cart Logic
+  const promoNowYmd = () => new Date().toISOString().slice(0, 10);
+
+  const _promoIsActive = (promoRules) => {
+    const r = promoRules || {};
+    if (r.is_active === false) return false;
+    const today = promoNowYmd();
+    const s = String(r.starts_on || "").slice(0, 10);
+    const e = String(r.ends_on || "").slice(0, 10);
+    if (s && today < s) return false;
+    if (e && today > e) return false;
+    return true;
+  };
+
+  const _normDiscPct = (raw) => {
+    let p = toNum(raw, 0);
+    // Allow 0..100 as a convenience.
+    if (p > 1 && p <= 100) p = p / 100;
+    if (p < 0) p = 0;
+    if (p > 1) p = 1;
+    return p;
+  };
+
+  const _promosForCompanyKey = (companyKey) => {
+    const list = companyKey === otherCompanyKey ? unofficialPromotions : promotions;
+    return Array.isArray(list) ? list : [];
+  };
+
+  const _bestPromoForLine = (line) => {
+    const companyKey = line?.companyKey || "official";
+    const itemId = String(line?.id || "").trim();
+    if (!itemId) return null;
+
+    const qtyBase = Math.max(0, toNum(line?.qty_entered, 0) * toNum(line?.qty_factor, 1));
+    if (qtyBase <= 0) return null;
+
+    const listUsd = toNum(line?.list_price_usd, toNum(line?.price_usd, 0));
+    const listLbp = toNum(line?.list_price_lbp, toNum(line?.price_lbp, 0));
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const ex = toNum(cfg.exchange_rate, 0);
+
+    let best = null;
+    let bestScore = -1;
+    for (const p of _promosForCompanyKey(companyKey)) {
+      const rules = p?.rules || p?.rules_json || p?.rules || p;
+      const r = rules && typeof rules === "object" ? rules : (p?.rules || {});
+      if (!_promoIsActive(r)) continue;
+
+      const items = Array.isArray(r.items) ? r.items : [];
+      const matches = items.filter((it) => String(it?.item_id || "") === itemId && qtyBase >= toNum(it?.min_qty, 0));
+      if (!matches.length) continue;
+      matches.sort((a, b) => toNum(b?.min_qty, 0) - toNum(a?.min_qty, 0));
+      const it = matches[0];
+
+      const promoUsd = toNum(it?.promo_price_usd, 0);
+      const promoLbp = toNum(it?.promo_price_lbp, 0);
+      const discPct = _normDiscPct(it?.discount_pct);
+
+      let unitUsd = listUsd;
+      let unitLbp = listLbp;
+      if (promoUsd > 0 || promoLbp > 0) {
+        if (promoUsd > 0) unitUsd = promoUsd;
+        if (promoLbp > 0) unitLbp = promoLbp;
+        if (promoUsd > 0 && promoLbp <= 0 && ex > 0) unitLbp = promoUsd * ex;
+        if (promoLbp > 0 && promoUsd <= 0 && ex > 0) unitUsd = promoLbp / ex;
+      } else if (discPct > 0) {
+        if (listUsd > 0) unitUsd = listUsd * (1 - discPct);
+        if (listLbp > 0) unitLbp = listLbp * (1 - discPct);
+        if (listUsd > 0 && listLbp <= 0 && ex > 0) unitLbp = unitUsd * ex;
+        if (listLbp > 0 && listUsd <= 0 && ex > 0) unitUsd = unitLbp / ex;
+      } else {
+        continue;
+      }
+
+      // Score by discount pct when possible; tie-break by promo priority.
+      let pctScore = 0;
+      if (listUsd > 0 && unitUsd > 0) pctScore = Math.max(0, (listUsd - unitUsd) / listUsd);
+      else if (listLbp > 0 && unitLbp > 0) pctScore = Math.max(0, (listLbp - unitLbp) / listLbp);
+      const priority = toNum(r?.priority, toNum(p?.priority, 0));
+      const score = pctScore * 1000 + priority;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { promo: r, promoRow: p, promoItem: it, unitUsd, unitLbp, pctScore };
+      }
+    }
+    return best;
+  };
+
+  const applyPromotionToLine = (line) => {
+    const ln = { ...(line || {}) };
+    const listUsd = toNum(ln.list_price_usd, toNum(ln.price_usd, 0));
+    const listLbp = toNum(ln.list_price_lbp, toNum(ln.price_lbp, 0));
+    ln.list_price_usd = listUsd;
+    ln.list_price_lbp = listLbp;
+
+    const best = _bestPromoForLine(ln);
+    if (!best) {
+      // Clear promo metadata and revert unit prices to list.
+      ln.price_usd = listUsd;
+      ln.price_lbp = listLbp;
+      ln.pre_discount_unit_price_usd = 0;
+      ln.pre_discount_unit_price_lbp = 0;
+      ln.discount_pct = 0;
+      ln.discount_amount_usd = 0;
+      ln.discount_amount_lbp = 0;
+      ln.applied_promotion_id = null;
+      ln.applied_promotion_item_id = null;
+      return ln;
+    }
+
+    ln.price_usd = toNum(best.unitUsd, listUsd);
+    ln.price_lbp = toNum(best.unitLbp, listLbp);
+    ln.pre_discount_unit_price_usd = listUsd;
+    ln.pre_discount_unit_price_lbp = listLbp;
+    ln.discount_pct = toNum(best.pctScore, 0);
+    ln.discount_amount_usd = 0;
+    ln.discount_amount_lbp = 0;
+    ln.applied_promotion_id = String(best.promo?.id || best.promoRow?.id || "") || null;
+    ln.applied_promotion_item_id = String(best.promoItem?.id || "") || null;
+    return ln;
+  };
+
   const buildLine = (item, qtyEntered = 1, extra = {}) => {
     const companyKey = extra.companyKey || item.companyKey || "official";
     const qtyFactor = toNum(extra.qty_factor, 1) || 1;
     const qtyBase = toNum(qtyEntered, 0) * qtyFactor;
     const uom = extra.uom || extra.uom_code || item.unit_of_measure || "pcs";
     const lineKey = `${companyKey}|${String(item.id)}|${String(qtyFactor)}|${String(uom)}`;
-    return {
+    const ln = {
       key: lineKey,
       companyKey,
       id: item.id,
       sku: item.sku,
       name: item.name,
       unit_of_measure: item.unit_of_measure || "pcs",
+      // list_* are stable; price_* may be discounted by promos.
+      list_price_usd: toNum(item.price_usd),
+      list_price_lbp: toNum(item.price_lbp),
       price_usd: toNum(item.price_usd),
       price_lbp: toNum(item.price_lbp),
       qty_factor: qtyFactor,
@@ -541,13 +749,22 @@
       tax_code_id: item.tax_code_id,
       batch_no: extra.batch_no || null,
       expiry_date: extra.expiry_date || null,
+      pre_discount_unit_price_usd: 0,
+      pre_discount_unit_price_lbp: 0,
+      discount_pct: 0,
+      discount_amount_usd: 0,
+      discount_amount_lbp: 0,
+      applied_promotion_id: null,
+      applied_promotion_item_id: null,
     };
+    return applyPromotionToLine(ln);
   };
 
   const addToCart = (item, extra = {}) => {
     const companyKey = extra.companyKey || item.companyKey || "official";
     const qtyFactor = toNum(extra.qty_factor, 1) || 1;
     const uom = extra.uom || extra.uom_code || item.unit_of_measure || "pcs";
+    const qtyEntered = Math.max(1, toNum(extra.qty_entered, 1) || 1);
     const existingIdx = cart.findIndex(
       (x) =>
         x.companyKey === companyKey &&
@@ -557,11 +774,12 @@
     );
     if (existingIdx >= 0) {
       const copy = [...cart];
-      copy[existingIdx].qty_entered = toNum(copy[existingIdx].qty_entered, 0) + 1;
+      copy[existingIdx].qty_entered = toNum(copy[existingIdx].qty_entered, 0) + qtyEntered;
       copy[existingIdx].qty = toNum(copy[existingIdx].qty_entered, 0) * qtyFactor;
+      copy[existingIdx] = applyPromotionToLine(copy[existingIdx]);
       cart = copy;
     } else {
-      cart = [buildLine(item, 1, { companyKey, qty_factor: qtyFactor, uom }), ...cart];
+      cart = [buildLine(item, qtyEntered, { companyKey, qty_factor: qtyFactor, uom }), ...cart];
     }
     scanTerm = "";
     reportNotice(`Added ${item.name}`);
@@ -664,6 +882,92 @@
     showOtherAgentModal = true;
   };
 
+  const configurePrinting = async () => {
+    showPrintingModal = true;
+    printingStatus = "Loading printers...";
+    printingError = "";
+
+    // Seed from current configs (per-company mapping, regardless of which agent we’re served from).
+    const offCfg = cfgForCompanyKey("official") || {};
+    const unCfg = cfgForCompanyKey("unofficial") || {};
+    printOfficial = {
+      printer: String(offCfg.invoice_printer || "").trim(),
+      copies: Math.max(1, Math.min(10, toNum(offCfg.invoice_print_copies, 1))),
+      auto: !!offCfg.auto_print_invoice,
+      baseUrl: String(offCfg.print_base_url || "").trim(),
+    };
+    printUnofficial = {
+      printer: String(unCfg.receipt_printer || "").trim(),
+      copies: Math.max(1, Math.min(10, toNum(unCfg.receipt_print_copies, 1))),
+      auto: !!unCfg.auto_print_receipt,
+    };
+
+    const results = await Promise.allSettled([
+      apiCallFor("official", "/printers"),
+      apiCallFor("unofficial", "/printers"),
+    ]);
+    const rOff = results[0].status === "fulfilled" ? results[0].value : null;
+    const rUn = results[1].status === "fulfilled" ? results[1].value : null;
+    printersOfficial = Array.isArray(rOff?.printers) ? rOff.printers : [];
+    printersUnofficial = Array.isArray(rUn?.printers) ? rUn.printers : [];
+
+    // Auto-select OS default if config is empty.
+    if (!printOfficial.printer && rOff?.default_printer) printOfficial.printer = String(rOff.default_printer);
+    if (!printUnofficial.printer && rUn?.default_printer) printUnofficial.printer = String(rUn.default_printer);
+
+    const offErr = results[0].status === "rejected" ? (results[0].reason?.message || "Official printer query failed") : (rOff?.error || "");
+    const unErr = results[1].status === "rejected" ? (results[1].reason?.message || "Unofficial printer query failed") : (rUn?.error || "");
+    const errs = [offErr, unErr].filter(Boolean).join(" | ");
+    if (errs) printingError = errs;
+    printingStatus = "";
+  };
+
+  const savePrinting = async () => {
+    printingStatus = "Saving...";
+    printingError = "";
+    try {
+      await Promise.all([
+        apiCallFor("official", "/config", {
+          method: "POST",
+          body: {
+            print_base_url: (printOfficial.baseUrl || "").trim() || "",
+            invoice_printer: (printOfficial.printer || "").trim() || "",
+            invoice_print_copies: Math.max(1, Math.min(10, toNum(printOfficial.copies, 1))),
+            auto_print_invoice: !!printOfficial.auto,
+          }
+        }),
+        apiCallFor("unofficial", "/config", {
+          method: "POST",
+          body: {
+            receipt_printer: (printUnofficial.printer || "").trim() || "",
+            receipt_print_copies: Math.max(1, Math.min(10, toNum(printUnofficial.copies, 1))),
+            auto_print_receipt: !!printUnofficial.auto,
+          }
+        }),
+      ]);
+      await fetchData();
+      printingStatus = "Saved.";
+      setTimeout(() => printingStatus = "", 1200);
+    } catch (e) {
+      printingError = e?.message || "Failed to save printer settings";
+      printingStatus = "";
+    }
+  };
+
+  const testPrint = async (companyKey) => {
+    printingStatus = "Testing print...";
+    printingError = "";
+    try {
+      const p = companyKey === "official" ? (printOfficial.printer || "") : (printUnofficial.printer || "");
+      await apiCallFor(companyKey, "/printers/test", { method: "POST", body: { printer: p } });
+      printingStatus = "Test sent.";
+      setTimeout(() => printingStatus = "", 1200);
+    } catch (e) {
+      printingError = e?.message || "Test print failed";
+      printingStatus = "";
+    }
+  };
+
   const saveOtherAgent = async () => {
     const raw = String(otherAgentDraftUrl || "").trim();
     const v = _normalizeAgentOrigin(raw);
@@ -739,6 +1043,61 @@
     const copy = [...cart];
     copy[index].qty_entered = q;
     copy[index].qty = q * toNum(copy[index].qty_factor, 1);
+    copy[index] = applyPromotionToLine(copy[index]);
+    cart = copy;
+  };
+
+  const uomOptionsForLine = (line) => {
+    const companyKey = line?.companyKey || "official";
+    const itemId = String(line?.id || "").trim();
+    const baseUom = String(line?.unit_of_measure || "pcs") || "pcs";
+    if (!itemId) return [{ uom: baseUom, qty_factor: 1, label: baseUom, is_primary: true }];
+    // uomOptionsFor() reads barcode maps; it only needs {id, unit_of_measure, companyKey}.
+    return uomOptionsFor({ id: itemId, unit_of_measure: baseUom, companyKey });
+  };
+
+  const updateLineUom = (index, opt) => {
+    const copy = [...cart];
+    const cur = copy[index];
+    if (!cur) return;
+
+    const nextUom = String(opt?.uom || cur.uom || cur.unit_of_measure || "pcs").trim() || "pcs";
+    const nextFactor = Math.max(1e-9, toNum(opt?.qty_factor, 1) || 1);
+
+    // If nothing changes, do nothing.
+    if (String(cur.uom || "") === nextUom && toNum(cur.qty_factor, 1) === nextFactor) return;
+
+    const targetIdx = copy.findIndex(
+      (x, i) =>
+        i !== index &&
+        x.companyKey === cur.companyKey &&
+        String(x.id) === String(cur.id) &&
+        String(x.uom || x.unit_of_measure || "") === nextUom &&
+        toNum(x.qty_factor, 1) === nextFactor
+    );
+
+    // Move qty_entered to the new UOM context (keep entered number, recompute base qty).
+    const qe = Math.max(1, toNum(cur.qty_entered, 1) || 1);
+    const updated = {
+      ...cur,
+      qty_factor: nextFactor,
+      uom: nextUom,
+      qty: qe * nextFactor,
+      key: `${cur.companyKey}|${String(cur.id)}|${String(nextFactor)}|${String(nextUom)}`
+    };
+
+    if (targetIdx >= 0) {
+      // Merge into existing line for that UOM.
+      const tgt = { ...copy[targetIdx] };
+      tgt.qty_entered = toNum(tgt.qty_entered, 0) + qe;
+      tgt.qty = toNum(tgt.qty_entered, 0) * nextFactor;
+      copy[targetIdx] = applyPromotionToLine(tgt);
+      copy.splice(index, 1);
+      cart = copy;
+      return;
+    }
+
+    copy[index] = applyPromotionToLine(updated);
     cart = copy;
   };
 
@@ -862,6 +1221,13 @@
           name: line.name,
           price_usd: toNum(line.price_usd, 0),
           price_lbp: toNum(line.price_lbp, 0),
+          pre_discount_unit_price_usd: toNum(line.pre_discount_unit_price_usd, 0),
+          pre_discount_unit_price_lbp: toNum(line.pre_discount_unit_price_lbp, 0),
+          discount_pct: toNum(line.discount_pct, 0),
+          discount_amount_usd: toNum(line.discount_amount_usd, 0),
+          discount_amount_lbp: toNum(line.discount_amount_lbp, 0),
+          applied_promotion_id: line.applied_promotion_id || null,
+          applied_promotion_item_id: line.applied_promotion_item_id || null,
           qty: toNum(line.qty, 0),
           qty_factor: toNum(line.qty_factor, 1),
           qty_entered: toNum(line.qty_entered, 0),
@@ -922,10 +1288,7 @@
         activeCustomer = null;
         fetchData();
         reportNotice(`Sale queued (official): ${res.event_id || "ok"}`);
-        try {
-          if (receiptWin) receiptWin.location = _agentReceiptUrl(invoiceCompany);
-          else window.open(_agentReceiptUrl(invoiceCompany), "_blank", "noopener,noreferrer");
-        } catch (_) {}
+        await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
         return;
       }
 
@@ -993,10 +1356,7 @@
           // Remove only the successfully invoiced lines.
           cart = cart.filter((c) => c.companyKey !== companyKey);
           const w = receiptWins[companyKey];
-          try {
-            if (w) w.location = _agentReceiptUrl(companyKey);
-            else window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer");
-          } catch (_) {}
+          await printAfterSale(companyKey, res?.event_id || "", w);
         }
 
         cart = [];
@@ -1054,10 +1414,7 @@
       cart = [];
       activeCustomer = null;
       fetchData();
-      try {
-        if (receiptWin) receiptWin.location = _agentReceiptUrl(invoiceCompany);
-        else window.open(_agentReceiptUrl(invoiceCompany), "_blank", "noopener,noreferrer");
-      } catch (_) {}
+      await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
     } catch(e) {
       const p = e?.payload;
       if (p?.error === "pos_auth_required") {
@@ -1404,6 +1761,14 @@
     </button>
     <button
       class={topBtnBase}
+      on:click={configurePrinting}
+      disabled={loading}
+      title="Detect printers and map each company to a printer"
+    >
+      Printing
+    </button>
+    <button
+      class={topBtnBase}
       on:click={configureOtherAgent}
       disabled={loading}
       title="Set the other agent URL (usually Unofficial on :7072)"
@@ -1503,6 +1868,8 @@
           cart={cart}
           config={config}
           updateQty={updateLineQty}
+          uomOptionsForLine={uomOptionsForLine}
+          updateUom={updateLineUom}
           removeLine={removeLine}
           clearCart={() => cart = []}
           companyLabelForLine={companyLabel}
@@ -1768,6 +2135,130 @@
           >
             Save & Reconnect
           </button>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showPrintingModal}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-sm" on:click={() => showPrintingModal = false}></div>
+    <div class="relative w-full max-w-2xl bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
+      <div class="p-6 border-b border-ink/10 flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold text-ink">Printing</h2>
+          <p class="text-sm text-muted mt-1">Detect printers per agent and map Official invoices (A4) and Unofficial receipts (thermal).</p>
+        </div>
+        <button
+          class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+          on:click={() => showPrintingModal = false}
+        >
+          Close
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4">
+        {#if printingError}
+          <div class="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-xs text-ink/90">
+            {printingError}
+          </div>
+        {/if}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="rounded-2xl border border-ink/10 bg-ink/5 p-4 space-y-3">
+            <div class="text-[11px] font-extrabold uppercase tracking-wider text-muted">Official</div>
+            <div>
+              <label class="text-xs text-muted">Printer</label>
+              <select class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm" bind:value={printOfficial.printer}>
+                <option value="">(None)</option>
+                {#each printersOfficial as p}
+                  <option value={p.name}>{p.name}{p.is_default ? " (default)" : ""}</option>
+                {/each}
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-muted">Admin URL (for A4 invoice PDFs)</label>
+              <input
+                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm font-mono"
+                placeholder="http://127.0.0.1:3000"
+                bind:value={printOfficial.baseUrl}
+              />
+              <div class="mt-1 text-[11px] text-muted">Must serve `/exports/sales-invoices/.../pdf`.</div>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+              <label class="flex items-center gap-2 text-xs text-muted">
+                <input type="checkbox" bind:checked={printOfficial.auto} />
+                Auto print invoices (A4 PDF)
+              </label>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-muted">Copies</span>
+                <input class="w-16 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm" type="number" min="1" max="10" bind:value={printOfficial.copies} />
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                class="py-2 px-3 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors text-xs"
+                on:click={() => testPrint("official")}
+                type="button"
+              >
+                Test
+              </button>
+            </div>
+          </div>
+
+          <div class="rounded-2xl border border-ink/10 bg-ink/5 p-4 space-y-3">
+            <div class="text-[11px] font-extrabold uppercase tracking-wider text-muted">Unofficial</div>
+            <div>
+              <label class="text-xs text-muted">Printer</label>
+              <select class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm" bind:value={printUnofficial.printer}>
+                <option value="">(None)</option>
+                {#each printersUnofficial as p}
+                  <option value={p.name}>{p.name}{p.is_default ? " (default)" : ""}</option>
+                {/each}
+              </select>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+              <label class="flex items-center gap-2 text-xs text-muted">
+                <input type="checkbox" bind:checked={printUnofficial.auto} />
+                Auto print receipts
+              </label>
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-muted">Copies</span>
+                <input class="w-16 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm" type="number" min="1" max="10" bind:value={printUnofficial.copies} />
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                class="py-2 px-3 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors text-xs"
+                on:click={() => testPrint("unofficial")}
+                type="button"
+              >
+                Test
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between gap-3">
+          <div class="text-xs text-muted">{printingStatus}</div>
+          <div class="flex items-center gap-2">
+            <button
+              class="py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
+              on:click={configurePrinting}
+              type="button"
+            >
+              Refresh
+            </button>
+            <button
+              class="py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
+              on:click={savePrinting}
+              type="button"
+            >
+              Save
+            </button>
+          </div>
         </div>
       </div>
     </div>

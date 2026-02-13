@@ -3,8 +3,11 @@ import argparse
 import html
 import json
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
+import tempfile
 import uuid
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -43,6 +46,9 @@ def _served_ui_root():
 
 DEFAULT_CONFIG = {
     'api_base_url': 'http://localhost:8001',
+    # Base URL of the Admin web app that serves /exports/.../pdf routes.
+    # Needed for "Official -> A4 invoice PDF" kiosk printing from the POS.
+    'print_base_url': '',
     'company_id': '',
     'device_id': '',
     'device_token': '',
@@ -72,6 +78,18 @@ DEFAULT_CONFIG = {
     'inventory_policy': {
         'require_manual_lot_selection': False,
     },
+
+    # Printing (optional)
+    # - When configured, the agent can print the last receipt directly via OS print spooling
+    #   without opening a browser print dialog (works best in kiosk setups).
+    'receipt_printer': '',
+    'receipt_print_copies': 1,
+    'auto_print_receipt': False,
+
+    # Official invoice printing (A4 PDF) (optional)
+    'invoice_printer': '',
+    'invoice_print_copies': 1,
+    'auto_print_invoice': False,
 }
 
 
@@ -399,6 +417,109 @@ def post_json(url, payload, headers=None):
     req.add_header('Content-Type', 'application/json')
     with urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode('utf-8'))
+
+def _run_cmd(args: list[str], timeout_s: float = 2.5) -> tuple[int, str, str]:
+    """
+    Small helper to shell out for OS-level printer enumeration/printing.
+    Returns (exit_code, stdout, stderr) as strings.
+    """
+    try:
+        p = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=max(0.2, float(timeout_s or 2.5)),
+            text=True,
+        )
+        return int(p.returncode or 0), str(p.stdout or ""), str(p.stderr or "")
+    except Exception as ex:
+        return 1, "", str(ex)
+
+def list_system_printers() -> dict:
+    """
+    Enumerate printers available on this machine (best-effort).
+    This is used for mapping receipts to printers in kiosk flows.
+    """
+    out: dict = {"printers": [], "default_printer": None, "error": None}
+
+    # Windows: query via PowerShell (Get-Printer).
+    if sys.platform.startswith("win"):
+        ps = shutil.which("powershell") or shutil.which("pwsh")
+        if not ps:
+            out["error"] = "powershell not found"
+            return out
+        # Use JSON so we can reliably detect the default printer too.
+        cmd = "Get-Printer | Select-Object Name, Default | ConvertTo-Json -Compress"
+        code, stdout, stderr = _run_cmd([ps, "-NoProfile", "-Command", cmd], timeout_s=4.0)
+        if code != 0:
+            out["error"] = (stderr or "printer query failed").strip()
+            return out
+        raw = (stdout or "").strip()
+        if not raw:
+            return out
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            # Fallback: older PS / locale noise. At least return names if possible.
+            names = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+            out["printers"] = [{"name": n, "is_default": False} for n in names]
+            return out
+        rows = obj if isinstance(obj, list) else ([obj] if isinstance(obj, dict) else [])
+        printers = []
+        default_name = None
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            name = str(r.get("Name") or "").strip()
+            if not name:
+                continue
+            is_def = bool(r.get("Default"))
+            if is_def and not default_name:
+                default_name = name
+            printers.append({"name": name, "is_default": is_def})
+        out["printers"] = printers
+        out["default_printer"] = default_name
+        return out
+
+    # macOS/Linux: use CUPS tools if available.
+    lpstat = shutil.which("lpstat")
+    if not lpstat:
+        out["error"] = "lpstat not found"
+        return out
+
+    # Default printer
+    code, stdout, _stderr = _run_cmd([lpstat, "-d"], timeout_s=2.0)
+    if code == 0:
+        # Example: "system default destination: Printer_Name"
+        for ln in (stdout or "").splitlines():
+            if "default destination" in ln:
+                parts = ln.split(":", 1)
+                if len(parts) == 2:
+                    out["default_printer"] = parts[1].strip() or None
+
+    # Printer list
+    code, stdout, stderr = _run_cmd([lpstat, "-p"], timeout_s=2.5)
+    if code != 0:
+        out["error"] = (stderr or "printer query failed").strip()
+        return out
+
+    printers = []
+    for ln in (stdout or "").splitlines():
+        ln = ln.strip()
+        if not ln.startswith("printer "):
+            continue
+        # Common form: "printer NAME is idle.  enabled since ..."
+        parts = ln.split()
+        if len(parts) < 2:
+            continue
+        name = parts[1].strip()
+        if not name:
+            continue
+        printers.append({"name": name, "is_default": (name == out.get("default_printer"))})
+
+    out["printers"] = printers
+    return out
 
 
 def _setup_req_json(url: str, method: str = "GET", payload=None, headers=None, timeout_s: float = 12.0):
@@ -1120,6 +1241,311 @@ def _receipt_html(receipt_row):
 </html>"""
 
 
+def _receipt_text(receipt_row, width: int = 42) -> str:
+    """
+    Plain-text receipt for thermal printers via OS spooling.
+    Keeps dependencies minimal (no HTML->PDF rendering).
+    """
+    if not receipt_row:
+        return "No receipt yet.\n"
+
+    r = receipt_row.get("receipt") or {}
+    lines = r.get("lines") or []
+    totals = r.get("totals") or {}
+
+    def clip(s: str) -> str:
+        s = str(s or "")
+        if len(s) <= width:
+            return s
+        return s[: max(0, width - 3)] + "..."
+
+    def fmt_usd(x):
+        try:
+            return f"{float(x or 0):.2f}"
+        except Exception:
+            return "0.00"
+
+    def fmt_lbp(x):
+        try:
+            return f"{int(round(float(x or 0))):,}"
+        except Exception:
+            return "0"
+
+    out = []
+    title = "SALE" if receipt_row.get("receipt_type") == "sale" else "RETURN"
+    out.append("AH Trading")
+    out.append(title)
+    out.append(f"Time: {r.get('created_at') or '-'}")
+    out.append(f"Event: {r.get('event_id') or '-'}")
+    if r.get("shift_id"):
+        out.append(f"Shift: {r.get('shift_id')}")
+    if r.get("cashier", {}).get("name") or r.get("cashier", {}).get("id"):
+        out.append(f"Cashier: {r.get('cashier', {}).get('name') or r.get('cashier', {}).get('id')}")
+    if r.get("customer_id"):
+        out.append(f"Customer: {r.get('customer_id')}")
+    if r.get("payment_method"):
+        out.append(f"Payment: {r.get('payment_method')}")
+    out.append("-" * width)
+
+    # Lines: name + qty + amount (USD)
+    for ln in lines:
+        name = (ln.get("name") or "").strip() or (ln.get("sku") or "").strip() or ln.get("item_id") or ""
+        qty_entered = ln.get("qty_entered")
+        qty = qty_entered if qty_entered is not None else (ln.get("qty") or 0)
+        uom = (ln.get("uom") or "").strip()
+        qty_label = f"{qty} {uom}".strip()
+        amt = fmt_usd(ln.get("line_total_usd"))
+        left = clip(name)
+        # Right-align qty and amount where possible.
+        right = f"{qty_label}  {amt}".strip()
+        if len(right) >= width:
+            out.append(left)
+            out.append(clip(right))
+        else:
+            out.append(left[: max(0, width - len(right) - 1)] + " " + right)
+
+    out.append("-" * width)
+    out.append(f"Subtotal USD: {fmt_usd(totals.get('base_usd'))}")
+    out.append(f"VAT USD:      {fmt_usd(totals.get('tax_usd'))}")
+    out.append(f"Total USD:    {fmt_usd(totals.get('total_usd'))}")
+    out.append(f"Total LBP:    {fmt_lbp(totals.get('total_lbp'))}")
+    out.append("")
+    return "\n".join(out) + "\n"
+
+
+def _print_text_to_printer(text: str, printer: Optional[str] = None, copies: int = 1):
+    try:
+        copies_i = int(copies or 1)
+    except Exception:
+        copies_i = 1
+    copies_i = max(1, min(10, copies_i))
+
+    # Windows: use PowerShell pipeline to the print spooler.
+    # Note: this prints as plain text via the installed printer driver.
+    if sys.platform.startswith("win"):
+        ps = shutil.which("powershell") or shutil.which("pwsh")
+        if not ps:
+            raise RuntimeError("Printing is not available: PowerShell not found")
+
+        def ps_sq(s: str) -> str:
+            # Single-quote for PowerShell string literals: ' becomes ''.
+            return "'" + str(s or "").replace("'", "''") + "'"
+
+        tmp = None
+        try:
+            tmp = tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt", encoding="utf-8")
+            tmp.write(text or "")
+            tmp.flush()
+            tmp.close()
+
+            # Print N copies by repeating the pipeline (Out-Printer has no "copies" flag).
+            file_lit = ps_sq(tmp.name)
+            name_clause = f" -Name {ps_sq(printer)}" if printer else ""
+            cmd = (
+                f"for ($i=0; $i -lt {copies_i}; $i++) {{ "
+                f"Get-Content -LiteralPath {file_lit} -Raw -Encoding UTF8 | Out-Printer{name_clause}; "
+                f"}}"
+            )
+            subprocess.run([ps, "-NoProfile", "-Command", cmd], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+            return
+        finally:
+            try:
+                if tmp and tmp.name and os.path.exists(tmp.name):
+                    os.unlink(tmp.name)
+            except Exception:
+                pass
+
+    # macOS/Linux: use CUPS `lp`.
+    lp = shutil.which("lp")
+    if not lp:
+        raise RuntimeError("Printing is not available: 'lp' command not found")
+
+    tmp = None
+    try:
+        tmp = tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt", encoding="utf-8")
+        tmp.write(text or "")
+        tmp.flush()
+        tmp.close()
+
+        cmd = [lp]
+        if printer:
+            cmd += ["-d", str(printer)]
+        if copies_i != 1:
+            cmd += ["-n", str(copies_i)]
+        cmd.append(tmp.name)
+
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=12)
+    finally:
+        try:
+            if tmp and tmp.name and os.path.exists(tmp.name):
+                os.unlink(tmp.name)
+        except Exception:
+            pass
+
+
+def _print_pdf_to_printer(pdf_bytes: bytes, printer: Optional[str] = None, copies: int = 1):
+    """
+    Best-effort PDF printing for A4 invoices.
+    - macOS/Linux: CUPS `lp` prints PDFs reliably.
+    - Windows: prefer SumatraPDF if installed; otherwise fall back to PowerShell PrintTo.
+    """
+    try:
+        copies_i = int(copies or 1)
+    except Exception:
+        copies_i = 1
+    copies_i = max(1, min(10, copies_i))
+
+    tmp = None
+    try:
+        tmp = tempfile.NamedTemporaryFile("wb", delete=False, suffix=".pdf")
+        tmp.write(pdf_bytes or b"")
+        tmp.flush()
+        tmp.close()
+
+        if sys.platform.startswith("win"):
+            # Prefer SumatraPDF when available (more reliable than PrintTo).
+            sumatra = shutil.which("SumatraPDF") or shutil.which("SumatraPDF.exe")
+            if sumatra and printer:
+                for _ in range(copies_i):
+                    subprocess.run(
+                        [sumatra, "-print-to", str(printer), "-silent", tmp.name],
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=60,
+                    )
+                return
+
+            ps = shutil.which("powershell") or shutil.which("pwsh")
+            if not ps:
+                raise RuntimeError("Printing is not available: PowerShell not found")
+
+            def ps_sq(s: str) -> str:
+                return "'" + str(s or "").replace("'", "''") + "'"
+
+            file_lit = ps_sq(tmp.name)
+            # PrintTo requires a printer name; if not provided, try default by omitting PrintTo and using Print,
+            # but that is even less reliable. We require an explicit printer on Windows for PDFs.
+            if not printer:
+                raise RuntimeError("PDF printing on Windows requires selecting a printer")
+            prn_lit = ps_sq(printer)
+            cmd = (
+                f"for ($i=0; $i -lt {copies_i}; $i++) {{ "
+                f"$p = Start-Process -FilePath {file_lit} -Verb PrintTo -ArgumentList {prn_lit} -PassThru; "
+                f"Start-Sleep -Milliseconds 800; "
+                f"try {{ $p.CloseMainWindow() | Out-Null }} catch {{}} "
+                f"}}"
+            )
+            subprocess.run([ps, "-NoProfile", "-Command", cmd], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            return
+
+        # macOS/Linux: use CUPS `lp`.
+        lp = shutil.which("lp")
+        if not lp:
+            raise RuntimeError("Printing is not available: 'lp' command not found")
+        cmd = [lp]
+        if printer:
+            cmd += ["-d", str(printer)]
+        if copies_i != 1:
+            cmd += ["-n", str(copies_i)]
+        cmd.append(tmp.name)
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+    finally:
+        try:
+            if tmp and tmp.name and os.path.exists(tmp.name):
+                os.unlink(tmp.name)
+        except Exception:
+            pass
+
+
+def _get_outbox_event(event_id: str) -> Optional[dict]:
+    event_id = (event_id or "").strip()
+    if not event_id:
+        return None
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT event_id, event_type, payload_json, created_at, status
+            FROM pos_outbox_events
+            WHERE event_id = ?
+            LIMIT 1
+            """,
+            (event_id,),
+        )
+        r = cur.fetchone()
+        if not r:
+            return None
+        try:
+            payload = json.loads(r["payload_json"] or "{}")
+        except Exception:
+            payload = {}
+        return {
+            "event_id": r["event_id"],
+            "event_type": r["event_type"],
+            "payload": payload,
+            "created_at": r["created_at"],
+            "status": r["status"],
+        }
+
+
+def _require_print_base_url(cfg: dict) -> str:
+    raw = str(cfg.get("print_base_url") or "").strip()
+    if not raw:
+        raise ValueError("missing print_base_url (Admin URL)")
+    return raw.rstrip("/")
+
+
+def _fetch_invoice_pdf(cfg: dict, invoice_id: str) -> bytes:
+    """
+    Fetch the A4 invoice PDF from the Admin app exports route using device headers.
+    """
+    base = _require_print_base_url(cfg)
+    invoice_id = (invoice_id or "").strip()
+    if not invoice_id:
+        raise ValueError("missing invoice_id")
+
+    url = f"{base}/exports/sales-invoices/{quote(invoice_id)}/pdf?inline=1"
+    req = Request(url, headers={**device_headers(cfg), "Accept": "application/pdf"}, method="GET")
+    with urlopen(req, timeout=30) as resp:
+        return resp.read()
+
+
+def _resolve_sales_invoice_from_event(cfg: dict, event_id: str) -> dict:
+    """
+    Ensure the event exists on the edge, process it now, and return invoice identifiers.
+    Returns: {invoice_id, invoice_no, edge}
+    """
+    base = _require_api_base(cfg)
+    company_id = (cfg.get("company_id") or "").strip()
+    device_id = (cfg.get("device_id") or "").strip()
+    if not company_id or not device_id or not (cfg.get("device_token") or "").strip():
+        raise ValueError("missing device credentials")
+
+    ev = _get_outbox_event(event_id)
+    if not ev:
+        raise ValueError("event not found in local outbox")
+
+    # Ensure the edge has this event (idempotent).
+    bundle = {
+        "company_id": company_id,
+        "device_id": device_id,
+        "events": [
+            {"event_id": ev["event_id"], "event_type": ev["event_type"], "payload": ev["payload"], "created_at": ev["created_at"]},
+        ],
+    }
+    post_json(f"{base.rstrip('/')}/pos/outbox/submit", bundle, headers=device_headers(cfg))
+
+    # Process it now (synchronous best-effort).
+    res = post_json(f"{base.rstrip('/')}/pos/outbox/process-one", {"event_id": ev["event_id"]}, headers=device_headers(cfg))
+    inv_id = str(res.get("invoice_id") or "").strip()
+    inv_no = str(res.get("invoice_no") or "").strip()
+    if not inv_id:
+        raise ValueError("event processed but invoice_id was not returned")
+    return {"invoice_id": inv_id, "invoice_no": (inv_no or None), "edge": res}
+
+
 def _compute_totals(
     lines,
     vat_rate: float,
@@ -1759,6 +2185,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == '/api/health':
             json_response(self, {'ok': True})
             return
+        if parsed.path == "/api/printers":
+            json_response(self, list_system_printers())
+            return
         if parsed.path == "/api/edge/status":
             st = edge_health(cfg, timeout_s=0.8)
             auth = edge_auth_check(cfg, timeout_s=1.2)
@@ -2153,6 +2582,82 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {'ok': True, 'config': cfg})
             return
 
+        if parsed.path == "/api/receipts/print-last":
+            # Best-effort local printing (no browser dialog). Useful for kiosk setups.
+            data = self.read_json()
+            cfg = load_config()
+            printer = (str(data.get("printer") or "").strip() or str(cfg.get("receipt_printer") or "").strip() or None)
+            copies = data.get("copies") if "copies" in data else cfg.get("receipt_print_copies")
+
+            row = get_last_receipt()
+            if not row:
+                json_response(self, {"error": "no_receipt"}, status=404)
+                return
+            try:
+                txt = _receipt_text(row)
+                _print_text_to_printer(txt, printer=printer, copies=copies)
+            except Exception as ex:
+                json_response(self, {"error": "print_failed", "detail": str(ex), "printer": printer}, status=502)
+                return
+
+            json_response(self, {"ok": True, "printer": printer, "copies": copies})
+            return
+
+        if parsed.path == "/api/printers/test":
+            data = self.read_json()
+            cfg = load_config()
+            printer = (str(data.get("printer") or "").strip() or str(cfg.get("receipt_printer") or "").strip() or None)
+            copies = data.get("copies") if "copies" in data else 1
+            txt = "TEST PRINT\n\nIf you can read this, printer mapping works.\n\n"
+            try:
+                _print_text_to_printer(txt, printer=printer, copies=copies)
+            except Exception as ex:
+                json_response(self, {"error": "print_failed", "detail": str(ex), "printer": printer}, status=502)
+                return
+            json_response(self, {"ok": True, "printer": printer, "copies": copies})
+            return
+
+        if parsed.path == "/api/invoices/resolve-by-event":
+            data = self.read_json()
+            cfg = load_config()
+            event_id = str(data.get("event_id") or "").strip()
+            if not event_id:
+                json_response(self, {"error": "event_id is required"}, status=400)
+                return
+            try:
+                res = _resolve_sales_invoice_from_event(cfg, event_id)
+            except Exception as ex:
+                json_response(self, {"error": "resolve_failed", "detail": str(ex)}, status=502)
+                return
+            json_response(self, {"ok": True, "event_id": event_id, **res})
+            return
+
+        if parsed.path == "/api/invoices/print-by-event":
+            data = self.read_json()
+            cfg = load_config()
+            event_id = str(data.get("event_id") or "").strip()
+            if not event_id:
+                json_response(self, {"error": "event_id is required"}, status=400)
+                return
+
+            printer = (str(data.get("printer") or "").strip() or str(cfg.get("invoice_printer") or "").strip() or None)
+            copies = data.get("copies") if "copies" in data else cfg.get("invoice_print_copies")
+
+            try:
+                resolved = _resolve_sales_invoice_from_event(cfg, event_id)
+                pdf = _fetch_invoice_pdf(cfg, resolved["invoice_id"])
+                _print_pdf_to_printer(pdf, printer=printer, copies=copies)
+            except Exception as ex:
+                json_response(
+                    self,
+                    {"error": "print_failed", "detail": str(ex), "event_id": event_id, "printer": printer},
+                    status=502,
+                )
+                return
+
+            json_response(self, {"ok": True, "event_id": event_id, "printer": printer, "copies": copies, **resolved})
+            return
+
         if parsed.path == "/api/customers/create":
             data = self.read_json()
             name = str(data.get("name") or "").strip()
@@ -2223,6 +2728,9 @@ class Handler(BaseHTTPRequestHandler):
                 shift_id,
                 cashier_id,
             )
+            # Optional: store printer hint on the backend invoice for audit.
+            if (cfg.get("receipt_printer") or "").strip():
+                payload["receipt_printer"] = str(cfg.get("receipt_printer")).strip()
             # Allow callers (e.g. unified pilot UI) to attach extra metadata.
             # The backend stores receipt_meta on the sales invoice for audit/review.
             if isinstance(data.get("receipt_meta"), (dict, list)):
@@ -2331,6 +2839,9 @@ class Handler(BaseHTTPRequestHandler):
                 shift_id,
                 cashier_id,
             )
+            # Optional: store printer hint on the backend invoice for audit.
+            if (cfg.get("receipt_printer") or "").strip():
+                payload["receipt_printer"] = str(cfg.get("receipt_printer")).strip()
             if isinstance(data.get("receipt_meta"), (dict, list)):
                 payload["receipt_meta"] = data.get("receipt_meta")
             if "skip_stock_moves" in data:

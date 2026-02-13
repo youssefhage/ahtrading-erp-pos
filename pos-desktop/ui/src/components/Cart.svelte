@@ -2,6 +2,8 @@
   export let cart = [];
   export let config = {};
   export let updateQty = (index, qty) => {};
+  export let uomOptionsForLine = (line) => [];
+  export let updateUom = (index, opt) => {};
   export let removeLine = (index) => {};
   export let clearCart = () => {};
   export let companyLabelForLine = (line) => "";
@@ -20,8 +22,38 @@
     return `${v.toFixed(2)} USD`;
   };
 
+  const fmtPct = (p) => {
+    const n = Math.max(0, Math.min(1, toNum(p, 0)));
+    return `${Math.round(n * 100)}%`;
+  };
+
   $: currencyPrimary = (config.pricing_currency || "USD").toUpperCase();
   const lineUom = (line) => (line.uom || line.uom_code || line.unit_of_measure || "pcs");
+
+  const nameSizeClass = (name) => {
+    const n = String(name || "").trim().length;
+    if (n <= 18) return "text-base font-semibold";
+    if (n <= 32) return "text-sm font-semibold";
+    if (n <= 48) return "text-sm font-medium";
+    return "text-xs font-medium";
+  };
+
+  const findUomOpt = (opts, line) => {
+    const u = String(lineUom(line) || "").trim();
+    const f = toNum(line?.qty_factor, 1) || 1;
+    const arr = Array.isArray(opts) ? opts : [];
+    const idx = arr.findIndex((o) => String(o?.uom || "").trim() === u && (toNum(o?.qty_factor, 1) || 1) === f);
+    return { idx: idx >= 0 ? idx : 0, opt: arr[idx >= 0 ? idx : 0] || null, arr };
+  };
+
+  const cycleLineUom = (index, delta = 1) => {
+    const line = cart[index];
+    if (!line) return;
+    const { idx, arr } = findUomOpt(uomOptionsForLine(line), line);
+    if (!arr.length) return;
+    const next = (idx + delta + arr.length) % arr.length;
+    updateUom(index, arr[next]);
+  };
 </script>
 
 <section class="glass-panel rounded-2xl p-0 flex flex-col h-full w-full overflow-hidden">
@@ -50,12 +82,14 @@
       </div>
     {:else}
       {#each cart as line, i}
+        {@const uomOpts = uomOptionsForLine(line) || []}
+        {@const uomSel = findUomOpt(uomOpts, line)}
         <div class="group relative flex items-center gap-3 p-3 rounded-xl bg-surface/40 border border-ink/10 hover:bg-surface/60 transition-colors">
           <!-- Qty Controls -->
           <div class="flex flex-col items-center gap-1">
             <button 
               class="w-6 h-6 rounded flex items-center justify-center bg-ink/5 hover:bg-accent hover:text-white text-muted transition-colors"
-              on:click={() => updateQty(i, line.qty_entered + 1)}
+              on:click={() => updateQty(i, toNum(line.qty_entered, 0) + 1)}
               aria-label="Increase quantity"
             >
               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" /></svg>
@@ -69,7 +103,7 @@
             />
             <button 
               class="w-6 h-6 rounded flex items-center justify-center bg-ink/5 hover:bg-accent hover:text-white text-muted transition-colors"
-              on:click={() => updateQty(i, line.qty_entered - 1)}
+              on:click={() => updateQty(i, toNum(line.qty_entered, 0) - 1)}
               aria-label="Decrease quantity"
             >
               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
@@ -78,15 +112,18 @@
 
           <!-- Item Details -->
           <div class="flex-1 min-w-0">
-            <h4 class="font-medium text-sm leading-tight truncate">{line.name || "Unknown Item"}</h4>
+            <h4 class={`leading-tight clamp-2 ${nameSizeClass(line.name)}`}>{line.name || "Unknown Item"}</h4>
             <div class="flex items-center gap-2 mt-1 text-xs text-muted">
-              <span>{line.sku || "NO SKU"}</span>
+              <span class="font-mono text-[10px]">{line.sku || "NO SKU"}</span>
               <span class="w-1 h-1 rounded-full bg-ink/15"></span>
-              <span>{lineUom(line)}</span>
-              {#if toNum(line.qty_factor, 1) !== 1}
-                <span class="w-1 h-1 rounded-full bg-ink/15"></span>
-                <span class="font-mono">x{toNum(line.qty_factor, 1)}</span>
-              {/if}
+              <button
+                type="button"
+                class="px-2 py-0.5 rounded-full text-[10px] font-extrabold tracking-wide border bg-ink/5 border-ink/10 hover:bg-ink/10 transition-colors"
+                title={uomOpts.length > 1 ? "Change UOM (click to cycle)" : "UOM"}
+                on:click|stopPropagation={() => cycleLineUom(i, 1)}
+              >
+                {uomSel.opt?.label || lineUom(line)}{toNum(line.qty_factor, 1) !== 1 && !uomSel.opt?.label ? ` x${toNum(line.qty_factor, 1)}` : ""}
+              </button>
               {#if companyLabelForLine(line)}
                 <span class="w-1 h-1 rounded-full bg-ink/15"></span>
                 <span
@@ -113,10 +150,31 @@
               )}
             </div>
             <div class="text-xs text-muted">
-              {fmtMoney(
-                (currencyPrimary === "USD" ? toNum(line.price_usd) : toNum(line.price_lbp)) * toNum(line.qty_factor, 1),
-                currencyPrimary
-              )} / {lineUom(line)}
+              {#if toNum(line.pre_discount_unit_price_usd, 0) > 0 || toNum(line.pre_discount_unit_price_lbp, 0) > 0}
+                <span class="line-through opacity-70 mr-2">
+                  {fmtMoney(
+                    (currencyPrimary === "USD" ? toNum(line.pre_discount_unit_price_usd) : toNum(line.pre_discount_unit_price_lbp)) * toNum(line.qty_factor, 1),
+                    currencyPrimary
+                  )}
+                </span>
+                <span class="text-ink/80 font-mono">
+                  {fmtMoney(
+                    (currencyPrimary === "USD" ? toNum(line.price_usd) : toNum(line.price_lbp)) * toNum(line.qty_factor, 1),
+                    currencyPrimary
+                  )}
+                </span>
+                {#if toNum(line.discount_pct, 0) > 0}
+                  <span class="ml-2 px-2 py-0.5 rounded-full text-[10px] font-extrabold tracking-wide border bg-accent/15 border-accent/25 text-accent">
+                    -{fmtPct(line.discount_pct)}
+                  </span>
+                {/if}
+                <span class="ml-2">/ {lineUom(line)}</span>
+              {:else}
+                {fmtMoney(
+                  (currencyPrimary === "USD" ? toNum(line.price_usd) : toNum(line.price_lbp)) * toNum(line.qty_factor, 1),
+                  currencyPrimary
+                )} / {lineUom(line)}
+              {/if}
             </div>
           </div>
 

@@ -410,6 +410,139 @@ def submit_outbox(data: OutboxSubmit, device=Depends(require_device)):
                     rejected.append({"event_id": str(e.event_id), "error": str(ex)})
     return {"accepted": accepted, "rejected": rejected}
 
+
+class OutboxProcessOneIn(BaseModel):
+    event_id: uuid.UUID
+
+
+@router.post("/outbox/process-one")
+def process_outbox_event_now(data: OutboxProcessOneIn, device=Depends(require_device)):
+    """
+    Process a specific POS outbox event immediately (synchronous best-effort).
+
+    This is used by kiosk/POS printing flows that need an invoice id right away
+    (e.g. print the A4 invoice PDF on the register) instead of waiting for the
+    background worker to pick up the outbox row.
+    """
+    # Import lazily to keep router import time small.
+    from ...workers import pos_processor as pp  # type: ignore
+
+    company_id = str(device["company_id"])
+    device_id = str(device["device_id"])
+    event_id = str(data.event_id)
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, device_id, event_type, payload_json, status, attempt_count
+                    FROM pos_events_outbox
+                    WHERE id = %s AND device_id = %s
+                    FOR UPDATE
+                    """,
+                    (event_id, device_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="event not found")
+
+                event_type = str(row["event_type"] or "")
+                status = str(row["status"] or "")
+                attempt_count = int(row.get("attempt_count") or 0)
+
+                # If it's already processed, just return the linked document (if any).
+                if status == "processed":
+                    inv = None
+                    if event_type == "sale.completed":
+                        cur.execute(
+                            """
+                            SELECT id, invoice_no
+                            FROM sales_invoices
+                            WHERE company_id = %s AND source_event_id = %s
+                            """,
+                            (company_id, event_id),
+                        )
+                        inv = cur.fetchone()
+                    return {
+                        "ok": True,
+                        "event_id": event_id,
+                        "event_type": event_type,
+                        "status": "processed",
+                        "invoice_id": (str(inv["id"]) if inv else None),
+                        "invoice_no": (inv.get("invoice_no") if inv else None),
+                    }
+
+                payload = row.get("payload_json") or {}
+                if isinstance(payload, str):
+                    try:
+                        payload = json.loads(payload)
+                    except Exception:
+                        payload = {}
+
+                try:
+                    if event_type == "sale.completed":
+                        pp.process_sale(cur, company_id, event_id, payload, device_id)
+                    elif event_type == "sale.returned":
+                        pp.process_sale_return(cur, company_id, event_id, payload, device_id)
+                    elif event_type == "pos.cash_movement":
+                        pp.process_cash_movement(cur, company_id, event_id, payload, device_id)
+                    elif event_type == "purchase.received":
+                        pp.process_goods_receipt(cur, company_id, event_id, payload, device_id)
+                    elif event_type == "purchase.invoice":
+                        pp.process_purchase_invoice(cur, company_id, event_id, payload, device_id)
+                    else:
+                        raise ValueError(f"unsupported event type {event_type}")
+
+                    cur.execute(
+                        """
+                        UPDATE pos_events_outbox
+                        SET status = 'processed',
+                            processed_at = now(),
+                            error_message = NULL
+                        WHERE id = %s
+                        """,
+                        (event_id,),
+                    )
+                except Exception as ex:
+                    # Keep the same attempt/dead semantics as the worker.
+                    next_attempt = attempt_count + 1
+                    max_attempts = 5
+                    next_status = "dead" if next_attempt >= max_attempts else "failed"
+                    cur.execute(
+                        """
+                        UPDATE pos_events_outbox
+                        SET status = %s,
+                            attempt_count = %s,
+                            error_message = %s
+                        WHERE id = %s
+                        """,
+                        (next_status, next_attempt, str(ex), event_id),
+                    )
+                    raise HTTPException(status_code=409, detail=str(ex))
+
+                inv = None
+                if event_type == "sale.completed":
+                    cur.execute(
+                        """
+                        SELECT id, invoice_no
+                        FROM sales_invoices
+                        WHERE company_id = %s AND source_event_id = %s
+                        """,
+                        (company_id, event_id),
+                    )
+                    inv = cur.fetchone()
+
+                return {
+                    "ok": True,
+                    "event_id": event_id,
+                    "event_type": event_type,
+                    "status": "processed",
+                    "invoice_id": (str(inv["id"]) if inv else None),
+                    "invoice_no": (inv.get("invoice_no") if inv else None),
+                }
+
 @router.get("/inbox/pull")
 def pull_inbox(
     limit: int = 100,
@@ -875,7 +1008,8 @@ def pos_config(device=Depends(require_device)):
 
             cur.execute(
                 """
-                SELECT id, base_currency, vat_currency, default_rate_type
+                SELECT id, name, legal_name, registration_no, vat_no,
+                       base_currency, vat_currency, default_rate_type
                 FROM companies
                 WHERE id = %s
                 """,
@@ -958,6 +1092,90 @@ def pos_config(device=Depends(require_device)):
         "default_price_list_id": default_pl_id,
         "inventory_policy": inventory_policy,
     }
+
+
+@router.get("/sales-invoices/{invoice_id}")
+def pos_get_sales_invoice(invoice_id: str, device=Depends(require_device)):
+    """
+    Device-scoped Sales Invoice detail for printing/export flows.
+    Restricted to invoices created by the same device.
+    """
+    company_id = str(device["company_id"])
+    device_id = str(device["device_id"])
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
+                       i.subtotal_usd, i.subtotal_lbp, i.discount_total_usd, i.discount_total_lbp,
+                       i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
+                       i.reserve_stock,
+                       i.pricing_currency, i.settlement_currency,
+                       i.branch_id,
+                       i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at, i.receipt_meta,
+                       i.invoice_date, i.due_date, i.created_at
+                FROM sales_invoices i
+                LEFT JOIN customers c
+                  ON c.company_id = i.company_id AND c.id = i.customer_id
+                LEFT JOIN warehouses w
+                  ON w.company_id = i.company_id AND w.id = i.warehouse_id
+                WHERE i.company_id = %s AND i.id = %s AND i.device_id = %s
+                """,
+                (company_id, invoice_id, device_id),
+            )
+            inv = cur.fetchone()
+            if not inv:
+                raise HTTPException(status_code=404, detail="invoice not found")
+
+            cur.execute(
+                """
+                SELECT l.id, l.item_id, it.sku AS item_sku, it.name AS item_name,
+                       it.tax_code_id AS item_tax_code_id,
+                       l.qty, l.uom, l.qty_factor, l.qty_entered,
+                       l.unit_price_usd, l.unit_price_lbp,
+                       l.unit_price_entered_usd, l.unit_price_entered_lbp,
+                       l.pre_discount_unit_price_usd, l.pre_discount_unit_price_lbp,
+                       l.discount_pct, l.discount_amount_usd, l.discount_amount_lbp,
+                       l.applied_promotion_id, l.applied_promotion_item_id, l.applied_price_list_id,
+                       l.line_total_usd, l.line_total_lbp
+                FROM sales_invoice_lines l
+                LEFT JOIN items it
+                  ON it.company_id = %s AND it.id = l.item_id
+                WHERE l.invoice_id = %s
+                ORDER BY l.id
+                """,
+                (company_id, invoice_id),
+            )
+            lines = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT id, method, amount_usd, amount_lbp,
+                       tender_usd, tender_lbp,
+                       reference, auth_code, provider, settlement_currency, captured_at,
+                       voided_at, void_reason,
+                       created_at
+                FROM sales_payments
+                WHERE invoice_id = %s AND voided_at IS NULL
+                ORDER BY created_at ASC
+                """,
+                (invoice_id,),
+            )
+            payments = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT id, tax_code_id, base_usd, base_lbp, tax_usd, tax_lbp, tax_date, created_at
+                FROM tax_lines
+                WHERE company_id = %s AND source_type = 'sales_invoice' AND source_id = %s
+                ORDER BY created_at ASC
+                """,
+                (company_id, invoice_id),
+            )
+            tax_lines = cur.fetchall()
+
+            return {"invoice": inv, "lines": lines, "payments": payments, "tax_lines": tax_lines}
 
 @router.post("/heartbeat")
 def heartbeat(

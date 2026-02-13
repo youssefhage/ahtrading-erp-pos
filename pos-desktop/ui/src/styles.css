@@ -83,4 +83,12 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+
+  /* Simple 2-line clamp utility (avoid relying on optional tailwind plugins). */
+  .clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
 }
