@@ -1,12 +1,15 @@
+FROM node:20-alpine AS build
+
+WORKDIR /app
+COPY pos-desktop/ui/package*.json ./ui/
+RUN cd ui && npm ci
+COPY pos-desktop/ui ./ui
+WORKDIR /app/ui
+RUN npm run build
+
 FROM nginx:1.27-alpine
 
-# Serve the POS UI as a simple static site.
-# The UI calls `/api/*` on the same origin, so Dokploy should route `/api` to the backend.
-
-COPY pos-desktop/ui/ /usr/share/nginx/html/
-
-# Default to the unified POS screen.
-RUN if [ -f /usr/share/nginx/html/unified.html ]; then cp /usr/share/nginx/html/unified.html /usr/share/nginx/html/index.html; fi
+COPY --from=build /app/ui/dist /usr/share/nginx/html/
+RUN cp /usr/share/nginx/html/index.html /usr/share/nginx/html/unified.html
 
 EXPOSE 80
-
