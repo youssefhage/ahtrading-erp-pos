@@ -12,6 +12,15 @@ Use the installer launcher:
 
 Or (recommended for stores) install **Setup Desktop** from the downloads page and run it. Setup Desktop can run without a repo clone (it ships a bundled Edge stack that pulls prebuilt images).
 
+## Windows Prereqs (If Using The Zip Runner)
+
+If you're running the fallback zip runner (`run_setup.ps1`) on Windows:
+
+- Install **Docker Desktop** and make sure it is running.
+- Install **Python 3.11+** and ensure it's on `PATH`.
+  - Recommended: `winget install -e --id Python.Python.3.11`
+  - In the Python installer, check **Add python.exe to PATH** and install the **Python Launcher (py)**.
+
 You can select:
 1. Full setup (On-Prem + POS)
 2. On-Prem only

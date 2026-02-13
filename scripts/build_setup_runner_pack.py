@@ -49,7 +49,8 @@ def main() -> int:
 
         Requirements (install once on the server machine):
         - Docker Desktop (Windows/macOS)
-        - Python 3
+        - Python 3.11+ (recommended)
+          - Windows: check "Add python.exe to PATH" and install the "Python Launcher" (py)
 
         Quick Start
         1) Extract this zip into a folder (e.g. C:\\MelqardEdgeSetup or ~/MelqardEdgeSetup).
@@ -79,20 +80,50 @@ def main() -> int:
         $here = Split-Path -Parent $MyInvocation.MyCommand.Path
         Set-Location $here
 
-        # Prefer python3, then python, then py -3.
-        if (Get-Command python3 -ErrorAction SilentlyContinue) {
-          python3 .\\onboard_onprem_pos.py --compose-mode images --edge-home .
-          exit $LASTEXITCODE
-        }
-        if (Get-Command python -ErrorAction SilentlyContinue) {
-          python .\\onboard_onprem_pos.py --compose-mode images --edge-home .
-          exit $LASTEXITCODE
-        }
+        # Prefer Windows Python Launcher (py), then python, then python3.
         if (Get-Command py -ErrorAction SilentlyContinue) {
           py -3 .\\onboard_onprem_pos.py --compose-mode images --edge-home .
           exit $LASTEXITCODE
         }
-        Write-Error "Python not found. Install Python 3 and ensure it is on PATH."
+
+        # Some Windows builds ship a "python" app execution alias that opens the Microsoft Store.
+        # Verify python really runs before using it.
+        if (Get-Command python -ErrorAction SilentlyContinue) {
+          $ver = & python --version 2>&1
+          if ($LASTEXITCODE -eq 0 -and ($ver -match "^Python\\s+3\\.")) {
+            python .\\onboard_onprem_pos.py --compose-mode images --edge-home .
+            exit $LASTEXITCODE
+          }
+        }
+
+        if (Get-Command python3 -ErrorAction SilentlyContinue) {
+          $ver = & python3 --version 2>&1
+          if ($LASTEXITCODE -eq 0 -and ($ver -match "^Python\\s+3\\.")) {
+            python3 .\\onboard_onprem_pos.py --compose-mode images --edge-home .
+            exit $LASTEXITCODE
+          }
+        }
+
+        Write-Error @"
+        Python not found.
+
+        Install Python 3.11+ and ensure it is on PATH, then reopen PowerShell and rerun this script.
+
+        Recommended (Windows 10/11):
+          winget install -e --id Python.Python.3.11
+
+        Or download from:
+          https://www.python.org/downloads/windows/
+
+        During install:
+          - Check: "Add python.exe to PATH"
+          - Ensure: "Python Launcher (py)" is installed
+
+        Verify:
+          py -3 --version
+          python --version
+"@
+        try { Start-Process "https://www.python.org/downloads/windows/" } catch {}
         exit 2
         """
     ).strip() + "\n"
@@ -111,4 +142,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
