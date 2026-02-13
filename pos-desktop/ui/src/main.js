@@ -1,10 +1,9 @@
 import './styles.css';
 import App from './App.svelte';
+import { mount } from 'svelte';
 
-const mount = document.getElementById('app') || document.body;
+const mountTarget = document.getElementById('app') || document.body;
 
-if (mount) {
-  new App({
-    target: mount,
-  });
+if (mountTarget) {
+  mount(App, { target: mountTarget });
 }
