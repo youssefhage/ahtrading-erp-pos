@@ -284,7 +284,7 @@ def _normalize_supplier_invoice_draft_lines(cur, company_id: str, lines_in, exch
     base_lbp = Decimal("0")
     for idx, l in enumerate(lines_in or []):
         resolved = resolve_line_uom(
-            line_label=f"line {idx+1}",
+            line_label=f"item {idx+1}",
             item_id=str(getattr(l, "item_id", "")),
             qty_base=Decimal(str(getattr(l, "qty", 0) or 0)),
             qty_entered=(Decimal(str(getattr(l, "qty_entered"))) if getattr(l, "qty_entered", None) is not None else None),
@@ -309,7 +309,7 @@ def _normalize_supplier_invoice_draft_lines(cur, company_id: str, lines_in, exch
                 unit_lbp = Decimal(str(getattr(l, "unit_cost_entered_lbp", 0) or 0)) / qty_factor
         unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
         if unit_usd == 0 and unit_lbp == 0:
-            raise HTTPException(status_code=400, detail=f"line {idx+1}: unit cost is required")
+            raise HTTPException(status_code=400, detail=f"item {idx+1}: unit cost is required")
 
         unit_entered_usd = (
             Decimal(str(getattr(l, "unit_cost_entered_usd", 0) or 0))
@@ -1237,10 +1237,12 @@ def list_supplier_payments(
             sql = """
                 SELECT p.id, p.supplier_invoice_id, i.invoice_no, i.supplier_id,
                        s.name AS supplier_name,
-                       p.method, p.amount_usd, p.amount_lbp, p.created_at
+                       p.method, p.amount_usd, p.amount_lbp,
+                       p.payment_date, p.bank_account_id,
+                       p.created_at
                 FROM supplier_payments p
                 JOIN supplier_invoices i ON i.id = p.supplier_invoice_id
-                LEFT JOIN suppliers s ON s.id = i.supplier_id
+                LEFT JOIN suppliers s ON s.company_id = i.company_id AND s.id = i.supplier_id
                 WHERE i.company_id = %s
             """
             params: list = [company_id]
@@ -1251,12 +1253,12 @@ def list_supplier_payments(
                 sql += " AND i.supplier_id = %s"
                 params.append(supplier_id)
             if date_from:
-                sql += " AND p.created_at::date >= %s"
+                sql += " AND COALESCE(p.payment_date, p.created_at::date) >= %s"
                 params.append(date_from)
             if date_to:
-                sql += " AND p.created_at::date <= %s"
+                sql += " AND COALESCE(p.payment_date, p.created_at::date) <= %s"
                 params.append(date_to)
-            sql += " ORDER BY p.created_at DESC LIMIT %s"
+            sql += " ORDER BY COALESCE(p.payment_date, p.created_at::date) DESC, p.created_at DESC LIMIT %s"
             params.append(limit)
             cur.execute(sql, params)
             return {"payments": cur.fetchall()}
@@ -1562,7 +1564,9 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
             lines = cur.fetchall()
             cur.execute(
                 """
-                SELECT id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at, created_at
+                SELECT id, method, amount_usd, amount_lbp,
+                       payment_date, bank_account_id,
+                       reference, auth_code, provider, settlement_currency, captured_at, created_at
                 FROM supplier_payments
                 WHERE supplier_invoice_id = %s
                 ORDER BY created_at ASC
@@ -1633,10 +1637,14 @@ def get_purchase_order(order_id: str, company_id: str = Depends(get_company_id))
                 raise HTTPException(status_code=404, detail="order not found")
             cur.execute(
                 """
-                SELECT id, item_id, qty, unit_cost_usd, unit_cost_lbp, line_total_usd, line_total_lbp
-                FROM purchase_order_lines
-                WHERE company_id = %s AND purchase_order_id = %s
-                ORDER BY id
+                SELECT l.id, l.item_id,
+                       it.sku AS item_sku, it.name AS item_name, it.unit_of_measure,
+                       l.qty, l.unit_cost_usd, l.unit_cost_lbp, l.line_total_usd, l.line_total_lbp
+                FROM purchase_order_lines l
+                LEFT JOIN items it
+                  ON it.company_id = l.company_id AND it.id = l.item_id
+                WHERE l.company_id = %s AND l.purchase_order_id = %s
+                ORDER BY l.id
                 """,
                 (company_id, order_id),
             )
@@ -2351,15 +2359,15 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                 uom_by_item = _fetch_item_uoms(cur, company_id, [l.item_id for l in (data.lines or [])])
                 for idx, l in enumerate(data.lines):
                     base_uom = (uom_by_item.get(str(l.item_id)) or "").strip() or None
-                    exp = _enforce_item_tracking(cur, company_id, l.item_id, l.batch_no, l.expiry_date, f"line {idx+1}")
+                    exp = _enforce_item_tracking(cur, company_id, l.item_id, l.batch_no, l.expiry_date, f"item {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, exp)
                     _touch_batch_received_metadata(cur, company_id, batch_id, "goods_receipt", str(receipt_id), str(data.supplier_id))
                     line_id = str(uuid.uuid4())
                     if l.landed_cost_total_usd < 0:
-                        raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_usd must be >= 0")
+                        raise HTTPException(status_code=400, detail=f"item {idx+1}: landed_cost_total_usd must be >= 0")
                     if l.landed_cost_total_lbp < 0:
-                        raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_lbp must be >= 0")
-                    loc_id = _validate_location_for_warehouse(cur, company_id, data.warehouse_id, l.location_id, f"line {idx+1}")
+                        raise HTTPException(status_code=400, detail=f"item {idx+1}: landed_cost_total_lbp must be >= 0")
+                    loc_id = _validate_location_for_warehouse(cur, company_id, data.warehouse_id, l.location_id, f"item {idx+1}")
                     cur.execute(
                         """
                         INSERT INTO goods_receipt_lines
@@ -2541,11 +2549,11 @@ def create_goods_receipt_draft(data: GoodsReceiptDraftIn, company_id: str = Depe
                 for idx, ln in enumerate(normalized or []):
                     base_uom = (uom_by_item.get(str(ln.get("item_id"))) or "").strip() or None
                     if Decimal(str(ln.get("landed_cost_total_usd") or 0)) < 0:
-                        raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_usd must be >= 0")
+                        raise HTTPException(status_code=400, detail=f"item {idx+1}: landed_cost_total_usd must be >= 0")
                     if Decimal(str(ln.get("landed_cost_total_lbp") or 0)) < 0:
-                        raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_lbp must be >= 0")
-                    loc_id = _validate_location_for_warehouse(cur, company_id, data.warehouse_id, ln.get("location_id"), f"line {idx+1}")
-                    exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
+                        raise HTTPException(status_code=400, detail=f"item {idx+1}: landed_cost_total_lbp must be >= 0")
+                    loc_id = _validate_location_for_warehouse(cur, company_id, data.warehouse_id, ln.get("location_id"), f"item {idx+1}")
+                    exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"item {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
                     cur.execute(
                         """
@@ -2637,11 +2645,11 @@ def update_goods_receipt_draft(receipt_id: str, data: GoodsReceiptDraftUpdateIn,
                     for idx, ln in enumerate(normalized):
                         base_uom = (uom_by_item.get(str(ln.get("item_id"))) or "").strip() or None
                         if Decimal(str(ln.get("landed_cost_total_usd") or 0)) < 0:
-                            raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_usd must be >= 0")
+                            raise HTTPException(status_code=400, detail=f"item {idx+1}: landed_cost_total_usd must be >= 0")
                         if Decimal(str(ln.get("landed_cost_total_lbp") or 0)) < 0:
-                            raise HTTPException(status_code=400, detail=f"line {idx+1}: landed_cost_total_lbp must be >= 0")
-                        loc_id = _validate_location_for_warehouse(cur, company_id, warehouse_id, ln.get("location_id"), f"line {idx+1}")
-                        exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
+                            raise HTTPException(status_code=400, detail=f"item {idx+1}: landed_cost_total_lbp must be >= 0")
+                        loc_id = _validate_location_for_warehouse(cur, company_id, warehouse_id, ln.get("location_id"), f"item {idx+1}")
+                        exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"item {idx+1}")
                         batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
                         cur.execute(
                             """
@@ -2919,10 +2927,10 @@ def post_goods_receipt(receipt_id: str, data: GoodsReceiptPostIn, company_id: st
                         total_usd=%s,
                         total_lbp=%s,
                         received_by_user_id = COALESCE(received_by_user_id, %s),
-                        received_at = COALESCE(received_at, now())
+                        received_at = COALESCE(received_at, %s)
                     WHERE company_id = %s AND id = %s
                     """,
-                    (receipt_no, total_usd, total_lbp, user["user_id"], company_id, receipt_id),
+                    (receipt_no, total_usd, total_lbp, user["user_id"], posting_date, company_id, receipt_id),
                 )
 
                 cur.execute(
@@ -3410,7 +3418,7 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                 invoice_id = cur.fetchone()["id"]
 
                 for idx, ln in enumerate(normalized or []):
-                    exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
+                    exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"item {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, ln["item_id"], ln.get("batch_no"), exp)
                     _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(data.supplier_id))
                     cur.execute(
@@ -3444,8 +3452,12 @@ def create_supplier_invoice_draft(data: SupplierInvoiceDraftIn, company_id: str 
                             ln["unit_cost_entered_lbp"],
                             ln["line_total_usd"],
                             ln["line_total_lbp"],
-                            ((ln.get("supplier_item_code") or "").strip() or None) if isinstance(ln.get("supplier_item_code"), str) else ln.get("supplier_item_code"),
-                            ((ln.get("supplier_item_name") or "").strip() or None) if isinstance(ln.get("supplier_item_name"), str) else ln.get("supplier_item_name"),
+                            ((ln.get("supplier_item_code") or "").strip() or None)
+                            if isinstance(ln.get("supplier_item_code"), str)
+                            else ln.get("supplier_item_code"),
+                            ((ln.get("supplier_item_name") or "").strip() or None)
+                            if isinstance(ln.get("supplier_item_name"), str)
+                            else ln.get("supplier_item_name"),
                         ),
                     )
 
@@ -3510,7 +3522,7 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                     )
                     cur.execute('DELETE FROM supplier_invoice_lines WHERE company_id=%s AND supplier_invoice_id=%s', (company_id, invoice_id))
                     for idx, ln in enumerate(normalized or []):
-                        exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"line {idx+1}")
+                        exp = _enforce_item_tracking(cur, company_id, ln["item_id"], ln.get("batch_no"), ln.get("expiry_date"), f"item {idx+1}")
                         batch_id = _get_or_create_batch(cur, company_id, ln['item_id'], ln.get('batch_no'), exp)
                         _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(supplier_id or "") or None)
                         cur.execute(
@@ -3544,8 +3556,12 @@ def update_supplier_invoice_draft(invoice_id: str, data: SupplierInvoiceDraftUpd
                                 ln["unit_cost_entered_lbp"],
                                 ln['line_total_usd'],
                                 ln['line_total_lbp'],
-                                ((ln.get("supplier_item_code") or "").strip() or None) if isinstance(ln.get("supplier_item_code"), str) else ln.get("supplier_item_code"),
-                                ((ln.get("supplier_item_name") or "").strip() or None) if isinstance(ln.get("supplier_item_name"), str) else ln.get("supplier_item_name"),
+                                ((ln.get("supplier_item_code") or "").strip() or None)
+                                if isinstance(ln.get("supplier_item_code"), str)
+                                else ln.get("supplier_item_code"),
+                                ((ln.get("supplier_item_name") or "").strip() or None)
+                                if isinstance(ln.get("supplier_item_name"), str)
+                                else ln.get("supplier_item_name"),
                             ),
                         )
                 else:
@@ -3650,8 +3666,17 @@ def supplier_invoice_post_preview(invoice_id: str, company_id: str = Depends(get
             return {
                 'base_usd': float(base_usd),
                 'base_lbp': float(base_lbp),
+                'tax_code_id': str(inv.get('tax_code_id')) if inv.get('tax_code_id') else None,
+                'tax_rate': float(tax_rate),
                 'tax_usd': float(tax_usd),
                 'tax_lbp': float(tax_lbp),
+                'tax_rows': ([] if not inv.get('tax_code_id') else [{
+                    'tax_code_id': str(inv.get('tax_code_id')),
+                    'base_usd': float(base_usd),
+                    'base_lbp': float(base_lbp),
+                    'tax_usd': float(tax_usd),
+                    'tax_lbp': float(tax_lbp),
+                }]),
                 'total_usd': float(total_usd),
                 'total_lbp': float(total_lbp),
             }
@@ -4042,6 +4067,8 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                         tax_rate = Decimal(str(r['rate'] or 0))
 
                 exchange_rate = Decimal(str(inv['exchange_rate'] or 0))
+                if exchange_rate <= 0:
+                    raise HTTPException(status_code=400, detail="exchange_rate is required")
                 tax_lbp = base_lbp * tax_rate
                 tax_usd = (tax_lbp / exchange_rate) if exchange_rate else Decimal('0')
                 total_usd = base_usd + tax_usd
@@ -4540,7 +4567,7 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                 uom_by_item = _fetch_item_uoms(cur, company_id, [l.item_id for l in (data.lines or [])])
                 for idx, l in enumerate(data.lines):
                     base_uom = (uom_by_item.get(str(l.item_id)) or "").strip() or None
-                    exp = _enforce_item_tracking(cur, company_id, l.item_id, l.batch_no, l.expiry_date, f"line {idx+1}")
+                    exp = _enforce_item_tracking(cur, company_id, l.item_id, l.batch_no, l.expiry_date, f"item {idx+1}")
                     batch_id = _get_or_create_batch(cur, company_id, l.item_id, l.batch_no, exp)
                     _touch_batch_received_metadata(cur, company_id, batch_id, "supplier_invoice", str(invoice_id), str(data.supplier_id))
                     cur.execute(
@@ -4733,7 +4760,7 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
 
                 cur.execute(
                     """
-                    SELECT id, supplier_id, status, is_on_hold
+                    SELECT id, supplier_id, status, is_on_hold, total_usd, total_lbp, exchange_rate
                     FROM supplier_invoices
                     WHERE company_id = %s AND id = %s
                     """,
@@ -4759,17 +4786,68 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                 if not cur.fetchone():
                     raise HTTPException(status_code=400, detail=f"Unknown payment method: {method}")
 
+                bank_account_id = (data.bank_account_id or "").strip() or None
+                if bank_account_id:
+                    cur.execute(
+                        """
+                        SELECT 1
+                        FROM bank_accounts
+                        WHERE company_id = %s AND id = %s AND is_active = true
+                        """,
+                        (company_id, bank_account_id),
+                    )
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=400, detail="invalid bank_account_id")
+
+                exchange_rate = Decimal(str(inv.get("exchange_rate") or 0))
+                amount_usd = Decimal(str(data.amount_usd or 0))
+                amount_lbp = Decimal(str(data.amount_lbp or 0))
+                # Fill the missing currency for better UX and consistent balances.
+                if exchange_rate <= 0 and ((amount_usd == 0 and amount_lbp != 0) or (amount_lbp == 0 and amount_usd != 0)):
+                    raise HTTPException(status_code=400, detail="exchange_rate is required to pay in a single currency")
+                amount_usd, amount_lbp = _normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
+                if amount_usd == 0 and amount_lbp == 0:
+                    raise HTTPException(status_code=400, detail="amount is required")
+
+                # Prevent overpayment until we introduce explicit supplier prepayments/credits.
                 cur.execute(
                     """
-                    INSERT INTO supplier_payments (id, supplier_invoice_id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at)
-                    VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, now())
+                    SELECT COALESCE(SUM(amount_usd), 0) AS paid_usd,
+                           COALESCE(SUM(amount_lbp), 0) AS paid_lbp
+                    FROM supplier_payments
+                    WHERE supplier_invoice_id = %s
+                    """,
+                    (data.supplier_invoice_id,),
+                )
+                sums = cur.fetchone() or {}
+                paid_usd = Decimal(str(sums.get("paid_usd") or 0))
+                paid_lbp = Decimal(str(sums.get("paid_lbp") or 0))
+                total_usd = Decimal(str(inv.get("total_usd") or 0))
+                total_lbp = Decimal(str(inv.get("total_lbp") or 0))
+                eps_usd = Decimal("0.01")
+                eps_lbp = Decimal("100")
+                if (paid_usd + amount_usd) > (total_usd + eps_usd) or (paid_lbp + amount_lbp) > (total_lbp + eps_lbp):
+                    raise HTTPException(status_code=400, detail="payment exceeds invoice total")
+
+                cur.execute(
+                    """
+                    INSERT INTO supplier_payments
+                      (id, supplier_invoice_id, method, amount_usd, amount_lbp,
+                       payment_date, bank_account_id,
+                       reference, auth_code, provider, settlement_currency, captured_at)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, %s, %s,
+                       %s, %s,
+                       %s, %s, %s, %s, now())
                     RETURNING id
                     """,
                     (
                         data.supplier_invoice_id,
                         method,
-                        data.amount_usd,
-                        data.amount_lbp,
+                        amount_usd,
+                        amount_lbp,
+                        pay_date,
+                        bank_account_id,
                         (data.reference or None),
                         (data.auth_code or None),
                         (data.provider or None),
@@ -4807,27 +4885,17 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                     VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Supplier payment')
                     """,
-                    (journal_id, ap, data.amount_usd, data.amount_lbp),
+                    (journal_id, ap, amount_usd, amount_lbp),
                 )
                 cur.execute(
                     """
                     INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
                     VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Cash/Bank out')
                     """,
-                    (journal_id, pay_account, data.amount_usd, data.amount_lbp),
+                    (journal_id, pay_account, amount_usd, amount_lbp),
                 )
 
-                if data.bank_account_id:
-                    cur.execute(
-                        """
-                        SELECT 1
-                        FROM bank_accounts
-                        WHERE company_id = %s AND id = %s AND is_active = true
-                        """,
-                        (company_id, data.bank_account_id),
-                    )
-                    if not cur.fetchone():
-                        raise HTTPException(status_code=400, detail="invalid bank_account_id")
+                if bank_account_id:
                     cur.execute(
                         """
                         INSERT INTO bank_transactions
@@ -4840,10 +4908,10 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                         """,
                         (
                             company_id,
-                            data.bank_account_id,
+                            bank_account_id,
                             pay_date,
-                            data.amount_usd,
-                            data.amount_lbp,
+                            amount_usd,
+                            amount_lbp,
                             f"Supplier payment {str(payment_id)[:8]}",
                             None,
                             None,

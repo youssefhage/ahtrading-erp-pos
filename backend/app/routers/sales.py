@@ -445,6 +445,7 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
             cur.execute(
                 """
                 SELECT l.id, l.item_id, it.sku AS item_sku, it.name AS item_name,
+                       it.tax_code_id AS item_tax_code_id,
                        l.qty, l.uom, l.qty_factor, l.qty_entered,
                        l.unit_price_usd, l.unit_price_lbp,
                        l.unit_price_entered_usd, l.unit_price_entered_lbp,
@@ -584,6 +585,7 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
             tax_code_id = None  # default VAT code id (if any)
             tax_usd = Decimal("0")
             tax_lbp = Decimal("0")
+            tax_rows: list[dict] = []
 
             if apply_vat:
                 cur.execute(
@@ -645,15 +647,26 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
                         tusd, tlbp = _normalize_dual_amounts(tusd, tlbp, exchange_rate)
                         tax_usd += tusd
                         tax_lbp += tlbp
+                        tax_rows.append(
+                            {
+                                "tax_code_id": tcid,
+                                "base_usd": b["usd"],
+                                "base_lbp": b["lbp"],
+                                "tax_usd": tusd,
+                                "tax_lbp": tlbp,
+                            }
+                        )
 
             total_usd = base_usd + tax_usd
             total_lbp = base_lbp + tax_lbp
             return {
                 "base_usd": base_usd,
                 "base_lbp": base_lbp,
+                "apply_vat": bool(apply_vat),
                 "tax_code_id": tax_code_id,
                 "tax_usd": tax_usd,
                 "tax_lbp": tax_lbp,
+                "tax_rows": tax_rows,
                 "total_usd": total_usd,
                 "total_lbp": total_lbp,
             }
