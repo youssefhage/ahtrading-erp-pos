@@ -1,20 +1,26 @@
-name: Desktop build & publish (POS + Admin + Setup)
+name: Desktop build & publish (Reusable)
 
 on:
-  workflow_dispatch:
-  push:
-    branches: [main]
-    tags:
-      - "desktop-v*"
-    paths:
-      - "apps/pos-desktop/**"
-      - "apps/admin-desktop/**"
-      - "apps/setup-desktop/**"
-      - "scripts/publish_desktop_release.py"
-      - "backend/app/routers/updates.py"
-      - "backend/app/static/downloads_site/**"
-      - "apps/downloads/**"
-      - ".github/workflows/desktop-build-and-publish.yml"
+  workflow_call:
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+      UPDATES_PUBLISH_KEY:
+        required: true
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
 
 jobs:
   build:
@@ -23,7 +29,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Build all end-user desktop targets we publish today.
         os: [windows-latest, macos-13, macos-14]
 
     steps:
@@ -50,7 +55,6 @@ jobs:
             echo "Missing GitHub secret: TAURI_SIGNING_PRIVATE_KEY" >&2
             exit 1
           fi
-          # password may be empty if the key has no password; keep it optional.
 
       - name: Install Apple certificate (macOS)
         if: ${{ startsWith(matrix.os, 'macos') && secrets.APPLE_CERTIFICATE != '' }}
@@ -69,20 +73,16 @@ jobs:
           CERT_PATH="$RUNNER_TEMP/cert.p12"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
 
-          # `base64` differs between GNU/BSD; support both.
           (echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH") 2>/dev/null || (echo "$APPLE_CERTIFICATE" | base64 -D > "$CERT_PATH")
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          # Ensure codesign can access the key without UI prompts.
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH"
 
-          # Sanity-check that a Developer ID identity is present (required for distribution).
           if ! security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
             echo "Developer ID Application identity not found after import." >&2
-            echo "Make sure APPLE_CERTIFICATE is a Developer ID Application .p12 (not Apple Development)." >&2
             security find-identity -v -p codesigning || true
             exit 1
           fi
@@ -92,7 +92,6 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS code signing + notarization (required to avoid 'app is damaged' warnings).
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -148,13 +147,11 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          # Submit any DMGs produced by our apps.
           mapfile -t DMGS < <(find apps -path '*/src-tauri/target/release/bundle/dmg/*.dmg' -type f | sort)
           if [ "${#DMGS[@]}" -eq 0 ]; then
             echo "No DMGs found to notarize." >&2
             exit 1
           fi
-
           for dmg in "${DMGS[@]}"; do
             echo "Notarizing: $dmg"
             xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
@@ -184,7 +181,6 @@ jobs:
           collect "apps/admin-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/portal"
           collect "apps/setup-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/setup"
 
-          # Help the publish step detect which runner produced which folder.
           echo "${{ matrix.os }}" > "dist/${{ matrix.os }}/_runner_os.txt"
 
       - uses: actions/upload-artifact@v4
@@ -214,7 +210,6 @@ jobs:
           UPDATES_PUBLISH_KEY: ${{ secrets.UPDATES_PUBLISH_KEY }}
         run: |
           set -euo pipefail
-
           if [ -z "${UPDATES_PUBLISH_KEY:-}" ]; then
             echo "UPDATES_PUBLISH_KEY is required" >&2
             exit 1
@@ -224,3 +219,4 @@ jobs:
             --api-base "https://app.melqard.com/api/" \
             --download-base "https://download.melqard.com" \
             --dist-dir dist
+

@@ -1,0 +1,12 @@
+name: Desktop build & publish (tags)
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+jobs:
+  run:
+    uses: ./.github/workflows/desktop-build-and-publish-reusable.yml
+    secrets: inherit
+
