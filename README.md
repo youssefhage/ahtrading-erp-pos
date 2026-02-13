@@ -53,6 +53,10 @@ python3 pos-desktop/agent.py
 ```
 Open: http://localhost:7070
 
+## POS Printing
+Official invoices print as **A4 PDFs** and unofficial invoices print as **thermal receipts**. Setup and printer mapping guide:
+- `docs/pos-printing.md`
+
 ## On-Prem Onboarding Runner
 For guided EDGE + POS provisioning:
 ```bash
