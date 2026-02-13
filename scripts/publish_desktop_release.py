@@ -94,6 +94,30 @@ def _http_upload(api_base: str, publish_key: str, rel_path: str, file_path: Path
         _die(f"upload failed: {rel_path} (curl exit {e.returncode})")
 
 
+def _http_post_json(api_base: str, publish_key: str, endpoint: str, payload: dict) -> None:
+    url = urljoin(api_base.rstrip("/") + "/", endpoint.lstrip("/"))
+    cmd = [
+        "curl",
+        "-fsS",
+        "-X",
+        "POST",
+        "-H",
+        f"X-Updates-Key: {publish_key}",
+        "-H",
+        "Content-Type: application/json",
+        "-d",
+        json.dumps(payload),
+        url,
+    ]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+    except FileNotFoundError:
+        _die("curl not found (required to publish update artifacts)")
+    except subprocess.CalledProcessError as e:
+        # Best-effort: don't block publishing if purge isn't deployed yet.
+        print(f"warning: post failed: {endpoint} (curl exit {e.returncode})", file=sys.stderr)
+
+
 @dataclass(frozen=True)
 class PlatformBundle:
     platform: str  # windows-x86_64, darwin-x86_64, darwin-aarch64
@@ -263,6 +287,14 @@ def main() -> int:
         )
 
         print(f"published {app} {version} ({', '.join(sorted(bundles.keys()))})")
+
+    # Keep the download host clean: remove outdated versions after publishing.
+    _http_post_json(
+        api_base=args.api_base,
+        publish_key=args.publish_key,
+        endpoint="updates/purge",
+        payload={"apps": ["pos", "portal", "setup"], "keep_versions": 1},
+    )
 
     return 0
 

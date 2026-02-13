@@ -43,7 +43,7 @@
               Starts the on-prem Edge server (Docker) and generates POS setup packs for terminals.
             </p>
             <div class="appLinks">
-              <a class="btn" href="/updates/setup/MelqardSetupRunner-latest.zip">Windows runner (zip)</a>
+              <a class="btn" href="/updates/latest-installer/setup/windows">Download for Windows</a>
               <a class="btn ghost" href="/updates/latest-installer/setup/macos">Download for macOS</a>
             </div>
           </article>
@@ -102,8 +102,8 @@
       <section class="card">
         <h2>Advanced (Updates)</h2>
         <ol class="steps">
-          <li>Bump desktop app versions and push a <code>desktop-v*</code> git tag.</li>
-          <li>GitHub Actions builds Windows + macOS installers and updater bundles.</li>
+          <li>Merge updates to <code>main</code> (or push a <code>desktop-v*</code> git tag).</li>
+          <li>GitHub Actions builds Windows + macOS installers and updater bundles automatically.</li>
           <li>CI publishes files into <code>/updates/pos/</code>, <code>/updates/portal/</code> (Admin; alias <code>/updates/admin/</code>), <code>/updates/setup/</code> and updates <code>latest.json</code>.</li>
         </ol>
         <p class="muted">

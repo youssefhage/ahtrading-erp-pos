@@ -7,6 +7,7 @@ import hmac
 from pathlib import Path
 from typing import Optional
 
+from pydantic import BaseModel
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
@@ -225,6 +226,150 @@ def _html_index(dir_path: Path, rel_dir: str) -> str:
         f"<h1>{title}</h1><hr><pre>{body}</pre><hr>"
         "</body></html>"
     )
+
+
+class PurgeUpdatesIn(BaseModel):
+    apps: list[str] | None = None  # default: all
+    keep_versions: int = 1  # keep only the latest by default
+    dry_run: bool = False
+
+
+def _safe_rm_tree(p: Path) -> None:
+    try:
+        if p.is_symlink():
+            p.unlink()
+            return
+        if p.is_file():
+            p.unlink()
+            return
+        if p.is_dir():
+            # Manual walk to avoid shutil import and to keep strict control.
+            for child in p.rglob("*"):
+                try:
+                    if child.is_file() or child.is_symlink():
+                        child.unlink()
+                except Exception:
+                    pass
+            # Remove dirs bottom-up.
+            for child in sorted([x for x in p.rglob("*") if x.is_dir()], key=lambda x: len(str(x)), reverse=True):
+                try:
+                    child.rmdir()
+                except Exception:
+                    pass
+            try:
+                p.rmdir()
+            except Exception:
+                pass
+    except Exception:
+        return
+
+
+def _read_latest_version(app_root: Path) -> Optional[str]:
+    try:
+        latest_path = app_root / "latest.json"
+        if not latest_path.exists() or not latest_path.is_file():
+            return None
+        import json
+
+        data = json.loads(latest_path.read_text(encoding="utf-8"))
+        v = str(data.get("version") or "").strip()
+        return v or None
+    except Exception:
+        return None
+
+
+@router.post("/purge")
+def purge_updates(
+    data: PurgeUpdatesIn,
+    x_updates_key: Optional[str] = Header(default=None, alias="X-Updates-Key"),
+):
+    """
+    Delete outdated desktop update artifacts under /updates/*.
+
+    Intended for CI to keep https://download.melqard.com clean and ensure users
+    always download the current installers.
+    Protected by the same UPDATES_PUBLISH_KEY as /updates/upload.
+    """
+    _require_publish_key(x_updates_key)
+
+    keep_n = int(data.keep_versions or 1)
+    if keep_n < 1 or keep_n > 10:
+        raise HTTPException(status_code=400, detail="keep_versions must be between 1 and 10")
+
+    base = _updates_dir().resolve()
+    if not base.exists() or not base.is_dir():
+        raise HTTPException(status_code=500, detail="updates dir is not mounted")
+
+    apps_in = [(a or "").strip().lower() for a in (data.apps or [])]
+    apps = apps_in if apps_in else ["pos", "portal", "setup"]
+    allowed = {"pos", "portal", "setup"}
+    apps = [a for a in apps if a in allowed]
+    if not apps:
+        raise HTTPException(status_code=400, detail="no valid apps")
+
+    # Stable installer names we always keep in the app root.
+    stable_by_app = {
+        "pos": {"MelqardPOS-Setup-latest.msi", "MelqardPOS-Setup-latest.dmg"},
+        "portal": {"MelqardPortal-Setup-latest.msi", "MelqardPortal-Setup-latest.dmg"},
+        "setup": {"MelqardInstaller-Setup-latest.msi", "MelqardInstaller-Setup-latest.dmg"},
+    }
+
+    removed: list[dict] = []
+    kept: list[dict] = []
+
+    for app in apps:
+        app_root = (base / app).resolve()
+        if base not in app_root.parents and app_root != base:
+            continue
+        if not app_root.exists() or not app_root.is_dir():
+            continue
+
+        latest_v = _read_latest_version(app_root)
+        # Keep directories by mtime if latest.json is missing/broken.
+        version_dirs = []
+        for p in app_root.iterdir():
+            if not p.is_dir():
+                continue
+            # Only treat folders like versions (avoid deleting random folders).
+            if not re.match(r"^[0-9]+\\.[0-9]+\\.[0-9]+", p.name):
+                continue
+            try:
+                version_dirs.append((p.stat().st_mtime, p.name, p))
+            except Exception:
+                continue
+        version_dirs.sort(key=lambda t: (t[0], t[1]), reverse=True)
+
+        keep_set = set()
+        if latest_v:
+            keep_set.add(latest_v)
+        for _mt, name, _p in version_dirs[:keep_n]:
+            keep_set.add(name)
+
+        # Remove old version directories.
+        for _mt, name, p in version_dirs:
+            if name in keep_set:
+                kept.append({"app": app, "keep": str(p.relative_to(base))})
+                continue
+            removed.append({"app": app, "remove": str(p.relative_to(base))})
+            if not data.dry_run:
+                _safe_rm_tree(p)
+
+        # Remove stray root-level files (except latest.json + stable installers).
+        keep_files = set(stable_by_app.get(app, set())) | {"latest.json"}
+        for p in app_root.iterdir():
+            if p.is_dir():
+                continue
+            if p.name in keep_files:
+                continue
+            # Keep signatures/bundles only if they live under a version dir; root junk is outdated.
+            removed.append({"app": app, "remove": str(p.relative_to(base))})
+            if not data.dry_run:
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
+
+    return {"ok": True, "dry_run": bool(data.dry_run), "removed": removed, "kept": kept}
 
 
 @router.get("/_debug/ls")

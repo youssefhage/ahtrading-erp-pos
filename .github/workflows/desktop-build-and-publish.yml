@@ -3,8 +3,18 @@ name: Desktop build & publish (POS + Admin + Setup)
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags:
       - "desktop-v*"
+    paths:
+      - "apps/pos-desktop/**"
+      - "apps/admin-desktop/**"
+      - "apps/setup-desktop/**"
+      - "scripts/publish_desktop_release.py"
+      - "backend/app/routers/updates.py"
+      - "backend/app/static/downloads_site/**"
+      - "apps/downloads/**"
+      - ".github/workflows/desktop-build-and-publish.yml"
 
 jobs:
   build:
