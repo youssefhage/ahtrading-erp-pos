@@ -37,6 +37,20 @@
     return `${v.toFixed(2)} USD`;
   };
 
+  const optValue = (o) => {
+    const u = String(o?.uom || "").trim();
+    const f = toNum(o?.qty_factor, 1) || 1;
+    return `${u}|${f}`;
+  };
+
+  const optLabel = (o) => {
+    const u = String(o?.uom || "").trim() || "pcs";
+    const f = toNum(o?.qty_factor, 1) || 1;
+    const lbl = String(o?.label || "").trim();
+    if (lbl) return lbl;
+    return f !== 1 ? `${u} x${f}` : u;
+  };
+
   const tonePill = (item) => {
     const t = companyTone(item);
     if (t === "official") return "bg-emerald-500/12 border-emerald-500/30 text-ink/80";
@@ -240,16 +254,43 @@
 
             <div class="flex items-center gap-2 shrink-0">
               {#if sel}
-                <button
-                  type="button"
-                  class={`px-2 py-1 rounded-full text-[10px] font-extrabold tracking-wide border ${
-                    opts.length > 1 ? "bg-ink/5 border-ink/10 hover:bg-ink/10" : "bg-ink/5 border-ink/10"
-                  }`}
-                  title={opts.length > 1 ? "UOM (press U to cycle, 1-9 to select)" : "UOM"}
-                  on:click|stopPropagation={() => cycleUom(item, 1)}
-                >
-                  {sel.label || sel.uom}
-                </button>
+                {#if opts.length > 2}
+                  <div class="relative">
+                    <select
+                      class="appearance-none pl-2 pr-7 py-1 rounded-full text-[10px] font-extrabold tracking-wide border bg-ink/5 border-ink/10 hover:bg-ink/10 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/25"
+                      title="UOM (dropdown)"
+                      value={optValue(sel)}
+                      on:change|stopPropagation={(e) => {
+                        const v = String(e?.target?.value || "");
+                        const idx = (opts || []).findIndex((o) => optValue(o) === v);
+                        if (idx >= 0) setUomIndex(item, idx);
+                      }}
+                      on:click|stopPropagation={() => {}}
+                    >
+                      {#each opts as o}
+                        <option value={optValue(o)}>{optLabel(o)}</option>
+                      {/each}
+                    </select>
+                    <svg
+                      class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                {:else}
+                  <button
+                    type="button"
+                    class="px-2 py-1 rounded-full text-[10px] font-extrabold tracking-wide border bg-ink/5 border-ink/10 hover:bg-ink/10 transition-colors"
+                    title={opts.length > 1 ? "UOM (tap to toggle, U to cycle, 1-9 to select)" : "UOM"}
+                    on:click|stopPropagation={() => cycleUom(item, 1)}
+                  >
+                    {sel.label || sel.uom}
+                  </button>
+                {/if}
               {/if}
               {#if companyLabel(item)}
                 <span class={`px-2 py-1 rounded-full text-[10px] font-bold tracking-wide border ${tonePill(item)}`}>

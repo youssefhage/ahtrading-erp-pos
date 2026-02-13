@@ -155,7 +155,7 @@
 
           <!-- UOM -->
           <div class="rounded-2xl border border-ink/10 bg-ink/5 p-2">
-            {#if uomOpts.length > 1}
+            {#if uomOpts.length > 2}
               <div class="relative">
                 <select
                   class="w-full h-10 appearance-none pl-3 pr-9 rounded-xl text-sm font-extrabold tracking-wide border border-ink/10 bg-surface/40 hover:bg-surface/60 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/30"
@@ -181,6 +181,18 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                 </svg>
               </div>
+            {:else if uomOpts.length === 2}
+              <button
+                type="button"
+                class="w-full h-10 flex items-center justify-center gap-2 rounded-xl border border-ink/10 bg-surface/40 hover:bg-surface/60 transition-colors text-sm font-extrabold tracking-wide focus:outline-none focus:ring-2 focus:ring-accent/30"
+                title="Tap to toggle UOM"
+                on:click={() => cycleLineUom(i, 1)}
+              >
+                {optLabel(uomSel.opt || uomOpts[0], lineUom(line))}
+                <svg class="w-4 h-4 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
             {:else}
               <div class="h-10 flex items-center justify-center rounded-xl border border-ink/10 bg-surface/40 text-sm font-extrabold tracking-wide">
                 {optLabel(uomSel.opt || { uom: lineUom(line), qty_factor: toNum(line.qty_factor, 1) || 1 }, lineUom(line))}
