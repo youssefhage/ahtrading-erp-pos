@@ -33,6 +33,14 @@ else:
     UI_PATH = os.path.join(ROOT, "ui")
     SCHEMA_PATH = os.path.join(os.path.dirname(ROOT), "pos", "sqlite_schema.sql")
 
+
+def _served_ui_root():
+    # Prefer a Vite build if present, while keeping old static layouts as fallback.
+    dist_root = os.path.join(UI_PATH, "dist")
+    if os.path.isdir(dist_root):
+        return dist_root
+    return UI_PATH
+
 DEFAULT_CONFIG = {
     'api_base_url': 'http://localhost:8001',
     'company_id': '',
@@ -1681,8 +1689,10 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         if path == '/':
             path = '/index.html'
+        elif path == '/unified.html':
+            path = '/index.html'
         # Prevent path traversal outside UI_PATH.
-        ui_root = os.path.realpath(UI_PATH)
+        ui_root = os.path.realpath(_served_ui_root())
         requested = os.path.realpath(os.path.join(ui_root, path.lstrip('/')))
         if requested != ui_root and not requested.startswith(ui_root + os.sep):
             text_response(self, "Forbidden", status=403)
