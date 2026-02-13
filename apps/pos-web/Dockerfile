@@ -11,5 +11,6 @@ FROM nginx:1.27-alpine
 
 COPY --from=build /app/ui/dist /usr/share/nginx/html/
 RUN cp /usr/share/nginx/html/index.html /usr/share/nginx/html/unified.html
+COPY apps/pos-web/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
