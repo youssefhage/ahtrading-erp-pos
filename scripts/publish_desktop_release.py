@@ -34,19 +34,22 @@ import subprocess
 APP_CONFIG = {
     "pos": {
         "tauri_conf": Path("apps/pos-desktop/src-tauri/tauri.conf.json"),
-        "stable_installer_win": "MelqardPOS-Setup-latest.msi",
+        "stable_installer_win_msi": "MelqardPOS-Setup-latest.msi",
+        "stable_installer_win_exe": "MelqardPOS-Setup-latest.exe",
         "stable_installer_mac": "MelqardPOS-Setup-latest.dmg",
         "title": "Melqard POS Desktop",
     },
     "portal": {
         "tauri_conf": Path("apps/admin-desktop/src-tauri/tauri.conf.json"),
-        "stable_installer_win": "MelqardPortal-Setup-latest.msi",
+        "stable_installer_win_msi": "MelqardPortal-Setup-latest.msi",
+        "stable_installer_win_exe": "MelqardPortal-Setup-latest.exe",
         "stable_installer_mac": "MelqardPortal-Setup-latest.dmg",
         "title": "Melqard Admin Desktop",
     },
     "setup": {
         "tauri_conf": Path("apps/setup-desktop/src-tauri/tauri.conf.json"),
-        "stable_installer_win": "MelqardInstaller-Setup-latest.msi",
+        "stable_installer_win_msi": "MelqardInstaller-Setup-latest.msi",
+        "stable_installer_win_exe": "MelqardInstaller-Setup-latest.exe",
         "stable_installer_mac": "MelqardInstaller-Setup-latest.dmg",
         "title": "Melqard Setup Desktop",
     },
@@ -183,7 +186,7 @@ def _publish_app(
     app: str,
     version: str,
     bundles: Dict[str, PlatformBundle],
-) -> None:
+    ) -> None:
     # Upload artifacts.
     for b in bundles.values():
         for fp in [b.update_bundle, b.signature, b.installer]:
@@ -193,10 +196,17 @@ def _publish_app(
             _http_upload(api_base, publish_key, rel, fp)
 
     # Upload stable "latest installer" names for staff onboarding.
-    stable_win = APP_CONFIG[app]["stable_installer_win"]
+    stable_win_msi = APP_CONFIG[app]["stable_installer_win_msi"]
+    stable_win_exe = APP_CONFIG[app]["stable_installer_win_exe"]
     stable_mac = APP_CONFIG[app]["stable_installer_mac"]
     if "windows-x86_64" in bundles and bundles["windows-x86_64"].installer:
-        _http_upload(api_base, publish_key, f"{app}/{stable_win}", bundles["windows-x86_64"].installer)  # type: ignore[arg-type]
+        inst = bundles["windows-x86_64"].installer  # type: ignore[assignment]
+        ext = inst.suffix.lower()
+        if ext == ".exe":
+            _http_upload(api_base, publish_key, f"{app}/{stable_win_exe}", inst)
+        else:
+            # Default to MSI stable name (covers .msi and any future wix variants).
+            _http_upload(api_base, publish_key, f"{app}/{stable_win_msi}", inst)
     if "darwin-aarch64" in bundles and bundles["darwin-aarch64"].installer:
         _http_upload(api_base, publish_key, f"{app}/{stable_mac}", bundles["darwin-aarch64"].installer)  # type: ignore[arg-type]
     elif "darwin-x86_64" in bundles and bundles["darwin-x86_64"].installer:

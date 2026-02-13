@@ -152,12 +152,12 @@ def _find_latest_installer_rel(app: str, platform: str) -> str:
     if plat not in {"windows", "macos"}:
         raise HTTPException(status_code=400, detail="invalid platform")
 
-    stable_name = {
-        ("pos", "windows"): "MelqardPOS-Setup-latest.msi",
+    stable_names = {
+        ("pos", "windows"): ["MelqardPOS-Setup-latest.msi", "MelqardPOS-Setup-latest.exe"],
         ("pos", "macos"): "MelqardPOS-Setup-latest.dmg",
-        ("portal", "windows"): "MelqardPortal-Setup-latest.msi",
+        ("portal", "windows"): ["MelqardPortal-Setup-latest.msi", "MelqardPortal-Setup-latest.exe"],
         ("portal", "macos"): "MelqardPortal-Setup-latest.dmg",
-        ("setup", "windows"): "MelqardInstaller-Setup-latest.msi",
+        ("setup", "windows"): ["MelqardInstaller-Setup-latest.msi", "MelqardInstaller-Setup-latest.exe"],
         ("setup", "macos"): "MelqardInstaller-Setup-latest.dmg",
     }[(app_key, plat)]
 
@@ -169,9 +169,12 @@ def _find_latest_installer_rel(app: str, platform: str) -> str:
     if not app_root.exists() or not app_root.is_dir():
         raise HTTPException(status_code=404, detail="installer not found")
 
-    stable = (app_root / stable_name).resolve()
-    if stable.exists() and stable.is_file():
-        return str(stable.relative_to(base))
+    if isinstance(stable_names, str):
+        stable_names = [stable_names]
+    for nm in stable_names:
+        stable = (app_root / nm).resolve()
+        if stable.exists() and stable.is_file():
+            return str(stable.relative_to(base))
 
     candidates = []
     for p in app_root.rglob("*"):
