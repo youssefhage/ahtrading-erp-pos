@@ -112,7 +112,7 @@ async function preflight() {
     for (const d of res.details) appendLog(`[preflight] ${d}`);
   }
 
-  if (res.repo_ok && res.docker_ok && res.docker_compose_ok && res.python_ok) {
+  if (res.repo_ok && res.docker_ok && res.docker_compose_ok) {
     setStatus("Preflight OK.");
     return true;
   }
