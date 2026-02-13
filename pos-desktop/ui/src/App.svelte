@@ -1,17 +1,17 @@
 <div class="shell">
-  <div class="surfaceGlow" aria-hidden="true"></div>
+  <div class="ambientGlow" aria-hidden="true"></div>
 
-  <header class="top">
+  <header class="topbar">
     <section class="brandBlock">
       <div class="brandBadge">WH</div>
       <div>
-        <div class="brandTitle">Wholesale POS</div>
-        <div class="brandSub">compact checkout-first workflow · dual-ledger safe mode</div>
-        <div id="status" class="srOnly" aria-live="polite"></div>
+        <p class="brandTitle">Wholesale POS</p>
+        <p class="brandSub">Compact checkout-first UI for FMCG wholesale</p>
       </div>
+      <div id="status" class="srOnly" aria-live="polite"></div>
     </section>
 
-    <section class="topControls">
+    <section class="controlStrip">
       <label class="pill">
         Checkout mode
         <select id="invoiceCompany" aria-label="Checkout mode">
@@ -20,13 +20,13 @@
           <option value="official">Force Official</option>
         </select>
       </label>
+      <button id="loginBtn" class="btn ghost">Cashier PIN</button>
       <button id="syncBtn" class="btn">Sync both</button>
       <button id="pushBtn" class="btn ghost">Push both</button>
       <button id="reconnectBothBtn" class="btn ghost">Reconnect</button>
-      <button id="themeToggle" class="btn ghost">Dark Theme</button>
+      <button id="themeToggle" class="btn ghost">Theme</button>
       <button id="densityToggle" class="btn ghost">Density: Auto</button>
       <button id="settingsBtn" class="btn ghost">Settings</button>
-      <button id="loginBtn" class="btn ghost">Cashier PIN</button>
       <button id="managerBtn" class="btn ghost">Manager</button>
     </section>
 
@@ -44,30 +44,30 @@
       <span id="queueCount" class="factPill">Open Drafts: 0</span>
     </div>
     <div class="rightHints">
-      <span class="kbd">⌨ <strong>Cmd/Ctrl + K</strong> focus scan</span>
-      <span class="kbd">⌨ <strong>Enter</strong> add match</span>
-      <span class="kbd">⌨ <strong>Cmd/Ctrl + Enter</strong> pay</span>
+      <span class="kbd">⌘/Ctrl + K &nbsp;focus scan</span>
+      <span class="kbd">Enter &nbsp;add</span>
+      <span class="kbd">⌘/Ctrl + Enter &nbsp;pay</span>
     </div>
   </section>
 
   <main class="layout">
     <section class="panel panelLeft">
-      <div class="panelTitleWrap">
+      <div class="panelHead">
         <h2>Draft workspace</h2>
+        <div class="inlineActions">
+          <button id="holdBtn" class="btn ghost" type="button">Save draft</button>
+          <button id="openCartBtn" class="btn ghost" type="button">Open cart</button>
+        </div>
       </div>
-      <div class="inlineActions">
-        <button id="holdBtn" class="btn ghost" type="button">Save Draft</button>
-        <button id="openCartBtn" class="btn ghost" type="button">Open Cart</button>
-      </div>
-      <div class="sectionTitle">Draft queue</div>
+      <h3 class="sectionTitle">Draft queue</h3>
       <div id="orderQueue" class="orderQueue" aria-live="polite"></div>
     </section>
 
     <section class="panel panelCenter">
       <div class="panelHead">
-        <h2>Scan / search</h2>
+        <h2>Scan / add items</h2>
         <div class="miniActions">
-          <button id="focusScanBtn" class="btn ghost tiny" type="button">Focus</button>
+          <button id="focusScanBtn" class="btn ghost tiny" type="button">Focus scan</button>
           <button id="clearSearchBtn" class="btn ghost tiny" type="button">Clear</button>
         </div>
       </div>
@@ -85,7 +85,6 @@
       </div>
 
       <div id="scanMeta" class="scanMeta" aria-live="polite">Waiting for input…</div>
-      <p class="hint">Tip: scanner works anywhere on screen. Keep one eye on the item list.</p>
       <div id="results" class="results"></div>
     </section>
 
@@ -100,23 +99,24 @@
 
       <div id="cart" class="cart"></div>
 
-      <div class="totals">
+      <section class="totals" aria-label="Order totals">
         <div class="row"><span>Items</span><strong id="tItems">0</strong></div>
         <div class="row"><span>Invoice handling</span><strong id="tInvoiceCompany">Auto</strong></div>
-        <div class="row"><span>Subtotal (USD)</span><strong id="tSubtotal">0.00</strong></div>
-        <div class="row"><span>VAT (USD)</span><strong id="tVat">0.00</strong></div>
-        <div class="row total"><span>Total (USD)</span><strong id="tTotal">0.00</strong></div>
-        <div id="splitTotals" class="splitTotals hidden" aria-label="Split invoice totals (estimated)">
+        <div class="row"><span>Subtotal</span><strong id="tSubtotal">0.00</strong></div>
+        <div class="row"><span>VAT</span><strong id="tVat">0.00</strong></div>
+        <div class="row total"><span>Total</span><strong id="tTotal">0.00</strong></div>
+        <div id="splitTotals" class="splitTotals hidden" aria-label="Split invoice totals">
           <div class="row split"><span>Official total</span><strong id="tTotalOfficial">0.00</strong></div>
           <div class="row split"><span>Unofficial total</span><strong id="tTotalUnofficial">0.00</strong></div>
         </div>
-      </div>
+      </section>
 
       <div class="payArea">
         <label class="pill">
           Customer ID (optional)
           <input id="customerId" type="text" placeholder="Leave blank for guest" />
         </label>
+
         <div class="custLookup">
           <input id="customerQuery" type="text" placeholder="Search customer name / phone" />
           <button id="customerSearchBtn" class="btn ghost" type="button">Find</button>
@@ -157,7 +157,9 @@
     </section>
   </main>
 
-  <footer class="footer">This is a local-first POS console for wholesale retail. Actions are still routed to official/unofficial agents.</footer>
+  <footer class="footer">
+    Wholesale retail workspace. Official and unofficial ledger sync is controlled by backend mode.
+  </footer>
 
   <div id="settingsBackdrop" class="backdrop hidden"></div>
   <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
@@ -170,7 +172,9 @@
     <div class="modalBody">
       <section class="cfgCard">
         <h4>Wholesale UI</h4>
-        <label class="cfgField">Other agent URL<input id="otherAgentUrl" type="text" value="http://localhost:7072" /></label>
+        <label class="cfgField">Other agent URL
+          <input id="otherAgentUrl" type="text" value="http://localhost:7072" />
+        </label>
       </section>
 
       <section class="quickCard">
@@ -183,10 +187,18 @@
               <option value="unofficial">Unofficial Agent</option>
             </select>
           </label>
-          <label class="cfgField">API Base URL<input id="quickApiBaseUrl" type="text" placeholder="https://api.example.com" /></label>
-          <label class="cfgField">Email<input id="quickEmail" type="email" placeholder="admin@example.com" autocomplete="username" /></label>
-          <label class="cfgField">Password<input id="quickPassword" type="password" placeholder="Password" autocomplete="current-password" /></label>
-          <label class="cfgField">MFA Code<input id="quickMfaCode" type="text" placeholder="123456" /></label>
+          <label class="cfgField">API Base URL
+            <input id="quickApiBaseUrl" type="text" placeholder="https://api.example.com" />
+          </label>
+          <label class="cfgField">Email
+            <input id="quickEmail" type="email" placeholder="admin@example.com" autocomplete="username" />
+          </label>
+          <label class="cfgField">Password
+            <input id="quickPassword" type="password" placeholder="Password" autocomplete="current-password" />
+          </label>
+          <label class="cfgField">MFA Code
+            <input id="quickMfaCode" type="text" placeholder="123456" />
+          </label>
           <button id="quickSignIn" class="btn" type="button">Sign In</button>
         </div>
         <div class="quickGrid quickGridSecond">
@@ -198,10 +210,15 @@
             Branch (optional)
             <select id="quickBranch"><option value="">None</option></select>
           </label>
-          <label class="cfgField">Device Code<input id="quickDeviceCode" type="text" placeholder="POS-01" /></label>
+          <label class="cfgField">Device Code
+            <input id="quickDeviceCode" type="text" placeholder="POS-01" />
+          </label>
           <label class="cfgField quickCheckField">
             <span>Token behavior</span>
-            <label class="checkInline"><input id="quickResetToken" type="checkbox" checked /> Reset token if device already exists</label>
+            <label class="checkInline">
+              <input id="quickResetToken" type="checkbox" checked />
+              Reset token if device already exists
+            </label>
           </label>
           <button id="quickApply" class="btn primary" type="button">Register + Apply</button>
         </div>
@@ -211,23 +228,52 @@
       <div class="twoCols">
         <section class="cfgCard">
           <h4>Official Agent</h4>
-          <label class="cfgField">API Base URL<input id="officialApiBaseUrl" type="text" placeholder="https://api.example.com" /></label>
-          <label class="cfgField">Company ID<input id="officialCompanyId" type="text" placeholder="UUID" /></label>
-          <label class="cfgField">Branch ID<input id="officialBranchId" type="text" placeholder="UUID (optional)" /></label>
-          <label class="cfgField">Device Code<input id="officialDeviceCode" type="text" placeholder="POS-01" /></label>
-          <label class="cfgField">Device ID<input id="officialDeviceId" type="text" placeholder="UUID" /></label>
-          <label class="cfgField">Device Token (new)<input id="officialDeviceToken" type="password" placeholder="Leave blank to keep current" /></label>
-          <label class="cfgField">Shift ID<input id="officialShiftId" type="text" placeholder="UUID (optional)" /></label>
+          <label class="cfgField">API Base URL
+            <input id="officialApiBaseUrl" type="text" placeholder="https://api.example.com" />
+          </label>
+          <label class="cfgField">Company ID
+            <input id="officialCompanyId" type="text" placeholder="UUID" />
+          </label>
+          <label class="cfgField">Branch ID
+            <input id="officialBranchId" type="text" placeholder="UUID (optional)" />
+          </label>
+          <label class="cfgField">Device Code
+            <input id="officialDeviceCode" type="text" placeholder="POS-01" />
+          </label>
+          <label class="cfgField">Device ID
+            <input id="officialDeviceId" type="text" placeholder="UUID" />
+          </label>
+          <label class="cfgField">Device Token (new)
+            <input id="officialDeviceToken" type="password" placeholder="Leave blank to keep current" />
+          </label>
+          <label class="cfgField">Shift ID
+            <input id="officialShiftId" type="text" placeholder="UUID (optional)" />
+          </label>
         </section>
+
         <section class="cfgCard">
           <h4>Unofficial Agent</h4>
-          <label class="cfgField">API Base URL<input id="unofficialApiBaseUrl" type="text" placeholder="https://api.example.com" /></label>
-          <label class="cfgField">Company ID<input id="unofficialCompanyId" type="text" placeholder="UUID" /></label>
-          <label class="cfgField">Branch ID<input id="unofficialBranchId" type="text" placeholder="UUID (optional)" /></label>
-          <label class="cfgField">Device Code<input id="unofficialDeviceCode" type="text" placeholder="POS-02" /></label>
-          <label class="cfgField">Device ID<input id="unofficialDeviceId" type="text" placeholder="UUID" /></label>
-          <label class="cfgField">Device Token (new)<input id="unofficialDeviceToken" type="password" placeholder="Leave blank to keep current" /></label>
-          <label class="cfgField">Shift ID<input id="unofficialShiftId" type="text" placeholder="UUID (optional)" /></label>
+          <label class="cfgField">API Base URL
+            <input id="unofficialApiBaseUrl" type="text" placeholder="https://api.example.com" />
+          </label>
+          <label class="cfgField">Company ID
+            <input id="unofficialCompanyId" type="text" placeholder="UUID" />
+          </label>
+          <label class="cfgField">Branch ID
+            <input id="unofficialBranchId" type="text" placeholder="UUID (optional)" />
+          </label>
+          <label class="cfgField">Device Code
+            <input id="unofficialDeviceCode" type="text" placeholder="POS-02" />
+          </label>
+          <label class="cfgField">Device ID
+            <input id="unofficialDeviceId" type="text" placeholder="UUID" />
+          </label>
+          <label class="cfgField">Device Token (new)
+            <input id="unofficialDeviceToken" type="password" placeholder="Leave blank to keep current" />
+          </label>
+          <label class="cfgField">Shift ID
+            <input id="unofficialShiftId" type="text" placeholder="UUID (optional)" />
+          </label>
         </section>
       </div>
     </div>
@@ -263,7 +309,10 @@
     <div class="modalBody">
       <section class="cfgCard">
         <h4>Admin Portal</h4>
-        <label class="cfgField">Admin URL<input id="adminUrl" type="text" placeholder="https://admin.example.com" /></label>
+        <label class="cfgField">
+          Admin URL
+          <input id="adminUrl" type="text" placeholder="https://admin.example.com" />
+        </label>
         <div class="row">
           <button id="adminSuggestBtn" class="btn ghost" type="button">Suggest</button>
           <button id="adminOpenBtn" class="btn primary" type="button" disabled>Open</button>
@@ -274,12 +323,21 @@
       <section class="cfgCard">
         <h4>Manager PIN</h4>
         <div class="quickGrid">
-          <label class="cfgField">PIN<input id="managerPin" type="password" placeholder="PIN" autocomplete="off" /></label>
+          <label class="cfgField">
+            PIN
+            <input id="managerPin" type="password" placeholder="PIN" autocomplete="off" />
+          </label>
           <button id="managerUnlockBtn" class="btn" type="button">Unlock</button>
         </div>
         <div class="quickGrid quickGridSecond">
-          <label class="cfgField">New PIN<input id="managerPinNew" type="password" placeholder="New PIN" autocomplete="off" /></label>
-          <label class="cfgField">Confirm<input id="managerPinNew2" type="password" placeholder="Confirm PIN" autocomplete="off" /></label>
+          <label class="cfgField">
+            New PIN
+            <input id="managerPinNew" type="password" placeholder="New PIN" autocomplete="off" />
+          </label>
+          <label class="cfgField">
+            Confirm
+            <input id="managerPinNew2" type="password" placeholder="Confirm PIN" autocomplete="off" />
+          </label>
           <button id="managerSetPinBtn" class="btn ghost" type="button">Set PIN</button>
         </div>
         <div class="row">
@@ -288,7 +346,6 @@
         </div>
       </section>
     </div>
-    <div class="modalActions">
-    </div>
+    <div class="modalActions"></div>
   </div>
 </div>
