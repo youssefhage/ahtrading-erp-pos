@@ -15,7 +15,6 @@
 
   let activeIndex = 0;
   let uomIdxByKey = new Map(); // itemKey -> selected option index
-  let quickQty = 1;
 
   const nameSizeClass = (name) => {
     const n = String(name || "").trim().length;
@@ -90,15 +89,12 @@
 
   const addItem = (item) => {
     if (!item) return;
-    const q = Math.max(1, toNum(quickQty, 1) || 1);
     const sel = getUomSelected(item);
     if (sel && (toNum(sel.qty_factor, 1) !== 1 || String(sel.uom || "").trim())) {
-      addToCart(item, { qty_factor: toNum(sel.qty_factor, 1), uom: String(sel.uom || "").trim(), qty_entered: q });
-      quickQty = 1;
+      addToCart(item, { qty_factor: toNum(sel.qty_factor, 1), uom: String(sel.uom || "").trim(), qty_entered: 1 });
       return;
     }
-    addToCart(item, { qty_entered: q });
-    quickQty = 1;
+    addToCart(item, { qty_entered: 1 });
   };
 
   const onSearchKeyDown = (e) => {
@@ -171,8 +167,8 @@
       </div>
     </div>
     
-    <!-- Search + Qty -->
-    <div class="grid grid-cols-[1fr_92px] gap-2">
+    <!-- Search -->
+    <div class="grid grid-cols-1 gap-2">
       <div class="relative group">
         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <svg class="h-5 w-5 text-muted group-focus-within:text-accent transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -188,19 +184,6 @@
           placeholder="Scan barcode or type to search..."
           data-scan-input="1"
           on:keydown={onSearchKeyDown}
-        />
-      </div>
-
-      <div>
-        <input
-          bind:value={quickQty}
-          type="number"
-          min="1"
-          step="1"
-          class="block w-full px-3 py-3 rounded-xl bg-bg/50 border border-ink/10 text-ink font-mono text-sm font-bold
-                 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all duration-200"
-          title="Quick quantity (Enter adds this qty)"
-          aria-label="Quick quantity"
         />
       </div>
     </div>

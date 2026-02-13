@@ -812,7 +812,11 @@
   const effectiveInvoiceCompany = () => {
     const v = String(invoiceCompanyMode || "auto").trim().toLowerCase();
     if (v === "official" || v === "unofficial") return v;
-    return primaryCompanyFromCart() || "unofficial";
+    // Auto mode:
+    // 1) If the cart is single-company, follow it.
+    // 2) Otherwise default to the agent that is currently serving this UI (originCompanyKey).
+    // This avoids accidentally routing everything to Unofficial when both catalogs match.
+    return primaryCompanyFromCart() || originCompanyKey || "official";
   };
 
   const addByBarcode = (barcode) => {
@@ -893,8 +897,9 @@
   };
 
   const configureOtherAgent = async () => {
+    // Legacy entry point; keep for now but route to Settings.
     otherAgentDraftUrl = otherAgentUrl || DEFAULT_OTHER_AGENT_URL;
-    showOtherAgentModal = true;
+    setActiveScreen("settings");
   };
 
   const configurePrinting = async () => {
@@ -1817,9 +1822,9 @@
       class={topBtnBase}
       on:click={configureOtherAgent}
       disabled={loading}
-      title="Set the other agent URL (usually Unofficial on :7072)"
+      title="Open config/settings"
     >
-      Other Agent
+      Config
     </button>
     {#if activeScreen === "pos"}
       <button

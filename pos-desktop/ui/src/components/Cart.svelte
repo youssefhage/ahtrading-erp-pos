@@ -54,6 +54,20 @@
     const next = (idx + delta + arr.length) % arr.length;
     updateUom(index, arr[next]);
   };
+
+  const optValue = (o) => {
+    const u = String(o?.uom || "").trim();
+    const f = toNum(o?.qty_factor, 1) || 1;
+    return `${u}|${f}`;
+  };
+
+  const optLabel = (o, fallbackUom = "pcs") => {
+    const u = String(o?.uom || "").trim() || String(fallbackUom || "pcs");
+    const f = toNum(o?.qty_factor, 1) || 1;
+    const lbl = String(o?.label || "").trim();
+    if (lbl) return lbl;
+    return f !== 1 ? `${u} x${f}` : u;
+  };
 </script>
 
 <section class="glass-panel rounded-2xl p-0 flex flex-col h-full w-full overflow-hidden">
@@ -84,46 +98,12 @@
       {#each cart as line, i}
         {@const uomOpts = uomOptionsForLine(line) || []}
         {@const uomSel = findUomOpt(uomOpts, line)}
-        <div class="group relative flex items-center gap-3 p-3 rounded-xl bg-surface/40 border border-ink/10 hover:bg-surface/60 transition-colors">
-          <!-- Qty Controls -->
-          <div class="flex flex-col items-center gap-1">
-            <button 
-              class="w-6 h-6 rounded flex items-center justify-center bg-ink/5 hover:bg-accent hover:text-white text-muted transition-colors"
-              on:click={() => updateQty(i, toNum(line.qty_entered, 0) + 1)}
-              aria-label="Increase quantity"
-            >
-              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" /></svg>
-            </button>
-            <input 
-              type="number" 
-              class="w-10 text-center bg-transparent font-mono text-sm font-bold focus:outline-none focus:text-accent"
-              value={line.qty_entered} 
-              on:change={(e) => updateQty(i, e.target.value)}
-              aria-label="Quantity"
-            />
-            <button 
-              class="w-6 h-6 rounded flex items-center justify-center bg-ink/5 hover:bg-accent hover:text-white text-muted transition-colors"
-              on:click={() => updateQty(i, toNum(line.qty_entered, 0) - 1)}
-              aria-label="Decrease quantity"
-            >
-              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
-            </button>
-          </div>
-
-          <!-- Item Details -->
-          <div class="flex-1 min-w-0">
+        <div class="group relative grid grid-cols-[minmax(0,1fr)_140px_150px_160px] items-center gap-3 p-3 rounded-2xl bg-surface/40 border border-ink/10 hover:bg-surface/60 transition-colors">
+          <!-- Item -->
+          <div class="min-w-0">
             <h4 class={`leading-tight clamp-2 ${nameSizeClass(line.name)}`}>{line.name || "Unknown Item"}</h4>
             <div class="flex items-center gap-2 mt-1 text-xs text-muted">
               <span class="font-mono text-[10px]">{line.sku || "NO SKU"}</span>
-              <span class="w-1 h-1 rounded-full bg-ink/15"></span>
-              <button
-                type="button"
-                class="px-2 py-0.5 rounded-full text-[10px] font-extrabold tracking-wide border bg-ink/5 border-ink/10 hover:bg-ink/10 transition-colors"
-                title={uomOpts.length > 1 ? "Change UOM (click to cycle)" : "UOM"}
-                on:click|stopPropagation={() => cycleLineUom(i, 1)}
-              >
-                {uomSel.opt?.label || lineUom(line)}{toNum(line.qty_factor, 1) !== 1 && !uomSel.opt?.label ? ` x${toNum(line.qty_factor, 1)}` : ""}
-              </button>
               {#if companyLabelForLine(line)}
                 <span class="w-1 h-1 rounded-full bg-ink/15"></span>
                 <span
@@ -141,9 +121,76 @@
             </div>
           </div>
 
+          <!-- Quantity -->
+          <div class="rounded-2xl border border-ink/10 bg-ink/5 p-2">
+            <div class="grid grid-cols-[40px_1fr_40px] items-center gap-2">
+              <button
+                type="button"
+                class="h-10 w-10 rounded-xl border border-ink/10 bg-surface/40 hover:bg-surface/60 transition-colors text-ink/80 font-extrabold"
+                on:click={() => updateQty(i, toNum(line.qty_entered, 0) - 1)}
+                aria-label="Decrease quantity"
+                title="Decrease"
+              >
+                -
+              </button>
+              <input
+                type="number"
+                class="h-10 w-full text-center bg-transparent font-mono text-lg font-extrabold tracking-tight focus:outline-none focus:ring-2 focus:ring-accent/30 rounded-xl"
+                value={line.qty_entered}
+                on:change={(e) => updateQty(i, e.target.value)}
+                on:keydown={(e) => e.key === "Enter" && e.currentTarget?.blur?.()}
+                aria-label="Quantity"
+              />
+              <button
+                type="button"
+                class="h-10 w-10 rounded-xl border border-ink/10 bg-surface/40 hover:bg-surface/60 transition-colors text-ink/80 font-extrabold"
+                on:click={() => updateQty(i, toNum(line.qty_entered, 0) + 1)}
+                aria-label="Increase quantity"
+                title="Increase"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <!-- UOM -->
+          <div class="rounded-2xl border border-ink/10 bg-ink/5 p-2">
+            {#if uomOpts.length > 1}
+              <div class="relative">
+                <select
+                  class="w-full h-10 appearance-none pl-3 pr-9 rounded-xl text-sm font-extrabold tracking-wide border border-ink/10 bg-surface/40 hover:bg-surface/60 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  title="Change UOM"
+                  value={optValue(uomSel.opt || uomOpts[0])}
+                  on:change={(e) => {
+                    const v = String(e?.target?.value || "");
+                    const pick = (uomOpts || []).find((o) => optValue(o) === v) || (uomOpts || [])[0];
+                    if (pick) updateUom(i, pick);
+                  }}
+                >
+                  {#each uomOpts as o}
+                    <option value={optValue(o)}>{optLabel(o, lineUom(line))}</option>
+                  {/each}
+                </select>
+                <svg
+                  class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            {:else}
+              <div class="h-10 flex items-center justify-center rounded-xl border border-ink/10 bg-surface/40 text-sm font-extrabold tracking-wide">
+                {optLabel(uomSel.opt || { uom: lineUom(line), qty_factor: toNum(line.qty_factor, 1) || 1 }, lineUom(line))}
+              </div>
+            {/if}
+          </div>
+
           <!-- Price -->
           <div class="text-right">
-            <div class="font-bold font-mono">
+            <div class="font-extrabold font-mono text-lg">
               {fmtMoney(
                 (currencyPrimary === "USD" ? toNum(line.price_usd) : toNum(line.price_lbp)) * toNum(line.qty),
                 currencyPrimary

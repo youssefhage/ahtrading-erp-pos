@@ -48,21 +48,15 @@
       <div class="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-ink/15 to-transparent"></div>
 
       <div class="flex items-center gap-4 min-w-0">
-        <!-- Brand capsule -->
-        <div class="flex items-center gap-3 rounded-2xl border border-ink/10 bg-ink/5 px-3 py-2 shrink-0">
+        <!-- Status (keep simple, always visible) -->
+        <div class="flex items-center gap-2 rounded-2xl border border-ink/10 bg-ink/5 px-3 py-2 shrink-0">
           <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-accent font-extrabold text-white shadow-lg shadow-accent/20">
             WP
           </div>
-          <div class="min-w-0">
-            <div class="flex items-center gap-2 min-w-0">
-              <h1 class="text-sm font-extrabold leading-none tracking-tight truncate">Wholesale POS</h1>
-              <span class={`inline-flex items-center gap-2 rounded-full border px-2 py-1 text-[10px] font-extrabold uppercase tracking-wider ${tone(systemKind)}`}>
-                <span class={`h-1.5 w-1.5 rounded-full ${hasConnection ? "bg-emerald-300" : "bg-red-300"}`}></span>
-                {status || "—"}
-              </span>
-            </div>
-            <p class="hidden xl:block text-[11px] text-muted mt-1 truncate">Compact, checkout-first FMCG workflow</p>
-          </div>
+          <span class={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-extrabold uppercase tracking-wider ${tone(systemKind)}`}>
+            <span class={`h-2 w-2 rounded-full ${hasConnection ? "bg-emerald-300" : "bg-red-300"}`}></span>
+            {status || "—"}
+          </span>
         </div>
 
         <!-- Status strip (scrolls horizontally if needed, never adds height) -->
