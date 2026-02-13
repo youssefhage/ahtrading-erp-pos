@@ -1689,8 +1689,6 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         if path == '/':
             path = '/index.html'
-        elif path == '/unified.html':
-            path = '/index.html'
         # Prevent path traversal outside UI_PATH.
         ui_root = os.path.realpath(_served_ui_root())
         requested = os.path.realpath(os.path.join(ui_root, path.lstrip('/')))

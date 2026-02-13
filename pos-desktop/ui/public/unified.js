@@ -529,7 +529,7 @@ async function ensureOfficialAgentApiAvailable() {
   } catch (_e) {
     stopEdgePolling();
     setStatus(
-      "POS API is not available on this host. Open http://127.0.0.1:7070/unified.html from the local POS agent.",
+      "POS API is not available on this host. Open this POS page from a running local agent instance.",
       "error"
     );
     setScanMeta("Local agent is not serving /api endpoints on this page.");
