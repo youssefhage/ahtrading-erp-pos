@@ -81,6 +81,7 @@ body {
   width: 100%;
   height: 100%;
   min-height: 100%;
+  min-height: 100dvh;
   font-family: var(--font-body);
   color: var(--text);
   overflow: hidden;
@@ -89,6 +90,7 @@ body {
 #app {
   min-height: 100%;
   height: 100%;
+  display: flex;
 }
 
 body {
@@ -115,8 +117,9 @@ body {
 }
 
 .shell {
-  min-height: 100%;
+  min-height: 0;
   height: 100%;
+  max-height: 100dvh;
   width: min(1320px, calc(100vw - 16px));
   margin: 0 auto;
   padding: 8px 8px 12px;
@@ -369,6 +372,7 @@ textarea {
   align-items: stretch;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .panel {
@@ -385,7 +389,15 @@ textarea {
   overflow: hidden;
 }
 
-.panelLeft, .panelCenter { padding-top: 10px; }
+.panelLeft,
+.panelCenter { padding-top: 10px; }
+
+.panelCenter {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 
 .panelHead,
 .panelTitleWrap { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -403,7 +415,7 @@ textarea {
 .sectionTitle { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; }
 
 .inlineActions, .miniActions { display: flex; flex-wrap: wrap; gap: 6px; }
-.orderQueue { flex: 1; overflow: auto; border: 1px dashed var(--surface-border); border-radius: var(--radius-md); padding: 8px; background: var(--surface); overscroll-behavior: contain; }
+.orderQueue { flex: 1; min-height: 0; overflow: auto; border: 1px dashed var(--surface-border); border-radius: var(--radius-md); padding: 8px; background: var(--surface); overscroll-behavior: contain; }
 
 .scanRow {
   display: grid;
@@ -417,7 +429,7 @@ textarea {
 
 .scanMeta { color: var(--muted); font-size: 12px; min-height: 20px; }
 .hint { color: var(--muted); font-size: 11px; }
-.results { flex: 1; overflow: auto; border: 1px solid var(--surface-border); border-radius: var(--radius-md); background: var(--surface); padding: 6px; display: flex; flex-direction: column; gap: 6px; overscroll-behavior: contain; }
+.results { flex: 1; min-height: 0; overflow: auto; border: 1px solid var(--surface-border); border-radius: var(--radius-md); background: var(--surface); padding: 6px; display: flex; flex-direction: column; gap: 6px; overscroll-behavior: contain; }
 .resultRow {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -447,6 +459,7 @@ textarea {
 
 .cart {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-md);
