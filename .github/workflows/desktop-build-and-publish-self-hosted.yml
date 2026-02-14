@@ -31,6 +31,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set artifact key (Windows)
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          "ARTIFACT_KEY=windows-latest" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Set artifact key (macOS)
+        if: ${{ runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ runner.arch }}" = "ARM64" ]; then
+            echo "ARTIFACT_KEY=macos-14" >> "$GITHUB_ENV"
+          else
+            echo "ARTIFACT_KEY=macos-13" >> "$GITHUB_ENV"
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -42,6 +59,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Preflight secrets (updater signing)
+        if: ${{ runner.os != 'Windows' }}
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -52,6 +70,16 @@ jobs:
             echo "Missing GitHub secret: TAURI_SIGNING_PRIVATE_KEY" >&2
             exit 1
           fi
+
+      - name: Preflight secrets (updater signing, Windows)
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "Missing GitHub secret: TAURI_SIGNING_PRIVATE_KEY"
+          }
 
       - name: Install Apple certificate (macOS)
         if: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE != '' }}
@@ -84,7 +112,8 @@ jobs:
             exit 1
           fi
 
-      - name: Build POS Desktop
+      - name: Build POS Desktop (macOS)
+        if: ${{ runner.os != 'Windows' }}
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -101,7 +130,20 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build Admin Desktop
+      - name: Build POS Desktop (Windows)
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          Set-StrictMode -Version Latest
+          cd apps/pos-desktop
+          npm ci
+          npm run build
+
+      - name: Build Admin Desktop (macOS)
+        if: ${{ runner.os != 'Windows' }}
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -118,7 +160,20 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build Setup Desktop
+      - name: Build Admin Desktop (Windows)
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          Set-StrictMode -Version Latest
+          cd apps/admin-desktop
+          npm ci
+          npm run build
+
+      - name: Build Setup Desktop (macOS)
+        if: ${{ runner.os != 'Windows' }}
         shell: bash
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -131,6 +186,18 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
+          cd apps/setup-desktop
+          npm ci
+          npm run build
+
+      - name: Build Setup Desktop (Windows)
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          Set-StrictMode -Version Latest
           cd apps/setup-desktop
           npm ci
           npm run build
@@ -156,11 +223,12 @@ jobs:
             xcrun stapler staple "$dmg"
           done
 
-      - name: Collect artifacts
+      - name: Collect artifacts (macOS)
+        if: ${{ runner.os != 'Windows' }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "dist/${{ matrix.key }}/pos" "dist/${{ matrix.key }}/portal" "dist/${{ matrix.key }}/setup"
+          mkdir -p "dist/${ARTIFACT_KEY}/pos" "dist/${ARTIFACT_KEY}/portal" "dist/${ARTIFACT_KEY}/setup"
 
           collect() {
             local src="$1"
@@ -174,14 +242,37 @@ jobs:
               -print0 | xargs -0 -I{} cp "{}" "$dst/" || true
           }
 
-          collect "apps/pos-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.key }}/pos"
-          collect "apps/admin-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.key }}/portal"
-          collect "apps/setup-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.key }}/setup"
+          collect "apps/pos-desktop/src-tauri/target/release/bundle" "dist/${ARTIFACT_KEY}/pos"
+          collect "apps/admin-desktop/src-tauri/target/release/bundle" "dist/${ARTIFACT_KEY}/portal"
+          collect "apps/setup-desktop/src-tauri/target/release/bundle" "dist/${ARTIFACT_KEY}/setup"
+
+      - name: Collect artifacts (Windows)
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $out = Join-Path "dist" $env:ARTIFACT_KEY
+          New-Item -ItemType Directory -Force -Path (Join-Path $out "pos") | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $out "portal") | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $out "setup") | Out-Null
+
+          function Copy-Bundles([string]$src, [string]$dst) {
+            if (-not (Test-Path $src)) { throw "missing bundle dir: $src" }
+            Get-ChildItem -Path $src -Recurse -File | Where-Object {
+              $_.Name -match '\\.(msi|exe|dmg|zip|tar\\.gz|sig)$'
+            } | ForEach-Object {
+              Copy-Item -Force $_.FullName $dst
+            }
+          }
+
+          Copy-Bundles "apps\\pos-desktop\\src-tauri\\target\\release\\bundle" (Join-Path $out "pos")
+          Copy-Bundles "apps\\admin-desktop\\src-tauri\\target\\release\\bundle" (Join-Path $out "portal")
+          Copy-Bundles "apps\\setup-desktop\\src-tauri\\target\\release\\bundle" (Join-Path $out "setup")
 
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ matrix.key }}
-          path: dist/${{ matrix.key }}
+          name: desktop-${{ env.ARTIFACT_KEY }}
+          path: dist/${{ env.ARTIFACT_KEY }}
           if-no-files-found: error
 
   publish:
@@ -214,4 +305,3 @@ jobs:
             --api-base "https://app.melqard.com/api/" \
             --download-base "https://download.melqard.com" \
             --dist-dir dist
-

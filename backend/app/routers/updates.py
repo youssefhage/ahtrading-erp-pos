@@ -507,6 +507,10 @@ def get_update_file(rel_path: str):
     target = _resolve_rel_path(rel_path)
 
     if target.exists() and target.is_dir():
+        # Avoid confusing directory listings for staff. The canonical landing
+        # page is always /updates/site/index.html.
+        if (rel_path_norm or "").rstrip("/") == "site":
+            return RedirectResponse(url="/updates/site/index.html", status_code=307)
         html = _html_index(target, rel_path)
         return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
 
