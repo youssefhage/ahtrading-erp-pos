@@ -26,6 +26,13 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      # GitHub Actions does not allow referencing `secrets.*` inside `if:` in
+      # reusable workflows. Expose them via env so steps can gate safely.
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     strategy:
       fail-fast: false
       matrix:
@@ -57,7 +64,7 @@ jobs:
           fi
 
       - name: Install Apple certificate (macOS)
-        if: ${{ startsWith(matrix.os, 'macos') && secrets.APPLE_CERTIFICATE != '' }}
+        if: ${{ startsWith(matrix.os, 'macos') && env.APPLE_CERTIFICATE != '' }}
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -139,7 +146,7 @@ jobs:
           npm run build
 
       - name: Notarize + staple DMGs (macOS)
-        if: ${{ startsWith(matrix.os, 'macos') && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_CERTIFICATE != '' }}
+        if: ${{ startsWith(matrix.os, 'macos') && env.APPLE_ID != '' && env.APPLE_PASSWORD != '' && env.APPLE_TEAM_ID != '' && env.APPLE_CERTIFICATE != '' }}
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -219,4 +226,3 @@ jobs:
             --api-base "https://app.melqard.com/api/" \
             --download-base "https://download.melqard.com" \
             --dist-dir dist
-
