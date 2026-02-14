@@ -347,7 +347,7 @@ def purge_updates(
             if not p.is_dir():
                 continue
             # Only treat folders like versions (avoid deleting random folders).
-            if not re.match(r"^[0-9]+\\.[0-9]+\\.[0-9]+$", p.name):
+            if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+$", p.name):
                 continue
             try:
                 version_dirs.append((p.stat().st_mtime, p.name, p))
