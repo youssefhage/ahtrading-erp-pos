@@ -2,18 +2,8 @@ name: Desktop build & publish (self-hosted)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "apps/pos-desktop/**"
-      - "apps/admin-desktop/**"
-      - "apps/setup-desktop/**"
-      - "apps/downloads/**"
-      - "backend/app/routers/updates.py"
-      - "backend/app/static/downloads_site/**"
-      - "scripts/publish_desktop_release.py"
-      - "scripts/build_setup_runner_pack.py"
-      - ".github/workflows/desktop-build-and-publish-self-hosted.yml"
+  # Self-hosted runners aren't always available. Keep this manual to avoid
+  # "queued forever" runs cluttering the Actions page.
 
 jobs:
   build:

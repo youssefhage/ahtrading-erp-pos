@@ -145,6 +145,11 @@ services:
     build:
       context: .
       dockerfile: apps/admin/Dockerfile
+      args:
+        # Ensure Next.js rewrite target is correct at build time (it gets baked into the build).
+        API_PROXY_TARGET: http://api:8000
+        # Match local dev + CI convention (curl http://localhost:3000/api/health).
+        NEXT_PUBLIC_API_BASE_URL: /api
     environment:
       # Keep browser requests same-origin (`/api/...`) and let Next.js proxy to the API container.
       # `apiBase()` defaults to `/api` when NEXT_PUBLIC_API_BASE_URL is unset.
