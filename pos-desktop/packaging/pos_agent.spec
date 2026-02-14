@@ -26,7 +26,11 @@ hiddenimports += collect_submodules("bcrypt")
 
 datas = []
 # Bundle only the built UI (keeps binaries small; avoids node_modules).
-datas += [(os.path.join(REPO_ROOT, "pos-desktop", "ui", "dist"), os.path.join("ui", "dist"))]
+ui_dist = os.path.join(REPO_ROOT, "pos-desktop", "ui", "dist")
+if os.path.exists(ui_dist):
+    datas += [(ui_dist, os.path.join("ui", "dist"))]
+else:
+    print(f"[pos-agent] warning: UI dist missing: {ui_dist} (building without UI)")
 datas += [(os.path.join(REPO_ROOT, "pos", "sqlite_schema.sql"), ".")]
 
 a = Analysis(

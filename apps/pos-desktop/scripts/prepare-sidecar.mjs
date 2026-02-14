@@ -11,20 +11,41 @@ const targetBinDir = join(repoRoot, "apps", "pos-desktop", "src-tauri", "bin");
 const unixBinary = join(distDir, "pos-agent");
 const windowsBinary = join(distDir, "pos-agent.exe");
 const specPath = join(repoRoot, "pos-desktop", "packaging", "pos_agent.spec");
+const agentUiDist = join(repoRoot, "pos-desktop", "ui", "dist");
 
 function sidecarExists() {
   return existsSync(unixBinary) || existsSync(windowsBinary);
 }
 
-function run(cmd, args) {
+function run(cmd, args, { cwd = repoRoot } = {}) {
   const res = spawnSync(cmd, args, {
-    cwd: repoRoot,
+    cwd,
     stdio: "inherit",
   });
   return (res.status ?? 1) === 0;
 }
 
+function ensureAgentUiBuilt() {
+  // The PyInstaller spec bundles `pos-desktop/ui/dist`. On fresh CI checkouts
+  // (especially Windows), this folder won't exist unless we build it.
+  if (existsSync(join(agentUiDist, "index.html"))) return true;
+
+  const uiDir = join(repoRoot, "pos-desktop", "ui");
+  if (!existsSync(join(uiDir, "package.json"))) return true; // unexpected, but don't block
+
+  // Best-effort: build the UI if npm exists. If it fails, PyInstaller will
+  // still fail unless the spec file handles missing UI dist.
+  console.log("[pos-desktop] building sidecar UI (pos-desktop/ui)...");
+  const ciOk = run("npm", ["ci"], { cwd: uiDir });
+  if (!ciOk) return false;
+  const buildOk = run("npm", ["run", "build"], { cwd: uiDir });
+  return buildOk;
+}
+
 function buildWithPython() {
+  // Ensure UI dist exists before running PyInstaller (Windows CI doesn't run the bash builder).
+  ensureAgentUiBuilt();
+
   const pythonCandidates =
     process.platform === "win32"
       ? [
