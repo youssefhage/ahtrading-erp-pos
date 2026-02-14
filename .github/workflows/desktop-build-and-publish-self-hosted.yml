@@ -1,44 +1,32 @@
-name: Desktop build & publish (Reusable)
+name: Desktop build & publish (self-hosted)
 
 on:
-  workflow_call:
-    secrets:
-      TAURI_SIGNING_PRIVATE_KEY:
-        required: true
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
-        required: false
-      UPDATES_PUBLISH_KEY:
-        required: true
-      APPLE_CERTIFICATE:
-        required: false
-      APPLE_CERTIFICATE_PASSWORD:
-        required: false
-      APPLE_SIGNING_IDENTITY:
-        required: false
-      APPLE_ID:
-        required: false
-      APPLE_PASSWORD:
-        required: false
-      APPLE_TEAM_ID:
-        required: false
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "apps/pos-desktop/**"
+      - "apps/admin-desktop/**"
+      - "apps/setup-desktop/**"
+      - "apps/downloads/**"
+      - "backend/app/routers/updates.py"
+      - "backend/app/static/downloads_site/**"
+      - "scripts/publish_desktop_release.py"
+      - "scripts/build_setup_runner_pack.py"
+      - ".github/workflows/desktop-build-and-publish-self-hosted.yml"
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    env:
-      # GitHub Actions does not allow referencing `secrets.*` inside `if:` in
-      # reusable workflows. Expose them via env so steps can gate safely.
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    name: Build (${{ matrix.key }})
+    runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
-        # Keep this lean to reduce GitHub-hosted minutes (macOS is expensive).
-        # We also saw macos-13 not supported on the current account.
-        os: [windows-latest, macos-14]
+        include:
+          - key: windows
+            runs_on: [self-hosted, Windows]
+          - key: macos
+            runs_on: [self-hosted, macOS]
 
     steps:
       - uses: actions/checkout@v4
@@ -66,7 +54,7 @@ jobs:
           fi
 
       - name: Install Apple certificate (macOS)
-        if: ${{ startsWith(matrix.os, 'macos') && env.APPLE_CERTIFICATE != '' }}
+        if: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE != '' }}
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -148,7 +136,7 @@ jobs:
           npm run build
 
       - name: Notarize + staple DMGs (macOS)
-        if: ${{ startsWith(matrix.os, 'macos') && env.APPLE_ID != '' && env.APPLE_PASSWORD != '' && env.APPLE_TEAM_ID != '' && env.APPLE_CERTIFICATE != '' }}
+        if: ${{ runner.os == 'macOS' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_CERTIFICATE != '' }}
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -172,7 +160,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "dist/${{ matrix.os }}/pos" "dist/${{ matrix.os }}/portal" "dist/${{ matrix.os }}/setup"
+          mkdir -p "dist/${{ matrix.key }}/pos" "dist/${{ matrix.key }}/portal" "dist/${{ matrix.key }}/setup"
 
           collect() {
             local src="$1"
@@ -186,21 +174,19 @@ jobs:
               -print0 | xargs -0 -I{} cp "{}" "$dst/" || true
           }
 
-          collect "apps/pos-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/pos"
-          collect "apps/admin-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/portal"
-          collect "apps/setup-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/setup"
-
-          echo "${{ matrix.os }}" > "dist/${{ matrix.os }}/_runner_os.txt"
+          collect "apps/pos-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.key }}/pos"
+          collect "apps/admin-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.key }}/portal"
+          collect "apps/setup-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.key }}/setup"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ matrix.os }}
-          path: dist/${{ matrix.os }}
+          name: desktop-${{ matrix.key }}
+          path: dist/${{ matrix.key }}
           if-no-files-found: error
 
   publish:
-    name: Publish to download.melqard.com
-    runs-on: ubuntu-latest
+    name: Publish to download.melqard.com (self-hosted)
+    runs-on: [self-hosted, macOS]
     needs: build
     steps:
       - uses: actions/checkout@v4
@@ -228,3 +214,4 @@ jobs:
             --api-base "https://app.melqard.com/api/" \
             --download-base "https://download.melqard.com" \
             --dist-dir dist
+
