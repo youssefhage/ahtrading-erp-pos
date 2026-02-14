@@ -49,8 +49,8 @@ def main() -> int:
 
         Requirements (install once on the server machine):
         - Docker Desktop (Windows/macOS)
-        - Python 3.11+ (recommended)
-          - Windows: check "Add python.exe to PATH" and install the "Python Launcher" (py)
+        - Windows: no Python install needed (the launcher downloads a portable Python automatically)
+        - macOS: Python 3 is recommended (Homebrew: `brew install python`)
 
         Quick Start
         1) Extract this zip into a folder (e.g. C:\\MelqardEdgeSetup or ~/MelqardEdgeSetup).
@@ -80,10 +80,14 @@ def main() -> int:
         $here = Split-Path -Parent $MyInvocation.MyCommand.Path
         Set-Location $here
 
+        function Run-Py([string]$cmd, [string[]]$args) {
+          & $cmd @args
+          exit $LASTEXITCODE
+        }
+
         # Prefer Windows Python Launcher (py), then python, then python3.
         if (Get-Command py -ErrorAction SilentlyContinue) {
-          py -3 .\\onboard_onprem_pos.py --compose-mode images --edge-home .
-          exit $LASTEXITCODE
+          Run-Py "py" @("-3", ".\\onboard_onprem_pos.py", "--compose-mode", "images", "--edge-home", ".")
         }
 
         # Some Windows builds ship a "python" app execution alias that opens the Microsoft Store.
@@ -91,40 +95,41 @@ def main() -> int:
         if (Get-Command python -ErrorAction SilentlyContinue) {
           $ver = & python --version 2>&1
           if ($LASTEXITCODE -eq 0 -and ($ver -match "^Python\\s+3\\.")) {
-            python .\\onboard_onprem_pos.py --compose-mode images --edge-home .
-            exit $LASTEXITCODE
+            Run-Py "python" @(".\\onboard_onprem_pos.py", "--compose-mode", "images", "--edge-home", ".")
           }
         }
 
         if (Get-Command python3 -ErrorAction SilentlyContinue) {
           $ver = & python3 --version 2>&1
           if ($LASTEXITCODE -eq 0 -and ($ver -match "^Python\\s+3\\.")) {
-            python3 .\\onboard_onprem_pos.py --compose-mode images --edge-home .
-            exit $LASTEXITCODE
+            Run-Py "python3" @(".\\onboard_onprem_pos.py", "--compose-mode", "images", "--edge-home", ".")
           }
         }
 
-        Write-Error @"
-        Python not found.
+        # No Python found: download a portable (embeddable) Python into this folder and run it.
+        try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
-        Install Python 3.11+ and ensure it is on PATH, then reopen PowerShell and rerun this script.
+        $pyVersion = "3.11.8"
+        $pyUrl = "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-embed-amd64.zip"
+        $pyDir = Join-Path $here ".python"
+        $pyExe = Join-Path $pyDir "python.exe"
+        $zipPath = Join-Path $here ".python-embed.zip"
 
-        Recommended (Windows 10/11):
-          winget install -e --id Python.Python.3.11
+        if (-not (Test-Path $pyExe)) {
+          Write-Host "Python not found. Downloading portable Python $pyVersion..." -ForegroundColor Yellow
+          Invoke-WebRequest -Uri $pyUrl -OutFile $zipPath
+          if (Test-Path $pyDir) { Remove-Item $pyDir -Recurse -Force }
+          New-Item -ItemType Directory -Path $pyDir | Out-Null
+          Expand-Archive -Path $zipPath -DestinationPath $pyDir -Force
+          Remove-Item $zipPath -Force
+        }
 
-        Or download from:
-          https://www.python.org/downloads/windows/
+        if (-not (Test-Path $pyExe)) {
+          Write-Error "Portable Python download failed. Please install Python 3 and retry."
+          exit 2
+        }
 
-        During install:
-          - Check: "Add python.exe to PATH"
-          - Ensure: "Python Launcher (py)" is installed
-
-        Verify:
-          py -3 --version
-          python --version
-"@
-        try { Start-Process "https://www.python.org/downloads/windows/" } catch {}
-        exit 2
+        Run-Py $pyExe @(".\\onboard_onprem_pos.py", "--compose-mode", "images", "--edge-home", ".")
         """
     ).strip() + "\n"
 

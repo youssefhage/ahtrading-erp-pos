@@ -176,6 +176,13 @@ def _find_latest_installer_rel(app: str, platform: str) -> str:
         if stable.exists() and stable.is_file():
             return str(stable.relative_to(base))
 
+    # Setup Desktop isn't always available on Windows (CI/build machine missing).
+    # Provide a stable fallback to the Setup Runner zip when present.
+    if app_key == "setup" and plat == "windows":
+        runner = (app_root / "MelqardSetupRunner-latest.zip").resolve()
+        if runner.exists() and runner.is_file():
+            return str(runner.relative_to(base))
+
     candidates = []
     for p in app_root.rglob("*"):
         if not p.is_file():
@@ -314,7 +321,13 @@ def purge_updates(
     stable_by_app = {
         "pos": {"MelqardPOS-Setup-latest.msi", "MelqardPOS-Setup-latest.exe", "MelqardPOS-Setup-latest.dmg"},
         "portal": {"MelqardPortal-Setup-latest.msi", "MelqardPortal-Setup-latest.exe", "MelqardPortal-Setup-latest.dmg"},
-        "setup": {"MelqardInstaller-Setup-latest.msi", "MelqardInstaller-Setup-latest.exe", "MelqardInstaller-Setup-latest.dmg"},
+        "setup": {
+            "MelqardInstaller-Setup-latest.msi",
+            "MelqardInstaller-Setup-latest.exe",
+            "MelqardInstaller-Setup-latest.dmg",
+            # Fallback for Windows when Setup Desktop isn't published yet.
+            "MelqardSetupRunner-latest.zip",
+        },
     }
 
     removed: list[dict] = []
