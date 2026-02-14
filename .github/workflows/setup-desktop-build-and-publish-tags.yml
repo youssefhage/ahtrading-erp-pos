@@ -95,22 +95,34 @@ jobs:
         with:
           path: dist
 
-      - name: Decide visibility toggle
+      - name: Set visibility toggle (tag push)
+        if: ${{ github.event_name == 'push' }}
         shell: bash
         run: |
           set -euo pipefail
-          # User preference: temporarily make repo public for publishing, then revert to private.
-          # - Tag pushes: default ON
-          # - Manual dispatch: controlled by input toggle_visibility
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "DO_TOGGLE_VIS=true" >> "$GITHUB_ENV"
-            exit 0
+          echo "DO_TOGGLE_VIS=true" >> "$GITHUB_ENV"
+
+      - name: Set visibility toggle (manual)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "DO_TOGGLE_VIS=${{ inputs.toggle_visibility }}" >> "$GITHUB_ENV"
+
+      - name: Set keep versions (manual)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "KEEP_VERSIONS=${{ inputs.keep_versions }}" >> "$GITHUB_ENV"
+
+      - name: Set keep versions (default)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${KEEP_VERSIONS:-}" ]; then
+            echo "KEEP_VERSIONS=1" >> "$GITHUB_ENV"
           fi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.toggle_visibility }}" = "true" ]; then
-            echo "DO_TOGGLE_VIS=true" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          echo "DO_TOGGLE_VIS=false" >> "$GITHUB_ENV"
 
       - name: Toggle repo visibility (public)
         if: ${{ env.DO_TOGGLE_VIS == 'true' }}
@@ -145,7 +157,7 @@ jobs:
             --download-base "https://download.melqard.com" \
             --dist-dir dist \
             --apps setup \
-            --keep-versions "${{ inputs.keep_versions || '1' }}"
+            --keep-versions "${KEEP_VERSIONS}"
 
       - name: Toggle repo visibility (private)
         if: ${{ always() && env.DO_TOGGLE_VIS == 'true' }}

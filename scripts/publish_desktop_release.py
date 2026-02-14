@@ -225,24 +225,10 @@ def _publish_app(
             rel = f"{app}/{version}/{_safe_filename(fp.name)}"
             _http_upload(api_base, publish_key, rel, fp)
 
-    # Upload stable "latest installer" names for staff onboarding.
-    stable_win_msi = APP_CONFIG[app]["stable_installer_win_msi"]
-    stable_win_exe = APP_CONFIG[app]["stable_installer_win_exe"]
-    stable_mac = APP_CONFIG[app]["stable_installer_mac"]
-    if "windows-x86_64" in bundles:
-        # Prefer publishing BOTH stable names when available (better UX for staff + IT).
-        # The updates API will redirect to the first one it finds.
-        win_root = bundles["windows-x86_64"].update_bundle.parent
-        win_msi = _find_one(win_root, (".msi",))
-        win_exe = _find_one(win_root, (".exe",))
-        if win_msi:
-            _http_upload(api_base, publish_key, f"{app}/{stable_win_msi}", win_msi)
-        if win_exe:
-            _http_upload(api_base, publish_key, f"{app}/{stable_win_exe}", win_exe)
-    if "darwin-aarch64" in bundles and bundles["darwin-aarch64"].installer:
-        _http_upload(api_base, publish_key, f"{app}/{stable_mac}", bundles["darwin-aarch64"].installer)  # type: ignore[arg-type]
-    elif "darwin-x86_64" in bundles and bundles["darwin-x86_64"].installer:
-        _http_upload(api_base, publish_key, f"{app}/{stable_mac}", bundles["darwin-x86_64"].installer)  # type: ignore[arg-type]
+    # Per ops policy: always keep installer filenames versioned.
+    # We intentionally do NOT upload "*-latest" installer names here.
+    # Staff-facing stable URLs should use the redirect endpoint:
+    #   GET /updates/latest-installer/{app}/{platform}
 
     # Build latest.json for updater.
     platforms = {}
