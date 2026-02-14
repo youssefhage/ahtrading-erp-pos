@@ -55,6 +55,27 @@ APP_CONFIG = {
     },
 }
 
+def _safe_filename(name: str) -> str:
+    """
+    Convert build artifact names into API-acceptable rel_path components.
+
+    The updates upload API intentionally disallows spaces and most punctuation.
+    Some bundlers (Tauri) emit filenames containing spaces (derived from productName).
+    """
+    out = []
+    prev_us = False
+    for ch in name:
+        ok = ch.isalnum() or ch in "._-"
+        if ok:
+            out.append(ch)
+            prev_us = False
+        else:
+            if not prev_us:
+                out.append("_")
+                prev_us = True
+    s = "".join(out).strip("_")
+    return s or "artifact"
+
 
 def _die(msg: str) -> None:
     print(f"error: {msg}", file=sys.stderr)
@@ -201,7 +222,7 @@ def _publish_app(
         for fp in [b.update_bundle, b.signature, b.installer]:
             if not fp:
                 continue
-            rel = f"{app}/{version}/{fp.name}"
+            rel = f"{app}/{version}/{_safe_filename(fp.name)}"
             _http_upload(api_base, publish_key, rel, fp)
 
     # Upload stable "latest installer" names for staff onboarding.
@@ -224,7 +245,7 @@ def _publish_app(
     # Build latest.json for updater.
     platforms = {}
     for plat, b in bundles.items():
-        url = f"{download_base.rstrip('/')}/updates/{app}/{version}/{b.update_bundle.name}"
+        url = f"{download_base.rstrip('/')}/updates/{app}/{version}/{_safe_filename(b.update_bundle.name)}"
         platforms[plat] = {"url": url, "signature": _sig_text(b.signature)}
 
     latest = {
