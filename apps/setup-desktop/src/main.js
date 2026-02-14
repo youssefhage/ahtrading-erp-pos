@@ -1,6 +1,47 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { check } from "@tauri-apps/plugin-updater";
+// NOTE: This frontend is shipped as raw static files (no bundler).
+// That means bare module imports like `@tauri-apps/api/...` will NOT resolve in the webview.
+// Use the Tauri-injected bridge directly instead.
+
+function tauriInvoke(cmd, args = {}) {
+  const fn = globalThis?.__TAURI_INTERNALS__?.invoke;
+  if (typeof fn !== "function") {
+    throw new Error(
+      "Tauri bridge unavailable. Please open this screen from the Melqard Setup Desktop app (not a browser).",
+    );
+  }
+  return fn(String(cmd || ""), args || {});
+}
+
+function tauriTransformCallback(cb, once = false) {
+  const fn = globalThis?.__TAURI_INTERNALS__?.transformCallback;
+  if (typeof fn !== "function") {
+    throw new Error("Tauri transformCallback unavailable (bridge not initialized).");
+  }
+  return fn(cb, !!once);
+}
+
+async function tauriListen(event, handler, options = {}) {
+  const target =
+    typeof options?.target === "string"
+      ? { kind: "AnyLabel", label: options.target }
+      : options?.target || { kind: "Any" };
+
+  const eventId = await tauriInvoke("plugin:event|listen", {
+    event,
+    target,
+    handler: tauriTransformCallback(handler),
+  });
+
+  return async () => {
+    // Best-effort: keep the internal JS registry in sync if it exists.
+    try {
+      globalThis?.__TAURI_EVENT_PLUGIN_INTERNALS__?.unregisterListener?.(event, eventId);
+    } catch {
+      // ignore
+    }
+    await tauriInvoke("plugin:event|unlisten", { event, eventId });
+  };
+}
 
 const KEY = "melqard.setupDesktop.state.v1";
 
@@ -27,6 +68,26 @@ function appendLog(line) {
   box.value = next.length > max ? next.slice(next.length - max) : next;
   box.scrollTop = box.scrollHeight;
 }
+
+// Surface unexpected errors in the UI, otherwise the user experiences "nothing happens".
+window.addEventListener("error", (ev) => {
+  try {
+    const payload = ev?.error || ev?.message || "Unknown error";
+    appendLog(`[ui:error] ${payload instanceof Error ? payload.message : String(payload)}`);
+    setStatus(`UI error: ${payload instanceof Error ? payload.message : String(payload)}`);
+  } catch {
+    // ignore
+  }
+});
+window.addEventListener("unhandledrejection", (ev) => {
+  try {
+    const payload = ev?.reason || "Unknown rejection";
+    appendLog(`[ui:unhandledrejection] ${payload instanceof Error ? payload.message : String(payload)}`);
+    setStatus(`UI error: ${payload instanceof Error ? payload.message : String(payload)}`);
+  } catch {
+    // ignore
+  }
+});
 
 function uiBusy(isBusy) {
   el("runBtn").disabled = !!isBusy;
@@ -90,10 +151,10 @@ function updateModeUi() {
 async function autoUpdate() {
   // Quiet auto-update: great for fast internal iteration, but should not block offline usage.
   try {
-    const update = await check();
+    const update = await tauriInvoke("plugin:updater|check", {});
     if (!update) return;
     appendLog(`[updater] Update available: ${update.version}. Downloading...`);
-    await update.downloadAndInstall();
+    await tauriInvoke("plugin:updater|download_and_install", { update });
     appendLog("[updater] Update installed. Please restart the app.");
     setStatus("Update installed. Please restart the app.");
   } catch {
@@ -106,7 +167,7 @@ async function preflight() {
   saveState();
 
   const repoPath = String(el("repoPath").value || "").trim();
-  const res = await invoke("check_prereqs", { repoPath });
+  const res = await tauriInvoke("check_prereqs", { repoPath });
 
   if (res.details && res.details.length) {
     for (const d of res.details) appendLog(`[preflight] ${d}`);
@@ -190,7 +251,7 @@ async function runSetup() {
   setStatus("Starting onboarding...");
   saveState();
   try {
-    await invoke("start_onboarding", { params });
+    await tauriInvoke("start_onboarding", { params });
   } catch (e) {
     uiBusy(false);
     setStatus(`Failed to start: ${e instanceof Error ? e.message : String(e)}`);
@@ -199,7 +260,7 @@ async function runSetup() {
 
 async function stopSetup() {
   try {
-    await invoke("stop_onboarding");
+    await tauriInvoke("stop_onboarding");
     appendLog("[setup] Stop requested.");
     setStatus("Stopping...");
   } catch (e) {
@@ -216,10 +277,10 @@ el("clearLogsBtn").addEventListener("click", () => {
   setStatus("");
 });
 
-listen("onboarding://log", (event) => {
+tauriListen("onboarding://log", (event) => {
   appendLog(event.payload);
 });
-listen("onboarding://done", (event) => {
+tauriListen("onboarding://done", (event) => {
   const code = event?.payload?.exitCode;
   uiBusy(false);
   if (code === 0) setStatus("Onboarding complete.");

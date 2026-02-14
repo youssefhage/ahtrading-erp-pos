@@ -229,14 +229,16 @@ def _publish_app(
     stable_win_msi = APP_CONFIG[app]["stable_installer_win_msi"]
     stable_win_exe = APP_CONFIG[app]["stable_installer_win_exe"]
     stable_mac = APP_CONFIG[app]["stable_installer_mac"]
-    if "windows-x86_64" in bundles and bundles["windows-x86_64"].installer:
-        inst = bundles["windows-x86_64"].installer  # type: ignore[assignment]
-        ext = inst.suffix.lower()
-        if ext == ".exe":
-            _http_upload(api_base, publish_key, f"{app}/{stable_win_exe}", inst)
-        else:
-            # Default to MSI stable name (covers .msi and any future wix variants).
-            _http_upload(api_base, publish_key, f"{app}/{stable_win_msi}", inst)
+    if "windows-x86_64" in bundles:
+        # Prefer publishing BOTH stable names when available (better UX for staff + IT).
+        # The updates API will redirect to the first one it finds.
+        win_root = bundles["windows-x86_64"].update_bundle.parent
+        win_msi = _find_one(win_root, (".msi",))
+        win_exe = _find_one(win_root, (".exe",))
+        if win_msi:
+            _http_upload(api_base, publish_key, f"{app}/{stable_win_msi}", win_msi)
+        if win_exe:
+            _http_upload(api_base, publish_key, f"{app}/{stable_win_exe}", win_exe)
     if "darwin-aarch64" in bundles and bundles["darwin-aarch64"].installer:
         _http_upload(api_base, publish_key, f"{app}/{stable_mac}", bundles["darwin-aarch64"].installer)  # type: ignore[arg-type]
     elif "darwin-x86_64" in bundles and bundles["darwin-x86_64"].installer:
@@ -272,10 +274,29 @@ def main() -> int:
     ap.add_argument("--download-base", default="https://download.melqard.com", help="Example: https://download.melqard.com")
     ap.add_argument("--publish-key", default=os.getenv("UPDATES_PUBLISH_KEY") or "")
     ap.add_argument("--dist-dir", default="dist", help="Directory containing downloaded CI artifacts")
+    ap.add_argument(
+        "--apps",
+        default="pos,portal,setup",
+        help="Comma-separated list of apps to publish (default: pos,portal,setup).",
+    )
+    ap.add_argument(
+        "--keep-versions",
+        type=int,
+        default=1,
+        help="How many versions to keep per app on download host after publishing (default: 1).",
+    )
     args = ap.parse_args()
 
     if not args.publish_key:
         _die("missing publish key (pass --publish-key or set UPDATES_PUBLISH_KEY)")
+
+    raw_apps = [s.strip() for s in str(args.apps or "").split(",") if s.strip()]
+    apps = [a for a in raw_apps if a in APP_CONFIG]
+    if not apps:
+        _die(f"invalid --apps (allowed: {', '.join(APP_CONFIG.keys())})")
+    unknown = sorted({a for a in raw_apps if a not in APP_CONFIG})
+    if unknown:
+        _die(f"unknown app(s) in --apps: {', '.join(unknown)}")
 
     dist = Path(args.dist_dir)
     if not dist.exists():
@@ -295,7 +316,7 @@ def main() -> int:
                 return p
         return direct
 
-    for app in ("pos", "portal", "setup"):
+    for app in apps:
         cfg = APP_CONFIG[app]
         version = _read_version(cfg["tauri_conf"])
 
@@ -333,7 +354,7 @@ def main() -> int:
         api_base=args.api_base,
         publish_key=args.publish_key,
         endpoint="updates/purge",
-        payload={"apps": ["pos", "portal", "setup"], "keep_versions": 1},
+        payload={"apps": apps, "keep_versions": max(1, int(args.keep_versions or 1))},
     )
 
     return 0

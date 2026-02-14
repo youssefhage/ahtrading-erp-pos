@@ -38,6 +38,21 @@ def _target_url() -> str:
         return raw.rstrip("/")
     return raw.rstrip("/") + "/edge-sync/sales-invoices/import"
 
+def _cloud_base_url() -> str:
+    raw = (os.getenv("EDGE_SYNC_TARGET_URL") or "").strip()
+    if not raw:
+        return ""
+    raw = raw.rstrip("/")
+    if "/edge-sync/" in raw:
+        return raw.split("/edge-sync/", 1)[0].rstrip("/")
+    return raw
+
+def _ping_url() -> str:
+    base = _cloud_base_url()
+    if not base:
+        return ""
+    return base.rstrip("/") + "/edge-sync/ping"
+
 
 def _edge_key() -> str:
     return (os.getenv("EDGE_SYNC_KEY") or "").strip()
@@ -193,6 +208,15 @@ def run_edge_cloud_sync(db_url: str, company_id: str, limit: int = 10) -> int:
     if not url or not key:
         return 0
 
+    # Heartbeat to the cloud even if there is nothing to sync right now.
+    try:
+        ping_url = _ping_url()
+        if ping_url:
+            _http_post_json(ping_url, {"company_id": str(company_id), "source_node_id": _source_node_id()})
+    except Exception:
+        # Best-effort: do not block operational sync on heartbeat errors.
+        pass
+
     processed = 0
     with psycopg.connect(db_url, row_factory=dict_row) as conn:
         for _ in range(max(1, int(limit or 10))):
@@ -264,4 +288,3 @@ def run_edge_cloud_sync(db_url: str, company_id: str, limit: int = 10) -> int:
                         )
 
     return processed
-

@@ -80,6 +80,12 @@ type FlatNavItem = NavItem & { section: string };
 
 type BranchRow = { id: string; name: string };
 type WarehouseRow = { id: string; name: string };
+type EdgeNodeStatusRow = {
+  node_id: string;
+  last_seen_at?: string | null;
+  last_ping_at?: string | null;
+  last_import_at?: string | null;
+};
 
 function inferPublicApiBaseUrl(): string {
   if (typeof window === "undefined") return "";
@@ -567,6 +573,9 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const [health, setHealth] = useState<"checking" | "online" | "offline">("checking");
   const [healthDetail, setHealthDetail] = useState("");
 
+  const [edgeHealth, setEdgeHealth] = useState<"checking" | "online" | "offline">("checking");
+  const [edgeHealthDetail, setEdgeHealthDetail] = useState("");
+
   const [companyId, setCompanyId] = useState(() => getCompanyId());
   const [companyName, setCompanyName] = useState<string>("");
   const [authChecked, setAuthChecked] = useState(false);
@@ -1024,6 +1033,63 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       if (timer) window.clearInterval(timer);
     };
   }, [uiVariant]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function checkEdge() {
+      if (!companyId) {
+        setEdgeHealth("checking");
+        setEdgeHealthDetail("Select a company to view edge status.");
+        return;
+      }
+      try {
+        const res = await apiGet<{ nodes: EdgeNodeStatusRow[] }>("/edge-nodes/status");
+        if (cancelled) return;
+        const nodes = res?.nodes || [];
+        if (!nodes.length) {
+          setEdgeHealth("offline");
+          setEdgeHealthDetail("No edge nodes have pinged yet.");
+          return;
+        }
+        const now = Date.now();
+        const online = nodes.some((n) => {
+          const ts = n?.last_seen_at ? Date.parse(String(n.last_seen_at)) : NaN;
+          if (!Number.isFinite(ts)) return false;
+          return now - ts < 60_000;
+        });
+        setEdgeHealth(online ? "online" : "offline");
+
+        const top = nodes[0];
+        const lastSeen = top?.last_seen_at ? String(top.last_seen_at) : "";
+        const lastImport = top?.last_import_at ? String(top.last_import_at) : "";
+        const details = [
+          `Nodes: ${nodes.length}`,
+          top?.node_id ? `Latest: ${top.node_id}` : "",
+          lastSeen ? `Last seen: ${lastSeen}` : "",
+          lastImport ? `Last import: ${lastImport}` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        setEdgeHealthDetail(details || "Edge status");
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setEdgeHealth("offline");
+        setEdgeHealthDetail(message);
+      }
+    }
+
+    checkEdge();
+    if (uiVariant !== "lite") {
+      timer = window.setInterval(checkEdge, 30000);
+    }
+    return () => {
+      cancelled = true;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [uiVariant, companyId]);
 
   function toggleCollapsed() {
     setCollapsed((v) => {
@@ -1600,6 +1666,24 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                   </Button>
                 </>
               )}
+            </div>
+
+            {/* Edge indicator */}
+            <div
+              className={cn(
+                "flex h-8 items-center gap-2 rounded-md border px-2.5 text-xs font-medium",
+                edgeHealth === "online"
+                  ? "border-success/20 bg-success/10 text-success"
+                  : edgeHealth === "offline"
+                    ? "border-border bg-bg-elevated text-fg-subtle"
+                    : "border-border bg-bg-elevated text-fg-subtle"
+              )}
+              title={edgeHealthDetail || "Edge status"}
+            >
+              <Zap className={cn("h-3.5 w-3.5", edgeHealth === "online" ? "animate-pulse" : "")} />
+              <span className="hidden sm:inline">
+                Edge {edgeHealth === "online" ? "Live" : edgeHealth === "offline" ? "Off" : "..."}
+              </span>
             </div>
 
             {/* User menu */}

@@ -11,6 +11,26 @@ from ..db import get_admin_conn, set_company_context
 
 router = APIRouter(prefix="/edge-sync", tags=["edge-sync"])
 
+def _upsert_edge_node_seen(cur, company_id: str, node_id: str, *, ping: bool = False, imported: bool = False) -> None:
+    node = (node_id or "").strip()
+    if not node:
+        return
+    cur.execute(
+        """
+        INSERT INTO edge_node_status (company_id, node_id, last_seen_at, last_ping_at, last_import_at)
+        VALUES (%s::uuid, %s, now(),
+                CASE WHEN %s THEN now() ELSE NULL END,
+                CASE WHEN %s THEN now() ELSE NULL END)
+        ON CONFLICT (company_id, node_id)
+        DO UPDATE SET
+          last_seen_at = now(),
+          last_ping_at = CASE WHEN %s THEN now() ELSE edge_node_status.last_ping_at END,
+          last_import_at = CASE WHEN %s THEN now() ELSE edge_node_status.last_import_at END,
+          updated_at = now()
+        """,
+        (company_id, node, bool(ping), bool(imported), bool(ping), bool(imported)),
+    )
+
 
 def _require_edge_key(x_edge_sync_key: Optional[str]) -> None:
     expected = (os.getenv("EDGE_SYNC_KEY") or "").strip()
@@ -34,10 +54,41 @@ class SalesInvoiceBundle(BaseModel):
     source_node_id: Optional[str] = None
 
 
+class EdgePing(BaseModel):
+    company_id: str
+    source_node_id: Optional[str] = None
+
+
+@router.post("/ping")
+def ping(
+    data: EdgePing,
+    x_edge_sync_key: Optional[str] = Header(None, alias="X-Edge-Sync-Key"),
+    x_edge_node_id: Optional[str] = Header(None, alias="X-Edge-Node-Id"),
+):
+    """
+    Cloud-side endpoint: edge nodes call this frequently to report they are online,
+    even when there are no documents to import.
+    """
+    _require_edge_key(x_edge_sync_key)
+
+    company_id = (data.company_id or "").strip()
+    if not company_id:
+        raise HTTPException(status_code=400, detail="company_id is required")
+    node_id = (x_edge_node_id or data.source_node_id or "").strip()
+
+    with get_admin_conn() as conn:
+        with conn.transaction():
+            set_company_context(conn, company_id)
+            with conn.cursor() as cur:
+                _upsert_edge_node_seen(cur, company_id, node_id, ping=True, imported=False)
+    return {"ok": True}
+
+
 @router.post("/sales-invoices/import")
 def import_sales_invoice_bundle(
     data: SalesInvoiceBundle,
     x_edge_sync_key: Optional[str] = Header(None, alias="X-Edge-Sync-Key"),
+    x_edge_node_id: Optional[str] = Header(None, alias="X-Edge-Node-Id"),
 ):
     """
     Cloud-side endpoint: import a fully-posted sales invoice bundle from an edge node.
@@ -63,8 +114,11 @@ def import_sales_invoice_bundle(
 
     with get_admin_conn() as conn:
         with conn.transaction():
+            set_company_context(conn, company_id)
             with conn.cursor() as cur:
-                set_company_context(conn, company_id)
+                # Update edge node heartbeat for visibility in Admin.
+                node_id = (x_edge_node_id or data.source_node_id or "").strip()
+                _upsert_edge_node_seen(cur, company_id, node_id, ping=False, imported=True)
 
                 # Sales invoice header (include all known operational fields; rely on defaults for the rest).
                 cur.execute(
