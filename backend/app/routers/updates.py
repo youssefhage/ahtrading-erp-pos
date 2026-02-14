@@ -312,9 +312,9 @@ def purge_updates(
 
     # Stable installer names we always keep in the app root.
     stable_by_app = {
-        "pos": {"MelqardPOS-Setup-latest.msi", "MelqardPOS-Setup-latest.dmg"},
-        "portal": {"MelqardPortal-Setup-latest.msi", "MelqardPortal-Setup-latest.dmg"},
-        "setup": {"MelqardInstaller-Setup-latest.msi", "MelqardInstaller-Setup-latest.dmg"},
+        "pos": {"MelqardPOS-Setup-latest.msi", "MelqardPOS-Setup-latest.exe", "MelqardPOS-Setup-latest.dmg"},
+        "portal": {"MelqardPortal-Setup-latest.msi", "MelqardPortal-Setup-latest.exe", "MelqardPortal-Setup-latest.dmg"},
+        "setup": {"MelqardInstaller-Setup-latest.msi", "MelqardInstaller-Setup-latest.exe", "MelqardInstaller-Setup-latest.dmg"},
     }
 
     removed: list[dict] = []
