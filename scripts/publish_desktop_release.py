@@ -141,9 +141,18 @@ def _find_one(root: Path, suffixes: Tuple[str, ...]) -> Optional[Path]:
 
 def _bundle_for_platform(root: Path, platform: str) -> PlatformBundle:
     if platform.startswith("windows"):
+        # Tauri bundler output differs by major version/config:
+        # - Historically (Tauri v1) updater bundles on Windows were `*.msi.zip`/`*.exe.zip`
+        # - Newer builds (Tauri v2) may produce plain `*.msi`/`*.exe` with a sibling `*.sig`
+        #
+        # Support both, preferring the "zip bundle" when present.
         update = _find_one(root, (".msi.zip",))
         if not update:
             update = _find_one(root, (".exe.zip",))
+        if not update:
+            update = _find_one(root, (".msi",))
+        if not update:
+            update = _find_one(root, (".exe",))
         if not update:
             update = _find_one(root, (".zip",))
         if not update:
