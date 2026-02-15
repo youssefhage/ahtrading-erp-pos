@@ -832,7 +832,14 @@ fn run_onboarding_internal(app: &tauri::AppHandle, state: &Arc<Mutex<RunnerState
     let off = official.cloned();
     let un = unofficial.cloned();
     let prefill = json!({
-      "edgeUrl": edge_api_url_for_pos,
+      // POS Desktop now supports Hybrid URLs:
+      // - cloudUrl: cloud base (master)
+      // - edgeLanUrl: on-prem edge base (LAN, preferred when reachable)
+      //
+      // Back-compat: keep edgeUrl populated too.
+      "cloudUrl": cloud_api_url,
+      "edgeLanUrl": edge_api_url_for_pos,
+      "edgeUrl": if cloud_api_url.is_empty() { edge_api_url_for_pos } else { cloud_api_url.clone() },
       "portOfficial": 7070,
       "portUnofficial": 7072,
       "companyOfficial": off.as_ref().map(|d| d.company_id.clone()).unwrap_or_default(),

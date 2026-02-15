@@ -23,6 +23,10 @@ struct AgentsState {
 struct AgentConfig {
   api_base_url: String,
   #[serde(skip_serializing_if = "Option::is_none")]
+  edge_api_base_url: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  cloud_api_base_url: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
   company_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   device_id: Option<String>,
@@ -101,17 +105,27 @@ fn is_agent_tauri_compatible(port: u16) -> bool {
 
 fn patch_config(
   path: &Path,
-  edge_url: &str,
+  cloud_url: &str,
+  edge_lan_url: Option<&str>,
   company_id: Option<&str>,
   device_id: Option<&str>,
   device_token: Option<&str>,
 ) -> std::io::Result<()> {
   ensure_parent_dir(path)?;
+  let cloud = cloud_url.trim().trim_end_matches('/').to_string();
+  let edge_lan = edge_lan_url
+    .map(|s| s.trim().trim_end_matches('/').to_string())
+    .filter(|s| !s.is_empty());
+  let active = edge_lan.clone().unwrap_or_else(|| cloud.clone());
   if path.exists() {
     // Keep existing config, but patch fields when provided.
     let raw = fs::read_to_string(path).unwrap_or_else(|_| "{}".to_string());
     let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
-    v["api_base_url"] = serde_json::Value::String(edge_url.to_string());
+    v["api_base_url"] = serde_json::Value::String(active.to_string());
+    v["cloud_api_base_url"] = serde_json::Value::String(cloud.to_string());
+    if let Some(x) = edge_lan.as_deref() {
+      v["edge_api_base_url"] = serde_json::Value::String(x.to_string());
+    }
     if let Some(x) = company_id.and_then(|s| if s.trim().is_empty() { None } else { Some(s.trim()) }) {
       v["company_id"] = serde_json::Value::String(x.to_string());
     }
@@ -126,7 +140,9 @@ fn patch_config(
   }
 
   let cfg = serde_json::to_string_pretty(&AgentConfig {
-    api_base_url: edge_url.to_string(),
+    api_base_url: active.to_string(),
+    edge_api_base_url: edge_lan.clone(),
+    cloud_api_base_url: Some(cloud.to_string()),
     company_id: company_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
     device_id: device_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
     device_token: device_token.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
@@ -257,6 +273,7 @@ fn start_agents(
   app: tauri::AppHandle,
   state: tauri::State<'_, Mutex<AgentsState>>,
   edge_url: String,
+  edge_lan_url: Option<String>,
   port_official: u16,
   port_unofficial: u16,
   company_official: Option<String>,
@@ -266,9 +283,12 @@ fn start_agents(
   device_id_unofficial: Option<String>,
   device_token_unofficial: Option<String>,
 ) -> Result<(), String> {
-  let edge = edge_url.trim().trim_end_matches('/').to_string();
-  if edge.is_empty() {
-    return Err("edge_url is empty".to_string());
+  let cloud = edge_url.trim().trim_end_matches('/').to_string();
+  let edge_lan = edge_lan_url
+    .map(|s| s.trim().trim_end_matches('/').to_string())
+    .filter(|s| !s.is_empty());
+  if cloud.is_empty() {
+    return Err("cloud url is empty".to_string());
   }
 
   let data = app_data_dir(&app);
@@ -302,7 +322,8 @@ fn start_agents(
 
   patch_config(
     &official_cfg,
-    &edge,
+    &cloud,
+    edge_lan.as_deref(),
     company_official.as_deref(),
     device_id_official.as_deref(),
     device_token_official.as_deref(),
@@ -310,7 +331,8 @@ fn start_agents(
   .map_err(|e| e.to_string())?;
   patch_config(
     &unofficial_cfg,
-    &edge,
+    &cloud,
+    edge_lan.as_deref(),
     company_unofficial.as_deref(),
     device_id_unofficial.as_deref(),
     device_token_unofficial.as_deref(),
@@ -358,14 +380,18 @@ fn start_setup_agent(
   app: tauri::AppHandle,
   state: tauri::State<'_, Mutex<AgentsState>>,
   edge_url: String,
+  edge_lan_url: Option<String>,
   port_official: u16,
   company_official: Option<String>,
   device_id_official: Option<String>,
   device_token_official: Option<String>,
 ) -> Result<(), String> {
-  let edge = edge_url.trim().trim_end_matches('/').to_string();
-  if edge.is_empty() {
-    return Err("edge_url is empty".to_string());
+  let cloud = edge_url.trim().trim_end_matches('/').to_string();
+  let edge_lan = edge_lan_url
+    .map(|s| s.trim().trim_end_matches('/').to_string())
+    .filter(|s| !s.is_empty());
+  if cloud.is_empty() {
+    return Err("cloud url is empty".to_string());
   }
 
   let data = app_data_dir(&app);
@@ -386,7 +412,8 @@ fn start_setup_agent(
 
   patch_config(
     &official_cfg,
-    &edge,
+    &cloud,
+    edge_lan.as_deref(),
     company_official.as_deref(),
     device_id_official.as_deref(),
     device_token_official.as_deref(),

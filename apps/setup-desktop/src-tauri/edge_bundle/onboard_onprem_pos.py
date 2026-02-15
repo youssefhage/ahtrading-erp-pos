@@ -359,7 +359,7 @@ def _choose_plans(
     return plans
 
 
-def _tauri_prefill(devices: list[dict[str, Any]], edge_api_url_for_pos: str) -> dict[str, Any]:
+def _tauri_prefill(devices: list[dict[str, Any]], edge_api_url_for_pos: str, cloud_api_url: str) -> dict[str, Any]:
     def pick(kind: str) -> dict[str, Any] | None:
         kind_lower = kind.lower()
         for d in devices:
@@ -382,8 +382,12 @@ def _tauri_prefill(devices: list[dict[str, Any]], edge_api_url_for_pos: str) -> 
     if unofficial is None:
         unofficial = official
 
+    cloud_api_url = (cloud_api_url or "").strip().rstrip("/")
+    edge_api_url_for_pos = (edge_api_url_for_pos or "").strip().rstrip("/")
     return {
-        "edgeUrl": edge_api_url_for_pos,
+        "cloudUrl": cloud_api_url,
+        "edgeLanUrl": edge_api_url_for_pos,
+        "edgeUrl": cloud_api_url or edge_api_url_for_pos,
         "portOfficial": 7070,
         "portUnofficial": 7072,
         "companyOfficial": official.get("company_id") if official else "",
@@ -399,6 +403,7 @@ def _write_output_bundle(
     out_dir: Path,
     *,
     edge_api_url_for_pos: str,
+    cloud_api_url: str,
     plans: list[CompanyPlan],
     devices: list[dict[str, Any]],
 ) -> None:
@@ -438,7 +443,7 @@ def _write_output_bundle(
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     (out_dir / "tauri-launcher-prefill.json").write_text(
-        json.dumps(_tauri_prefill(devices, edge_api_url_for_pos), indent=2), encoding="utf-8"
+        json.dumps(_tauri_prefill(devices, edge_api_url_for_pos, cloud_api_url), indent=2), encoding="utf-8"
     )
 
     readme = f"""On-Prem POS Onboarding Bundle
@@ -690,7 +695,7 @@ def main() -> int:
     timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
     out_dir = onboarding_root / timestamp
     if devices:
-        _write_output_bundle(out_dir, edge_api_url_for_pos=edge_api_url_for_pos, plans=plans, devices=devices)
+        _write_output_bundle(out_dir, edge_api_url_for_pos=edge_api_url_for_pos, cloud_api_url=cloud_api_url, plans=plans, devices=devices)
         print(f"Exported onboarding bundle to: {out_dir}")
 
     # Harden future restarts only for fresh installs / explicit env update runs.

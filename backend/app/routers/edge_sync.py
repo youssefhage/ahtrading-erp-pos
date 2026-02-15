@@ -59,6 +59,12 @@ class EdgePing(BaseModel):
     source_node_id: Optional[str] = None
 
 
+class CustomerBundle(BaseModel):
+    company_id: str
+    customer: dict[str, Any]
+    source_node_id: Optional[str] = None
+
+
 @router.post("/ping")
 def ping(
     data: EdgePing,
@@ -444,3 +450,122 @@ def import_sales_invoice_bundle(
                         )
 
     return {"ok": True, "invoice_id": inv_id}
+
+
+@router.post("/customers/import")
+def import_customer_bundle(
+    data: CustomerBundle,
+    x_edge_sync_key: Optional[str] = Header(None, alias="X-Edge-Sync-Key"),
+    x_edge_node_id: Optional[str] = Header(None, alias="X-Edge-Node-Id"),
+):
+    """
+    Cloud-side endpoint: upsert customers created/updated on an edge node.
+
+    Dedupe rule (initial):
+    - If membership_no is present and matches an existing cloud customer, update that record.
+    - Otherwise, upsert by id.
+    """
+    _require_edge_key(x_edge_sync_key)
+
+    company_id = (data.company_id or "").strip()
+    if not company_id:
+        raise HTTPException(status_code=400, detail="company_id is required")
+
+    cust = data.customer or {}
+    cust_id = str(cust.get("id") or "").strip()
+    if not cust_id:
+        raise HTTPException(status_code=400, detail="customer.id is required")
+
+    membership_no = (str(cust.get("membership_no") or "").strip() or None)
+    node_id = (x_edge_node_id or data.source_node_id or "").strip()
+
+    with get_admin_conn() as conn:
+        with conn.transaction():
+            set_company_context(conn, company_id)
+            with conn.cursor() as cur:
+                if node_id:
+                    _upsert_edge_node_seen(cur, company_id, node_id, ping=False, imported=True)
+
+                target_id = cust_id
+                if membership_no:
+                    cur.execute(
+                        """
+                        SELECT id
+                        FROM customers
+                        WHERE company_id=%s AND membership_no=%s
+                        LIMIT 1
+                        """,
+                        (company_id, membership_no),
+                    )
+                    r = cur.fetchone()
+                    if r and r.get("id"):
+                        target_id = str(r["id"])
+
+                cur.execute(
+                    """
+                    INSERT INTO customers
+                      (id, company_id, code, name, phone, email,
+                       party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
+                       legal_name, tax_id, vat_no, notes,
+                       membership_no, is_member, membership_expires_at,
+                       payment_terms_days, credit_limit_usd, credit_limit_lbp,
+                       price_list_id, is_active,
+                       updated_at)
+                    VALUES
+                      (%s::uuid, %s::uuid, %s, %s, %s, %s,
+                       %s, %s, %s::uuid, %s,
+                       %s, %s, %s, %s,
+                       %s, %s, %s,
+                       %s, %s, %s,
+                       %s::uuid, %s,
+                       now())
+                    ON CONFLICT (id) DO UPDATE SET
+                      code = EXCLUDED.code,
+                      name = EXCLUDED.name,
+                      phone = EXCLUDED.phone,
+                      email = EXCLUDED.email,
+                      party_type = EXCLUDED.party_type,
+                      customer_type = EXCLUDED.customer_type,
+                      assigned_salesperson_user_id = EXCLUDED.assigned_salesperson_user_id,
+                      marketing_opt_in = EXCLUDED.marketing_opt_in,
+                      legal_name = EXCLUDED.legal_name,
+                      tax_id = EXCLUDED.tax_id,
+                      vat_no = EXCLUDED.vat_no,
+                      notes = EXCLUDED.notes,
+                      membership_no = EXCLUDED.membership_no,
+                      is_member = EXCLUDED.is_member,
+                      membership_expires_at = EXCLUDED.membership_expires_at,
+                      payment_terms_days = EXCLUDED.payment_terms_days,
+                      credit_limit_usd = EXCLUDED.credit_limit_usd,
+                      credit_limit_lbp = EXCLUDED.credit_limit_lbp,
+                      price_list_id = EXCLUDED.price_list_id,
+                      is_active = EXCLUDED.is_active,
+                      updated_at = now()
+                    """,
+                    (
+                        target_id,
+                        company_id,
+                        cust.get("code"),
+                        cust.get("name"),
+                        cust.get("phone"),
+                        cust.get("email"),
+                        cust.get("party_type") or "individual",
+                        cust.get("customer_type") or "retail",
+                        cust.get("assigned_salesperson_user_id"),
+                        bool(cust.get("marketing_opt_in") or False),
+                        cust.get("legal_name"),
+                        cust.get("tax_id"),
+                        cust.get("vat_no"),
+                        cust.get("notes"),
+                        membership_no,
+                        bool(cust.get("is_member") or False),
+                        cust.get("membership_expires_at"),
+                        int(cust.get("payment_terms_days") or 0),
+                        float(cust.get("credit_limit_usd") or 0),
+                        float(cust.get("credit_limit_lbp") or 0),
+                        cust.get("price_list_id"),
+                        bool(cust.get("is_active") if cust.get("is_active") is not None else True),
+                    ),
+                )
+
+    return {"ok": True, "customer_id": target_id}

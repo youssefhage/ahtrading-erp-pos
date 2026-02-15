@@ -38,6 +38,13 @@ def _target_url() -> str:
         return raw.rstrip("/")
     return raw.rstrip("/") + "/edge-sync/sales-invoices/import"
 
+
+def _customers_url() -> str:
+    base = _cloud_base_url()
+    if not base:
+        return ""
+    return base.rstrip("/") + "/edge-sync/customers/import"
+
 def _cloud_base_url() -> str:
     raw = (os.getenv("EDGE_SYNC_TARGET_URL") or "").strip()
     if not raw:
@@ -166,6 +173,17 @@ def _build_sales_invoice_bundle(cur, company_id: str, invoice_id: str) -> dict:
     }
 
 
+def _build_customer_bundle(cur, company_id: str, customer_id: str) -> dict:
+    cust = _fetch_one(
+        cur,
+        "SELECT * FROM customers WHERE company_id=%s AND id=%s",
+        (company_id, customer_id),
+    )
+    if not cust:
+        raise ValueError("customer not found on edge")
+    return {"company_id": str(company_id), "customer": cust, "source_node_id": _source_node_id()}
+
+
 def _claim_one(cur, company_id: str, max_attempts: int = 100):
     # Avoid hammering the same row during long outages.
     # Pending: always eligible.
@@ -203,9 +221,10 @@ def _claim_one(cur, company_id: str, max_attempts: int = 100):
 
 
 def run_edge_cloud_sync(db_url: str, company_id: str, limit: int = 10) -> int:
-    url = _target_url()
+    sales_url = _target_url()
+    customers_url = _customers_url()
     key = _edge_key()
-    if not url or not key:
+    if not key or (not sales_url and not customers_url):
         return 0
 
     # Heartbeat to the cloud even if there is nothing to sync right now.
@@ -237,9 +256,15 @@ def run_edge_cloud_sync(db_url: str, company_id: str, limit: int = 10) -> int:
                         set_company_context(cur, company_id)
                         if entity_type == "sales_invoice":
                             bundle = _build_sales_invoice_bundle(cur, company_id, entity_id)
+                            url = sales_url
+                        elif entity_type == "customer":
+                            bundle = _build_customer_bundle(cur, company_id, entity_id)
+                            url = customers_url
                         else:
                             raise ValueError(f"unknown entity_type: {entity_type}")
 
+                if not url:
+                    raise ValueError(f"missing cloud url for entity_type: {entity_type}")
                 _http_post_json(url, bundle)
 
                 with conn.transaction():

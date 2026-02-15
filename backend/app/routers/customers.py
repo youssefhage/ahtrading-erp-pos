@@ -1,3 +1,4 @@
+import os
 import json
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -184,7 +185,35 @@ def create_customer(data: CustomerIn, company_id: str = Depends(get_company_id))
                     bool(data.is_active) if data.is_active is not None else True,
                 ),
             )
-            return {"id": cur.fetchone()["id"]}
+            new_id = cur.fetchone()["id"]
+
+            # Edge -> Cloud: enqueue customer create for replication when configured.
+            # Guard on EDGE_SYNC_TARGET_URL so cloud deployments don't build an unused outbox.
+            if (os.getenv("EDGE_SYNC_TARGET_URL") or "").strip():
+                try:
+                    cur.execute(
+                        """
+                        SELECT 1
+                        FROM edge_sync_outbox
+                        WHERE company_id=%s AND entity_type='customer' AND entity_id=%s::uuid
+                          AND status IN ('pending', 'failed')
+                        LIMIT 1
+                        """,
+                        (company_id, new_id),
+                    )
+                    if not cur.fetchone():
+                        cur.execute(
+                            """
+                            INSERT INTO edge_sync_outbox (id, company_id, entity_type, entity_id, status)
+                            VALUES (gen_random_uuid(), %s, 'customer', %s::uuid, 'pending')
+                            """,
+                            (company_id, new_id),
+                        )
+                except Exception:
+                    # Best-effort: do not block POS/customer creation if outbox enqueue fails.
+                    pass
+
+            return {"id": new_id}
 
 
 class CustomerUpdate(BaseModel):
@@ -244,6 +273,29 @@ def update_customer(customer_id: str, data: CustomerUpdate, company_id: str = De
                 """,
                 params,
             )
+            # Edge -> Cloud: enqueue customer update for replication when configured.
+            if (os.getenv("EDGE_SYNC_TARGET_URL") or "").strip():
+                try:
+                    cur.execute(
+                        """
+                        SELECT 1
+                        FROM edge_sync_outbox
+                        WHERE company_id=%s AND entity_type='customer' AND entity_id=%s::uuid
+                          AND status IN ('pending', 'failed')
+                        LIMIT 1
+                        """,
+                        (company_id, customer_id),
+                    )
+                    if not cur.fetchone():
+                        cur.execute(
+                            """
+                            INSERT INTO edge_sync_outbox (id, company_id, entity_type, entity_id, status)
+                            VALUES (gen_random_uuid(), %s, 'customer', %s::uuid, 'pending')
+                            """,
+                            (company_id, customer_id),
+                        )
+                except Exception:
+                    pass
             return {"ok": True}
 
 

@@ -27,10 +27,16 @@
         <h2>Store Setup</h2>
         <p class="muted">Recommended: Quick Setup (login once, select your companies, start). Use Setup Pack only for on-prem or manual workflows.</p>
 
-        <label class="field">
-          <span>API URL</span>
-          <input id="edgeUrl" placeholder="https://app.melqard.com/api" />
-        </label>
+        <div class="grid2 compact">
+          <label class="field">
+            <span>Cloud API URL</span>
+            <input id="edgeUrl" placeholder="https://app.melqard.com/api" />
+          </label>
+          <label class="field">
+            <span>Edge API URL (LAN, optional)</span>
+            <input id="edgeLanUrl" placeholder="http://192.168.1.7:8001" />
+          </label>
+        </div>
 
         <div class="callout">
           <div class="callout-head">

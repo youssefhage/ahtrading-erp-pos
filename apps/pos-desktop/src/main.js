@@ -1,4 +1,5 @@
 const KEY_EDGE = "ahtrading.posDesktop.edgeUrl";
+const KEY_EDGE_LAN = "ahtrading.posDesktop.edgeLanUrl";
 const KEY_PACK = "ahtrading.posDesktop.setupPack";
 const KEY_PORT_OFFICIAL = "ahtrading.posDesktop.portOfficial";
 const KEY_PORT_UNOFFICIAL = "ahtrading.posDesktop.portUnofficial";
@@ -222,9 +223,23 @@ function applyPackObject(pack) {
   // Accept either:
   // 1) tauri-launcher-prefill.json shape (edgeUrl, companyOfficial, ...)
   // 2) a single device config shape (api_base_url, company_id, device_id, device_token) - applies to Official.
-  const edgeUrl =
-    normalizeUrl(pack.edgeUrl || pack.edge_url || pack.api_base_url || pack.apiBaseUrl || "");
-  if (edgeUrl) el("edgeUrl").value = edgeUrl;
+  // New shape supports both cloudUrl + edgeUrl(LAN). Back-compat: edgeUrl/api_base_url treated as LAN.
+  const cloudUrl =
+    normalizeUrl(pack.cloudUrl || pack.cloud_url || pack.cloud_api_base_url || pack.cloudApiBaseUrl || "");
+  const edgeLanUrl =
+    normalizeUrl(
+      pack.edgeLanUrl ||
+        pack.edge_lan_url ||
+        pack.edgeUrl ||
+        pack.edge_url ||
+        pack.edge_api_base_url ||
+        pack.edgeApiBaseUrl ||
+        pack.api_base_url ||
+        pack.apiBaseUrl ||
+        ""
+    );
+  if (cloudUrl) el("edgeUrl").value = cloudUrl;
+  if (edgeLanUrl && el("edgeLanUrl")) el("edgeLanUrl").value = edgeLanUrl;
 
   const isPrefill =
     "companyOfficial" in pack ||
@@ -303,6 +318,7 @@ async function migrateSecretsFromLocalStorage() {
 async function load() {
   // Cloud pilot default: POS subdomain routes /api to the same backend.
   el("edgeUrl").value = localStorage.getItem(KEY_EDGE) || "https://app.melqard.com/api";
+  if (el("edgeLanUrl")) el("edgeLanUrl").value = localStorage.getItem(KEY_EDGE_LAN) || "";
   await migrateSecretsFromLocalStorage();
   el("setupPack").value = (await secureGet(KEY_PACK)) || "";
   el("portOfficial").value = localStorage.getItem(KEY_PORT_OFFICIAL) || "7070";
@@ -500,13 +516,15 @@ let quickSetup = {
 };
 
 async function ensureAgentsRunningForSetup() {
-  const edgeUrl = normalizeUrl(el("edgeUrl").value);
+  const cloudUrl = normalizeUrl(el("edgeUrl").value);
+  const edgeLanUrl = normalizeUrl(el("edgeLanUrl")?.value || "");
   const portOfficial = Number(el("portOfficial").value || 7070);
   const portUnofficial = Number(el("portUnofficial").value || 7072);
-  if (!edgeUrl) throw new Error("Please enter the API URL first.");
+  if (!cloudUrl) throw new Error("Please enter the Cloud API URL first.");
 
   await tauriInvoke("start_setup_agent", {
-    edgeUrl,
+    edgeUrl: cloudUrl,
+    edgeLanUrl,
     portOfficial,
     companyOfficial: null,
     deviceIdOfficial: null,
@@ -519,7 +537,7 @@ async function ensureAgentsRunningForSetup() {
       "Local official agent did not become reachable. If port 7070 is already used, stop external pos-desktop/agent.py processes and retry."
     );
   }
-  return { edgeUrl, portOfficial, portUnofficial };
+  return { cloudUrl, edgeLanUrl, portOfficial, portUnofficial };
 }
 
 function normalizeCompanyList(companies) {
@@ -590,14 +608,14 @@ async function quickSetupLogin() {
     }
     localStorage.setItem(KEY_SETUP_EMAIL, email);
 
-    const { edgeUrl, portOfficial } = await ensureAgentsRunningForSetup();
-    quickSetup.apiBaseUrl = edgeUrl;
+    const { cloudUrl, portOfficial } = await ensureAgentsRunningForSetup();
+    quickSetup.apiBaseUrl = cloudUrl;
     const base = agentBase(portOfficial);
 
     setSetupNote("Logging in…");
     setStatus("Quick Setup: logging in…");
     const res = await jpostJson(base, "/api/setup/login", {
-      api_base_url: edgeUrl,
+      api_base_url: cloudUrl,
       email,
       password,
     });
@@ -651,12 +669,12 @@ async function quickSetupVerifyMfa() {
       setSetupNote("Enter your MFA code.");
       return;
     }
-    const { edgeUrl, portOfficial } = await ensureAgentsRunningForSetup();
+    const { cloudUrl, portOfficial } = await ensureAgentsRunningForSetup();
     const base = agentBase(portOfficial);
     setSetupNote("Verifying MFA…");
     setStatus("Quick Setup: verifying MFA…");
     const res = await jpostJson(base, "/api/setup/login", {
-      api_base_url: edgeUrl,
+      api_base_url: cloudUrl,
       mfa_token: quickSetup.mfaToken,
       mfa_code: code,
     });
@@ -719,7 +737,7 @@ async function quickSetupApply() {
       return;
     }
 
-    const { edgeUrl, portOfficial, portUnofficial } = await ensureAgentsRunningForSetup();
+    const { cloudUrl, edgeLanUrl, portOfficial, portUnofficial } = await ensureAgentsRunningForSetup();
     const base = agentBase(portOfficial);
 
     const companyOfficial = String(el("setupCompanyOfficial").value || "").trim();
@@ -742,12 +760,12 @@ async function quickSetupApply() {
     const officialName = getCompanyNameById(companyOfficial);
     const unofficialName = getCompanyNameById(companyUnofficial);
     const permissionChecks = await Promise.all([
-      quickSetupCheckCompanyPermissions(base, edgeUrl, quickSetup.token, companyOfficial, officialName),
+      quickSetupCheckCompanyPermissions(base, cloudUrl, quickSetup.token, companyOfficial, officialName),
     ]);
 
     if (companyOfficial !== companyUnofficial) {
       permissionChecks.push(
-        quickSetupCheckCompanyPermissions(base, edgeUrl, quickSetup.token, companyUnofficial, unofficialName),
+        quickSetupCheckCompanyPermissions(base, cloudUrl, quickSetup.token, companyUnofficial, unofficialName),
       );
     }
 
@@ -780,7 +798,7 @@ async function quickSetupApply() {
     const registerDevice = async (kind, companyId, branchId, deviceCode) => {
       try {
         return await jpostJson(base, "/api/setup/register-device", {
-          api_base_url: edgeUrl,
+          api_base_url: cloudUrl,
           token: quickSetup.token,
           company_id: companyId,
           branch_id: branchId,
@@ -818,7 +836,8 @@ async function quickSetupApply() {
     el("deviceIdUnofficial").value = deviceIdUnofficial;
     el("deviceTokenUnofficial").value = deviceTokenUnofficial;
 
-    localStorage.setItem(KEY_EDGE, edgeUrl);
+    localStorage.setItem(KEY_EDGE, cloudUrl);
+    localStorage.setItem(KEY_EDGE_LAN, edgeLanUrl);
     localStorage.setItem(KEY_CO_OFFICIAL, companyOfficial);
     localStorage.setItem(KEY_CO_UNOFFICIAL, companyUnofficial);
     localStorage.setItem(KEY_DEV_ID_OFFICIAL, deviceIdOfficial);
@@ -830,7 +849,9 @@ async function quickSetupApply() {
     setSetupNote("Applying config to local agents…");
     setStatus("Quick Setup: applying local config…");
     await jpostJson(agentBase(portOfficial), "/api/config", {
-      api_base_url: edgeUrl,
+      api_base_url: edgeLanUrl || cloudUrl,
+      edge_api_base_url: edgeLanUrl,
+      cloud_api_base_url: cloudUrl,
       company_id: companyOfficial,
       branch_id: branchId,
       device_code: deviceCodeOfficial,
@@ -838,7 +859,9 @@ async function quickSetupApply() {
       device_token: deviceTokenOfficial,
     });
     await jpostJson(agentBase(portUnofficial), "/api/config", {
-      api_base_url: edgeUrl,
+      api_base_url: edgeLanUrl || cloudUrl,
+      edge_api_base_url: edgeLanUrl,
+      cloud_api_base_url: cloudUrl,
       company_id: companyUnofficial,
       branch_id: branchId,
       device_code: deviceCodeUnofficial,
@@ -881,7 +904,8 @@ function quickSetupClear() {
 }
 
 async function start() {
-  const edgeUrl = normalizeUrl(el("edgeUrl").value);
+  const cloudUrl = normalizeUrl(el("edgeUrl").value);
+  const edgeLanUrl = normalizeUrl(el("edgeLanUrl")?.value || "");
   const portOfficial = Number(el("portOfficial").value || 7070);
   const portUnofficial = Number(el("portUnofficial").value || 7072);
   const companyOfficial = String(el("companyOfficial").value || "").trim();
@@ -891,12 +915,13 @@ async function start() {
   const deviceIdUnofficial = String(el("deviceIdUnofficial").value || "").trim();
   const deviceTokenUnofficial = String(el("deviceTokenUnofficial").value || "").trim();
 
-  if (!edgeUrl) {
-    setStatus("Please enter the Edge API URL first.");
+  if (!cloudUrl) {
+    setStatus("Please enter the Cloud API URL first.");
     return;
   }
 
-  localStorage.setItem(KEY_EDGE, edgeUrl);
+  localStorage.setItem(KEY_EDGE, cloudUrl);
+  localStorage.setItem(KEY_EDGE_LAN, edgeLanUrl);
   localStorage.setItem(KEY_PORT_OFFICIAL, String(portOfficial));
   localStorage.setItem(KEY_PORT_UNOFFICIAL, String(portUnofficial));
   localStorage.setItem(KEY_CO_OFFICIAL, companyOfficial);
@@ -910,7 +935,8 @@ async function start() {
   setDiag("");
   try {
     await tauriInvoke("start_agents", {
-      edgeUrl,
+      edgeUrl: cloudUrl,
+      edgeLanUrl,
       portOfficial,
       portUnofficial,
       companyOfficial,

@@ -46,6 +46,13 @@ def _served_ui_root():
 
 DEFAULT_CONFIG = {
     'api_base_url': 'http://localhost:8001',
+    # Hybrid mode (Edge-first with Cloud fallback):
+    # - edge_api_base_url: LAN/on-prem Edge base (preferred when reachable)
+    # - cloud_api_base_url: Cloud backend base (fallback when Edge is down)
+    #
+    # If these are empty, the agent falls back to api_base_url behavior.
+    'edge_api_base_url': '',
+    'cloud_api_base_url': '',
     # Base URL of the Admin web app that serves /exports/.../pdf routes.
     # Needed for "Official -> A4 invoice PDF" kiosk printing from the POS.
     'print_base_url': '',
@@ -102,6 +109,15 @@ def load_config():
     # Allow Docker/ops to override without rewriting the on-disk config.
     if os.environ.get("POS_API_BASE_URL"):
         cfg["api_base_url"] = os.environ["POS_API_BASE_URL"]
+        # Back-compat: if hybrid URLs are not provided, seed them with POS_API_BASE_URL.
+        if not (cfg.get("edge_api_base_url") or "").strip():
+            cfg["edge_api_base_url"] = os.environ["POS_API_BASE_URL"]
+        if not (cfg.get("cloud_api_base_url") or "").strip():
+            cfg["cloud_api_base_url"] = os.environ["POS_API_BASE_URL"]
+    if os.environ.get("POS_EDGE_API_BASE_URL"):
+        cfg["edge_api_base_url"] = os.environ["POS_EDGE_API_BASE_URL"]
+    if os.environ.get("POS_CLOUD_API_BASE_URL"):
+        cfg["cloud_api_base_url"] = os.environ["POS_CLOUD_API_BASE_URL"]
     if os.environ.get("POS_COMPANY_ID"):
         cfg["company_id"] = os.environ["POS_COMPANY_ID"]
     if os.environ.get("POS_DEVICE_ID"):
@@ -564,8 +580,122 @@ def _normalize_api_base_url(v) -> str:
     return str(v or "").strip().rstrip("/")
 
 
+_ACTIVE_API_CACHE = {
+    "checked_at": 0.0,
+    "base": "",
+    "mode": "",
+    "detail": "",
+}
+_ACTIVE_API_TTL_S = 3.0
+
+
+def _configured_edge_base(cfg: dict) -> str:
+    # Prefer explicit edge_api_base_url; fall back to api_base_url for backwards compatibility.
+    return _normalize_api_base_url(cfg.get("edge_api_base_url") or cfg.get("api_base_url"))
+
+
+def _configured_cloud_base(cfg: dict) -> str:
+    return _normalize_api_base_url(cfg.get("cloud_api_base_url") or "")
+
+
+def _probe_health(base: str, timeout_s: float = 0.6) -> dict:
+    base = _normalize_api_base_url(base)
+    if not base:
+        return {"ok": False, "error": "missing base", "latency_ms": None, "url": ""}
+    url = f"{base}/health"
+    started = time.time()
+    try:
+        data = _fetch_json_timeout(url, headers=None, timeout_s=timeout_s)
+        ok = bool((data or {}).get("ok", True))
+        lat = int((time.time() - started) * 1000)
+        return {"ok": ok, "error": None, "latency_ms": lat, "url": url}
+    except Exception as ex:
+        lat = int((time.time() - started) * 1000)
+        return {"ok": False, "error": str(ex), "latency_ms": lat, "url": url}
+
+
+def _probe_auth(base: str, cfg: dict, timeout_s: float = 1.0) -> dict:
+    base = _normalize_api_base_url(base)
+    if not base:
+        return {"ok": False, "status": 400, "error": "missing base", "latency_ms": None, "url": ""}
+    device_id = (cfg.get("device_id") or "").strip()
+    token = (cfg.get("device_token") or "").strip()
+    if not device_id or not token:
+        return {
+            "ok": False,
+            "status": 400,
+            "error": "missing device_id or device_token",
+            "latency_ms": None,
+            "url": f"{base}/pos/config",
+        }
+    url = f"{base}/pos/config"
+    started = time.time()
+    _data, status, err = _setup_req_json_safe(url, method="GET", payload=None, headers=device_headers(cfg), timeout_s=timeout_s)
+    lat = int((time.time() - started) * 1000)
+    if status is None:
+        return {"ok": True, "status": 200, "error": None, "latency_ms": lat, "url": url}
+    return {"ok": False, "status": int(status), "error": str(err or "auth failed"), "latency_ms": lat, "url": url}
+
+
+def _resolve_active_api_base(cfg: dict, *, force: bool = False) -> tuple[str, str, str]:
+    """
+    Returns (base_url, mode, detail) where mode is 'edge' or 'cloud'.
+    Prefers edge when it is reachable and auth works, otherwise falls back to cloud.
+    Uses a short TTL cache to avoid probing on every request.
+    """
+    now = time.time()
+    if not force:
+        cached = _ACTIVE_API_CACHE
+        if cached.get("base") and (now - float(cached.get("checked_at") or 0)) < _ACTIVE_API_TTL_S:
+            return str(cached["base"]), str(cached.get("mode") or ""), str(cached.get("detail") or "")
+
+    edge = _configured_edge_base(cfg)
+    cloud = _configured_cloud_base(cfg)
+    if edge and not cloud:
+        base, mode, detail = edge, "edge", "only edge configured"
+    elif cloud and not edge:
+        base, mode, detail = cloud, "cloud", "only cloud configured"
+    elif not edge and not cloud:
+        base, mode, detail = "", "", "missing api base urls"
+    else:
+        # Both configured: try edge first, then cloud.
+        detail_parts: list[str] = []
+
+        edge_auth = _probe_auth(edge, cfg, timeout_s=0.8)
+        if edge_auth.get("ok"):
+            base, mode, detail = edge, "edge", "edge auth ok"
+        else:
+            detail_parts.append(f"edge auth failed ({edge_auth.get('status')}): {edge_auth.get('error')}")
+            cloud_auth = _probe_auth(cloud, cfg, timeout_s=1.3)
+            if cloud_auth.get("ok"):
+                base, mode, detail = cloud, "cloud", "cloud auth ok"
+            else:
+                detail_parts.append(f"cloud auth failed ({cloud_auth.get('status')}): {cloud_auth.get('error')}")
+                # Last resort: pick whichever responds to /health.
+                edge_h = _probe_health(edge, timeout_s=0.6)
+                if edge_h.get("ok"):
+                    base, mode = edge, "edge"
+                    detail_parts.append("picked edge by /health")
+                else:
+                    cloud_h = _probe_health(cloud, timeout_s=1.0)
+                    if cloud_h.get("ok"):
+                        base, mode = cloud, "cloud"
+                        detail_parts.append("picked cloud by /health")
+                    else:
+                        # If both are down, prefer edge (LAN) to keep retrying fast.
+                        base, mode = edge, "edge"
+                        detail_parts.append("both offline; defaulted to edge")
+                detail = " · ".join([p for p in detail_parts if p]) or "resolved by health"
+
+    _ACTIVE_API_CACHE["checked_at"] = now
+    _ACTIVE_API_CACHE["base"] = base
+    _ACTIVE_API_CACHE["mode"] = mode
+    _ACTIVE_API_CACHE["detail"] = detail
+    return base, mode, detail
+
+
 def _require_api_base(cfg: dict) -> str:
-    base = (cfg.get("api_base_url") or "").strip().rstrip("/")
+    base, _mode, _detail = _resolve_active_api_base(cfg, force=False)
     if not base:
         raise ValueError("missing api_base_url")
     return base
@@ -589,19 +719,14 @@ def count_outbox_pending() -> int:
 
 
 def edge_health(cfg: dict, timeout_s: float = 0.8) -> dict:
-    base = (cfg.get("api_base_url") or "").strip()
-    if not base:
-        return {"ok": False, "error": "missing api_base_url", "latency_ms": None, "url": ""}
-    url = f"{base.rstrip('/')}/health"
-    started = time.time()
-    try:
-        data = _fetch_json_timeout(url, headers=None, timeout_s=timeout_s)
-        ok = bool((data or {}).get("ok", True))
-        lat = int((time.time() - started) * 1000)
-        return {"ok": ok, "error": None, "latency_ms": lat, "url": url}
-    except Exception as ex:
-        lat = int((time.time() - started) * 1000)
-        return {"ok": False, "error": str(ex), "latency_ms": lat, "url": url}
+    base, mode, detail = _resolve_active_api_base(cfg, force=True)
+    out = _probe_health(base, timeout_s=timeout_s)
+    out["mode"] = mode
+    out["detail"] = detail
+    out["active_base_url"] = base
+    out["edge_api_base_url"] = _configured_edge_base(cfg)
+    out["cloud_api_base_url"] = _configured_cloud_base(cfg)
+    return out
 
 def edge_auth_check(cfg: dict, timeout_s: float = 1.2) -> dict:
     """
@@ -609,26 +734,14 @@ def edge_auth_check(cfg: dict, timeout_s: float = 1.2) -> dict:
     This is the quickest way to determine whether the POS will actually be able to sync,
     even if /health is reachable.
     """
-    base = (cfg.get("api_base_url") or "").strip()
-    if not base:
-        return {"ok": False, "status": 400, "error": "missing api_base_url", "latency_ms": None, "url": ""}
-    device_id = (cfg.get("device_id") or "").strip()
-    token = (cfg.get("device_token") or "").strip()
-    if not device_id or not token:
-        return {
-            "ok": False,
-            "status": 400,
-            "error": "missing device_id or device_token",
-            "latency_ms": None,
-            "url": f"{base.rstrip('/')}/pos/config",
-        }
-    url = f"{base.rstrip('/')}/pos/config"
-    started = time.time()
-    data, status, err = _setup_req_json_safe(url, method="GET", payload=None, headers=device_headers(cfg), timeout_s=timeout_s)
-    lat = int((time.time() - started) * 1000)
-    if status is None:
-        return {"ok": True, "status": 200, "error": None, "latency_ms": lat, "url": url, "data": data}
-    return {"ok": False, "status": int(status), "error": str(err or "auth failed"), "latency_ms": lat, "url": url}
+    base, mode, detail = _resolve_active_api_base(cfg, force=True)
+    out = _probe_auth(base, cfg, timeout_s=timeout_s)
+    out["mode"] = mode
+    out["detail"] = detail
+    out["active_base_url"] = base
+    out["edge_api_base_url"] = _configured_edge_base(cfg)
+    out["cloud_api_base_url"] = _configured_cloud_base(cfg)
+    return out
 
 
 def submit_single_event(cfg: dict, event_id: str, event_type: str, payload: dict, created_at: str) -> tuple[bool, dict]:
@@ -637,7 +750,10 @@ def submit_single_event(cfg: dict, event_id: str, event_type: str, payload: dict
     Used for higher-risk ops like credit sales and returns so we don't print a receipt
     unless the edge accepted the document for posting.
     """
-    base = (cfg.get("api_base_url") or "").strip()
+    try:
+        base = _require_api_base(cfg)
+    except Exception:
+        base = ""
     company_id = (cfg.get("company_id") or "").strip()
     device_id = (cfg.get("device_id") or "").strip()
     if not base or not company_id or not device_id:
@@ -1630,7 +1746,10 @@ def verify_cashier_pin_online(pin: str, cfg: dict):
         return None
     if not (cfg.get("device_id") and cfg.get("device_token")):
         return None
-    base = (cfg.get("api_base_url") or "").strip()
+    try:
+        base = _require_api_base(cfg)
+    except Exception:
+        base = ""
     if not base:
         return None
     try:
@@ -2197,6 +2316,11 @@ class Handler(BaseHTTPRequestHandler):
                 self,
                 {
                     "ok": True,
+                    "mode": st.get("mode") or auth.get("mode") or None,
+                    "active_base_url": st.get("active_base_url") or auth.get("active_base_url") or None,
+                    "edge_api_base_url": st.get("edge_api_base_url") or None,
+                    "cloud_api_base_url": st.get("cloud_api_base_url") or None,
+                    "resolve_detail": st.get("detail") or auth.get("detail") or None,
                     "edge_ok": bool(st.get("ok")),
                     "edge_latency_ms": st.get("latency_ms"),
                     "edge_url": (st.get("url") or ""),
@@ -2230,8 +2354,9 @@ class Handler(BaseHTTPRequestHandler):
             if not warehouse_id:
                 json_response(self, {"error": "warehouse_id is required"}, status=400)
                 return
-            base = (cfg.get("api_base_url") or "").strip()
-            if not base:
+            try:
+                base = _require_api_base(cfg)
+            except Exception:
                 json_response(self, {"error": "missing api_base_url"}, status=400)
                 return
             if not cfg.get("device_id") or not cfg.get("device_token"):
@@ -2668,8 +2793,9 @@ class Handler(BaseHTTPRequestHandler):
             if not name:
                 json_response(self, {"error": "name is required"}, status=400)
                 return
-            api_base = _normalize_api_base_url(cfg.get("api_base_url"))
-            if not api_base:
+            try:
+                api_base = _require_api_base(cfg)
+            except Exception:
                 json_response(self, {"error": "missing api_base_url"}, status=400)
                 return
             if not cfg.get("device_id") or not cfg.get("device_token"):

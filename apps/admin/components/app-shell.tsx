@@ -87,6 +87,12 @@ type EdgeNodeStatusRow = {
   last_import_at?: string | null;
 };
 
+type WorkerHeartbeatRow = {
+  worker_name: string;
+  last_seen_at?: string | null;
+  details?: any;
+};
+
 function inferPublicApiBaseUrl(): string {
   if (typeof window === "undefined") return "";
   const b = String(apiBase() || "").trim().replace(/\/+$/, "");
@@ -95,6 +101,32 @@ function inferPublicApiBaseUrl(): string {
   const origin = window.location.origin.replace(/\/+$/, "");
   const path = b.startsWith("/") ? b : `/${b}`;
   return `${origin}${path}`.replace(/\/+$/, "");
+}
+
+function inferPosApiBaseUrl(): string {
+  if (typeof window === "undefined") return "";
+  const publicBase = inferPublicApiBaseUrl();
+  const origin = window.location.origin.replace(/\/+$/, "");
+  const host = window.location.hostname;
+  const proto = window.location.protocol || "http:";
+  const port = String(window.location.port || "");
+
+  // On-prem: Admin UI is typically on :3000 and the POS API is on :8001.
+  if (port === "3000") {
+    return `${proto}//${host}:8001`;
+  }
+  // Cloud: usually reverse-proxies /api on the same origin (this is correct for POS agents too).
+  if (publicBase && /^https?:\/\//i.test(publicBase)) {
+    return publicBase.replace(/\/+$/, "");
+  }
+  // Fallback: if api base is same-origin /api, use it.
+  return publicBase || `${origin}/api`;
+}
+
+function isLikelyOnPremAdmin(): boolean {
+  if (typeof window === "undefined") return false;
+  const port = String(window.location.port || "");
+  return port === "3000";
 }
 
 function CopyValueButton(props: { value: string; label: string }) {
@@ -775,11 +807,25 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   }, [commandQ, commandData, pageResults]);
 
   const publicApiBaseUrl = useMemo(() => inferPublicApiBaseUrl(), []);
+  const posApiBaseUrl = useMemo(() => inferPosApiBaseUrl(), []);
+  const onPremAdmin = useMemo(() => isLikelyOnPremAdmin(), []);
+  const cloudApiBaseUrl = useMemo(() => {
+    // In cloud deployments, publicApiBaseUrl is the right cloud base.
+    if (!onPremAdmin && publicApiBaseUrl) return publicApiBaseUrl;
+    // In edge deployments, the Admin origin is LAN:3000; default cloud base for ops.
+    return "https://app.melqard.com/api";
+  }, [onPremAdmin, publicApiBaseUrl]);
+
   const connectJson = useMemo(() => {
     const cid = String(companyId || "").trim();
     if (!cid) return "";
+    const edgeBase = onPremAdmin ? posApiBaseUrl : "";
     const payload = {
-      api_base_url: publicApiBaseUrl,
+      // Back-compat: old agents still read api_base_url.
+      api_base_url: (edgeBase || cloudApiBaseUrl || publicApiBaseUrl || "").trim(),
+      // Hybrid fields: new agents prefer edge and fallback to cloud automatically.
+      edge_api_base_url: edgeBase,
+      cloud_api_base_url: cloudApiBaseUrl,
       company_id: cid,
       device_code: "POS-01",
       device_id: "",
@@ -788,7 +834,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       shift_id: "",
     };
     return JSON.stringify(payload, null, 2);
-  }, [companyId, publicApiBaseUrl]);
+  }, [companyId, publicApiBaseUrl, cloudApiBaseUrl, onPremAdmin, posApiBaseUrl]);
 
   // Keep the active selection in-bounds when results change.
   useEffect(() => {
@@ -1045,34 +1091,64 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
         return;
       }
       try {
-        const res = await apiGet<{ nodes: EdgeNodeStatusRow[] }>("/edge-nodes/status");
-        if (cancelled) return;
-        const nodes = res?.nodes || [];
-        if (!nodes.length) {
-          setEdgeHealth("offline");
-          setEdgeHealthDetail("No edge nodes have pinged yet.");
-          return;
-        }
-        const now = Date.now();
-        const online = nodes.some((n) => {
-          const ts = n?.last_seen_at ? Date.parse(String(n.last_seen_at)) : NaN;
-          if (!Number.isFinite(ts)) return false;
-          return now - ts < 60_000;
-        });
-        setEdgeHealth(online ? "online" : "offline");
+        if (onPremAdmin) {
+          // On edge: show Cloud Sync worker health (edge -> cloud).
+          const hb = await apiGet<{ heartbeats: WorkerHeartbeatRow[] }>("/config/worker-heartbeats");
+          if (cancelled) return;
+          const rows = hb?.heartbeats || [];
+          const targets = rows.filter((r) => ["EDGE_CLOUD_SYNC", "EDGE_CLOUD_MASTERDATA_PULL"].includes(String(r?.worker_name || "")));
+          if (!targets.length) {
+            setEdgeHealth("offline");
+            setEdgeHealthDetail("Cloud Sync workers not running yet.");
+            return;
+          }
+          const now = Date.now();
+          const freshMs = 120_000; // allow some jitter on bad internet
+          const ok = targets.every((r) => {
+            const ts = r?.last_seen_at ? Date.parse(String(r.last_seen_at)) : NaN;
+            if (!Number.isFinite(ts)) return false;
+            return now - ts < freshMs;
+          });
+          setEdgeHealth(ok ? "online" : "offline");
+          const details = targets
+            .map((r) => {
+              const ts = r?.last_seen_at ? String(r.last_seen_at) : "";
+              return `${r.worker_name}${ts ? ` (${ts})` : ""}`;
+            })
+            .join(" · ");
+          setEdgeHealthDetail(`Cloud Sync: ${ok ? "OK" : "Stale"} · ${details}`);
+        } else {
+          // On cloud: show edge node heartbeat (cloud <- edge).
+          const res = await apiGet<{ nodes: EdgeNodeStatusRow[] }>("/edge-nodes/status");
+          if (cancelled) return;
+          const nodes = res?.nodes || [];
+          if (!nodes.length) {
+            setEdgeHealth("offline");
+            setEdgeHealthDetail("No edge nodes have pinged yet.");
+            return;
+          }
+          const now = Date.now();
+          const freshMs = 120_000;
+          const online = nodes.some((n) => {
+            const ts = n?.last_seen_at ? Date.parse(String(n.last_seen_at)) : NaN;
+            if (!Number.isFinite(ts)) return false;
+            return now - ts < freshMs;
+          });
+          setEdgeHealth(online ? "online" : "offline");
 
-        const top = nodes[0];
-        const lastSeen = top?.last_seen_at ? String(top.last_seen_at) : "";
-        const lastImport = top?.last_import_at ? String(top.last_import_at) : "";
-        const details = [
-          `Nodes: ${nodes.length}`,
-          top?.node_id ? `Latest: ${top.node_id}` : "",
-          lastSeen ? `Last seen: ${lastSeen}` : "",
-          lastImport ? `Last import: ${lastImport}` : "",
-        ]
-          .filter(Boolean)
-          .join(" · ");
-        setEdgeHealthDetail(details || "Edge status");
+          const top = nodes[0];
+          const lastSeen = top?.last_seen_at ? String(top.last_seen_at) : "";
+          const lastImport = top?.last_import_at ? String(top.last_import_at) : "";
+          const details = [
+            `Nodes: ${nodes.length}`,
+            top?.node_id ? `Latest: ${top.node_id}` : "",
+            lastSeen ? `Last seen: ${lastSeen}` : "",
+            lastImport ? `Last import: ${lastImport}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          setEdgeHealthDetail(details || "Edge status");
+        }
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -1089,7 +1165,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       cancelled = true;
       if (timer) window.clearInterval(timer);
     };
-  }, [uiVariant, companyId]);
+  }, [uiVariant, companyId, onPremAdmin]);
 
   function toggleCollapsed() {
     setCollapsed((v) => {
@@ -1523,14 +1599,20 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                   </div>
 
                   <div className="rounded-lg border border-border bg-bg-sunken/20 p-4">
-                    <div className="text-xs font-medium uppercase tracking-wider text-fg-muted">API Base URL</div>
+                    <div className="text-xs font-medium uppercase tracking-wider text-fg-muted">POS API Base URL</div>
                     <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                      <div className="break-all font-mono text-xs text-fg-subtle">{publicApiBaseUrl || "-"}</div>
-                      <CopyValueButton value={publicApiBaseUrl || ""} label="API Base URL" />
+                      <div className="break-all font-mono text-xs text-fg-subtle">{posApiBaseUrl || "-"}</div>
+                      <CopyValueButton value={posApiBaseUrl || ""} label="POS API Base URL" />
                     </div>
                     <p className="mt-2 text-xs text-fg-subtle">
-                      This is the endpoint POS agents should call. If your POS connects via an on-prem Edge node, use the Edge API URL instead.
+                      Hybrid mode: POS Desktop should be configured with both Cloud + Edge (LAN) URLs. The POS will prefer Edge when reachable and fall back to Cloud automatically.
                     </p>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-xs text-fg-subtle">
+                        Cloud API Base URL: <span className="break-all font-mono">{cloudApiBaseUrl || "-"}</span>
+                      </div>
+                      <CopyValueButton value={cloudApiBaseUrl || ""} label="Cloud API Base URL" />
+                    </div>
                   </div>
 
                   <div className="rounded-lg border border-border bg-bg-sunken/20 p-4">
@@ -1682,7 +1764,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
             >
               <Zap className={cn("h-3.5 w-3.5", edgeHealth === "online" ? "animate-pulse" : "")} />
               <span className="hidden sm:inline">
-                Edge {edgeHealth === "online" ? "Live" : edgeHealth === "offline" ? "Off" : "..."}
+                {onPremAdmin ? "Cloud Sync" : "Edge"}{" "}
+                {edgeHealth === "online" ? (onPremAdmin ? "OK" : "Live") : edgeHealth === "offline" ? (onPremAdmin ? "Stale" : "Off") : "..."}
               </span>
             </div>
 

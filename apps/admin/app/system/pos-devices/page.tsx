@@ -40,12 +40,21 @@ type DeviceSetup = {
 
 function inferDefaultApiBaseUrl(): string {
   if (typeof window === "undefined") return "";
+  const host = window.location.hostname;
+  const proto = window.location.protocol || "http:";
+  const port = String(window.location.port || "");
+  // On-prem: Admin runs on :3000 but POS API is :8001.
+  if (port === "3000") return `${proto}//${host}:8001`;
+  // Cloud: /api is reverse-proxied on the same origin.
   return `${window.location.origin.replace(/\/+$/, "")}/api`;
 }
 
 function buildPosConfigPayload(setup: DeviceSetup, apiBaseUrl: string) {
+  const cloud = apiBaseUrl.trim();
   return {
-    api_base_url: apiBaseUrl.trim(),
+    api_base_url: cloud,
+    cloud_api_base_url: cloud,
+    edge_api_base_url: "",
     company_id: setup.company_id,
     branch_id: setup.branch_id || "",
     device_code: setup.device_code,

@@ -37,6 +37,8 @@
 
   const copyFrom = (cfg) => ({
     api_base_url: String(cfg?.api_base_url || "").trim(),
+    edge_api_base_url: String(cfg?.edge_api_base_url || "").trim(),
+    cloud_api_base_url: String(cfg?.cloud_api_base_url || "").trim(),
     company_id: String(cfg?.company_id || "").trim(),
     device_id: String(cfg?.device_id || "").trim(),
     warehouse_id: String(cfg?.warehouse_id || "").trim(),
@@ -75,6 +77,13 @@
     notice = "";
     try {
       const payload = companyKey === "official" ? { ...off } : { ...un };
+
+      // Hybrid URL logic: if cloud/edge urls are set, keep api_base_url as the active target.
+      const edge = String(payload.edge_api_base_url || "").trim();
+      const cloud = String(payload.cloud_api_base_url || "").trim();
+      if (edge || cloud) {
+        payload.api_base_url = edge || cloud || String(payload.api_base_url || "").trim();
+      }
 
       // Only write token if user explicitly supplies one or clears it.
       if (companyKey === "official") {
@@ -239,12 +248,12 @@
 
         <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label class="text-xs text-muted">api_base_url (Edge or Cloud)</label>
-            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.api_base_url} />
+            <label class="text-xs text-muted">cloud_api_base_url</label>
+            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.cloud_api_base_url} />
           </div>
           <div>
-            <label class="text-xs text-muted">warehouse_id</label>
-            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.warehouse_id} />
+            <label class="text-xs text-muted">edge_api_base_url (LAN, optional)</label>
+            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.edge_api_base_url} />
           </div>
           <div>
             <label class="text-xs text-muted">company_id</label>
@@ -253,6 +262,14 @@
           <div>
             <label class="text-xs text-muted">device_id</label>
             <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.device_id} />
+          </div>
+          <div>
+            <label class="text-xs text-muted">api_base_url (active, auto)</label>
+            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={off.api_base_url} readonly />
+          </div>
+          <div>
+            <label class="text-xs text-muted">warehouse_id</label>
+            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.warehouse_id} />
           </div>
         </div>
 
@@ -305,12 +322,12 @@
         {:else}
           <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="text-xs text-muted">api_base_url (Edge or Cloud)</label>
-              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.api_base_url} />
+              <label class="text-xs text-muted">cloud_api_base_url</label>
+              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.cloud_api_base_url} />
             </div>
             <div>
-              <label class="text-xs text-muted">warehouse_id</label>
-              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.warehouse_id} />
+              <label class="text-xs text-muted">edge_api_base_url (LAN, optional)</label>
+              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.edge_api_base_url} />
             </div>
             <div>
               <label class="text-xs text-muted">company_id</label>
@@ -319,6 +336,14 @@
             <div>
               <label class="text-xs text-muted">device_id</label>
               <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.device_id} />
+            </div>
+            <div>
+              <label class="text-xs text-muted">api_base_url (active, auto)</label>
+              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={un.api_base_url} readonly />
+            </div>
+            <div>
+              <label class="text-xs text-muted">warehouse_id</label>
+              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.warehouse_id} />
             </div>
           </div>
 
