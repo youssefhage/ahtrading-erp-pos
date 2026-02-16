@@ -501,7 +501,7 @@ def list_pos_employees(company_id: str = Depends(get_company_id), _auth=Depends(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT DISTINCT u.id,
+                SELECT u.id,
                        u.email,
                        u.full_name,
                        u.phone,
@@ -510,6 +510,7 @@ def list_pos_employees(company_id: str = Depends(get_company_id), _auth=Depends(
                 JOIN user_roles ur
                   ON ur.user_id = u.id
                  AND ur.company_id = %s
+                GROUP BY u.id, u.email, u.full_name, u.phone, u.is_active
                 ORDER BY COALESCE(NULLIF(trim(u.full_name), ''), u.email)
                 """,
                 (company_id,),
@@ -531,12 +532,12 @@ def list_device_employee_assignments(
             _require_device_exists(cur, company_id, device_id)
             cur.execute(
                 """
-                SELECT DISTINCT u.id,
+                SELECT u.id,
                        u.email,
                        u.full_name,
                        u.phone,
                        COALESCE(u.is_active, true) AS is_active,
-                       (du.user_id IS NOT NULL) AS assigned
+                       COALESCE(bool_or(du.user_id IS NOT NULL), false) AS assigned
                 FROM users u
                 JOIN user_roles ur
                   ON ur.user_id = u.id
@@ -545,6 +546,7 @@ def list_device_employee_assignments(
                   ON du.company_id = ur.company_id
                  AND du.device_id = %s
                  AND du.user_id = u.id
+                GROUP BY u.id, u.email, u.full_name, u.phone, u.is_active
                 ORDER BY COALESCE(NULLIF(trim(u.full_name), ''), u.email)
                 """,
                 (company_id, device_id),

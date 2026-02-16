@@ -859,6 +859,7 @@ def list_roles(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             has_template_code = _has_roles_template_code_column(cur)
             template_select = "r.template_code," if has_template_code else "NULL::text AS template_code,"
+            group_by = "r.id, r.name, r.template_code" if has_template_code else "r.id, r.name"
             cur.execute(
                 f"""
                 SELECT
@@ -870,7 +871,7 @@ def list_roles(company_id: str = Depends(get_company_id)):
                 r
                 LEFT JOIN user_roles ur ON ur.role_id = r.id AND ur.company_id = r.company_id
                 WHERE r.company_id = %s
-                GROUP BY r.id, r.name
+                GROUP BY {group_by}
                 ORDER BY r.name
                 """,
                 (company_id,),
