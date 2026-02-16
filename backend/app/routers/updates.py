@@ -169,6 +169,42 @@ def _find_latest_installer_rel(app: str, platform: str) -> str:
     if not app_root.exists() or not app_root.is_dir():
         raise HTTPException(status_code=404, detail="installer not found")
 
+    def _pick_from_tree(root: Path) -> Optional[str]:
+        candidates = []
+        for p in root.rglob("*"):
+            if not p.is_file():
+                continue
+            n = p.name.lower()
+            if n.endswith(".sig") or n.endswith(".zip") or n.endswith(".tar.gz") or n.endswith(".json"):
+                continue
+            if not n.endswith(ext_allow):
+                continue
+            try:
+                st = p.stat()
+                # On Windows, prefer MSI when both MSI/EXE exist for the same release.
+                pref = 0
+                if plat == "windows":
+                    pref = 1 if n.endswith(".msi") else 0
+                candidates.append((pref, st.st_mtime, p.name.lower(), p))
+            except Exception:
+                continue
+        if not candidates:
+            return None
+        # Prefer platform-specific extension, then newest mtime, then deterministic name.
+        candidates.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
+        chosen = candidates[0][3].resolve()
+        return str(chosen.relative_to(base))
+
+    # Prefer the release directory pointed to by latest.json.
+    latest_version = _read_latest_version(app_root)
+    if latest_version:
+        latest_dir = (app_root / latest_version).resolve()
+        if latest_dir.exists() and latest_dir.is_dir():
+            rel = _pick_from_tree(latest_dir)
+            if rel:
+                return rel
+
+    # Backward compatibility fallback: historical stable filenames in app root.
     if isinstance(stable_names, str):
         stable_names = [stable_names]
     for nm in stable_names:
@@ -182,6 +218,11 @@ def _find_latest_installer_rel(app: str, platform: str) -> str:
         runner = (app_root / "MelqardSetupRunner-latest.zip").resolve()
         if runner.exists() and runner.is_file():
             return str(runner.relative_to(base))
+
+    # Last fallback: scan all app files.
+    rel = _pick_from_tree(app_root)
+    if rel:
+        return rel
 
     candidates = []
     for p in app_root.rglob("*"):

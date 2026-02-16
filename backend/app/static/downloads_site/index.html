@@ -40,6 +40,7 @@
               </div>
             </div>
             <p class="appDesc">Starts the on-prem Edge server (Docker) and generates POS setup packs for terminals.</p>
+            <p class="appMeta muted" data-app-version="setup">Version: checking...</p>
             <div class="appLinks">
               <a class="btn" href="/updates/latest-installer/setup/windows">Windows (Setup Runner)</a>
               <a class="btn ghost" href="/updates/latest-installer/setup/macos">Download for macOS</a>
@@ -58,6 +59,7 @@
               </div>
             </div>
             <p class="appDesc">Runs the local POS agents and opens the cashier UI. Works on LAN during internet outages.</p>
+            <p class="appMeta muted" data-app-version="pos">Version: checking...</p>
             <div class="appLinks">
               <a class="btn" href="/updates/latest-installer/pos/windows">Download for Windows</a>
               <a class="btn ghost" href="/updates/latest-installer/pos/macos">Download for macOS</a>
@@ -76,6 +78,7 @@
               </div>
             </div>
             <p class="appDesc">Dedicated Admin app wrapper. You can also open Admin from POS via the Manager button.</p>
+            <p class="appMeta muted" data-app-version="admin">Version: checking...</p>
             <div class="appLinks">
               <a class="btn" href="/updates/latest-installer/admin/windows">Download for Windows</a>
               <a class="btn ghost" href="/updates/latest-installer/admin/macos">Download for macOS</a>
@@ -106,5 +109,43 @@
         <p class="muted">File listings and updater manifests: <code>/updates/pos/</code>, <code>/updates/admin/</code>, <code>/updates/setup/</code>.</p>
       </section>
     </main>
+    <script>
+      (function () {
+        function setText(app, text) {
+          var el = document.querySelector('[data-app-version="' + app + '"]');
+          if (el) el.textContent = text;
+        }
+
+        async function fetchJson(url) {
+          var res = await fetch(url, { cache: "no-store" });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return await res.json();
+        }
+
+        async function resolveVersion(app, paths) {
+          for (var i = 0; i < paths.length; i++) {
+            try {
+              var data = await fetchJson(paths[i]);
+              var version = String((data && data.version) || "").trim();
+              if (version) return version;
+            } catch (_) {
+              // try next path
+            }
+          }
+          return "";
+        }
+
+        (async function () {
+          var setupV = await resolveVersion("setup", ["/updates/setup/latest.json"]);
+          setText("setup", setupV ? "Version: v" + setupV : "Version: unavailable");
+
+          var posV = await resolveVersion("pos", ["/updates/pos/latest.json"]);
+          setText("pos", posV ? "Version: v" + posV : "Version: unavailable");
+
+          var adminV = await resolveVersion("admin", ["/updates/admin/latest.json", "/updates/portal/latest.json"]);
+          setText("admin", adminV ? "Version: v" + adminV : "Version: unavailable");
+        })();
+      })();
+    </script>
   </body>
 </html>
