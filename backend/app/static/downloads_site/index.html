@@ -23,30 +23,11 @@
       <section class="card">
         <h2>What To Install</h2>
         <p class="muted">
-          Simple rule: Setup is for onboarding, POS is for cashiers, Admin is for managers. Download once. Apps auto-update
-          in the background (when internet is available).
+          Cloud-first setup: install POS for cashiers and Admin for managers. Download once. Apps auto-update in the
+          background (when internet is available).
         </p>
 
         <div class="apps">
-          <article class="app appSetup">
-            <div class="appHead">
-              <div class="appMark">SU</div>
-              <div class="appTitleBlock">
-                <div class="appTitleRow">
-                  <div class="appTitle">Setup Desktop</div>
-                  <span class="tag required">Required</span>
-                </div>
-                <div class="appMeta muted">Install on: your laptop or the on-prem server machine</div>
-              </div>
-            </div>
-            <p class="appDesc">Starts the on-prem Edge server (Docker) and generates POS setup packs for terminals.</p>
-            <p class="appMeta muted" data-app-version="setup">Version: checking...</p>
-            <div class="appLinks">
-              <a class="btn" href="/updates/latest-installer/setup/windows">Windows (Setup Runner)</a>
-              <a class="btn ghost" href="/updates/latest-installer/setup/macos">Download for macOS</a>
-            </div>
-          </article>
-
           <article class="app appPos">
             <div class="appHead">
               <div class="appMark">POS</div>
@@ -90,9 +71,9 @@
       <section class="card">
         <h2>New Store Checklist</h2>
         <ol class="steps">
-          <li>Install <strong>Setup Desktop</strong> on the on-prem/server machine (or your laptop) and run onboarding.</li>
-          <li>Install <strong>POS Desktop</strong> on each POS terminal and paste the generated Setup Pack.</li>
+          <li>Install <strong>POS Desktop</strong> on each cashier terminal and sign in with cloud credentials.</li>
           <li>(Optional) Install <strong>Admin Desktop</strong> for managers, or use the Manager button inside POS.</li>
+          <li>Open cloud Admin to configure devices, users, and permissions.</li>
         </ol>
       </section>
 
@@ -103,10 +84,10 @@
           <li>GitHub Actions builds Windows + macOS installers and updater bundles automatically.</li>
           <li>
             CI publishes files into <code>/updates/pos/</code>, <code>/updates/portal/</code> (Admin; alias
-            <code>/updates/admin/</code>), <code>/updates/setup/</code> and updates <code>latest.json</code>.
+            <code>/updates/admin/</code>) and updates <code>latest.json</code>.
           </li>
         </ol>
-        <p class="muted">File listings and updater manifests: <code>/updates/pos/</code>, <code>/updates/admin/</code>, <code>/updates/setup/</code>.</p>
+        <p class="muted">File listings and updater manifests: <code>/updates/pos/</code>, <code>/updates/admin/</code>.</p>
       </section>
     </main>
     <script>
@@ -136,9 +117,6 @@
         }
 
         (async function () {
-          var setupV = await resolveVersion("setup", ["/updates/setup/latest.json"]);
-          setText("setup", setupV ? "Version: v" + setupV : "Version: unavailable");
-
           var posV = await resolveVersion("pos", ["/updates/pos/latest.json"]);
           setText("pos", posV ? "Version: v" + posV : "Version: unavailable");
 

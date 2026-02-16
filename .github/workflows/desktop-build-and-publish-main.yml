@@ -7,7 +7,6 @@ on:
     paths:
       - "apps/pos-desktop/**"
       - "apps/admin-desktop/**"
-      - "apps/setup-desktop/**"
       - "apps/downloads/**"
       - "backend/app/routers/updates.py"
       - "backend/app/static/downloads_site/**"

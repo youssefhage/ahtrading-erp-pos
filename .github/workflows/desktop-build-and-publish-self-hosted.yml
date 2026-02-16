@@ -123,36 +123,12 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build Setup Desktop (macOS)
-        if: ${{ runner.os != 'Windows' }}
-        shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          cd apps/setup-desktop
-          npm ci
-          npm run build
-
-      - name: Build Setup Desktop (Windows)
-        if: ${{ runner.os == 'Windows' }}
-        shell: pwsh
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          Set-StrictMode -Version Latest
-          cd apps/setup-desktop
-          npm ci
-          npm run build
-
       - name: Collect artifacts (macOS)
         if: ${{ runner.os != 'Windows' }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "dist/${ARTIFACT_KEY}/pos" "dist/${ARTIFACT_KEY}/portal" "dist/${ARTIFACT_KEY}/setup"
+          mkdir -p "dist/${ARTIFACT_KEY}/pos" "dist/${ARTIFACT_KEY}/portal"
 
           collect() {
             local src="$1"
@@ -168,7 +144,6 @@ jobs:
 
           collect "apps/pos-desktop/src-tauri/target/release/bundle" "dist/${ARTIFACT_KEY}/pos"
           collect "apps/admin-desktop/src-tauri/target/release/bundle" "dist/${ARTIFACT_KEY}/portal"
-          collect "apps/setup-desktop/src-tauri/target/release/bundle" "dist/${ARTIFACT_KEY}/setup"
 
       - name: Collect artifacts (Windows)
         if: ${{ runner.os == 'Windows' }}
@@ -178,7 +153,6 @@ jobs:
           $out = Join-Path "dist" $env:ARTIFACT_KEY
           New-Item -ItemType Directory -Force -Path (Join-Path $out "pos") | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $out "portal") | Out-Null
-          New-Item -ItemType Directory -Force -Path (Join-Path $out "setup") | Out-Null
 
           function Copy-Bundles([string]$src, [string]$dst) {
             if (-not (Test-Path $src)) { throw "missing bundle dir: $src" }
@@ -191,7 +165,6 @@ jobs:
 
           Copy-Bundles "apps\\pos-desktop\\src-tauri\\target\\release\\bundle" (Join-Path $out "pos")
           Copy-Bundles "apps\\admin-desktop\\src-tauri\\target\\release\\bundle" (Join-Path $out "portal")
-          Copy-Bundles "apps\\setup-desktop\\src-tauri\\target\\release\\bundle" (Join-Path $out "setup")
 
       - uses: actions/upload-artifact@v4
         with:
@@ -228,4 +201,5 @@ jobs:
           python3 scripts/publish_desktop_release.py \
             --api-base "https://app.melqard.com/api/" \
             --download-base "https://download.melqard.com" \
-            --dist-dir dist
+            --dist-dir dist \
+            --apps pos,portal

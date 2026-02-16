@@ -84,22 +84,11 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build Setup Desktop
-        shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          cd apps/setup-desktop
-          npm ci
-          npm run build
-
       - name: Collect artifacts
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "dist/${{ matrix.os }}/pos" "dist/${{ matrix.os }}/portal" "dist/${{ matrix.os }}/setup"
+          mkdir -p "dist/${{ matrix.os }}/pos" "dist/${{ matrix.os }}/portal"
 
           collect() {
             local src="$1"
@@ -115,7 +104,6 @@ jobs:
 
           collect "apps/pos-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/pos"
           collect "apps/admin-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/portal"
-          collect "apps/setup-desktop/src-tauri/target/release/bundle" "dist/${{ matrix.os }}/setup"
 
           echo "${{ matrix.os }}" > "dist/${{ matrix.os }}/_runner_os.txt"
 
@@ -154,4 +142,5 @@ jobs:
           python3 scripts/publish_desktop_release.py \
             --api-base "https://app.melqard.com/api/" \
             --download-base "https://download.melqard.com" \
-            --dist-dir dist
+            --dist-dir dist \
+            --apps pos,portal
