@@ -91,12 +91,14 @@ def _edge_cloud_authoritative_enabled() -> bool:
     # Explicit override wins.
     if (os.getenv("EDGE_CLOUD_AUTHORITATIVE") or "").strip():
         return _truthy(os.getenv("EDGE_CLOUD_AUTHORITATIVE", ""))
-    # Backward-compatible default: if this node is configured to sync with cloud, treat cloud as authoritative.
-    # Guardrail: if role is explicitly declared cloud, never apply edge read-only mode implicitly.
+    # Safe default: only enable implicitly for explicit edge roles.
     role = (os.getenv("APP_ROLE") or os.getenv("NODE_ROLE") or "").strip().lower()
     if role in {"cloud", "cloud-api"}:
         return False
-    return bool((os.getenv("EDGE_SYNC_TARGET_URL") or "").strip())
+    if role in {"edge", "edge-api", "onprem", "on-prem"}:
+        return bool((os.getenv("EDGE_SYNC_TARGET_URL") or "").strip())
+    # Unknown role: fail open to avoid accidental write lock on cloud.
+    return False
 
 
 def _edge_write_allowed_path(path: str) -> bool:

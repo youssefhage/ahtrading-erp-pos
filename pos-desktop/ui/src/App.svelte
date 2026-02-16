@@ -55,6 +55,7 @@
   let notice = "";
   let error = "";
   let bgSyncWarnAt = 0;
+  let bgSyncPushInFlight = { official: false, unofficial: false };
 
   // Unified: map "official/unofficial" keys onto (origin agent) + (other agent).
   // If the UI is loaded from the Unofficial agent, we flip routing automatically.
@@ -467,6 +468,9 @@
   const reportError = (msg) => { alert(msg); error = msg; }; // Simple alert for now, can be improved
 
   const queueSyncPush = (companyKey) => {
+    const key = companyKey === "unofficial" ? "unofficial" : "official";
+    if (bgSyncPushInFlight[key]) return;
+    bgSyncPushInFlight = { ...bgSyncPushInFlight, [key]: true };
     // Never block cashier flow on cloud latency. Push in background best-effort.
     Promise.resolve()
       .then(() => apiCallFor(companyKey, "/sync/push", { method: "POST", body: {} }))
@@ -479,6 +483,9 @@
         setTimeout(() => {
           if (notice === msg) notice = "";
         }, 4000);
+      })
+      .finally(() => {
+        bgSyncPushInFlight = { ...bgSyncPushInFlight, [key]: false };
       });
   };
 
