@@ -22,6 +22,10 @@ on:
       APPLE_TEAM_ID:
         required: false
 
+concurrency:
+  group: desktop-publish-reusable-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build (${{ matrix.os }})

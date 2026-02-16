@@ -1096,7 +1096,11 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           const hb = await apiGet<{ heartbeats: WorkerHeartbeatRow[] }>("/config/worker-heartbeats");
           if (cancelled) return;
           const rows = hb?.heartbeats || [];
-          const targets = rows.filter((r) => ["EDGE_CLOUD_SYNC", "EDGE_CLOUD_MASTERDATA_PULL"].includes(String(r?.worker_name || "")));
+          const syncTargets = rows.filter((r) =>
+            ["EDGE_CLOUD_SYNC", "EDGE_CLOUD_MASTERDATA_PULL"].includes(String(r?.worker_name || ""))
+          );
+          const fallbackWorker = rows.find((r) => String(r?.worker_name || "") === "outbox-worker");
+          const targets = syncTargets.length ? syncTargets : (fallbackWorker ? [fallbackWorker] : []);
           if (!targets.length) {
             setEdgeHealth("offline");
             setEdgeHealthDetail("Cloud Sync workers not running yet.");
@@ -1116,7 +1120,10 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
               return `${r.worker_name}${ts ? ` (${ts})` : ""}`;
             })
             .join(" · ");
-          setEdgeHealthDetail(`Cloud Sync: ${ok ? "OK" : "Stale"} · ${details}`);
+          const mode = syncTargets.length ? "named" : "compat";
+          setEdgeHealthDetail(
+            `Cloud Sync: ${ok ? "OK" : "Stale"} · ${details}${mode === "compat" ? " · heartbeat mode: compatibility" : ""}`
+          );
         } else {
           // On cloud: show edge node heartbeat (cloud <- edge).
           const res = await apiGet<{ nodes: EdgeNodeStatusRow[] }>("/edge-nodes/status");

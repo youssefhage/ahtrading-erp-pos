@@ -5,8 +5,11 @@ on:
     tags:
       - "desktop-v*"
 
+concurrency:
+  group: desktop-publish-tags-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   run:
     uses: ./.github/workflows/desktop-build-and-publish-reusable.yml
     secrets: inherit
-

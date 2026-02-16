@@ -103,8 +103,9 @@ def list_company_ids(db_url: str):
             cur.execute("SELECT id FROM companies ORDER BY created_at ASC")
             return [str(r["id"]) for r in cur.fetchall()]
 
-def record_worker_heartbeat(db_url: str, company_id: str, details: dict):
+def record_worker_heartbeat(db_url: str, company_id: str, details: dict, worker_name=None):
     # Persist a per-company heartbeat so the Admin UI can show "worker alive" without log access.
+    name = str(worker_name or WORKER_NAME).strip() or WORKER_NAME
     with psycopg.connect(db_url, row_factory=dict_row) as conn:
         with conn.transaction():
             with conn.cursor() as cur:
@@ -117,7 +118,7 @@ def record_worker_heartbeat(db_url: str, company_id: str, details: dict):
                     ON CONFLICT (company_id, worker_name)
                     DO UPDATE SET last_seen_at = now(), details = EXCLUDED.details
                     """,
-                    (company_id, WORKER_NAME, details_json),
+                    (company_id, name, details_json),
                 )
 
 
@@ -286,6 +287,7 @@ def execute_job(db_url: str, company_id: str, job_code: str, options: dict):
             db_url,
             company_id,
             {"edge_cloud_sync": {"processed": int(processed or 0), "limit": limit}},
+            worker_name="EDGE_CLOUD_SYNC",
         )
         return
     if job_code == "EDGE_CLOUD_MASTERDATA_PULL":
@@ -295,6 +297,7 @@ def execute_job(db_url: str, company_id: str, job_code: str, options: dict):
             db_url,
             company_id,
             {"edge_cloud_masterdata_pull": {"limit": limit, "summary": summary}},
+            worker_name="EDGE_CLOUD_MASTERDATA_PULL",
         )
         return
     raise ValueError(f"unknown job_code: {job_code}")

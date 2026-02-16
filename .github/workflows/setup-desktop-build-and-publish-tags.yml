@@ -15,6 +15,10 @@ on:
     tags:
       - "setup-v*"
 
+concurrency:
+  group: setup-publish-tags-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build Setup (${{ matrix.os }})
@@ -95,12 +99,11 @@ jobs:
         with:
           path: dist
 
-      - name: Set visibility toggle (tag push)
-        if: ${{ github.event_name == 'push' }}
+      - name: Set visibility toggle default
         shell: bash
         run: |
           set -euo pipefail
-          echo "DO_TOGGLE_VIS=true" >> "$GITHUB_ENV"
+          echo "DO_TOGGLE_VIS=false" >> "$GITHUB_ENV"
 
       - name: Set visibility toggle (manual)
         if: ${{ github.event_name == 'workflow_dispatch' }}

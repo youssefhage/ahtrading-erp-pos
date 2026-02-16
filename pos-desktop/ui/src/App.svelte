@@ -54,6 +54,7 @@
   let loading = false;
   let notice = "";
   let error = "";
+  let bgSyncWarnAt = 0;
 
   // Unified: map "official/unofficial" keys onto (origin agent) + (other agent).
   // If the UI is loaded from the Unofficial agent, we flip routing automatically.
@@ -462,6 +463,22 @@
   // Actions
   const reportNotice = (msg) => { notice = msg; setTimeout(() => notice = "", 3000); };
   const reportError = (msg) => { alert(msg); error = msg; }; // Simple alert for now, can be improved
+
+  const queueSyncPush = (companyKey) => {
+    // Never block cashier flow on cloud latency. Push in background best-effort.
+    Promise.resolve()
+      .then(() => apiCallFor(companyKey, "/sync/push", { method: "POST", body: {} }))
+      .catch(() => {
+        const now = Date.now();
+        if (now - bgSyncWarnAt < 15000) return;
+        bgSyncWarnAt = now;
+        const msg = "Saved locally. Cloud sync is retrying in background.";
+        notice = msg;
+        setTimeout(() => {
+          if (notice === msg) notice = "";
+        }, 4000);
+      });
+  };
 
   const setSessionToken = (companyKey, token) => {
     const t = (token || "").trim();
@@ -1150,14 +1167,42 @@
 
   // Customer Logic
   const searchCustomers = async () => {
-    if (!customerSearch.trim()) { customerResults = []; return; }
+    const term = customerSearch.trim();
+    if (!term) { customerResults = []; return; }
     try {
       const seq = ++_customerSearchSeq;
       customerSearching = true;
       const companyKey = effectiveInvoiceCompany();
-      const res = await apiCallFor(companyKey, `/customers?query=${encodeURIComponent(customerSearch)}`);
+      const q = term.toLowerCase();
+      const source = companyKey === otherCompanyKey ? (unofficialCustomers || []) : (customers || []);
+      const local = source
+        .filter((c) => {
+          const name = String(c?.name || "").toLowerCase();
+          const phone = String(c?.phone || "").toLowerCase();
+          const email = String(c?.email || "").toLowerCase();
+          const id = String(c?.id || "").toLowerCase();
+          const membership = String(c?.membership_no || "").toLowerCase();
+          return name.includes(q) || phone.includes(q) || email.includes(q) || id.includes(q) || membership.includes(q);
+        })
+        .slice(0, 30);
+
+      // Show local hits immediately for zero-latency typing.
+      customerResults = local;
+      if (local.length >= 12) return;
+
+      const res = await apiCallFor(companyKey, `/customers?query=${encodeURIComponent(term)}`);
       if (seq !== _customerSearchSeq) return;
-      customerResults = res.customers || [];
+      const remote = Array.isArray(res?.customers) ? res.customers : [];
+      const seen = new Set();
+      const merged = [];
+      for (const r of [...local, ...remote]) {
+        const id = String(r?.id || "").trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        merged.push(r);
+        if (merged.length >= 30) break;
+      }
+      customerResults = merged;
     } catch(e) { reportError(e.message); }
     finally { customerSearching = false; }
   };
@@ -1325,7 +1370,7 @@
           }
         });
 
-        try { await apiCallFor(invoiceCompany, "/sync/push", { method: "POST", body: {} }); } catch (_) {}
+        queueSyncPush(invoiceCompany);
 
         cart = [];
         activeCustomer = null;
@@ -1394,7 +1439,7 @@
           });
 
           done.push({ companyKey, event_id: res.event_id || "ok" });
-          try { await apiCallFor(companyKey, "/sync/push", { method: "POST", body: {} }); } catch (_) {}
+          queueSyncPush(companyKey);
 
           // Remove only the successfully invoiced lines.
           cart = cart.filter((c) => c.companyKey !== companyKey);
@@ -1451,7 +1496,7 @@
         }
       });
 
-      try { await apiCallFor(invoiceCompany, "/sync/push", { method: "POST", body: {} }); } catch (_) {}
+      queueSyncPush(invoiceCompany);
 
       reportNotice(`Sale queued: ${res.event_id || "ok"}`);
       cart = [];

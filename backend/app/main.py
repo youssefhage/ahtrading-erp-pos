@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from psycopg import errors as pg_errors
 import json
+import os
 import sys
 import time
 import uuid
@@ -81,6 +82,34 @@ def _json_log(level: str, event: str, **fields):
     rec = {"ts": datetime.now(timezone.utc).isoformat(), "level": level, "event": event, **fields}
     print(json.dumps(rec, default=str), file=sys.stderr)
 
+
+def _truthy(raw: str) -> bool:
+    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _edge_cloud_authoritative_enabled() -> bool:
+    # Explicit override wins.
+    if (os.getenv("EDGE_CLOUD_AUTHORITATIVE") or "").strip():
+        return _truthy(os.getenv("EDGE_CLOUD_AUTHORITATIVE", ""))
+    # Backward-compatible default: if this node is configured to sync with cloud, treat cloud as authoritative.
+    # Guardrail: if role is explicitly declared cloud, never apply edge read-only mode implicitly.
+    role = (os.getenv("APP_ROLE") or os.getenv("NODE_ROLE") or "").strip().lower()
+    if role in {"cloud", "cloud-api"}:
+        return False
+    return bool((os.getenv("EDGE_SYNC_TARGET_URL") or "").strip())
+
+
+def _edge_write_allowed_path(path: str) -> bool:
+    p = str(path or "")
+    if p == "/health":
+        return True
+    allowed_prefixes = (
+        "/auth/",
+        "/pos/",
+        "/edge-sync/",
+    )
+    return any(p.startswith(x) for x in allowed_prefixes)
+
 # Map common DB constraint/cast errors to 4xx so clients get actionable responses
 # instead of generic 500s.
 @app.exception_handler(pg_errors.InvalidTextRepresentation)
@@ -149,6 +178,16 @@ async def _request_logging(request: Request, call_next):
     path = request.url.path
     method = request.method
     client_ip = (request.client.host if request.client else None)
+
+    if _edge_cloud_authoritative_enabled() and method in {"POST", "PUT", "PATCH", "DELETE"}:
+        if not _edge_write_allowed_path(path):
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": "cloud_authoritative_edge_read_only",
+                    "hint": "This edge node is read-only for admin/master-data writes. Apply this change on cloud; edge accepts POS operations and sync only.",
+                },
+            )
 
     try:
         response = await call_next(request)

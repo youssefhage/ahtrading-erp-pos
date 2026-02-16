@@ -133,7 +133,16 @@ def save_config(data):
 
 
 def db_connect():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH)
+    # Local-first POS tuning:
+    # - WAL improves read/write concurrency (UI reads while outbox/sync writes).
+    # - NORMAL synchronous keeps durability practical but faster than FULL.
+    # - Busy timeout prevents transient "database is locked" spikes during heavy shifts.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute("PRAGMA busy_timeout=5000")
+    return conn
 
 
 def _is_loopback(ip: str) -> bool:
@@ -374,6 +383,23 @@ def init_db():
         bc_cols = {r[1] for r in cur.fetchall()}
         if "uom_code" not in bc_cols:
             cur.execute("ALTER TABLE local_item_barcodes_cache ADD COLUMN uom_code TEXT")
+        # Explicit indexes for fast cashier workflows (barcode and customer lookup hot paths).
+        cur.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_local_items_active_sku ON local_items_cache(is_active, sku);
+            CREATE INDEX IF NOT EXISTS idx_local_items_barcode ON local_items_cache(barcode);
+            CREATE INDEX IF NOT EXISTS idx_local_items_name ON local_items_cache(name);
+            CREATE INDEX IF NOT EXISTS idx_local_prices_item_effective ON local_prices_cache(item_id, effective_from);
+
+            CREATE INDEX IF NOT EXISTS idx_local_customers_active_name ON local_customers_cache(is_active, name);
+            CREATE INDEX IF NOT EXISTS idx_local_customers_membership ON local_customers_cache(membership_no);
+            CREATE INDEX IF NOT EXISTS idx_local_customers_phone ON local_customers_cache(phone);
+            CREATE INDEX IF NOT EXISTS idx_local_customers_email ON local_customers_cache(email);
+
+            CREATE INDEX IF NOT EXISTS idx_local_cashiers_active_name ON local_cashiers_cache(is_active, name);
+            CREATE INDEX IF NOT EXISTS idx_pos_outbox_status_created ON pos_outbox_events(status, created_at);
+            """
+        )
         conn.commit()
 
 
@@ -951,10 +977,50 @@ def get_cashiers():
         return [dict(r) for r in cur.fetchall()]
 
 def get_customers(query: str = "", limit: int = 50):
-    query = (query or "").strip().lower()
+    raw_query = (query or "").strip()
+    query = raw_query.lower()
+    limit_i = max(1, min(int(limit or 50), 500))
     with db_connect() as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
+        select_sql = """
+            SELECT id, name, phone, email,
+                   membership_no, is_member, membership_expires_at,
+                   payment_terms_days,
+                   credit_limit_usd, credit_limit_lbp,
+                   credit_balance_usd, credit_balance_lbp,
+                   loyalty_points,
+                   price_list_id,
+                   is_active,
+                   updated_at
+            FROM local_customers_cache
+        """
+
+        # Fast path for scanner-like exact inputs (membership/id/phone/email).
+        # This keeps customer pick instant even with very large local customer sets.
+        if query:
+            exact_hits = []
+            try:
+                cur.execute(
+                    f"""
+                    {select_sql}
+                    WHERE is_active = 1 AND (
+                          lower(id) = ?
+                       OR lower(COALESCE(membership_no, '')) = ?
+                       OR lower(COALESCE(phone, '')) = ?
+                       OR lower(COALESCE(email, '')) = ?
+                    )
+                    ORDER BY name
+                    LIMIT ?
+                    """,
+                    (query, query, query, query, limit_i),
+                )
+                exact_hits = [dict(r) for r in cur.fetchall()]
+            except Exception:
+                exact_hits = []
+            if exact_hits:
+                return exact_hits
+
         if query:
             needle = f"%{query}%"
             cur.execute(
@@ -979,7 +1045,7 @@ def get_customers(query: str = "", limit: int = 50):
                 ORDER BY name
                 LIMIT ?
                 """,
-                (needle, needle, needle, needle, needle, int(limit)),
+                (needle, needle, needle, needle, needle, limit_i),
             )
         else:
             cur.execute(
@@ -998,7 +1064,7 @@ def get_customers(query: str = "", limit: int = 50):
                 ORDER BY name
                 LIMIT ?
                 """,
-                (int(limit),),
+                (limit_i,),
             )
         return [dict(r) for r in cur.fetchall()]
 

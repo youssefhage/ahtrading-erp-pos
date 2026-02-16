@@ -5,6 +5,10 @@ on:
   # Self-hosted runners aren't always available. Keep this manual to avoid
   # "queued forever" runs cluttering the Actions page.
 
+concurrency:
+  group: desktop-publish-self-hosted-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build (${{ matrix.key }})

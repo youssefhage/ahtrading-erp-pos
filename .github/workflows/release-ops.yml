@@ -1,26 +1,35 @@
-name: Edge images (API + Admin)
+name: Release ops (manual)
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
-    paths:
-      - "backend/**"
-      - "apps/admin/**"
-      - "backend/Dockerfile"
-      - "apps/admin/Dockerfile"
-      - ".github/workflows/edge-images.yml"
+    inputs:
+      publish_desktop:
+        description: "Build + publish POS/Admin/Setup desktop installers"
+        required: true
+        type: boolean
+        default: true
+      build_edge_images:
+        description: "Build + push edge API/Admin images to GHCR"
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
   packages: write
 
 concurrency:
-  group: edge-images-${{ github.ref }}
+  group: release-ops-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-and-push:
+  desktop:
+    if: ${{ inputs.publish_desktop }}
+    uses: ./.github/workflows/desktop-build-and-publish-reusable.yml
+    secrets: inherit
+
+  edge-images:
+    if: ${{ inputs.build_edge_images }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

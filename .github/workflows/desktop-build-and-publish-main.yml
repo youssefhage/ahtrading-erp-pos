@@ -14,8 +14,11 @@ on:
       - "scripts/publish_desktop_release.py"
       - ".github/workflows/desktop-build-and-publish-*.yml"
 
+concurrency:
+  group: desktop-publish-main-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   run:
     uses: ./.github/workflows/desktop-build-and-publish-reusable.yml
     secrets: inherit
-
