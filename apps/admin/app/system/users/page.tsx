@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -31,6 +31,7 @@ type ProfileType = {
 };
 
 export default function UsersPage() {
+  const seededDefaultsOnceRef = useRef(false);
   const [status, setStatus] = useState("");
   const [users, setUsers] = useState<UserRow[]>([]);
   const [allUsers, setAllUsers] = useState<UserRow[]>([]);
@@ -73,9 +74,20 @@ export default function UsersPage() {
         apiGet<{ roles: RoleRow[] }>("/users/roles"),
         apiGet<{ profile_types?: ProfileType[]; templates?: ProfileType[] }>("/users/profile-types")
       ]);
+      let nextRoles = r.roles || [];
+      if (!nextRoles.length && !seededDefaultsOnceRef.current) {
+        seededDefaultsOnceRef.current = true;
+        try {
+          await apiPost("/users/roles/seed-defaults", {});
+          const seeded = await apiGet<{ roles: RoleRow[] }>("/users/roles");
+          nextRoles = seeded.roles || [];
+        } catch {
+          // Keep the page usable even if seeding fails (permissions/network).
+        }
+      }
       setUsers(u.users || []);
       setAllUsers(d.users || []);
-      setRoles(r.roles || []);
+      setRoles(nextRoles);
       setProfileTypes(t.profile_types || t.templates || []);
       setStatus("");
     } catch (err) {
@@ -97,6 +109,13 @@ export default function UsersPage() {
     if (!profileUserId && allUsers.length) setProfileUserId(allUsers[0]?.id || "");
     if (!profileTypeCode && profileTypes.length) setProfileTypeCode(profileTypes[0]?.code || "");
   }, [allUsers, profileTypes, profileUserId, profileTypeCode]);
+
+  useEffect(() => {
+    if (!templateCode && profileTypes.length) {
+      const preferred = profileTypes.find((p) => p.code === "cashier")?.code || profileTypes[0]?.code || "";
+      if (preferred) setTemplateCode(preferred);
+    }
+  }, [profileTypes, templateCode]);
 
   const selectedProfileType = useMemo(
     () => profileTypes.find((t) => t.code === templateCode) || null,
@@ -338,7 +357,7 @@ export default function UsersPage() {
                       <option value="">No role</option>
                       {roles.map((r) => (
                         <option key={r.id} value={r.id}>
-                          {r.name}
+                          {r.name}{r.template_code ? " (Standard)" : ""}
                         </option>
                       ))}
                     </select>
@@ -379,7 +398,7 @@ export default function UsersPage() {
                       <option value="">Select role...</option>
                       {roles.map((r) => (
                         <option key={r.id} value={r.id}>
-                          {r.name}
+                          {r.name}{r.template_code ? " (Standard)" : ""}
                         </option>
                       ))}
                     </select>

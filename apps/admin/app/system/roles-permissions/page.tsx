@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -11,10 +11,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 
-type RoleRow = { id: string; name: string; assigned_users?: number };
+type RoleRow = { id: string; name: string; assigned_users?: number; template_code?: string | null };
 type PermissionRow = { id: string; code: string; description: string };
 
 export default function RolesPermissionsPage() {
+  const seededDefaultsOnceRef = useRef(false);
   const [status, setStatus] = useState("");
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [permissions, setPermissions] = useState<PermissionRow[]>([]);
@@ -46,7 +47,18 @@ export default function RolesPermissionsPage() {
         apiGet<{ roles: RoleRow[] }>("/users/roles"),
         apiGet<{ permissions: PermissionRow[] }>("/users/permissions")
       ]);
-      setRoles(r.roles || []);
+      let nextRoles = r.roles || [];
+      if (!nextRoles.length && !seededDefaultsOnceRef.current) {
+        seededDefaultsOnceRef.current = true;
+        try {
+          await apiPost("/users/roles/seed-defaults", {});
+          const seeded = await apiGet<{ roles: RoleRow[] }>("/users/roles");
+          nextRoles = seeded.roles || [];
+        } catch {
+          // Keep role page available even if seeding fails.
+        }
+      }
+      setRoles(nextRoles);
       setPermissions(p.permissions || []);
       setStatus("");
     } catch (err) {
@@ -57,11 +69,11 @@ export default function RolesPermissionsPage() {
 
   const seedDefaults = useCallback(async () => {
     setSeedingDefaults(true);
-    setStatus("Creating common roles...");
+    setStatus("Loading standard roles...");
     try {
       const res = await apiPost<{ created?: number }>("/users/roles/seed-defaults", {});
       await load();
-      setStatus(`Common roles ready. Created ${Number(res?.created || 0)} new role(s).`);
+      setStatus(`Standard roles ready. Created ${Number(res?.created || 0)} new role(s).`);
       window.setTimeout(() => setStatus(""), 1600);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -265,7 +277,7 @@ export default function RolesPermissionsPage() {
             Refresh
           </Button>
           <Button variant="outline" onClick={seedDefaults} disabled={seedingDefaults}>
-            {seedingDefaults ? "..." : "Create Common Roles"}
+            {seedingDefaults ? "..." : "Load Standard Roles"}
           </Button>
           <Button
             variant="outline"
@@ -343,7 +355,7 @@ export default function RolesPermissionsPage() {
                     <option value="">Select role...</option>
                     {roles.map((r) => (
                       <option key={r.id} value={r.id}>
-                        {r.name}
+                        {r.name}{r.template_code ? " (Standard)" : ""}
                       </option>
                     ))}
                   </select>
@@ -407,7 +419,7 @@ export default function RolesPermissionsPage() {
                   <option value="">Select role...</option>
                   {roles.map((r) => (
                     <option key={r.id} value={r.id}>
-                      {r.name}
+                      {r.name}{r.template_code ? " (Standard)" : ""}
                     </option>
                   ))}
                 </select>
