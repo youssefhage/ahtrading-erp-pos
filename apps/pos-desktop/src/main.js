@@ -517,7 +517,7 @@ let quickSetup = {
 
 async function ensureAgentsRunningForSetup() {
   const cloudUrl = normalizeUrl(el("edgeUrl").value);
-  const edgeLanUrl = normalizeUrl(el("edgeLanUrl")?.value || "");
+  const edgeLanUrl = "";
   const portOfficial = Number(el("portOfficial").value || 7070);
   const portUnofficial = Number(el("portUnofficial").value || 7072);
   if (!cloudUrl) throw new Error("Please enter the Cloud API URL first.");
@@ -837,7 +837,7 @@ async function quickSetupApply() {
     el("deviceTokenUnofficial").value = deviceTokenUnofficial;
 
     localStorage.setItem(KEY_EDGE, cloudUrl);
-    localStorage.setItem(KEY_EDGE_LAN, edgeLanUrl);
+    localStorage.setItem(KEY_EDGE_LAN, "");
     localStorage.setItem(KEY_CO_OFFICIAL, companyOfficial);
     localStorage.setItem(KEY_CO_UNOFFICIAL, companyUnofficial);
     localStorage.setItem(KEY_DEV_ID_OFFICIAL, deviceIdOfficial);
@@ -849,8 +849,8 @@ async function quickSetupApply() {
     setSetupNote("Applying config to local agents…");
     setStatus("Quick Setup: applying local config…");
     await jpostJson(agentBase(portOfficial), "/api/config", {
-      api_base_url: edgeLanUrl || cloudUrl,
-      edge_api_base_url: edgeLanUrl,
+      api_base_url: cloudUrl,
+      edge_api_base_url: "",
       cloud_api_base_url: cloudUrl,
       company_id: companyOfficial,
       branch_id: branchId,
@@ -859,8 +859,8 @@ async function quickSetupApply() {
       device_token: deviceTokenOfficial,
     });
     await jpostJson(agentBase(portUnofficial), "/api/config", {
-      api_base_url: edgeLanUrl || cloudUrl,
-      edge_api_base_url: edgeLanUrl,
+      api_base_url: cloudUrl,
+      edge_api_base_url: "",
       cloud_api_base_url: cloudUrl,
       company_id: companyUnofficial,
       branch_id: branchId,
@@ -905,7 +905,7 @@ function quickSetupClear() {
 
 async function start() {
   const cloudUrl = normalizeUrl(el("edgeUrl").value);
-  const edgeLanUrl = normalizeUrl(el("edgeLanUrl")?.value || "");
+  const edgeLanUrl = "";
   const portOfficial = Number(el("portOfficial").value || 7070);
   const portUnofficial = Number(el("portUnofficial").value || 7072);
   const companyOfficial = String(el("companyOfficial").value || "").trim();
@@ -921,7 +921,7 @@ async function start() {
   }
 
   localStorage.setItem(KEY_EDGE, cloudUrl);
-  localStorage.setItem(KEY_EDGE_LAN, edgeLanUrl);
+  localStorage.setItem(KEY_EDGE_LAN, "");
   localStorage.setItem(KEY_PORT_OFFICIAL, String(portOfficial));
   localStorage.setItem(KEY_PORT_UNOFFICIAL, String(portUnofficial));
   localStorage.setItem(KEY_CO_OFFICIAL, companyOfficial);

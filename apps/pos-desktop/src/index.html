@@ -33,8 +33,8 @@
             <input id="edgeUrl" placeholder="https://app.melqard.com/api" />
           </label>
           <label class="field">
-            <span>Edge API URL (LAN, optional)</span>
-            <input id="edgeLanUrl" placeholder="http://192.168.1.7:8001" />
+            <span>Edge API URL (legacy; ignored in cloud-first mode)</span>
+            <input id="edgeLanUrl" placeholder="(optional legacy field)" />
           </label>
         </div>
 
@@ -112,7 +112,7 @@
           <div class="details-body">
             <label class="field">
               <span>Setup Pack (paste JSON)</span>
-              <textarea id="setupPack" rows="5" placeholder='{"edgeUrl":"http://192.168.1.50:8001", "...": "..."}'></textarea>
+              <textarea id="setupPack" rows="5" placeholder='{"cloud_api_base_url":"https://app.melqard.com/api", "...": "..."}'></textarea>
             </label>
             <div class="row compact">
               <button id="applyPackBtn" class="ghost" type="button">Apply Pack</button>

@@ -819,13 +819,12 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const connectJson = useMemo(() => {
     const cid = String(companyId || "").trim();
     if (!cid) return "";
-    const edgeBase = onPremAdmin ? posApiBaseUrl : "";
+    const cloudBase = (cloudApiBaseUrl || publicApiBaseUrl || "").trim();
     const payload = {
-      // Back-compat: old agents still read api_base_url.
-      api_base_url: (edgeBase || cloudApiBaseUrl || publicApiBaseUrl || "").trim(),
-      // Hybrid fields: new agents prefer edge and fallback to cloud automatically.
-      edge_api_base_url: edgeBase,
-      cloud_api_base_url: cloudApiBaseUrl,
+      // Cloud-first: one control plane + local POS cache/outbox for offline resilience.
+      api_base_url: cloudBase,
+      edge_api_base_url: "",
+      cloud_api_base_url: cloudBase,
       company_id: cid,
       device_code: "POS-01",
       device_id: "",
@@ -834,7 +833,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       shift_id: "",
     };
     return JSON.stringify(payload, null, 2);
-  }, [companyId, publicApiBaseUrl, cloudApiBaseUrl, onPremAdmin, posApiBaseUrl]);
+  }, [companyId, publicApiBaseUrl, cloudApiBaseUrl]);
 
   // Keep the active selection in-bounds when results change.
   useEffect(() => {

@@ -179,8 +179,10 @@
   $: syncBadge = (() => {
     const o = (outbox || []).length;
     const u = (unofficialOutbox || []).length;
-    if (!o && !u) return "Synced";
-    return `Off ${o} · Un ${u}`;
+    const queued = o + u;
+    if (status !== "Ready") return `Offline · queued ${queued}`;
+    if (queued > 0) return `Syncing · queued ${queued}`;
+    return "Synced";
   })();
   $: hasConnection = status === "Ready";
 
@@ -1689,6 +1691,10 @@
     fetchData();
 
     const poll = setInterval(fetchData, 30000); // Polling legacy style
+    const pushPoll = setInterval(() => {
+      if (config?.device_id) queueSyncPush(originCompanyKey);
+      if (unofficialConfig?.device_id) queueSyncPush(otherCompanyKey);
+    }, 12000);
 
     // Global barcode scan capture (keyboard-wedge scanners often type fast chars + Enter).
     // Captures scans even if focus isn't in the scan box, but avoids stealing normal typing.
@@ -1755,6 +1761,7 @@
 
     return () => {
       clearInterval(poll);
+      clearInterval(pushPoll);
       document.removeEventListener("keydown", onKeyDown, true);
       reset();
     };
