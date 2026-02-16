@@ -3,7 +3,7 @@
 import { Check, Copy } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { apiDelete, apiGet, apiPost, getCompanyId } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -17,8 +17,18 @@ import { ViewRaw } from "@/components/view-raw";
 type DeviceRow = {
   id: string;
   branch_id: string | null;
+  branch_name?: string | null;
   device_code: string;
   created_at: string;
+  updated_at?: string;
+  last_seen_at?: string | null;
+  last_seen_status?: string | null;
+  pending_events?: number;
+  failed_events?: number;
+  last_event_at?: string | null;
+  open_shift_count?: number;
+  assigned_cashiers_count?: number;
+  assigned_employees_count?: number;
   has_token: boolean;
 };
 
@@ -36,6 +46,21 @@ type DeviceSetup = {
   device_id: string;
   device_token: string | null;
   shift_id: string;
+};
+
+type DeviceCashierRow = {
+  id: string;
+  name: string;
+  is_active: boolean;
+  assigned: boolean;
+};
+
+type DeviceEmployeeRow = {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  is_active: boolean;
+  assigned: boolean;
 };
 
 function inferDefaultApiBaseUrl(): string {
@@ -106,6 +131,15 @@ function SetupField(props: { label: string; value: string }) {
   );
 }
 
+function deviceHealthLabel(row: DeviceRow) {
+  const seen = row.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
+  if (!seen) return "never seen";
+  const ageMs = Date.now() - seen;
+  if (ageMs <= 5 * 60 * 1000) return "online";
+  if (ageMs <= 60 * 60 * 1000) return "idle";
+  return "offline";
+}
+
 export default function PosDevicesPage() {
   const [devices, setDevices] = useState<DeviceRow[]>([]);
   const [branches, setBranches] = useState<BranchRow[]>([]);
@@ -117,6 +151,19 @@ export default function PosDevicesPage() {
   const [registering, setRegistering] = useState(false);
   const [lastSetup, setLastSetup] = useState<DeviceSetup | null>(null);
   const [setupApiBaseUrl, setSetupApiBaseUrl] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [editDeviceId, setEditDeviceId] = useState("");
+  const [editDeviceCode, setEditDeviceCode] = useState("");
+  const [editBranchId, setEditBranchId] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignDevice, setAssignDevice] = useState<DeviceRow | null>(null);
+  const [assignCashiers, setAssignCashiers] = useState<DeviceCashierRow[]>([]);
+  const [savingAssignments, setSavingAssignments] = useState(false);
+  const [assignEmployeesOpen, setAssignEmployeesOpen] = useState(false);
+  const [assignEmployeesDevice, setAssignEmployeesDevice] = useState<DeviceRow | null>(null);
+  const [assignEmployees, setAssignEmployees] = useState<DeviceEmployeeRow[]>([]);
+  const [savingEmployeeAssignments, setSavingEmployeeAssignments] = useState(false);
 
   const branchById = useMemo(() => new Map(branches.map((b) => [b.id, b])), [branches]);
   const effectiveApiBaseUrl = (setupApiBaseUrl || inferDefaultApiBaseUrl()).trim();
@@ -246,13 +293,129 @@ async function resetToken(device: DeviceRow) {
     }
   }
 
+  function openEditDevice(device: DeviceRow) {
+    setEditDeviceId(device.id);
+    setEditDeviceCode(device.device_code || "");
+    setEditBranchId(device.branch_id || "");
+    setEditOpen(true);
+  }
+
+  async function saveDeviceEdits(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editDeviceId) return;
+    const nextCode = editDeviceCode.trim();
+    if (!nextCode) {
+      setStatus("device_code is required");
+      return;
+    }
+    setSavingEdit(true);
+    setStatus("Saving device settings...");
+    try {
+      await apiPatch(`/pos/devices/${encodeURIComponent(editDeviceId)}`, {
+        device_code: nextCode,
+        branch_id: editBranchId.trim() || null,
+      });
+      setEditOpen(false);
+      setEditDeviceId("");
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function openAssignCashiers(device: DeviceRow) {
+    setAssignOpen(true);
+    setAssignDevice(device);
+    setAssignCashiers([]);
+    setStatus("Loading cashier assignments...");
+    try {
+      const res = await apiGet<{ cashiers: DeviceCashierRow[] }>(`/pos/devices/${encodeURIComponent(device.id)}/cashiers`);
+      setAssignCashiers(res.cashiers || []);
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+      setAssignOpen(false);
+      setAssignDevice(null);
+    }
+  }
+
+  function toggleCashierAssignment(cashierId: string, checked: boolean) {
+    setAssignCashiers((prev) => prev.map((c) => (c.id === cashierId ? { ...c, assigned: checked } : c)));
+  }
+
+  async function saveCashierAssignments() {
+    if (!assignDevice) return;
+    setSavingAssignments(true);
+    setStatus("Saving cashier assignments...");
+    try {
+      const cashier_ids = assignCashiers.filter((c) => c.assigned).map((c) => c.id);
+      await apiPatch(`/pos/devices/${encodeURIComponent(assignDevice.id)}/cashiers`, { cashier_ids });
+      setAssignOpen(false);
+      setAssignDevice(null);
+      setAssignCashiers([]);
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSavingAssignments(false);
+    }
+  }
+
+  async function openAssignEmployees(device: DeviceRow) {
+    setAssignEmployeesOpen(true);
+    setAssignEmployeesDevice(device);
+    setAssignEmployees([]);
+    setStatus("Loading employee assignments...");
+    try {
+      const res = await apiGet<{ employees: DeviceEmployeeRow[] }>(`/pos/devices/${encodeURIComponent(device.id)}/employees`);
+      setAssignEmployees(res.employees || []);
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+      setAssignEmployeesOpen(false);
+      setAssignEmployeesDevice(null);
+    }
+  }
+
+  function toggleEmployeeAssignment(userId: string, checked: boolean) {
+    setAssignEmployees((prev) => prev.map((u) => (u.id === userId ? { ...u, assigned: checked } : u)));
+  }
+
+  async function saveEmployeeAssignments() {
+    if (!assignEmployeesDevice) return;
+    setSavingEmployeeAssignments(true);
+    setStatus("Saving employee assignments...");
+    try {
+      const user_ids = assignEmployees.filter((u) => u.assigned).map((u) => u.id);
+      await apiPatch(`/pos/devices/${encodeURIComponent(assignEmployeesDevice.id)}/employees`, { user_ids });
+      setAssignEmployeesOpen(false);
+      setAssignEmployeesDevice(null);
+      setAssignEmployees([]);
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setSavingEmployeeAssignments(false);
+    }
+  }
+
   return (
     <Page width="lg" className="px-4 pb-10">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <PageHeader
         title="POS Devices"
-        description="Register devices and generate setup packs for the POS agent."
+        description="Register devices, edit terminal settings, and control cashier access."
         actions={
           <>
             <Button variant="outline" onClick={load}>
@@ -297,6 +460,138 @@ async function resetToken(device: DeviceRow) {
           </>
         }
       />
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit POS Device</DialogTitle>
+            <DialogDescription>Update code and branch without deleting the device.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveDeviceEdits} className="grid grid-cols-1 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-fg-muted">Device Code</label>
+              <Input value={editDeviceCode} onChange={(e) => setEditDeviceCode(e.target.value)} placeholder="POS-01" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-fg-muted">Branch (optional)</label>
+              <SearchableSelect
+                value={editBranchId}
+                onChange={setEditBranchId}
+                placeholder="No branch"
+                searchPlaceholder="Search branches..."
+                options={[
+                  { value: "", label: "No branch" },
+                  ...branches.map((b) => ({ value: b.id, label: b.name })),
+                ]}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={savingEdit}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={savingEdit}>
+                {savingEdit ? "..." : "Save"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={assignOpen}
+        onOpenChange={(open) => {
+          setAssignOpen(open);
+          if (!open) {
+            setAssignDevice(null);
+            setAssignCashiers([]);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Cashiers</DialogTitle>
+            <DialogDescription>
+              {assignDevice ? `Choose who can log in on ${assignDevice.device_code}.` : "Choose who can log in on this device."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[320px] space-y-2 overflow-y-auto rounded-md border border-border p-3">
+            {assignCashiers.length ? (
+              assignCashiers.map((c) => (
+                <label key={c.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
+                  <span className="truncate">{c.name}</span>
+                  <span className="flex items-center gap-2">
+                    {c.is_active ? null : <span className="text-xs text-fg-subtle">inactive</span>}
+                    <input
+                      type="checkbox"
+                      checked={!!c.assigned}
+                      onChange={(e) => toggleCashierAssignment(c.id, e.target.checked)}
+                    />
+                  </span>
+                </label>
+              ))
+            ) : (
+              <div className="text-xs text-fg-subtle">No cashiers found. Create cashiers first in System → POS Cashiers.</div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setAssignOpen(false)} disabled={savingAssignments}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={saveCashierAssignments} disabled={savingAssignments || !assignDevice}>
+              {savingAssignments ? "..." : "Save Assignments"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={assignEmployeesOpen}
+        onOpenChange={(open) => {
+          setAssignEmployeesOpen(open);
+          if (!open) {
+            setAssignEmployeesDevice(null);
+            setAssignEmployees([]);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign Employees</DialogTitle>
+            <DialogDescription>
+              {assignEmployeesDevice
+                ? `Assign employees allowed on ${assignEmployeesDevice.device_code}. Only cashiers linked to these employees can log in on this device.`
+                : "Assign employees allowed on this device. Only linked cashiers can log in."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[320px] space-y-2 overflow-y-auto rounded-md border border-border p-3">
+            {assignEmployees.length ? (
+              assignEmployees.map((u) => (
+                <label key={u.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
+                  <span className="truncate">{u.full_name || u.email}</span>
+                  <span className="flex items-center gap-2">
+                    {u.is_active ? null : <span className="text-xs text-fg-subtle">inactive</span>}
+                    <input
+                      type="checkbox"
+                      checked={!!u.assigned}
+                      onChange={(e) => toggleEmployeeAssignment(u.id, e.target.checked)}
+                    />
+                  </span>
+                </label>
+              ))
+            ) : (
+              <div className="text-xs text-fg-subtle">No employees found for this company.</div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setAssignEmployeesOpen(false)} disabled={savingEmployeeAssignments}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={saveEmployeeAssignments} disabled={savingEmployeeAssignments || !assignEmployeesDevice}>
+              {savingEmployeeAssignments ? "..." : "Save Assignments"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {devices.length === 0 ? (
         <Section
@@ -372,8 +667,45 @@ async function resetToken(device: DeviceRow) {
             const columns: Array<DataTableColumn<DeviceRow>> = [
               { id: "device_code", header: "Code", accessor: (d) => d.device_code, sortable: true, mono: true, cell: (d) => <span className="text-xs">{d.device_code}</span> },
               { id: "id", header: "Device ID", accessor: (d) => d.id, mono: true, defaultHidden: true, cell: (d) => <span className="text-xs text-fg-subtle">{d.id}</span> },
-              { id: "branch_id", header: "Branch", accessor: (d) => d.branch_id || "", mono: true, cell: (d) => <span className="text-xs">{d.branch_id || "-"}</span> },
+              {
+                id: "branch_id",
+                header: "Branch",
+                accessor: (d) => d.branch_name || d.branch_id || "",
+                cell: (d) => (
+                  <span className="text-xs">
+                    {d.branch_name || (d.branch_id ? d.branch_id : "-")}
+                  </span>
+                ),
+              },
               { id: "token", header: "Token", accessor: (d) => (d.has_token ? "set" : "missing"), sortable: true, cell: (d) => <span className="text-xs text-fg-muted">{d.has_token ? "set" : "missing"}</span> },
+              {
+                id: "health",
+                header: "Health",
+                accessor: (d) => `${deviceHealthLabel(d)} ${d.last_seen_at || ""}`,
+                sortable: true,
+                cell: (d) => (
+                  <span className="text-xs text-fg-muted">
+                    {deviceHealthLabel(d)}
+                    {d.last_seen_at ? ` · ${new Date(d.last_seen_at).toLocaleString()}` : ""}
+                  </span>
+                ),
+              },
+              {
+                id: "queue",
+                header: "Queue",
+                accessor: (d) => `${d.pending_events || 0}/${d.failed_events || 0}`,
+                cell: (d) => <span className="text-xs text-fg-muted">pending {d.pending_events || 0} · failed {d.failed_events || 0}</span>,
+              },
+              {
+                id: "assignments",
+                header: "Assignments",
+                accessor: (d) => `${d.assigned_employees_count || 0}/${d.assigned_cashiers_count || 0}`,
+                cell: (d) => (
+                  <span className="text-xs text-fg-muted">
+                    employees {d.assigned_employees_count || 0} · cashiers {d.assigned_cashiers_count || 0} · open shifts {d.open_shift_count || 0}
+                  </span>
+                ),
+              },
               {
                 id: "actions",
                 header: "Actions",
@@ -382,6 +714,15 @@ async function resetToken(device: DeviceRow) {
                 align: "right",
                 cell: (d) => (
                   <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openEditDevice(d)}>
+                      Edit
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => openAssignEmployees(d)}>
+                      Assign Employees
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => openAssignCashiers(d)}>
+                      Assign Cashiers
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => resetToken(d)}>
                       Reset Token & Setup
                     </Button>

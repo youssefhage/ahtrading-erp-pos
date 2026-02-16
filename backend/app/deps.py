@@ -141,4 +141,18 @@ def require_device(
             row = cur.fetchone()
             if not row or not verify_device_token(device_token, row["device_token_hash"]):
                 raise HTTPException(status_code=401, detail="invalid device token")
+            # Best-effort device activity update for admin health visibility.
+            try:
+                cur.execute(
+                    """
+                    UPDATE pos_devices
+                    SET last_seen_at = now(),
+                        last_seen_status = 'online'
+                    WHERE id = %s
+                    """,
+                    (device_id,),
+                )
+            except Exception:
+                # Keep auth path resilient if columns are not available yet.
+                pass
             return {"device_id": device_id, "company_id": row["company_id"]}

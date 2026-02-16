@@ -391,9 +391,10 @@ function edgeAuthNotice(label, res) {
   if (d.edge_auth_ok !== false) return null;
   const code = d.edge_auth_status ? ` (${d.edge_auth_status})` : "";
   const rawErr = String(d.edge_auth_error || "").trim() || "Device token is missing or invalid.";
-  const cfgPart = label.toLowerCase() === "unofficial"
-    ? "unofficial device token or company mapping"
-    : "official device token or company mapping";
+  const isSecondary = String(label || "").trim().toLowerCase().includes("secondary");
+  const cfgPart = isSecondary
+    ? "secondary device token or company mapping"
+    : "primary device token or company mapping";
   return `${label}: auth failed${code}. ${rawErr} Verify ${cfgPart} in Advanced settings, then restart POS agents.`;
 }
 
@@ -515,6 +516,31 @@ let quickSetup = {
   apiBaseUrl: null,
 };
 
+function quickSetupDualModeEnabled() {
+  return !!el("setupDualMode")?.checked;
+}
+
+function syncQuickSetupSecondarySelection() {
+  if (quickSetupDualModeEnabled()) return;
+  if (el("setupCompanyUnofficial")) {
+    el("setupCompanyUnofficial").value = String(el("setupCompanyOfficial")?.value || "").trim();
+  }
+}
+
+function updateQuickSetupModeUI() {
+  const dual = quickSetupDualModeEnabled();
+  const secondaryWrap = el("setupSecondaryWrap");
+  if (secondaryWrap) secondaryWrap.style.display = dual ? "" : "none";
+  syncQuickSetupSecondarySelection();
+  const primaryCode = String(el("setupDeviceCodeOfficial")?.value || "").trim();
+  if (!dual && el("setupDeviceCodeUnofficial")) {
+    const fallback = primaryCode ? `${primaryCode}-B` : "POS-02";
+    if (!String(el("setupDeviceCodeUnofficial").value || "").trim()) {
+      el("setupDeviceCodeUnofficial").value = fallback;
+    }
+  }
+}
+
 async function ensureAgentsRunningForSetup() {
   const cloudUrl = normalizeUrl(el("edgeUrl").value);
   const edgeLanUrl = "";
@@ -534,7 +560,7 @@ async function ensureAgentsRunningForSetup() {
   const ok = await waitForAgent(portOfficial, 8000);
   if (!ok) {
     throw new Error(
-      "Local official agent did not become reachable. If port 7070 is already used, stop external pos-desktop/agent.py processes and retry."
+      "Local primary agent did not become reachable. If port 7070 is already used, stop external pos-desktop/agent.py processes and retry."
     );
   }
   return { cloudUrl, edgeLanUrl, portOfficial, portUnofficial };
@@ -553,13 +579,21 @@ function normalizeCompanyList(companies) {
 
 function getCompanyNameById(id) {
   const target = String(id || "").trim().toLowerCase();
-  if (!target) return "Unknown";
+  if (!target) return "selected company";
   for (const c of quickSetup.companies || []) {
     if (String(c?.id || "").trim().toLowerCase() === target) {
-      return String(c?.name || c?.legal_name || target).trim() || "Unknown";
+      return String(c?.name || c?.legal_name || target).trim() || target;
     }
   }
-  return "Unknown";
+  return target;
+}
+
+function normalizeCompanyLabel(label, companyId) {
+  const raw = String(label || "").trim();
+  const lowered = raw.toLowerCase();
+  if (raw && lowered !== "undefined" && lowered !== "null" && lowered !== "unknown") return raw;
+  const fallbackId = String(companyId || "").trim();
+  return fallbackId || "selected company";
 }
 
 async function quickSetupCheckCompanyPermissions(base, apiBaseUrl, token, companyId, companyLabel) {
@@ -635,8 +669,8 @@ async function quickSetupLogin() {
     el("setupMfaWrap").style.display = "none";
 
     const list = normalizeCompanyList(quickSetup.companies);
-    fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select Official company…" });
-    fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select Unofficial company…" });
+    fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select primary company…" });
+    fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select secondary company…" });
     fillSelect(el("setupBranch"), [], { placeholder: "Select branch (optional)…" });
 
     const active = String(res?.active_company_id || "").trim();
@@ -645,7 +679,8 @@ async function quickSetupLogin() {
       el("setupCompanyUnofficial").value = active;
     }
 
-    setSetupNote("Logged in. Select companies and (optional) branch.");
+    updateQuickSetupModeUI();
+    setSetupNote("Logged in. Select your company and branch, then generate setup.");
     setStatus("Quick Setup: logged in.");
     await quickSetupLoadBranches();
   } catch (e) {
@@ -688,9 +723,10 @@ async function quickSetupVerifyMfa() {
     el("setupMfaWrap").style.display = "none";
 
     const list = normalizeCompanyList(quickSetup.companies);
-    fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select Official company…" });
-    fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select Unofficial company…" });
-    setSetupNote("MFA verified. Select companies and (optional) branch.");
+    fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select primary company…" });
+    fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select secondary company…" });
+    updateQuickSetupModeUI();
+    setSetupNote("MFA verified. Select your company and branch, then generate setup.");
     setStatus("Quick Setup: MFA verified.");
     await quickSetupLoadBranches();
   } catch (e) {
@@ -737,42 +773,51 @@ async function quickSetupApply() {
       return;
     }
 
-    const { cloudUrl, edgeLanUrl, portOfficial, portUnofficial } = await ensureAgentsRunningForSetup();
+    const { cloudUrl, portOfficial, portUnofficial } = await ensureAgentsRunningForSetup();
     const base = agentBase(portOfficial);
 
+    const dualMode = quickSetupDualModeEnabled();
     const companyOfficial = String(el("setupCompanyOfficial").value || "").trim();
-    const companyUnofficial = String(el("setupCompanyUnofficial").value || "").trim();
+    const companyUnofficial = dualMode
+      ? String(el("setupCompanyUnofficial").value || "").trim()
+      : companyOfficial;
     const branchId = String(el("setupBranch").value || "").trim();
-    const deviceCodeOfficial = String(el("setupDeviceCodeOfficial").value || "").trim() || "POS-OFFICIAL-01";
-    const deviceCodeUnofficial = String(el("setupDeviceCodeUnofficial").value || "").trim() || "POS-UNOFFICIAL-01";
+    const branchIdOfficial = branchId;
+    const branchIdUnofficial = companyOfficial === companyUnofficial ? branchId : "";
+    const deviceCodeOfficial = String(el("setupDeviceCodeOfficial").value || "").trim() || "POS-01";
+    const deviceCodeUnofficial = dualMode
+      ? (String(el("setupDeviceCodeUnofficial").value || "").trim() || "POS-02")
+      : `${deviceCodeOfficial}-B`;
 
     if (!companyOfficial) {
-      setSetupNote("Select the Official company.");
+      setSetupNote("Select the primary company.");
       return;
     }
-    if (!companyUnofficial) {
-      setSetupNote("Select the Unofficial company (or set it to the same company).");
+    if (dualMode && !companyUnofficial) {
+      setSetupNote("Select the secondary company or turn off secondary mode.");
       return;
     }
 
     setSetupNote("Checking pos:manage permission for selected companies…");
     setStatus("Quick Setup: checking permissions…");
-    const officialName = getCompanyNameById(companyOfficial);
-    const unofficialName = getCompanyNameById(companyUnofficial);
+    const officialName = normalizeCompanyLabel(getCompanyNameById(companyOfficial), companyOfficial);
+    const unofficialName = normalizeCompanyLabel(getCompanyNameById(companyUnofficial), companyUnofficial);
     const permissionChecks = await Promise.all([
       quickSetupCheckCompanyPermissions(base, cloudUrl, quickSetup.token, companyOfficial, officialName),
+      ...(companyOfficial !== companyUnofficial
+        ? [quickSetupCheckCompanyPermissions(base, cloudUrl, quickSetup.token, companyUnofficial, unofficialName)]
+        : []),
     ]);
-
-    if (companyOfficial !== companyUnofficial) {
-      permissionChecks.push(
-        quickSetupCheckCompanyPermissions(base, cloudUrl, quickSetup.token, companyUnofficial, unofficialName),
-      );
-    }
 
     const missing = permissionChecks.filter((x) => !x.hasPermission);
     if (missing.length) {
-      const names = [...new Set(missing.map((m) => m.companyLabel || m.companyId))];
-      setSetupNote(`Permission missing on ${names.join(", ")}.`);
+      const names = [
+        ...new Set(
+          missing
+            .map((m) => normalizeCompanyLabel(m?.companyLabel, m?.companyId))
+            .filter(Boolean),
+        ),
+      ];
       setStatus(`Quick Setup: permission check failed for ${names.join(", ")}.`);
       if (companyOfficial === companyUnofficial) {
         const label = names[0] || "selected company";
@@ -811,11 +856,11 @@ async function quickSetupApply() {
       }
     };
 
-    const officialReg = await registerDevice("Official", companyOfficial, branchId, deviceCodeOfficial);
+    const officialReg = await registerDevice("Official", companyOfficial, branchIdOfficial, deviceCodeOfficial);
     const unofficialReg = await registerDevice(
       "Unofficial",
       companyUnofficial,
-      branchId,
+      branchIdUnofficial,
       deviceCodeUnofficial,
     );
 
@@ -853,7 +898,7 @@ async function quickSetupApply() {
       edge_api_base_url: "",
       cloud_api_base_url: cloudUrl,
       company_id: companyOfficial,
-      branch_id: branchId,
+      branch_id: branchIdOfficial,
       device_code: deviceCodeOfficial,
       device_id: deviceIdOfficial,
       device_token: deviceTokenOfficial,
@@ -863,7 +908,7 @@ async function quickSetupApply() {
       edge_api_base_url: "",
       cloud_api_base_url: cloudUrl,
       company_id: companyUnofficial,
-      branch_id: branchId,
+      branch_id: branchIdUnofficial,
       device_code: deviceCodeUnofficial,
       device_id: deviceIdUnofficial,
       device_token: deviceTokenUnofficial,
@@ -881,8 +926,8 @@ async function quickSetupApply() {
       const a = String(logs?.official || "").trim();
       const b = String(logs?.unofficial || "").trim();
       const parts = [];
-      if (a) parts.push(`Official log:\n${a}`);
-      if (b) parts.push(`Unofficial log:\n${b}`);
+      if (a) parts.push(`Primary log:\n${a}`);
+      if (b) parts.push(`Secondary log:\n${b}`);
       if (parts.length) setDiag(parts.join("\n\n"));
     } catch {
       // ignore
@@ -900,6 +945,8 @@ function quickSetupClear() {
   fillSelect(el("setupCompanyOfficial"), [], { placeholder: "Login to load companies…" });
   fillSelect(el("setupCompanyUnofficial"), [], { placeholder: "Login to load companies…" });
   fillSelect(el("setupBranch"), [], { placeholder: "Login to load branches…" });
+  if (el("setupDualMode")) el("setupDualMode").checked = false;
+  updateQuickSetupModeUI();
   setSetupNote("Cleared Quick Setup session.");
 }
 
@@ -953,8 +1000,8 @@ async function start() {
       const a = String(logs?.official || "").trim();
       const b = String(logs?.unofficial || "").trim();
       const parts = [];
-      if (a) parts.push(`Official log:\n${a}`);
-      if (b) parts.push(`Unofficial log:\n${b}`);
+      if (a) parts.push(`Primary log:\n${a}`);
+      if (b) parts.push(`Secondary log:\n${b}`);
       if (parts.length) setDiag(parts.join("\n\n"));
     } catch {
       // ignore
@@ -968,14 +1015,14 @@ async function start() {
     waitForAgent(portUnofficial, 10000),
   ]);
   if (!okA || !okB) {
-    setStatus(`Agent startup incomplete. Official=${okA ? "ok" : "missing"} Unofficial=${okB ? "ok" : "missing"}`);
+    setStatus(`Agent startup incomplete. Primary=${okA ? "ok" : "missing"} Secondary=${okB ? "ok" : "missing"}`);
     try {
       const logs = await tauriInvoke("tail_agent_logs", { maxLines: 120 });
       const a = String(logs?.official || "").trim();
       const b = String(logs?.unofficial || "").trim();
       const parts = [];
-      if (!okA && a) parts.push(`Official log:\n${a}`);
-      if (!okB && b) parts.push(`Unofficial log:\n${b}`);
+      if (!okA && a) parts.push(`Primary log:\n${a}`);
+      if (!okB && b) parts.push(`Secondary log:\n${b}`);
       if (parts.length) setDiag(parts.join("\n\n"));
     } catch {
       // ignore
@@ -988,14 +1035,14 @@ async function start() {
     fetchEdgeStatus(portOfficial),
     fetchEdgeStatus(portUnofficial),
   ]);
-  const diagLines = [fmtEdgeDiag("Official", stA), fmtEdgeDiag("Unofficial", stB)];
-  const authWarnings = [edgeAuthNotice("Official", stA), edgeAuthNotice("Unofficial", stB)].filter(Boolean);
+  const diagLines = [fmtEdgeDiag("Primary", stA), fmtEdgeDiag("Secondary", stB)];
+  const authWarnings = [edgeAuthNotice("Primary", stA), edgeAuthNotice("Secondary", stB)].filter(Boolean);
   if (authWarnings.length > 0) {
     diagLines.push("", "AUTH warning:", ...authWarnings);
   }
   setDiag(diagLines.join("\n"));
   if (authWarnings.length > 0) {
-    setStatus("Edge auth issue detected. See diagnostics below.");
+    setStatus("Server auth issue detected. See diagnostics below.");
     setSetupNote(`Auth issue: ${authWarnings.join(" | ")}`);
   } else {
     setStatus("Opening POS…");
@@ -1132,15 +1179,15 @@ async function runDiagnostics() {
   ]);
   if (!okA || !okB) {
     setStatus("Agents are not running (or not ready). Click Start POS first.");
-    setDiag(`Official agent: ${okA ? "ok" : "not reachable"}\nUnofficial agent: ${okB ? "ok" : "not reachable"}`);
+    setDiag(`Primary agent: ${okA ? "ok" : "not reachable"}\nSecondary agent: ${okB ? "ok" : "not reachable"}`);
     return;
   }
   const [stA, stB] = await Promise.all([
     fetchEdgeStatus(portOfficial),
     fetchEdgeStatus(portUnofficial),
   ]);
-  const diagLines = [fmtEdgeDiag("Official", stA), fmtEdgeDiag("Unofficial", stB)];
-  const authWarnings = [edgeAuthNotice("Official", stA), edgeAuthNotice("Unofficial", stB)].filter(Boolean);
+  const diagLines = [fmtEdgeDiag("Primary", stA), fmtEdgeDiag("Secondary", stB)];
+  const authWarnings = [edgeAuthNotice("Primary", stA), edgeAuthNotice("Secondary", stB)].filter(Boolean);
   if (authWarnings.length > 0) {
     diagLines.push("", "AUTH warning:", ...authWarnings);
   }
@@ -1195,7 +1242,7 @@ async function copyDebugReport() {
       `status=${status}`,
       `setup_note=${setup}`,
       `api_url=${edgeUrl}`,
-      `ports=official:${portOfficial}, unofficial:${portUnofficial}`,
+      `ports=primary:${portOfficial}, secondary:${portUnofficial}`,
       ``,
       `=== UI Diagnostics ===`,
       diag || "(empty)",
@@ -1203,10 +1250,10 @@ async function copyDebugReport() {
       `=== Desktop UI Log ===`,
       desktopLogs.trim() || "(empty)",
       ``,
-      `=== Official Agent Log ===`,
+      `=== Primary Agent Log ===`,
       String(agentLogs?.official || "").trim() || "(empty)",
       ``,
-      `=== Unofficial Agent Log ===`,
+      `=== Secondary Agent Log ===`,
       String(agentLogs?.unofficial || "").trim() || "(empty)",
       ``,
     ].join("\n");
@@ -1241,7 +1288,12 @@ if (el("setupCompanyOfficial")) {
   el("setupVerifyMfaBtn").addEventListener("click", () => quickSetupVerifyMfa());
   el("setupClearBtn").addEventListener("click", quickSetupClear);
   el("setupApplyBtn").addEventListener("click", () => quickSetupApply());
-  el("setupCompanyOfficial").addEventListener("change", () => quickSetupLoadBranches().catch(() => {}));
+  el("setupCompanyOfficial").addEventListener("change", () => {
+    syncQuickSetupSecondarySelection();
+    quickSetupLoadBranches().catch(() => {});
+  });
+  if (el("setupDualMode")) el("setupDualMode").addEventListener("change", updateQuickSetupModeUI);
+  updateQuickSetupModeUI();
 }
 el("applyPackBtn").addEventListener("click", () => {
   const raw = el("setupPack").value;

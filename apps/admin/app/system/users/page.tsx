@@ -11,9 +11,19 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
-type UserRow = { id: string; email: string; full_name?: string | null; phone?: string | null; is_active: boolean; mfa_enabled?: boolean };
-type RoleRow = { id: string; name: string; assigned_users?: number };
-type RoleTemplate = {
+type UserRow = {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  phone?: string | null;
+  is_active: boolean;
+  mfa_enabled?: boolean;
+  profile_type_code?: string | null;
+  profile_type_name?: string | null;
+  role_names?: string[];
+};
+type RoleRow = { id: string; name: string; assigned_users?: number; template_code?: string | null };
+type ProfileType = {
   code: string;
   name: string;
   description: string;
@@ -25,9 +35,10 @@ export default function UsersPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [allUsers, setAllUsers] = useState<UserRow[]>([]);
   const [roles, setRoles] = useState<RoleRow[]>([]);
-  const [templates, setTemplates] = useState<RoleTemplate[]>([]);
+  const [profileTypes, setProfileTypes] = useState<ProfileType[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
   const [email, setEmail] = useState("");
@@ -39,6 +50,10 @@ export default function UsersPage() {
   const [assignUserId, setAssignUserId] = useState("");
   const [assignRoleId, setAssignRoleId] = useState("");
   const [assigning, setAssigning] = useState(false);
+
+  const [profileUserId, setProfileUserId] = useState("");
+  const [profileTypeCode, setProfileTypeCode] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
 
   const [editUserId, setEditUserId] = useState("");
   const [editEmail, setEditEmail] = useState("");
@@ -56,12 +71,12 @@ export default function UsersPage() {
         apiGet<{ users: UserRow[] }>("/users"),
         apiGet<{ users: UserRow[] }>("/users/directory"),
         apiGet<{ roles: RoleRow[] }>("/users/roles"),
-        apiGet<{ templates: RoleTemplate[] }>("/users/role-templates")
+        apiGet<{ profile_types?: ProfileType[]; templates?: ProfileType[] }>("/users/profile-types")
       ]);
       setUsers(u.users || []);
       setAllUsers(d.users || []);
       setRoles(r.roles || []);
-      setTemplates(t.templates || []);
+      setProfileTypes(t.profile_types || t.templates || []);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -78,20 +93,28 @@ export default function UsersPage() {
     if (!assignUserId && allUsers.length) setAssignUserId(allUsers[0]?.id || "");
   }, [roles, allUsers, assignRoleId, assignUserId]);
 
-  const selectedTemplate = useMemo(() => templates.find((t) => t.code === templateCode) || null, [templates, templateCode]);
+  useEffect(() => {
+    if (!profileUserId && allUsers.length) setProfileUserId(allUsers[0]?.id || "");
+    if (!profileTypeCode && profileTypes.length) setProfileTypeCode(profileTypes[0]?.code || "");
+  }, [allUsers, profileTypes, profileUserId, profileTypeCode]);
+
+  const selectedProfileType = useMemo(
+    () => profileTypes.find((t) => t.code === templateCode) || null,
+    [profileTypes, templateCode],
+  );
 
   async function createUser(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return setStatus("email is required");
     if (!password) return setStatus("password is required");
-    if (templateCode && createRoleId) return setStatus("choose either a template or an existing role");
+    if (templateCode && createRoleId) return setStatus("choose either a profile type or an existing role");
     setCreating(true);
     setStatus("Creating user...");
     try {
       const res = await apiPost<{ id?: string; created?: boolean; existing?: boolean; access_granted?: boolean; note?: string }>("/users", {
         email: email.trim().toLowerCase(),
         password,
-        template_code: templateCode || undefined,
+        profile_type_code: templateCode || undefined,
         role_id: createRoleId || undefined,
       });
       setEmail("");
@@ -142,6 +165,28 @@ export default function UsersPage() {
     }
   }
 
+  async function assignProfileType(e: React.FormEvent) {
+    e.preventDefault();
+    if (!profileUserId) return setStatus("user is required");
+    if (!profileTypeCode) return setStatus("profile type is required");
+    setProfileSaving(true);
+    setStatus("Applying profile type...");
+    try {
+      await apiPost(`/users/${encodeURIComponent(profileUserId)}/profile-type`, {
+        profile_type_code: profileTypeCode,
+        replace_existing_roles: true,
+      });
+      setProfileOpen(false);
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
   async function saveEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editUserId) return;
@@ -173,6 +218,13 @@ export default function UsersPage() {
       { id: "phone", header: "Phone", accessor: (u) => u.phone || "", sortable: true, cell: (u) => <span className="text-sm">{u.phone || "-"}</span> },
       { id: "id", header: "User ID", accessor: (u) => u.id, mono: true, defaultHidden: true },
       {
+        id: "profile_type",
+        header: "Profile Type",
+        accessor: (u) => u.profile_type_name || u.profile_type_code || "",
+        sortable: true,
+        cell: (u) => <span className="text-sm">{u.profile_type_name || (u.profile_type_code === "mixed" ? "Mixed / Custom" : "-")}</span>,
+      },
+      {
         id: "active",
         header: "Active",
         accessor: (u) => (u.is_active ? "yes" : "no"),
@@ -199,6 +251,17 @@ export default function UsersPage() {
               }}
             >
               Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setProfileUserId(u.id);
+                setProfileTypeCode((u.profile_type_code && u.profile_type_code !== "mixed") ? u.profile_type_code : "");
+                setProfileOpen(true);
+              }}
+            >
+              Profile Type
             </Button>
             <ConfirmButton
               variant="outline"
@@ -229,7 +292,7 @@ export default function UsersPage() {
 
       <PageHeader
         title="Users"
-        description="Manage access for this company (users, roles, templates)."
+        description="Manage access for this company (users, roles, profile types)."
         actions={
           <>
             <Button variant="outline" onClick={load}>
@@ -242,7 +305,7 @@ export default function UsersPage() {
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Create User</DialogTitle>
-                  <DialogDescription>Create the account and auto-assign access with a template (recommended).</DialogDescription>
+                  <DialogDescription>Create the account and auto-assign access with a profile type (recommended).</DialogDescription>
                 </DialogHeader>
                 <form onSubmit={createUser} className="grid grid-cols-1 gap-3">
                   <div className="space-y-1">
@@ -254,19 +317,19 @@ export default function UsersPage() {
                     <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Set a password" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">Role Template (Recommended)</label>
+                    <label className="text-xs font-medium text-fg-muted">Profile Type (Recommended)</label>
                     <select className="ui-select" value={templateCode} onChange={(e) => setTemplateCode(e.target.value)}>
-                      <option value="">No template</option>
-                      {templates.map((t) => (
+                      <option value="">No profile type</option>
+                      {profileTypes.map((t) => (
                         <option key={t.code} value={t.code}>
                           {t.name}
                         </option>
                       ))}
                     </select>
                   </div>
-                  {selectedTemplate ? (
+                  {selectedProfileType ? (
                     <p className="text-xs text-fg-muted">
-                      {selectedTemplate.description} ({selectedTemplate.permission_codes.length} permissions)
+                      {selectedProfileType.description} ({selectedProfileType.permission_codes.length} permissions)
                     </p>
                   ) : null}
                   <div className="space-y-1">
@@ -329,6 +392,52 @@ export default function UsersPage() {
                   <div className="flex justify-end">
                     <Button type="submit" disabled={assigning}>
                       {assigning ? "..." : "Assign"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+              <DialogTrigger asChild>
+                <Button variant="secondary">Set Profile Type</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Set Profile Type</DialogTitle>
+                  <DialogDescription>Assign a predefined profile type with its permission set.</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={assignProfileType} className="grid grid-cols-1 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">User</label>
+                    <select className="ui-select" value={profileUserId} onChange={(e) => setProfileUserId(e.target.value)}>
+                      <option value="">Select user...</option>
+                      {allUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Profile Type</label>
+                    <select className="ui-select" value={profileTypeCode} onChange={(e) => setProfileTypeCode(e.target.value)}>
+                      <option value="">Select profile type...</option>
+                      {profileTypes.map((t) => (
+                        <option key={t.code} value={t.code}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {profileTypeCode ? (
+                    <p className="text-xs text-fg-muted">
+                      {profileTypes.find((p) => p.code === profileTypeCode)?.description || ""}
+                    </p>
+                  ) : null}
+                  <div className="flex justify-end">
+                    <Button type="submit" disabled={profileSaving}>
+                      {profileSaving ? "..." : "Apply"}
                     </Button>
                   </div>
                 </form>

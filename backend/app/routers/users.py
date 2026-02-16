@@ -17,6 +17,8 @@ class UserIn(BaseModel):
     role_id: Optional[str] = None
     # Optional: use a preset template to create/ensure a role + permissions, then assign to user.
     template_code: Optional[str] = None
+    # Optional alias for template_code exposed as "profile type" in admin UI.
+    profile_type_code: Optional[str] = None
 
 
 class RoleTemplateOut(BaseModel):
@@ -53,22 +55,95 @@ class RoleAssignIn(BaseModel):
     role_id: str
 
 
+class UserProfileTypeAssignIn(BaseModel):
+    profile_type_code: str
+    replace_existing_roles: bool = True
+
+
+def _has_roles_template_code_column(cur) -> bool:
+    cur.execute(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'roles'
+            AND column_name = 'template_code'
+        ) AS ok
+        """
+    )
+    return bool((cur.fetchone() or {}).get("ok"))
+
+
 @router.get("", dependencies=[Depends(require_permission("users:read"))])
 def list_users(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            has_template_code = _has_roles_template_code_column(cur)
+            profile_codes_select = (
+                "COALESCE(array_agg(DISTINCT r.template_code) FILTER (WHERE r.template_code IS NOT NULL), ARRAY[]::text[]) AS profile_type_codes,"
+                if has_template_code
+                else "ARRAY[]::text[] AS profile_type_codes,"
+            )
             cur.execute(
-                """
-                SELECT DISTINCT u.id, u.email, u.full_name, u.phone, u.is_active, u.mfa_enabled
+                f"""
+                SELECT u.id,
+                       u.email,
+                       u.full_name,
+                       u.phone,
+                       u.is_active,
+                       u.mfa_enabled,
+                       COALESCE(array_agg(DISTINCT r.name) FILTER (WHERE r.id IS NOT NULL), ARRAY[]::text[]) AS role_names,
+                       {profile_codes_select}
                 FROM users u
-                JOIN user_roles ur ON ur.user_id = u.id
+                JOIN user_roles ur
+                  ON ur.user_id = u.id
+                LEFT JOIN roles r
+                  ON r.id = ur.role_id
+                 AND r.company_id = ur.company_id
                 WHERE ur.company_id = %s
+                GROUP BY u.id, u.email, u.full_name, u.phone, u.is_active, u.mfa_enabled
                 ORDER BY u.email
                 """,
                 (company_id,),
             )
-            return {"users": cur.fetchall()}
+            rows = cur.fetchall()
+
+            templates = _role_templates()
+            templates_by_code = {t.code: t for t in templates}
+            template_code_by_name = {t.name.strip().lower(): t.code for t in templates}
+
+            users = []
+            for row in rows:
+                role_names = [str(x).strip() for x in list(row.get("role_names") or []) if str(x).strip()]
+                raw_codes = [str(x).strip() for x in list(row.get("profile_type_codes") or []) if str(x).strip()]
+                inferred_codes = {
+                    template_code_by_name.get(str(name).strip().lower())
+                    for name in role_names
+                    if str(name).strip()
+                }
+                merged_codes = sorted({c for c in [*raw_codes, *list(inferred_codes)] if c})
+                profile_type_code = merged_codes[0] if len(merged_codes) == 1 else ("mixed" if len(merged_codes) > 1 else None)
+                profile_type_name = (
+                    templates_by_code[profile_type_code].name
+                    if profile_type_code and profile_type_code in templates_by_code
+                    else ("Mixed / Custom" if profile_type_code == "mixed" else None)
+                )
+                users.append(
+                    {
+                        "id": row["id"],
+                        "email": row["email"],
+                        "full_name": row.get("full_name"),
+                        "phone": row.get("phone"),
+                        "is_active": bool(row.get("is_active")),
+                        "mfa_enabled": bool(row.get("mfa_enabled")),
+                        "role_names": role_names,
+                        "profile_type_code": profile_type_code,
+                        "profile_type_name": profile_type_name,
+                    }
+                )
+            return {"users": users}
 
 
 @router.get("/directory", dependencies=[Depends(require_permission("users:read"))])
@@ -291,31 +366,118 @@ def list_role_templates():
     return {"templates": [t.model_dump() for t in _role_templates()]}
 
 
+@router.get("/profile-types", dependencies=[Depends(require_permission("users:read"))])
+def list_profile_types():
+    # Alias for role templates using user-facing naming.
+    rows = [t.model_dump() for t in _role_templates()]
+    return {"profile_types": rows, "templates": rows}
+
+
+def _get_role_template_by_code(code: str) -> Optional[RoleTemplateOut]:
+    target = (code or "").strip()
+    if not target:
+        return None
+    return next((t for t in _role_templates() if t.code == target), None)
+
+
 def _ensure_role_from_template(cur, company_id: str, template: RoleTemplateOut) -> str:
     # Make the role name stable but human friendly.
     role_name = template.name
-    cur.execute(
-        """
-        SELECT id
-        FROM roles
-        WHERE company_id = %s AND lower(name) = lower(%s)
-        LIMIT 1
-        """,
-        (company_id, role_name),
-    )
-    row = cur.fetchone()
-    if row:
-        role_id = row["id"]
-    else:
+    has_template_code = _has_roles_template_code_column(cur)
+
+    role_id = None
+    if has_template_code:
         cur.execute(
             """
-            INSERT INTO roles (id, company_id, name)
-            VALUES (gen_random_uuid(), %s, %s)
-            RETURNING id
+            SELECT id
+            FROM roles
+            WHERE company_id = %s AND template_code = %s
+            LIMIT 1
+            """,
+            (company_id, template.code),
+        )
+        row = cur.fetchone()
+        if row:
+            role_id = row["id"]
+
+    if not role_id:
+        cur.execute(
+            """
+            SELECT id
+            FROM roles
+            WHERE company_id = %s AND lower(name) = lower(%s)
+            LIMIT 1
             """,
             (company_id, role_name),
         )
-        role_id = cur.fetchone()["id"]
+        row = cur.fetchone()
+        if row:
+            role_id = row["id"]
+            if has_template_code:
+                # Best effort: mark existing role as template-backed.
+                try:
+                    cur.execute(
+                        """
+                        UPDATE roles
+                        SET template_code = %s
+                        WHERE id = %s
+                          AND company_id = %s
+                          AND template_code IS NULL
+                        """,
+                        (template.code, role_id, company_id),
+                    )
+                except UniqueViolation:
+                    cur.execute(
+                        """
+                        SELECT id
+                        FROM roles
+                        WHERE company_id = %s
+                          AND template_code = %s
+                        LIMIT 1
+                        """,
+                        (company_id, template.code),
+                    )
+                    existing = cur.fetchone()
+                    if existing:
+                        role_id = existing["id"]
+
+    if not role_id:
+        if has_template_code:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO roles (id, company_id, name, template_code)
+                    VALUES (gen_random_uuid(), %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (company_id, role_name, template.code),
+                )
+            except UniqueViolation:
+                cur.execute(
+                    """
+                    SELECT id
+                    FROM roles
+                    WHERE company_id = %s
+                      AND template_code = %s
+                    LIMIT 1
+                    """,
+                    (company_id, template.code),
+                )
+                existing = cur.fetchone()
+                if not existing:
+                    raise
+                role_id = existing["id"]
+        else:
+            cur.execute(
+                """
+                INSERT INTO roles (id, company_id, name)
+                VALUES (gen_random_uuid(), %s, %s)
+                RETURNING id
+                """,
+                (company_id, role_name),
+            )
+        if not role_id:
+            role_id = cur.fetchone()["id"]
 
     # Grant permissions from the catalog.
     for code in template.permission_codes:
@@ -393,12 +555,17 @@ def update_me(
 def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
     email = (data.email or "").strip().lower()
     password = data.password or ""
+    profile_type_code = (data.profile_type_code or "").strip() or None
+    template_code = (data.template_code or "").strip() or None
     if not email:
         raise HTTPException(status_code=422, detail="email is required")
     if not password:
         raise HTTPException(status_code=422, detail="password is required")
-    if data.template_code and data.role_id:
-        raise HTTPException(status_code=422, detail="provide either template_code or role_id, not both")
+    if profile_type_code and template_code:
+        raise HTTPException(status_code=422, detail="provide either profile_type_code or template_code, not both")
+    selected_template_code = profile_type_code or template_code
+    if selected_template_code and data.role_id:
+        raise HTTPException(status_code=422, detail="provide either profile_type_code/template_code or role_id, not both")
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -424,13 +591,13 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
                 uid = row["id"]
                 # If the user already exists and no role/template was provided, keep the
                 # old behavior (409) so callers don't assume password was updated.
-                if not (data.template_code or data.role_id):
+                if not (selected_template_code or data.role_id):
                     raise HTTPException(status_code=409, detail="email already exists")
 
             # Optional: assign a role immediately.
             role_id: Optional[str] = None
-            if data.template_code:
-                tmpl = next((t for t in _role_templates() if t.code == data.template_code), None)
+            if selected_template_code:
+                tmpl = next((t for t in _role_templates() if t.code == selected_template_code), None)
                 if not tmpl:
                     raise HTTPException(status_code=404, detail="role template not found")
                 role_id = _ensure_role_from_template(cur, company_id, tmpl)
@@ -475,7 +642,8 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
                         {
                             "email": email,
                             "assigned_role_id": role_id,
-                            "template_code": data.template_code,
+                            "template_code": selected_template_code,
+                            "profile_type_code": selected_template_code,
                             "created": created,
                         }
                     ),
@@ -689,11 +857,14 @@ def list_roles(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            has_template_code = _has_roles_template_code_column(cur)
+            template_select = "r.template_code," if has_template_code else "NULL::text AS template_code,"
             cur.execute(
-                """
+                f"""
                 SELECT
                   r.id,
                   r.name,
+                  {template_select}
                   COUNT(ur.user_id)::int AS assigned_users
                 FROM roles
                 r
@@ -877,6 +1048,87 @@ def assign_role(data: RoleAssignIn, company_id: str = Depends(get_company_id), u
                 (company_id, user["user_id"], data.user_id, json.dumps({"role_id": data.role_id})),
             )
             return {"ok": True}
+
+
+@router.post("/{user_id}/profile-type", dependencies=[Depends(require_permission("users:write"))])
+def assign_user_profile_type(
+    user_id: str,
+    data: UserProfileTypeAssignIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    profile_type_code = (data.profile_type_code or "").strip()
+    if not profile_type_code:
+        raise HTTPException(status_code=422, detail="profile_type_code is required")
+    template = _get_role_template_by_code(profile_type_code)
+    if not template:
+        raise HTTPException(status_code=404, detail="profile type not found")
+    if user_id == user["user_id"] and data.replace_existing_roles and "users:write" not in template.permission_codes:
+        raise HTTPException(status_code=400, detail="cannot remove your own users:write access")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="user not found")
+
+                role_id = _ensure_role_from_template(cur, company_id, template)
+
+                if data.replace_existing_roles:
+                    cur.execute(
+                        """
+                        DELETE FROM user_roles
+                        WHERE company_id = %s
+                          AND user_id = %s
+                          AND role_id <> %s
+                        """,
+                        (company_id, user_id, role_id),
+                    )
+                cur.execute(
+                    """
+                    INSERT INTO user_roles (user_id, role_id, company_id)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id, role_id) DO NOTHING
+                    """,
+                    (user_id, role_id, company_id),
+                )
+
+                cur.execute(
+                    """
+                    UPDATE auth_sessions
+                    SET is_active = false
+                    WHERE user_id = %s
+                    """,
+                    (user_id,),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'users.profile_type.assign', 'user', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        user_id,
+                        json.dumps(
+                            {
+                                "profile_type_code": template.code,
+                                "profile_type_name": template.name,
+                                "role_id": role_id,
+                                "replace_existing_roles": bool(data.replace_existing_roles),
+                            }
+                        ),
+                    ),
+                )
+                return {
+                    "ok": True,
+                    "user_id": user_id,
+                    "profile_type_code": template.code,
+                    "profile_type_name": template.name,
+                    "role_id": role_id,
+                }
 
 
 class RolePermissionIn(BaseModel):

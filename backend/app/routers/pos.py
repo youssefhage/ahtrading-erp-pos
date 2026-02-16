@@ -9,7 +9,7 @@ from ..security import hash_device_token, hash_pin, verify_pin
 import secrets
 import json
 from decimal import Decimal
-from psycopg.errors import ForeignKeyViolation  # type: ignore
+from psycopg.errors import ForeignKeyViolation, UniqueViolation  # type: ignore
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 
@@ -50,6 +50,110 @@ class PosCustomerCreateIn(BaseModel):
     is_active: bool = True
 
 
+class PosDeviceUpdateIn(BaseModel):
+    device_code: Optional[str] = None
+    branch_id: Optional[str] = None
+
+
+class PosDeviceCashierAssignmentsIn(BaseModel):
+    cashier_ids: List[str] = []
+
+
+class PosDeviceEmployeeAssignmentsIn(BaseModel):
+    user_ids: List[str] = []
+
+
+def _normalize_optional_uuid_text(value: Optional[str]) -> Optional[str]:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+def _require_branch_in_company(cur, company_id: str, branch_id: Optional[str]) -> None:
+    if not branch_id:
+        return
+    cur.execute(
+        """
+        SELECT id
+        FROM branches
+        WHERE company_id = %s AND id = %s
+        """,
+        (company_id, branch_id),
+    )
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="branch not found")
+
+
+def _has_pos_device_cashiers_table(cur) -> bool:
+    cur.execute("SELECT to_regclass('public.pos_device_cashiers') IS NOT NULL AS ok")
+    return bool((cur.fetchone() or {}).get("ok"))
+
+
+def _has_pos_device_users_table(cur) -> bool:
+    cur.execute("SELECT to_regclass('public.pos_device_users') IS NOT NULL AS ok")
+    return bool((cur.fetchone() or {}).get("ok"))
+
+
+def _has_pos_cashiers_user_id_column(cur) -> bool:
+    cur.execute(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'pos_cashiers'
+            AND column_name = 'user_id'
+        ) AS ok
+        """
+    )
+    return bool((cur.fetchone() or {}).get("ok"))
+
+
+def _has_pos_devices_health_columns(cur) -> bool:
+    cur.execute(
+        """
+        SELECT COUNT(*)::int AS n
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'pos_devices'
+          AND column_name IN ('last_seen_at', 'last_seen_status')
+        """
+    )
+    return int((cur.fetchone() or {}).get("n") or 0) >= 2
+
+
+def _require_device_exists(cur, company_id: str, device_id: str) -> None:
+    cur.execute(
+        """
+        SELECT 1
+        FROM pos_devices
+        WHERE id = %s AND company_id = %s
+        """,
+        (device_id, company_id),
+    )
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="device not found")
+
+
+def _ensure_company_users_exist(cur, company_id: str, user_ids: list[str]) -> None:
+    if not user_ids:
+        return
+    cur.execute(
+        """
+        SELECT DISTINCT ur.user_id AS id
+        FROM user_roles ur
+        JOIN users u ON u.id = ur.user_id
+        WHERE ur.company_id = %s
+          AND ur.user_id = ANY(%s)
+          AND COALESCE(u.is_active, true) = true
+        """,
+        (company_id, user_ids),
+    )
+    found = {str(r["id"]) for r in cur.fetchall()}
+    missing = [uid for uid in user_ids if uid not in found]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"user not found or inactive: {missing[0]}")
+
+
 @router.post("/devices/register")
 def register_device(
     company_id: str,
@@ -62,16 +166,22 @@ def register_device(
 ):
     if company_id != header_company_id:
         raise HTTPException(status_code=400, detail="company_id mismatch")
+    next_device_code = (device_code or "").strip()
+    if not next_device_code:
+        raise HTTPException(status_code=400, detail="device_code is required")
+    next_branch_id = _normalize_optional_uuid_text(branch_id)
+
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            _require_branch_in_company(cur, company_id, next_branch_id)
             cur.execute(
                 """
                 SELECT id, device_token_hash
                 FROM pos_devices
                 WHERE company_id = %s AND device_code = %s
                 """,
-                (company_id, device_code),
+                (company_id, next_device_code),
             )
             existing = cur.fetchone()
             if existing:
@@ -95,7 +205,7 @@ def register_device(
                 VALUES (gen_random_uuid(), %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (company_id, branch_id, device_code, hash_device_token(token)),
+                (company_id, next_branch_id, next_device_code, hash_device_token(token)),
             )
             return {"id": cur.fetchone()["id"], "token": token}
 
@@ -108,17 +218,389 @@ def list_devices(
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            has_device_cashier_assignments = _has_pos_device_cashiers_table(cur)
+            has_device_user_assignments = _has_pos_device_users_table(cur)
+            has_health_columns = _has_pos_devices_health_columns(cur)
+            health_select = (
+                "d.last_seen_at, d.last_seen_status,"
+                if has_health_columns
+                else "NULL::timestamptz AS last_seen_at, NULL::text AS last_seen_status,"
+            )
+            user_assign_select = (
+                "COALESCE(u_assign.assigned_employees_count, 0)::int AS assigned_employees_count,"
+                if has_device_user_assignments
+                else "0::int AS assigned_employees_count,"
+            )
+            user_assign_join = (
+                """
+                LEFT JOIN (
+                  SELECT company_id, device_id, COUNT(*)::int AS assigned_employees_count
+                  FROM pos_device_users
+                  GROUP BY company_id, device_id
+                ) u_assign
+                  ON u_assign.company_id = d.company_id
+                 AND u_assign.device_id = d.id
+                """
+                if has_device_user_assignments
+                else ""
+            )
+            cashier_assign_select = (
+                "COALESCE(c_assign.assigned_cashiers_count, 0)::int AS assigned_cashiers_count,"
+                if has_device_cashier_assignments
+                else "0::int AS assigned_cashiers_count,"
+            )
+            cashier_assign_join = (
+                """
+                LEFT JOIN (
+                  SELECT company_id, device_id, COUNT(*)::int AS assigned_cashiers_count
+                  FROM pos_device_cashiers
+                  GROUP BY company_id, device_id
+                ) c_assign
+                  ON c_assign.company_id = d.company_id
+                 AND c_assign.device_id = d.id
+                """
+                if has_device_cashier_assignments
+                else ""
+            )
+            cur.execute(
+                f"""
+                SELECT d.id,
+                       d.branch_id,
+                       b.name AS branch_name,
+                       d.device_code,
+                       d.created_at,
+                       d.updated_at,
+                       {health_select}
+                       (d.device_token_hash IS NOT NULL) AS has_token,
+                       {cashier_assign_select}
+                       {user_assign_select}
+                       COALESCE(outbox.pending_events, 0)::int AS pending_events,
+                       COALESCE(outbox.failed_events, 0)::int AS failed_events,
+                       outbox.last_event_at,
+                       COALESCE(shifts.open_shift_count, 0)::int AS open_shift_count
+                FROM pos_devices d
+                LEFT JOIN branches b
+                  ON b.company_id = d.company_id
+                 AND b.id = d.branch_id
+                LEFT JOIN (
+                  SELECT o.device_id,
+                         COUNT(*) FILTER (WHERE o.status = 'pending')::int AS pending_events,
+                         COUNT(*) FILTER (WHERE o.status IN ('failed', 'dead'))::int AS failed_events,
+                         MAX(o.created_at) AS last_event_at
+                  FROM pos_events_outbox o
+                  GROUP BY o.device_id
+                ) outbox
+                  ON outbox.device_id = d.id
+                LEFT JOIN (
+                  SELECT s.device_id,
+                         COUNT(*) FILTER (WHERE s.status = 'open')::int AS open_shift_count
+                  FROM pos_shifts s
+                  WHERE s.company_id = %s
+                  GROUP BY s.device_id
+                ) shifts
+                  ON shifts.device_id = d.id
+                {cashier_assign_join}
+                {user_assign_join}
+                WHERE d.company_id = %s
+                ORDER BY d.created_at DESC
+                """,
+                (company_id, company_id),
+            )
+            return {"devices": cur.fetchall()}
+
+
+@router.patch("/devices/{device_id}", dependencies=[Depends(require_permission("pos:manage"))])
+def update_device(
+    device_id: str,
+    data: PosDeviceUpdateIn,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+    user=Depends(get_current_user),
+):
+    patch = data.model_dump(exclude_unset=True)
+    if not patch:
+        raise HTTPException(status_code=400, detail="no fields to update")
+
+    fields = []
+    params: list[object] = []
+    details: dict[str, object] = {}
+
+    if "device_code" in patch:
+        next_device_code = str(patch.get("device_code") or "").strip()
+        if not next_device_code:
+            raise HTTPException(status_code=400, detail="device_code is required")
+        fields.append("device_code = %s")
+        params.append(next_device_code)
+        details["device_code"] = next_device_code
+
+    next_branch_id = None
+    if "branch_id" in patch:
+        next_branch_id = _normalize_optional_uuid_text(patch.get("branch_id"))
+        fields.append("branch_id = %s")
+        params.append(next_branch_id)
+        details["branch_id"] = next_branch_id
+
+    if not fields:
+        raise HTTPException(status_code=400, detail="no valid fields to update")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                if "branch_id" in patch:
+                    _require_branch_in_company(cur, company_id, next_branch_id)
+                try:
+                    params.extend([device_id, company_id])
+                    cur.execute(
+                        f"""
+                        UPDATE pos_devices
+                        SET {", ".join(fields)}
+                        WHERE id = %s AND company_id = %s
+                        RETURNING id, branch_id, device_code, updated_at
+                        """,
+                        params,
+                    )
+                except UniqueViolation:
+                    raise HTTPException(status_code=409, detail="device_code already exists")
+
+                updated = cur.fetchone()
+                if not updated:
+                    raise HTTPException(status_code=404, detail="device not found")
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'pos.device.update', 'pos_device', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], device_id, json.dumps(details)),
+                )
+                return {"device": updated}
+
+
+@router.get("/devices/{device_id}/cashiers", dependencies=[Depends(require_permission("pos:manage"))])
+def list_device_cashier_assignments(
+    device_id: str,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            if not _has_pos_device_cashiers_table(cur):
+                raise HTTPException(status_code=503, detail="device cashier assignments not available (run latest migrations)")
             cur.execute(
                 """
-                SELECT id, branch_id, device_code, created_at,
-                       (device_token_hash IS NOT NULL) AS has_token
+                SELECT 1
                 FROM pos_devices
-                WHERE company_id = %s
-                ORDER BY created_at DESC
+                WHERE id = %s AND company_id = %s
+                """,
+                (device_id, company_id),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="device not found")
+
+            cur.execute(
+                """
+                SELECT c.id,
+                       c.name,
+                       c.is_active,
+                       c.updated_at,
+                       (dc.cashier_id IS NOT NULL) AS assigned
+                FROM pos_cashiers c
+                LEFT JOIN pos_device_cashiers dc
+                  ON dc.company_id = c.company_id
+                 AND dc.device_id = %s
+                 AND dc.cashier_id = c.id
+                WHERE c.company_id = %s
+                ORDER BY c.name
+                """,
+                (device_id, company_id),
+            )
+            return {"cashiers": cur.fetchall()}
+
+
+@router.patch("/devices/{device_id}/cashiers", dependencies=[Depends(require_permission("pos:manage"))])
+def replace_device_cashier_assignments(
+    device_id: str,
+    data: PosDeviceCashierAssignmentsIn,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+    user=Depends(get_current_user),
+):
+    cashier_ids = [str(c or "").strip() for c in (data.cashier_ids or []) if str(c or "").strip()]
+    cashier_ids = list(dict.fromkeys(cashier_ids))
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                if not _has_pos_device_cashiers_table(cur):
+                    raise HTTPException(status_code=503, detail="device cashier assignments not available (run latest migrations)")
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM pos_devices
+                    WHERE id = %s AND company_id = %s
+                    """,
+                    (device_id, company_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="device not found")
+
+                if cashier_ids:
+                    cur.execute(
+                        """
+                        SELECT id
+                        FROM pos_cashiers
+                        WHERE company_id = %s
+                          AND id = ANY(%s)
+                        """,
+                        (company_id, cashier_ids),
+                    )
+                    found = {str(r["id"]) for r in cur.fetchall()}
+                    missing = [cid for cid in cashier_ids if cid not in found]
+                    if missing:
+                        raise HTTPException(status_code=404, detail=f"cashier not found: {missing[0]}")
+
+                cur.execute(
+                    """
+                    DELETE FROM pos_device_cashiers
+                    WHERE company_id = %s AND device_id = %s
+                    """,
+                    (company_id, device_id),
+                )
+                if cashier_ids:
+                    cur.executemany(
+                        """
+                        INSERT INTO pos_device_cashiers (company_id, device_id, cashier_id)
+                        VALUES (%s, %s, %s)
+                        """,
+                        [(company_id, device_id, cid) for cid in cashier_ids],
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'pos.device.cashiers.assign', 'pos_device', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        device_id,
+                        json.dumps({"cashier_ids": cashier_ids, "assigned_count": len(cashier_ids)}),
+                    ),
+                )
+
+                return {"ok": True, "assigned_count": len(cashier_ids)}
+
+
+@router.get("/employees", dependencies=[Depends(require_permission("pos:manage"))])
+def list_pos_employees(company_id: str = Depends(get_company_id), _auth=Depends(require_company_access)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT u.id,
+                       u.email,
+                       u.full_name,
+                       u.phone,
+                       COALESCE(u.is_active, true) AS is_active
+                FROM users u
+                JOIN user_roles ur
+                  ON ur.user_id = u.id
+                 AND ur.company_id = %s
+                ORDER BY COALESCE(NULLIF(trim(u.full_name), ''), u.email)
                 """,
                 (company_id,),
             )
-            return {"devices": cur.fetchall()}
+            return {"employees": cur.fetchall()}
+
+
+@router.get("/devices/{device_id}/employees", dependencies=[Depends(require_permission("pos:manage"))])
+def list_device_employee_assignments(
+    device_id: str,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            if not _has_pos_device_users_table(cur):
+                raise HTTPException(status_code=503, detail="device employee assignments not available (run latest migrations)")
+            _require_device_exists(cur, company_id, device_id)
+            cur.execute(
+                """
+                SELECT DISTINCT u.id,
+                       u.email,
+                       u.full_name,
+                       u.phone,
+                       COALESCE(u.is_active, true) AS is_active,
+                       (du.user_id IS NOT NULL) AS assigned
+                FROM users u
+                JOIN user_roles ur
+                  ON ur.user_id = u.id
+                 AND ur.company_id = %s
+                LEFT JOIN pos_device_users du
+                  ON du.company_id = ur.company_id
+                 AND du.device_id = %s
+                 AND du.user_id = u.id
+                ORDER BY COALESCE(NULLIF(trim(u.full_name), ''), u.email)
+                """,
+                (company_id, device_id),
+            )
+            return {"employees": cur.fetchall()}
+
+
+@router.patch("/devices/{device_id}/employees", dependencies=[Depends(require_permission("pos:manage"))])
+def replace_device_employee_assignments(
+    device_id: str,
+    data: PosDeviceEmployeeAssignmentsIn,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+    user=Depends(get_current_user),
+):
+    user_ids = [str(u or "").strip() for u in (data.user_ids or []) if str(u or "").strip()]
+    user_ids = list(dict.fromkeys(user_ids))
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                if not _has_pos_device_users_table(cur):
+                    raise HTTPException(status_code=503, detail="device employee assignments not available (run latest migrations)")
+                _require_device_exists(cur, company_id, device_id)
+                _ensure_company_users_exist(cur, company_id, user_ids)
+
+                cur.execute(
+                    """
+                    DELETE FROM pos_device_users
+                    WHERE company_id = %s AND device_id = %s
+                    """,
+                    (company_id, device_id),
+                )
+                if user_ids:
+                    cur.executemany(
+                        """
+                        INSERT INTO pos_device_users (company_id, device_id, user_id)
+                        VALUES (%s, %s, %s)
+                        """,
+                        [(company_id, device_id, uid) for uid in user_ids],
+                    )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'pos.device.employees.assign', 'pos_device', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        device_id,
+                        json.dumps({"user_ids": user_ids, "assigned_count": len(user_ids)}),
+                    ),
+                )
+                return {"ok": True, "assigned_count": len(user_ids)}
 
 @router.get("/outbox", dependencies=[Depends(require_permission("pos:manage"))])
 def list_outbox_events(
@@ -1190,6 +1672,21 @@ def heartbeat(
         raise HTTPException(status_code=400, detail="device_id mismatch")
     if company_id and company_id != device["company_id"]:
         raise HTTPException(status_code=400, detail="company_id mismatch")
+    with get_conn() as conn:
+        set_company_context(conn, str(device["company_id"]))
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    """
+                    UPDATE pos_devices
+                    SET last_seen_at = now(),
+                        last_seen_status = %s
+                    WHERE company_id = %s AND id = %s
+                    """,
+                    (status, device["company_id"], device["device_id"]),
+                )
+            except Exception:
+                pass
     return {"ok": True, "status": status, "device_id": device["device_id"]}
 
 
@@ -1624,12 +2121,14 @@ class CashierIn(BaseModel):
     name: str
     pin: str
     is_active: bool = True
+    user_id: Optional[str] = None
 
 
 class CashierUpdate(BaseModel):
     name: Optional[str] = None
     pin: Optional[str] = None
     is_active: Optional[bool] = None
+    user_id: Optional[str] = None
 
 
 class CashierVerifyIn(BaseModel):
@@ -1641,15 +2140,35 @@ def list_cashiers(company_id: str = Depends(get_company_id), _auth=Depends(requi
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, name, is_active, updated_at
-                FROM pos_cashiers
-                WHERE company_id = %s
-                ORDER BY name
-                """,
-                (company_id,),
-            )
+            has_user_id_col = _has_pos_cashiers_user_id_column(cur)
+            if has_user_id_col:
+                cur.execute(
+                    """
+                    SELECT c.id,
+                           c.name,
+                           c.user_id,
+                           c.is_active,
+                           c.updated_at,
+                           u.email AS user_email,
+                           u.full_name AS user_full_name
+                    FROM pos_cashiers c
+                    LEFT JOIN users u ON u.id = c.user_id
+                    WHERE c.company_id = %s
+                    ORDER BY c.name
+                    """,
+                    (company_id,),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, name, NULL::uuid AS user_id, is_active, updated_at,
+                           NULL::text AS user_email, NULL::text AS user_full_name
+                    FROM pos_cashiers
+                    WHERE company_id = %s
+                    ORDER BY name
+                    """,
+                    (company_id,),
+                )
             return {"cashiers": cur.fetchall()}
 
 
@@ -1660,56 +2179,167 @@ def create_cashier(data: CashierIn, company_id: str = Depends(get_company_id), _
     pin = (data.pin or "").strip()
     if len(pin) < 4:
         raise HTTPException(status_code=400, detail="pin must be at least 4 digits")
+    user_id = _normalize_optional_uuid_text(data.user_id)
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO pos_cashiers (id, company_id, name, pin_hash, is_active)
-                VALUES (gen_random_uuid(), %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (company_id, data.name.strip(), hash_pin(pin), data.is_active),
-            )
+            has_user_id_col = _has_pos_cashiers_user_id_column(cur)
+            if user_id and not has_user_id_col:
+                raise HTTPException(status_code=503, detail="cashier user links not available (run latest migrations)")
+            _ensure_company_users_exist(cur, company_id, [user_id] if user_id else [])
+            try:
+                if has_user_id_col:
+                    cur.execute(
+                        """
+                        INSERT INTO pos_cashiers (id, company_id, name, pin_hash, is_active, user_id)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (company_id, data.name.strip(), hash_pin(pin), data.is_active, user_id),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO pos_cashiers (id, company_id, name, pin_hash, is_active)
+                        VALUES (gen_random_uuid(), %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (company_id, data.name.strip(), hash_pin(pin), data.is_active),
+                    )
+            except UniqueViolation:
+                raise HTTPException(status_code=409, detail="employee already linked to another cashier")
             return {"id": cur.fetchone()["id"]}
 
 
 @router.patch("/cashiers/{cashier_id}", dependencies=[Depends(require_permission("pos:manage"))])
 def update_cashier(cashier_id: str, data: CashierUpdate, company_id: str = Depends(get_company_id), _auth=Depends(require_company_access)):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
-    fields = []
-    params = []
-    if "name" in patch:
-        fields.append("name = %s")
-        params.append(patch["name"].strip())
-    if "is_active" in patch:
-        fields.append("is_active = %s")
-        params.append(patch["is_active"])
-    if "pin" in patch:
-        pin = (patch["pin"] or "").strip()
-        if len(pin) < 4:
-            raise HTTPException(status_code=400, detail="pin must be at least 4 digits")
-        fields.append("pin_hash = %s")
-        params.append(hash_pin(pin))
-    params.extend([company_id, cashier_id])
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                UPDATE pos_cashiers
-                SET {', '.join(fields)}, updated_at = now()
-                WHERE company_id = %s AND id = %s
-                RETURNING id
-                """,
-                params,
-            )
+            has_user_id_col = _has_pos_cashiers_user_id_column(cur)
+            fields = []
+            params = []
+            if "name" in patch:
+                next_name = (patch.get("name") or "").strip()
+                if not next_name:
+                    raise HTTPException(status_code=400, detail="name is required")
+                fields.append("name = %s")
+                params.append(next_name)
+            if "is_active" in patch:
+                fields.append("is_active = %s")
+                params.append(bool(patch.get("is_active")))
+            if "pin" in patch:
+                pin = (patch.get("pin") or "").strip()
+                if len(pin) < 4:
+                    raise HTTPException(status_code=400, detail="pin must be at least 4 digits")
+                fields.append("pin_hash = %s")
+                params.append(hash_pin(pin))
+            if "user_id" in patch:
+                if not has_user_id_col:
+                    raise HTTPException(status_code=503, detail="cashier user links not available (run latest migrations)")
+                next_user_id = _normalize_optional_uuid_text(patch.get("user_id"))
+                _ensure_company_users_exist(cur, company_id, [next_user_id] if next_user_id else [])
+                fields.append("user_id = %s")
+                params.append(next_user_id)
+            if not fields:
+                return {"ok": True}
+
+            params.extend([company_id, cashier_id])
+            try:
+                cur.execute(
+                    f"""
+                    UPDATE pos_cashiers
+                    SET {', '.join(fields)}, updated_at = now()
+                    WHERE company_id = %s AND id = %s
+                    RETURNING id
+                    """,
+                    params,
+                )
+            except UniqueViolation:
+                raise HTTPException(status_code=409, detail="employee already linked to another cashier")
             if not cur.fetchone():
                 raise HTTPException(status_code=404, detail="cashier not found")
             return {"ok": True}
+
+
+def _eligible_cashiers_for_device(cur, company_id: str, device_id: str):
+    has_cashier_assignments_table = _has_pos_device_cashiers_table(cur)
+    has_user_assignments_table = _has_pos_device_users_table(cur)
+    has_cashier_user_id_column = _has_pos_cashiers_user_id_column(cur)
+
+    has_cashier_assignments = False
+    if has_cashier_assignments_table:
+        cur.execute(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM pos_device_cashiers
+              WHERE company_id = %s AND device_id = %s
+            ) AS ok
+            """,
+            (company_id, device_id),
+        )
+        has_cashier_assignments = bool((cur.fetchone() or {}).get("ok"))
+
+    has_employee_assignments = False
+    if has_user_assignments_table:
+        cur.execute(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM pos_device_users
+              WHERE company_id = %s AND device_id = %s
+            ) AS ok
+            """,
+            (company_id, device_id),
+        )
+        has_employee_assignments = bool((cur.fetchone() or {}).get("ok"))
+
+    # If employee assignments exist but cashier->employee link is unavailable,
+    # treat this as an empty mapping until migrations are applied.
+    if has_employee_assignments and not has_cashier_user_id_column:
+        return []
+
+    joins = []
+    params = []
+    if has_cashier_assignments:
+        joins.append(
+            """
+            JOIN pos_device_cashiers dc
+              ON dc.company_id = c.company_id
+             AND dc.cashier_id = c.id
+             AND dc.device_id = %s
+            """
+        )
+        params.append(device_id)
+    if has_employee_assignments:
+        joins.append(
+            """
+            JOIN pos_device_users du
+              ON du.company_id = c.company_id
+             AND du.user_id = c.user_id
+             AND du.device_id = %s
+            """
+        )
+        params.append(device_id)
+    params.append(company_id)
+
+    cur.execute(
+        f"""
+        SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at
+        FROM pos_cashiers c
+        {' '.join(joins)}
+        WHERE c.company_id = %s
+          AND c.is_active = true
+        ORDER BY c.name
+        """,
+        params,
+    )
+    return cur.fetchall()
 
 
 @router.get("/cashiers/catalog")
@@ -1720,16 +2350,7 @@ def cashiers_catalog(device=Depends(require_device)):
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, name, pin_hash, is_active, updated_at
-                FROM pos_cashiers
-                WHERE company_id = %s AND is_active = true
-                ORDER BY name
-                """,
-                (device["company_id"],),
-            )
-            return {"cashiers": cur.fetchall()}
+            return {"cashiers": _eligible_cashiers_for_device(cur, str(device["company_id"]), str(device["device_id"]))}
 
 @router.get("/customers/catalog")
 def customers_catalog(device=Depends(require_device)):
@@ -1955,16 +2576,7 @@ def verify_cashier(data: CashierVerifyIn, device=Depends(require_device)):
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, name, pin_hash
-                FROM pos_cashiers
-                WHERE company_id = %s AND is_active = true
-                ORDER BY updated_at DESC
-                """,
-                (device["company_id"],),
-            )
-            rows = cur.fetchall()
+            rows = _eligible_cashiers_for_device(cur, str(device["company_id"]), str(device["device_id"]))
             for r in rows:
                 if verify_pin(pin, r["pin_hash"]):
                     return {"cashier": {"id": r["id"], "name": r["name"]}}

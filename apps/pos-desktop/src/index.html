@@ -25,18 +25,12 @@
 
       <section class="glass card-setup">
         <h2>Store Setup</h2>
-        <p class="muted">Recommended: Quick Setup (login once, select your companies, start). Use Setup Pack only for on-prem or manual workflows.</p>
+        <p class="muted">Recommended: Quick Setup (login once, select your companies, start). Use Setup Pack only for manual recovery workflows.</p>
 
-        <div class="grid2 compact">
-          <label class="field">
-            <span>Cloud API URL</span>
-            <input id="edgeUrl" placeholder="https://app.melqard.com/api" />
-          </label>
-          <label class="field">
-            <span>Edge API URL (legacy; ignored in cloud-first mode)</span>
-            <input id="edgeLanUrl" placeholder="(optional legacy field)" />
-          </label>
-        </div>
+        <label class="field">
+          <span>Cloud API URL</span>
+          <input id="edgeUrl" placeholder="https://app.melqard.com/api" />
+        </label>
 
         <div class="callout">
           <div class="callout-head">
@@ -44,7 +38,7 @@
             <span class="status-chip">Supported by backend</span>
           </div>
           <p class="muted">
-            Sign in to your portal account, pick Official and Unofficial companies, then generate and start the POS locally.
+            Sign in, pick your main company, and start POS. Add a secondary company only if your terminal must run both books.
           </p>
 
           <div class="grid2 compact">
@@ -76,12 +70,12 @@
 
           <div class="grid2 compact">
             <label class="field">
-              <span>Official Company</span>
+              <span>Primary Company</span>
               <select id="setupCompanyOfficial"></select>
             </label>
             <label class="field">
-              <span>Unofficial Company</span>
-              <select id="setupCompanyUnofficial"></select>
+              <span>Primary Device Code</span>
+              <input id="setupDeviceCodeOfficial" value="POS-01" />
             </label>
           </div>
 
@@ -90,14 +84,19 @@
             <select id="setupBranch"></select>
           </label>
 
-          <div class="grid2 compact">
+          <label class="field" style="display: flex; align-items: center; gap: 8px;">
+            <input id="setupDualMode" type="checkbox" />
+            <span>Use a secondary company/device on this terminal</span>
+          </label>
+
+          <div id="setupSecondaryWrap" class="grid2 compact" style="display: none;">
             <label class="field">
-              <span>Official Device Code</span>
-              <input id="setupDeviceCodeOfficial" value="POS-OFFICIAL-01" />
+              <span>Secondary Company</span>
+              <select id="setupCompanyUnofficial"></select>
             </label>
             <label class="field">
-              <span>Unofficial Device Code</span>
-              <input id="setupDeviceCodeUnofficial" value="POS-UNOFFICIAL-01" />
+              <span>Secondary Device Code</span>
+              <input id="setupDeviceCodeUnofficial" value="POS-02" />
             </label>
           </div>
 
@@ -108,7 +107,7 @@
         </div>
 
         <details class="advanced">
-          <summary>Setup Pack (on-prem / advanced)</summary>
+          <summary>Setup Pack (manual import)</summary>
           <div class="details-body">
             <label class="field">
               <span>Setup Pack (paste JSON)</span>
@@ -130,44 +129,44 @@
             </p>
             <div class="grid2 compact">
               <label class="field">
-                <span>Official Agent Port</span>
+                <span>Primary Agent Port</span>
                 <input id="portOfficial" type="number" value="7070" />
               </label>
               <label class="field">
-                <span>Unofficial Agent Port</span>
+                <span>Secondary Agent Port</span>
                 <input id="portUnofficial" type="number" value="7072" />
               </label>
             </div>
 
             <div class="grid2 compact">
               <label class="field">
-                <span>Official Company ID</span>
+                <span>Primary Company ID</span>
                 <input id="companyOfficial" placeholder="00000000-0000-0000-0000-000000000001" />
               </label>
               <label class="field">
-                <span>Unofficial Company ID</span>
+                <span>Secondary Company ID</span>
                 <input id="companyUnofficial" placeholder="00000000-0000-0000-0000-000000000002" />
               </label>
             </div>
 
             <div class="grid2 compact">
               <label class="field">
-                <span>Official Device ID</span>
+                <span>Primary Device ID</span>
                 <input id="deviceIdOfficial" placeholder="UUID from Portal" />
               </label>
               <label class="field">
-                <span>Official Device Token</span>
+                <span>Primary Device Token</span>
                 <input id="deviceTokenOfficial" placeholder="Token from Portal" />
               </label>
             </div>
 
             <div class="grid2 compact">
               <label class="field">
-                <span>Unofficial Device ID</span>
+                <span>Secondary Device ID</span>
                 <input id="deviceIdUnofficial" placeholder="UUID from Portal" />
               </label>
               <label class="field">
-                <span>Unofficial Device Token</span>
+                <span>Secondary Device Token</span>
                 <input id="deviceTokenUnofficial" placeholder="Token from Portal" />
               </label>
             </div>
@@ -198,7 +197,7 @@
       <section class="glass card-notes">
         <h2>Notes</h2>
         <ul>
-          <li>This app starts 2 local agents: Official + Unofficial.</li>
+          <li>This app starts 2 local agents: Primary + Secondary.</li>
           <li>Unified POS opens at <code>http://127.0.0.1:7070</code>.</li>
           <li>Sales are queued locally if the server is unreachable; they sync when back online.</li>
         </ul>

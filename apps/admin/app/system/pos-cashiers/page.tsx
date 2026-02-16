@@ -9,23 +9,36 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
+import { SearchableSelect } from "@/components/searchable-select";
 
 type CashierRow = {
   id: string;
   name: string;
+  user_id?: string | null;
+  user_email?: string | null;
+  user_full_name?: string | null;
   is_active: boolean;
   updated_at: string;
+};
+
+type EmployeeRow = {
+  id: string;
+  email: string;
+  full_name?: string | null;
+  is_active: boolean;
 };
 
 export default function PosCashiersPage() {
   const [status, setStatus] = useState("");
   const [cashiers, setCashiers] = useState<CashierRow[]>([]);
+  const [employees, setEmployees] = useState<EmployeeRow[]>([]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [active, setActive] = useState(true);
+  const [userId, setUserId] = useState("");
 
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -33,6 +46,7 @@ export default function PosCashiersPage() {
   const [editName, setEditName] = useState("");
   const [editPin, setEditPin] = useState("");
   const [editActive, setEditActive] = useState(true);
+  const [editUserId, setEditUserId] = useState("");
 
   const cashierById = useMemo(() => {
     const m = new Map<string, CashierRow>();
@@ -40,11 +54,26 @@ export default function PosCashiersPage() {
     return m;
   }, [cashiers]);
 
+  const employeeOptions = useMemo(
+    () => [
+      { value: "", label: "No linked employee" },
+      ...employees.map((u) => ({
+        value: u.id,
+        label: `${u.full_name?.trim() || u.email}${u.is_active ? "" : " (inactive)"}`,
+      })),
+    ],
+    [employees]
+  );
+
   async function load() {
     setStatus("Loading...");
     try {
-      const res = await apiGet<{ cashiers: CashierRow[] }>("/pos/cashiers");
+      const [res, emp] = await Promise.all([
+        apiGet<{ cashiers: CashierRow[] }>("/pos/cashiers"),
+        apiGet<{ employees: EmployeeRow[] }>("/pos/employees").catch(() => ({ employees: [] as EmployeeRow[] })),
+      ]);
       setCashiers(res.cashiers || []);
+      setEmployees(emp.employees || []);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -69,11 +98,17 @@ export default function PosCashiersPage() {
     setCreating(true);
     setStatus("Creating...");
     try {
-      await apiPost<{ id: string }>("/pos/cashiers", { name: name.trim(), pin: pin.trim(), is_active: active });
+      await apiPost<{ id: string }>("/pos/cashiers", {
+        name: name.trim(),
+        pin: pin.trim(),
+        is_active: active,
+        user_id: userId.trim() || null,
+      });
       setCreateOpen(false);
       setName("");
       setPin("");
       setActive(true);
+      setUserId("");
       await load();
       setStatus("");
     } catch (err) {
@@ -91,6 +126,7 @@ export default function PosCashiersPage() {
     setEditName(row.name);
     setEditPin("");
     setEditActive(!!row.is_active);
+    setEditUserId(String(row.user_id || ""));
     setEditOpen(true);
   }
 
@@ -108,7 +144,11 @@ export default function PosCashiersPage() {
     setEditing(true);
     setStatus("Saving...");
     try {
-      const patch: Record<string, unknown> = { name: editName.trim(), is_active: editActive };
+      const patch: Record<string, unknown> = {
+        name: editName.trim(),
+        is_active: editActive,
+        user_id: editUserId.trim() || null,
+      };
       if (editPin.trim()) patch.pin = editPin.trim();
       await apiPatch<{ ok: true }>(`/pos/cashiers/${editId}`, patch);
       setEditOpen(false);
@@ -128,7 +168,7 @@ export default function PosCashiersPage() {
 
       <PageHeader
         title="POS Cashiers"
-        description="Cashiers and PINs used by POS devices (supports offline login)."
+        description="Cashiers, PINs, and optional employee links used by POS devices (supports offline login)."
         actions={
           <>
             <Button variant="outline" onClick={load}>
@@ -147,6 +187,16 @@ export default function PosCashiersPage() {
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg-muted">Name</label>
                     <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Cashier name" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Linked Employee (optional)</label>
+                    <SearchableSelect
+                      value={userId}
+                      onChange={setUserId}
+                      placeholder="No linked employee"
+                      searchPlaceholder="Search employees..."
+                      options={employeeOptions}
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg-muted">PIN</label>
@@ -172,6 +222,12 @@ export default function PosCashiersPage() {
         {(() => {
               const columns: Array<DataTableColumn<CashierRow>> = [
                 { id: "name", header: "Name", accessor: (c) => c.name, sortable: true, cell: (c) => <span className="font-medium text-foreground">{c.name}</span> },
+                {
+                  id: "employee",
+                  header: "Employee",
+                  accessor: (c) => c.user_full_name || c.user_email || "",
+                  cell: (c) => <span className="text-xs text-fg-muted">{c.user_full_name || c.user_email || "-"}</span>,
+                },
                 { id: "id", header: "Cashier ID", accessor: (c) => c.id, mono: true, defaultHidden: true, cell: (c) => <span className="text-xs text-fg-subtle">{c.id}</span> },
                 { id: "active", header: "Active", accessor: (c) => (c.is_active ? "yes" : "no"), sortable: true, cell: (c) => <span className="text-xs text-fg-muted">{c.is_active ? "yes" : "no"}</span> },
                 {
@@ -218,6 +274,16 @@ export default function PosCashiersPage() {
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Name</label>
                 <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Cashier name" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Linked Employee (optional)</label>
+                <SearchableSelect
+                  value={editUserId}
+                  onChange={setEditUserId}
+                  placeholder="No linked employee"
+                  searchPlaceholder="Search employees..."
+                  options={employeeOptions}
+                />
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">New PIN (optional)</label>
