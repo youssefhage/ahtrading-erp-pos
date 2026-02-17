@@ -552,7 +552,7 @@
               {#if isWebSetupMode}
                 Browser setup uses cloud connections for both companies. Other Agent URL is not required here.
               {:else}
-                Other Agent is the second local agent (the other company), not the cloud.
+                Desktop uses cloud setup by default. Other Agent URL is optional and only needed if you run a second local agent.
               {/if}
             </div>
           </div>
@@ -563,13 +563,16 @@
 
         {#if !isWebSetupMode}
           <div class="mt-4">
-            <label class="text-xs text-muted" for="other-agent-url-settings">Other Agent URL (Desktop dual-agent only)</label>
+            <label class="text-xs text-muted" for="other-agent-url-settings">Other Agent URL (optional, advanced)</label>
             <input
               id="other-agent-url-settings"
               class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
               placeholder="http://127.0.0.1:7072"
               bind:value={otherAgentDraftUrl}
             />
+            <div class="mt-2 text-[11px] text-muted">
+              Leave blank to keep secondary company on cloud mode.
+            </div>
             <div class="mt-3 flex items-center justify-between gap-3">
               <div class="text-[11px] text-muted">
                 Current: <span class="font-mono">{normalizeUrl(otherAgentUrl) || "—"}</span>

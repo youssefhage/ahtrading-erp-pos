@@ -575,6 +575,21 @@
     return v;
   };
 
+  const _hasOtherAgentOrigin = () => !!_normalizeAgentOrigin(otherAgentUrl);
+
+  const _companyUsesCloudTransport = (companyKey) => {
+    if (webHostUnsupported) return true;
+    if (companyKey !== otherCompanyKey) return false;
+    // Desktop fallback: when no second local agent URL is set,
+    // route unofficial traffic through cloud-device APIs.
+    return !_hasOtherAgentOrigin();
+  };
+
+  const _hasCloudDeviceConfig = (companyKey) => {
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    return !!String(cfg.device_id || "").trim() && !!String(cfg.device_token || "").trim();
+  };
+
   const _agentApiPrefix = (companyKey) => {
     if (companyKey === otherCompanyKey) {
       if (webHostUnsupported) return apiBase;
@@ -1064,7 +1079,7 @@
   };
 
   const apiCallFor = async (companyKey, path, options = {}) => {
-    if (webHostUnsupported) {
+    if (_companyUsesCloudTransport(companyKey)) {
       return await _webApiCallFor(companyKey, path, options);
     }
 
@@ -1117,7 +1132,7 @@
     const cfg = cfgForCompanyKey(companyKey) || {};
     const eid = String(eventId || "").trim();
 
-    if (webHostUnsupported && companyKey !== "official") {
+    if (_companyUsesCloudTransport(companyKey) && companyKey !== "official") {
       try { if (receiptWin) receiptWin.close(); } catch (_) {}
       return;
     }
@@ -1292,21 +1307,9 @@
 
       // Unofficial agent (best-effort; in web setup mode it uses secondary cloud device config).
       try {
-        const uOrigin = _normalizeAgentOrigin(otherAgentUrl);
-        const hasUnofficialWebCfg =
-          !!String(unofficialConfig?.device_id || "").trim() &&
-          !!String(unofficialConfig?.device_token || "").trim();
-        if (!webHostUnsupported && !uOrigin) {
-          unofficialStatus = "Disabled";
-          unofficialLocked = false;
-          unofficialItems = [];
-          unofficialBarcodes = [];
-          unofficialCustomers = [];
-          unofficialCashiers = [];
-          unofficialOutbox = [];
-          unofficialEdge = null;
-          unofficialLastReceipt = null;
-        } else if (webHostUnsupported && !hasUnofficialWebCfg) {
+        const unofficialViaCloud = _companyUsesCloudTransport(otherCompanyKey);
+        const hasUnofficialCloudCfg = _hasCloudDeviceConfig(otherCompanyKey);
+        if (unofficialViaCloud && !hasUnofficialCloudCfg) {
           unofficialStatus = "Pending";
           unofficialLocked = false;
           unofficialItems = [];
@@ -1850,7 +1853,7 @@
     try { localStorage.setItem(OTHER_AGENT_URL_STORAGE_KEY, v); } catch (_) {}
     showOtherAgentModal = false;
     await fetchData();
-    reportNotice(v ? `Other agent set: ${v}` : "Other agent disabled");
+    reportNotice(v ? `Other agent set: ${v}` : "Other agent URL cleared. Secondary company will use cloud mode.");
   };
 
   const toggleCatalog = () => {
@@ -1875,8 +1878,9 @@
 
   const saveConfigFor = async (companyKey, payload) => {
     const body = { ...(payload || {}) };
-    if (webHostUnsupported) {
+    if (_companyUsesCloudTransport(companyKey)) {
       const nextCfg = _setCfgForCompanyKey(companyKey, body);
+      if (!webHostUnsupported) await fetchData();
       return { ok: true, config: nextCfg };
     }
     const res = await apiCallFor(companyKey, "/config", { method: "POST", body });
@@ -1887,164 +1891,152 @@
   };
 
   const setupLogin = async (payload) => {
-    if (webHostUnsupported) {
-      const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
-      const mfaToken = String(payload?.mfa_token || "").trim();
-      const mfaCode = String(payload?.mfa_code || "").trim();
-      let authRes = null;
-      if (mfaToken) {
-        if (!mfaCode) throw new Error("MFA code is required.");
-        authRes = await _cloudSetupCall(apiBaseUrl, "auth/mfa/verify", {
-          method: "POST",
-          body: { mfa_token: mfaToken, code: mfaCode },
-        });
-      } else {
-        const email = String(payload?.email || "").trim();
-        const password = String(payload?.password || "");
-        if (!email || !password) throw new Error("Email and password are required.");
-        authRes = await _cloudSetupCall(apiBaseUrl, "auth/login", {
-          method: "POST",
-          body: { email, password },
-        });
-      }
-      if (authRes?.mfa_required) {
-        return {
-          ok: true,
-          mfa_required: true,
-          mfa_token: String(authRes?.mfa_token || "").trim(),
-        };
-      }
-      const token = String(authRes?.token || "").trim();
-      if (!token) throw new Error("No session token returned.");
-      const companiesRes = await _cloudSetupCall(apiBaseUrl, "companies", {
-        method: "GET",
-        token,
+    const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
+    const mfaToken = String(payload?.mfa_token || "").trim();
+    const mfaCode = String(payload?.mfa_code || "").trim();
+    let authRes = null;
+    if (mfaToken) {
+      if (!mfaCode) throw new Error("MFA code is required.");
+      authRes = await _cloudSetupCall(apiBaseUrl, "auth/mfa/verify", {
+        method: "POST",
+        body: { mfa_token: mfaToken, code: mfaCode },
       });
+    } else {
+      const email = String(payload?.email || "").trim();
+      const password = String(payload?.password || "");
+      if (!email || !password) throw new Error("Email and password are required.");
+      authRes = await _cloudSetupCall(apiBaseUrl, "auth/login", {
+        method: "POST",
+        body: { email, password },
+      });
+    }
+    if (authRes?.mfa_required) {
       return {
         ok: true,
-        mfa_required: false,
-        token,
-        companies: Array.isArray(companiesRes?.companies) ? companiesRes.companies : [],
-        active_company_id: String(authRes?.active_company_id || "").trim() || null,
+        mfa_required: true,
+        mfa_token: String(authRes?.mfa_token || "").trim(),
       };
     }
-    return await apiCall("/setup/login", { method: "POST", body: payload || {} });
+    const token = String(authRes?.token || "").trim();
+    if (!token) throw new Error("No session token returned.");
+    const companiesRes = await _cloudSetupCall(apiBaseUrl, "companies", {
+      method: "GET",
+      token,
+    });
+    return {
+      ok: true,
+      mfa_required: false,
+      token,
+      companies: Array.isArray(companiesRes?.companies) ? companiesRes.companies : [],
+      active_company_id: String(authRes?.active_company_id || "").trim() || null,
+    };
   };
 
   const setupBranches = async (payload) => {
-    if (webHostUnsupported) {
-      const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
-      const token = String(payload?.token || "").trim();
-      const companyId = String(payload?.company_id || "").trim();
-      if (!token) throw new Error("Token is required.");
-      if (!companyId) throw new Error("Company is required.");
-      try {
-        return await _cloudSetupCall(apiBaseUrl, "branches", {
-          method: "GET",
-          token,
-          companyId,
-        });
-      } catch (e) {
-        const status = toNum(e?.status, 0);
-        if (status === 401 || status === 403) {
-          return {
-            ok: true,
-            branches: [],
-            warning: "Branches unavailable for this account; leave Branch empty.",
-          };
-        }
-        throw e;
-      }
-    }
-    return await apiCall("/setup/branches", { method: "POST", body: payload || {} });
-  };
-
-  const setupDevices = async (payload) => {
-    if (webHostUnsupported) {
-      const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
-      const token = String(payload?.token || "").trim();
-      const companyId = String(payload?.company_id || "").trim();
-      if (!token) throw new Error("Token is required.");
-      if (!companyId) throw new Error("Company is required.");
-      try {
-        await _cloudSetupCall(apiBaseUrl, "auth/select-company", {
-          method: "POST",
-          token,
-          body: { company_id: companyId },
-        });
-      } catch (_) {}
-      try {
-        const res = await _cloudSetupCall(apiBaseUrl, "pos/devices", {
-          method: "GET",
-          token,
-          companyId,
-        });
-        return { ok: true, devices: Array.isArray(res?.devices) ? res.devices : [] };
-      } catch (e) {
-        const status = toNum(e?.status, 0);
-        if (status === 401 || status === 403) {
-          return {
-            ok: true,
-            devices: [],
-            warning: "Device list unavailable for this account; enter POS code manually.",
-          };
-        }
-        throw e;
-      }
-    }
-    return await apiCall("/setup/devices", { method: "POST", body: payload || {} });
-  };
-
-  const setupRegisterDevice = async (payload) => {
-    if (webHostUnsupported) {
-      const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
-      const token = String(payload?.token || "").trim();
-      const companyId = String(payload?.company_id || "").trim();
-      const branchId = String(payload?.branch_id || "").trim();
-      const deviceCode = String(payload?.device_code || "").trim();
-      const resetToken = payload?.reset_token !== false;
-      if (!token) throw new Error("Token is required.");
-      if (!companyId) throw new Error("Company is required.");
-      if (!deviceCode) throw new Error("POS code is required.");
-      try {
-        await _cloudSetupCall(apiBaseUrl, "auth/select-company", {
-          method: "POST",
-          token,
-          body: { company_id: companyId },
-        });
-      } catch (_) {}
-      const params = new URLSearchParams();
-      params.set("company_id", companyId);
-      params.set("device_code", deviceCode);
-      params.set("reset_token", resetToken ? "true" : "false");
-      if (branchId) params.set("branch_id", branchId);
-      const reg = await _cloudSetupCall(apiBaseUrl, `pos/devices/register?${params.toString()}`, {
-        method: "POST",
+    const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
+    const token = String(payload?.token || "").trim();
+    const companyId = String(payload?.company_id || "").trim();
+    if (!token) throw new Error("Token is required.");
+    if (!companyId) throw new Error("Company is required.");
+    try {
+      return await _cloudSetupCall(apiBaseUrl, "branches", {
+        method: "GET",
         token,
         companyId,
       });
-      const deviceId = String(reg?.id || "").trim();
-      const deviceToken = String(reg?.token || "").trim();
-      if (!deviceId) throw new Error("Device registration failed (missing device id).");
-      if (!deviceToken) throw new Error("Device exists but token was not returned. Enable reset token and retry.");
-      return { ok: true, device_id: deviceId, device_token: deviceToken };
+    } catch (e) {
+      const status = toNum(e?.status, 0);
+      if (status === 401 || status === 403) {
+        return {
+          ok: true,
+          branches: [],
+          warning: "Branches unavailable for this account; leave Branch empty.",
+        };
+      }
+      throw e;
     }
-    return await apiCall("/setup/register-device", { method: "POST", body: payload || {} });
+  };
+
+  const setupDevices = async (payload) => {
+    const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
+    const token = String(payload?.token || "").trim();
+    const companyId = String(payload?.company_id || "").trim();
+    if (!token) throw new Error("Token is required.");
+    if (!companyId) throw new Error("Company is required.");
+    try {
+      await _cloudSetupCall(apiBaseUrl, "auth/select-company", {
+        method: "POST",
+        token,
+        body: { company_id: companyId },
+      });
+    } catch (_) {}
+    try {
+      const res = await _cloudSetupCall(apiBaseUrl, "pos/devices", {
+        method: "GET",
+        token,
+        companyId,
+      });
+      return { ok: true, devices: Array.isArray(res?.devices) ? res.devices : [] };
+    } catch (e) {
+      const status = toNum(e?.status, 0);
+      if (status === 401 || status === 403) {
+        return {
+          ok: true,
+          devices: [],
+          warning: "Device list unavailable for this account; enter POS code manually.",
+        };
+      }
+      throw e;
+    }
+  };
+
+  const setupRegisterDevice = async (payload) => {
+    const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
+    const token = String(payload?.token || "").trim();
+    const companyId = String(payload?.company_id || "").trim();
+    const branchId = String(payload?.branch_id || "").trim();
+    const deviceCode = String(payload?.device_code || "").trim();
+    const resetToken = payload?.reset_token !== false;
+    if (!token) throw new Error("Token is required.");
+    if (!companyId) throw new Error("Company is required.");
+    if (!deviceCode) throw new Error("POS code is required.");
+    try {
+      await _cloudSetupCall(apiBaseUrl, "auth/select-company", {
+        method: "POST",
+        token,
+        body: { company_id: companyId },
+      });
+    } catch (_) {}
+    const params = new URLSearchParams();
+    params.set("company_id", companyId);
+    params.set("device_code", deviceCode);
+    params.set("reset_token", resetToken ? "true" : "false");
+    if (branchId) params.set("branch_id", branchId);
+    const reg = await _cloudSetupCall(apiBaseUrl, `pos/devices/register?${params.toString()}`, {
+      method: "POST",
+      token,
+      companyId,
+    });
+    const deviceId = String(reg?.id || "").trim();
+    const deviceToken = String(reg?.token || "").trim();
+    if (!deviceId) throw new Error("Device registration failed (missing device id).");
+    if (!deviceToken) throw new Error("Device exists but token was not returned. Enable reset token and retry.");
+    return { ok: true, device_id: deviceId, device_token: deviceToken };
   };
 
   const testEdgeFor = async (companyKey) => {
-    if (webHostUnsupported) return { edge_ok: true, edge_auth_ok: true, mode: "cloud-web-setup" };
+    if (_companyUsesCloudTransport(companyKey)) return { edge_ok: true, edge_auth_ok: true, mode: "cloud-setup" };
     return await apiCallFor(companyKey, "/edge/status", { method: "GET" });
   };
 
   const syncPullFor = async (companyKey) => {
-    if (webHostUnsupported) return { ok: true, mode: "cloud-web-setup" };
+    if (_companyUsesCloudTransport(companyKey)) return { ok: true, mode: "cloud-setup" };
     await apiCallFor(companyKey, "/sync/pull", { method: "POST", body: {} });
     await fetchData();
   };
 
   const syncPushFor = async (companyKey) => {
-    if (webHostUnsupported) return { ok: true, mode: "cloud-web-setup" };
+    if (_companyUsesCloudTransport(companyKey)) return { ok: true, mode: "cloud-setup" };
     await apiCallFor(companyKey, "/sync/push", { method: "POST", body: {} });
     await fetchData();
   };
@@ -3367,7 +3359,7 @@
       officialConfig={config}
       unofficialConfig={unofficialConfig}
       isWebSetupMode={webHostUnsupported}
-      unofficialEnabled={webHostUnsupported ? true : !!_normalizeAgentOrigin(otherAgentUrl)}
+      unofficialEnabled={true}
       unofficialStatus={unofficialStatus}
       otherAgentUrl={otherAgentUrl}
       bind:otherAgentDraftUrl={otherAgentDraftUrl}
