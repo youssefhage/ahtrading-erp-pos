@@ -116,6 +116,15 @@
   let webHostUnsupported = false;
   let webHostHint = "";
 
+  const activateWebHostUnsupported = (hint = "") => {
+    webHostUnsupported = true;
+    webHostHint = String(hint || "").trim();
+    status = "Web Setup Required";
+    error = "";
+    activeScreen = "settings";
+    try { localStorage.setItem(SCREEN_STORAGE_KEY, "settings"); } catch (_) {}
+  };
+
   // Unified: map "official/unofficial" keys onto (origin agent) + (other agent).
   // If the UI is loaded from the Unofficial agent, we flip routing automatically.
   let originCompanyKey = "official";
@@ -687,6 +696,10 @@
       const cfgRes = results[0];
       if (cfgRes.status === "rejected") {
         const p = cfgRes.reason?.payload;
+        if (toNum(cfgRes.reason?.status, 0) === 404 && !_isLoopbackHost(window?.location?.hostname || "")) {
+          activateWebHostUnsupported("This host exposes backend APIs, not local POS-agent APIs.");
+          return;
+        }
         if (p?.error === "pos_auth_required") {
           status = "Locked";
           // If the agent is protected and the PIN isn't set yet, the API returns a hint.
@@ -2236,16 +2249,10 @@
       // On remote web hosts this usually returns 404/401 and floods the console.
       const host = String(window?.location?.hostname || "").trim();
       const remoteHost = !_isLoopbackHost(host);
-      const relativeApiBase = !String(apiBase || "").startsWith("http://") && !String(apiBase || "").startsWith("https://");
-      if (remoteHost && relativeApiBase) {
+      if (remoteHost) {
         const probe = await _probeAgentHealth(apiBase);
         if (!probe.localAgentLike) {
-          webHostUnsupported = true;
-          webHostHint = "This host responds with backend health, not local POS agent health.";
-          status = "Web Setup Required";
-          error = "";
-          activeScreen = "settings";
-          try { localStorage.setItem(SCREEN_STORAGE_KEY, "settings"); } catch (_) {}
+          activateWebHostUnsupported("This host responds with backend health, not local POS agent health.");
           return;
         }
       }
