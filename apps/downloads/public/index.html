@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Melqard Downloads</title>
+    <title>Melqard Desktop Downloads</title>
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
@@ -11,60 +11,57 @@
     <link rel="stylesheet" href="/style.css" />
   </head>
   <body>
-    <main class="wrap">
-      <header class="hdr">
-        <div class="logo">AH</div>
-        <div>
-          <h1>Melqard Apps</h1>
-          <p class="muted">Desktop downloads.</p>
+    <main class="page">
+      <header class="hero">
+        <div class="heroBrand">
+          <div class="logo">AH</div>
+          <div>
+            <h1>Melqard Desktop Downloads</h1>
+            <p>Official installers for checkout and back-office apps.</p>
+          </div>
+        </div>
+        <div class="heroFlags" aria-label="Download availability">
+          <span class="pill">Official builds</span>
+          <span class="pill">Windows and macOS</span>
         </div>
       </header>
 
-      <section class="card">
-        <h2>What To Install</h2>
-        <p class="muted">
-          Cloud-first setup: install POS for cashiers and Admin for managers.
-          Download once. Apps auto-update in the background (when internet is available).
-        </p>
-
+      <section class="panel">
+        <h2>Choose Your App</h2>
         <div class="apps">
-          <article class="app appPos">
+          <article class="app appPos" aria-labelledby="pos-title">
             <div class="appHead">
               <div class="appMark">POS</div>
-              <div class="appTitleBlock">
+              <div>
                 <div class="appTitleRow">
-                  <div class="appTitle">POS Desktop</div>
+                  <h3 id="pos-title">POS Desktop</h3>
                   <span class="tag required">Required</span>
                 </div>
-                <div class="appMeta muted">Install on: every cashier terminal</div>
+                <p class="appMeta">Install on every cashier terminal.</p>
               </div>
             </div>
-            <p class="appDesc">
-              Runs the local POS agents and opens the cashier UI. Works on LAN during internet outages.
-            </p>
-            <p class="appMeta muted" data-app-version="pos">Version: checking...</p>
-            <div class="appLinks">
+            <p class="appDesc">Built for daily checkout operations and cashier workflows.</p>
+            <p class="version" data-app-version="pos">Latest version: checking...</p>
+            <div class="actions">
               <a class="btn" href="/updates/latest-installer/pos/windows">Download for Windows</a>
               <a class="btn ghost" href="/updates/latest-installer/pos/macos">Download for macOS</a>
             </div>
           </article>
 
-          <article class="app appAdmin">
+          <article class="app appAdmin" aria-labelledby="admin-title">
             <div class="appHead">
               <div class="appMark">AD</div>
-              <div class="appTitleBlock">
+              <div>
                 <div class="appTitleRow">
-                  <div class="appTitle">Admin Desktop</div>
+                  <h3 id="admin-title">Admin Desktop</h3>
                   <span class="tag optional">Optional</span>
                 </div>
-                <div class="appMeta muted">Install on: manager computers (or a POS terminal if needed)</div>
+                <p class="appMeta">Install on manager or back-office machines.</p>
               </div>
             </div>
-            <p class="appDesc">
-              Dedicated Admin app wrapper. You can also open Admin from POS via the Manager button.
-            </p>
-            <p class="appMeta muted" data-app-version="admin">Version: checking...</p>
-            <div class="appLinks">
+            <p class="appDesc">For reporting, setup, and operational management tasks.</p>
+            <p class="version" data-app-version="admin">Latest version: checking...</p>
+            <div class="actions">
               <a class="btn" href="/updates/latest-installer/admin/windows">Download for Windows</a>
               <a class="btn ghost" href="/updates/latest-installer/admin/macos">Download for macOS</a>
             </div>
@@ -72,28 +69,16 @@
         </div>
       </section>
 
-      <section class="card">
-        <h2>New Store Checklist</h2>
-        <ol class="steps">
-          <li>Install <strong>POS Desktop</strong> on each cashier terminal and sign in with cloud credentials.</li>
-          <li>(Optional) Install <strong>Admin Desktop</strong> for managers, or use the Manager button inside POS.</li>
-          <li>Open cloud Admin to configure devices, users, and permissions.</li>
-        </ol>
-      </section>
-
-      <section class="card">
-        <h2>Advanced (Updates)</h2>
-        <ol class="steps">
-          <li>Merge updates to <code>main</code> (or push a <code>desktop-v*</code> git tag).</li>
-          <li>GitHub Actions builds Windows + macOS installers and updater bundles automatically.</li>
-          <li>CI publishes files into <code>/updates/pos/</code>, <code>/updates/portal/</code> (Admin; alias <code>/updates/admin/</code>) and updates <code>latest.json</code>.</li>
-        </ol>
-        <p class="muted">
-          File listings and updater manifests:
-          <code>/updates/pos/</code>, <code>/updates/admin/</code>.
-        </p>
+      <section class="panel compact">
+        <h2>Install Notes</h2>
+        <ul class="notes">
+          <li>Install POS Desktop on each checkout device.</li>
+          <li>Install Admin Desktop only where administrative access is needed.</li>
+          <li>Open the app after install and sign in with your company account.</li>
+        </ul>
       </section>
     </main>
+
     <script>
       (function () {
         function setText(app, text) {
@@ -107,7 +92,7 @@
           return await res.json();
         }
 
-        async function resolveVersion(app, paths) {
+        async function resolveVersion(paths) {
           for (var i = 0; i < paths.length; i++) {
             try {
               var data = await fetchJson(paths[i]);
@@ -121,11 +106,11 @@
         }
 
         (async function () {
-          var posV = await resolveVersion("pos", ["/updates/pos/latest.json"]);
-          setText("pos", posV ? "Version: v" + posV : "Version: unavailable");
+          var posV = await resolveVersion(["/updates/pos/latest.json"]);
+          setText("pos", posV ? "Latest version: v" + posV : "Latest version: unavailable");
 
-          var adminV = await resolveVersion("admin", ["/updates/admin/latest.json", "/updates/portal/latest.json"]);
-          setText("admin", adminV ? "Version: v" + adminV : "Version: unavailable");
+          var adminV = await resolveVersion(["/updates/admin/latest.json", "/updates/portal/latest.json"]);
+          setText("admin", adminV ? "Latest version: v" + adminV : "Latest version: unavailable");
         })();
       })();
     </script>
