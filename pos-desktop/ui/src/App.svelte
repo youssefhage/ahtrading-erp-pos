@@ -48,6 +48,26 @@
     return v.startsWith("/") ? (v.endsWith("/") ? v.slice(0, -1) : v) : `/${v}`;
   };
 
+  const _isLoopbackHost = (hostRaw) => {
+    const h = String(hostRaw || "").trim().toLowerCase();
+    return h === "localhost" || h === "127.0.0.1" || h === "::1" || h.endsWith(".local");
+  };
+
+  const _probeAgentHealth = async (base) => {
+    const b = normalizeApiBase(base || DEFAULT_API_BASE);
+    const url = `${b}/health`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1800);
+    try {
+      const res = await fetch(url, { method: "GET", signal: controller.signal });
+      return { ok: res.ok, status: res.status };
+    } catch (_) {
+      return { ok: false, status: 0 };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
   const makeIntentId = () => {
     try {
       if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -78,6 +98,8 @@
   let fetchDataPending = false;
   let fetchDataPendingBackground = true;
   let fetchDataDrainPromise = null;
+  let webHostUnsupported = false;
+  let webHostHint = "";
 
   // Unified: map "official/unofficial" keys onto (origin agent) + (other agent).
   // If the UI is loaded from the Unofficial agent, we flip routing automatically.
@@ -631,6 +653,7 @@
   };
 
   const runFetchData = async ({ background = false } = {}) => {
+    if (webHostUnsupported) return;
     const showBusy = !background;
     try {
       if (showBusy) loading = true;
@@ -760,6 +783,7 @@
   };
 
   const fetchData = async ({ background = false } = {}) => {
+    if (webHostUnsupported) return;
     fetchDataPending = true;
     fetchDataPendingBackground = fetchDataPendingBackground && !!background;
 
@@ -1255,6 +1279,22 @@
     else config = { ...config, ...(res?.config || {}) };
     await fetchData();
     return res;
+  };
+
+  const setupLogin = async (payload) => {
+    return await apiCall("/setup/login", { method: "POST", body: payload || {} });
+  };
+
+  const setupBranches = async (payload) => {
+    return await apiCall("/setup/branches", { method: "POST", body: payload || {} });
+  };
+
+  const setupDevices = async (payload) => {
+    return await apiCall("/setup/devices", { method: "POST", body: payload || {} });
+  };
+
+  const setupRegisterDevice = async (payload) => {
+    return await apiCall("/setup/register-device", { method: "POST", body: payload || {} });
   };
 
   const testEdgeFor = async (companyKey) => {
@@ -2158,6 +2198,9 @@
 
   // Lifecycle
   onMount(() => {
+    let poll = null;
+    let pushPoll = null;
+
     const stored = localStorage.getItem(API_BASE_STORAGE_KEY);
     if (stored) apiBase = stored;
     sessionToken = localStorage.getItem(SESSION_STORAGE_KEY) || "";
@@ -2173,18 +2216,40 @@
     const storedScreen = localStorage.getItem(SCREEN_STORAGE_KEY) || "pos";
     activeScreen = (storedScreen === "items") ? "items" : "pos";
 
-    fetchData();
+    (async () => {
+      // Guard: the unified POS UI expects local desktop agents (/api/*).
+      // On remote web hosts this usually returns 404/401 and floods the console.
+      const host = String(window?.location?.hostname || "").trim();
+      const remoteHost = !_isLoopbackHost(host);
+      const relativeApiBase = !String(apiBase || "").startsWith("http://") && !String(apiBase || "").startsWith("https://");
+      if (remoteHost && relativeApiBase) {
+        const probe = await _probeAgentHealth(apiBase);
+        if (!probe.ok && probe.status === 404) {
+          webHostUnsupported = true;
+          webHostHint = "This host is serving the desktop-unified UI without a local POS agent.";
+          status = "Web Setup Required";
+          error = "";
+          activeScreen = "settings";
+          try { localStorage.setItem(SCREEN_STORAGE_KEY, "settings"); } catch (_) {}
+          return;
+        }
+      }
 
-    const poll = setInterval(() => {
-      if (document.hidden) return;
-      fetchData({ background: true });
-    }, 30000); // Polling legacy style
-    const pushPoll = setInterval(() => {
-      if (document.hidden) return;
-      if (config?.device_id) queueSyncPush(originCompanyKey);
-      if (unofficialConfig?.device_id) queueSyncPush(otherCompanyKey);
-    }, 12000);
+      fetchData();
+
+      poll = setInterval(() => {
+        if (document.hidden) return;
+        fetchData({ background: true });
+      }, 30000); // Polling legacy style
+      pushPoll = setInterval(() => {
+        if (document.hidden) return;
+        if (config?.device_id) queueSyncPush(originCompanyKey);
+        if (unofficialConfig?.device_id) queueSyncPush(otherCompanyKey);
+      }, 12000);
+    })();
+
     const onVisibilityChange = () => {
+      if (webHostUnsupported) return;
       if (!document.hidden) fetchData({ background: true });
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -2253,8 +2318,8 @@
     document.addEventListener("keydown", onKeyDown, true);
 
     return () => {
-      clearInterval(poll);
-      clearInterval(pushPoll);
+      if (poll) clearInterval(poll);
+      if (pushPoll) clearInterval(pushPoll);
       if (_customerRemoteTimer) {
         clearTimeout(_customerRemoteTimer);
         _customerRemoteTimer = null;
@@ -2285,7 +2350,7 @@
   hasConnection={hasConnection}
   cashierName={cashierName}
   shiftText={shiftText}
-  showTabs={true}
+  showTabs={!webHostUnsupported}
 >
   <svelte:fragment slot="tabs">
     {@const tabBase = "px-4 py-2 rounded-full text-xs font-extrabold border transition-colors whitespace-nowrap"}
@@ -2319,6 +2384,7 @@
   </svelte:fragment>
 
   <svelte:fragment slot="top-actions">
+    {#if !webHostUnsupported}
     {@const topBtnBase = "px-3 py-2 rounded-full text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors whitespace-nowrap"}
     {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
     <button
@@ -2414,9 +2480,55 @@
         </svg>
       {/if}
     </button>
+    {:else}
+      <a
+        class="px-3 py-2 rounded-full text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors whitespace-nowrap"
+        href="https://download.melqard.com"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Download POS Desktop
+      </a>
+      <a
+        class="px-3 py-2 rounded-full text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors whitespace-nowrap"
+        href="http://127.0.0.1:7070"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Open Local POS
+      </a>
+    {/if}
   </svelte:fragment>
 
-  {#if activeScreen === "pos"}
+  {#if webHostUnsupported}
+    <section class="glass-panel rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6">
+      <h2 class="text-xl font-extrabold text-ink">Web Host Detected</h2>
+      <p class="mt-2 text-sm text-muted">
+        This URL is loading the unified desktop UI, which needs a local POS agent and cannot run directly from a pure web host.
+      </p>
+      {#if webHostHint}
+        <p class="mt-2 text-xs text-amber-300">{webHostHint}</p>
+      {/if}
+      <div class="mt-4 flex flex-wrap gap-3">
+        <a
+          class="px-4 py-2 rounded-xl border border-ink/10 bg-ink/5 hover:bg-ink/10 text-sm font-semibold"
+          href="https://download.melqard.com"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Download POS Desktop
+        </a>
+        <a
+          class="px-4 py-2 rounded-xl border border-ink/10 bg-ink/5 hover:bg-ink/10 text-sm font-semibold"
+          href="http://127.0.0.1:7070"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open Local POS (after install)
+        </a>
+      </div>
+    </section>
+  {:else if activeScreen === "pos"}
     <div
       class={`grid h-full gap-6 ${
         catalogCollapsed
@@ -2537,6 +2649,10 @@
       syncPullFor={syncPullFor}
       syncPushFor={syncPushFor}
       runStressBenchmark={runStressBenchmark}
+      setupLogin={setupLogin}
+      setupBranches={setupBranches}
+      setupDevices={setupDevices}
+      setupRegisterDevice={setupRegisterDevice}
     />
   {/if}
 </Shell>

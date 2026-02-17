@@ -13,6 +13,10 @@
   export let syncPullFor = async (companyKey) => {};
   export let syncPushFor = async (companyKey) => {};
   export let runStressBenchmark = async (lineCount) => null;
+  export let setupLogin = async (payload) => ({ ok: false, error: "setup login unavailable", payload });
+  export let setupBranches = async (payload) => ({ ok: false, error: "setup branches unavailable", payload });
+  export let setupDevices = async (payload) => ({ ok: false, error: "setup devices unavailable", payload });
+  export let setupRegisterDevice = async (payload) => ({ ok: false, error: "setup register unavailable", payload });
 
   let off = {};
   let un = {};
@@ -30,6 +34,29 @@
   let benchCount = 500;
   let benchRuns = [];
   let sharedCloudUrl = "";
+  let setupApiBase = "";
+  let setupEmail = "";
+  let setupPassword = "";
+  let setupMfaCode = "";
+  let setupMfaToken = "";
+  let setupToken = "";
+  let setupCompanies = [];
+  let setupCompanyOptions = [];
+  let setupCompanyOfficial = "";
+  let setupCompanyUnofficial = "";
+  let setupBranchOfficial = "";
+  let setupBranchUnofficial = "";
+  let setupBranchesOfficial = [];
+  let setupBranchesUnofficial = [];
+  let setupDevicePickOfficial = "";
+  let setupDevicePickUnofficial = "";
+  let setupDevicesOfficial = [];
+  let setupDevicesUnofficial = [];
+  let setupDeviceCodeOfficial = "POS-01";
+  let setupDeviceCodeUnofficial = "POS-02";
+  let setupBusy = false;
+  let setupErr = "";
+  let setupNotice = "";
 
   let testOff = null;
   let testUn = null;
@@ -65,6 +92,9 @@
   $: un = copyFrom(unofficialConfig);
   $: if (!String(sharedCloudUrl || "").trim()) {
     sharedCloudUrl = String(off.cloud_api_base_url || un.cloud_api_base_url || "").trim();
+  }
+  $: if (!String(setupApiBase || "").trim()) {
+    setupApiBase = String(sharedCloudUrl || off.cloud_api_base_url || un.cloud_api_base_url || "").trim();
   }
 
   const pillTone = (kind) => {
@@ -170,6 +200,301 @@
     err = "";
   };
 
+  const normalizeDeviceCode = (v, fallback = "POS-01") => {
+    const code = String(v || "").trim().toUpperCase();
+    return code || fallback;
+  };
+
+  const toCompanyOptions = (rows) => {
+    const out = [];
+    for (const row of rows || []) {
+      if (typeof row === "string") {
+        const id = String(row || "").trim();
+        if (id) out.push({ id, label: id });
+        continue;
+      }
+      const id = String(row?.id || "").trim();
+      if (!id) continue;
+      const label = String(row?.name || row?.legal_name || id).trim() || id;
+      out.push({ id, label });
+    }
+    return out;
+  };
+
+  const toBranchRows = (rows) => {
+    const out = [];
+    for (const row of rows || []) {
+      const id = String(row?.id || "").trim();
+      if (!id) continue;
+      const name = String(row?.name || id).trim() || id;
+      out.push({ id, name });
+    }
+    return out;
+  };
+
+  const toDeviceRows = (rows) => {
+    const out = [];
+    for (const row of rows || []) {
+      const code = normalizeDeviceCode(row?.device_code || "", "");
+      if (!code) continue;
+      out.push({
+        id: String(row?.id || "").trim(),
+        device_code: code,
+        branch_id: String(row?.branch_id || "").trim(),
+        branch_name: String(row?.branch_name || "").trim(),
+      });
+    }
+    out.sort((a, b) => String(a.device_code || "").localeCompare(String(b.device_code || "")));
+    return out;
+  };
+
+  $: setupCompanyOptions = toCompanyOptions(setupCompanies);
+
+  const setupCompanyLabel = (companyId) => {
+    const id = String(companyId || "").trim();
+    const row = (setupCompanyOptions || []).find((c) => String(c.id || "").trim() === id);
+    return String(row?.label || id || "company").trim();
+  };
+
+  const resetSetupSession = () => {
+    setupMfaToken = "";
+    setupToken = "";
+    setupCompanies = [];
+    setupCompanyOfficial = "";
+    setupCompanyUnofficial = "";
+    setupBranchOfficial = "";
+    setupBranchUnofficial = "";
+    setupBranchesOfficial = [];
+    setupBranchesUnofficial = [];
+    setupDevicePickOfficial = "";
+    setupDevicePickUnofficial = "";
+    setupDevicesOfficial = [];
+    setupDevicesUnofficial = [];
+    setupDeviceCodeOfficial = "POS-01";
+    setupDeviceCodeUnofficial = "POS-02";
+  };
+
+  const applyPickedDevice = (kind) => {
+    const isUnofficial = kind === "unofficial";
+    const picked = String(isUnofficial ? setupDevicePickUnofficial : setupDevicePickOfficial).trim().toUpperCase();
+    const list = isUnofficial ? (setupDevicesUnofficial || []) : (setupDevicesOfficial || []);
+    const row = list.find((d) => String(d?.device_code || "").trim().toUpperCase() === picked);
+    if (isUnofficial) {
+      if (row) {
+        setupDeviceCodeUnofficial = normalizeDeviceCode(row.device_code, "POS-02");
+        if (!setupBranchUnofficial && String(row.branch_id || "").trim()) setupBranchUnofficial = String(row.branch_id || "").trim();
+      } else if (!String(setupDeviceCodeUnofficial || "").trim()) {
+        setupDeviceCodeUnofficial = "POS-02";
+      }
+      return;
+    }
+    if (row) {
+      setupDeviceCodeOfficial = normalizeDeviceCode(row.device_code, "POS-01");
+      if (!setupBranchOfficial && String(row.branch_id || "").trim()) setupBranchOfficial = String(row.branch_id || "").trim();
+    } else if (!String(setupDeviceCodeOfficial || "").trim()) {
+      setupDeviceCodeOfficial = "POS-01";
+    }
+  };
+
+  const refreshSetupCompany = async (kind) => {
+    const isUnofficial = kind === "unofficial";
+    const companyId = String(isUnofficial ? setupCompanyUnofficial : setupCompanyOfficial).trim();
+    if (!companyId || !String(setupToken || "").trim() || !String(setupApiBase || "").trim()) {
+      if (isUnofficial) {
+        setupBranchesUnofficial = [];
+        setupDevicesUnofficial = [];
+        setupDevicePickUnofficial = "";
+      } else {
+        setupBranchesOfficial = [];
+        setupDevicesOfficial = [];
+        setupDevicePickOfficial = "";
+      }
+      return;
+    }
+
+    setupBusy = true;
+    setupErr = "";
+    try {
+      const payload = {
+        api_base_url: String(setupApiBase || "").trim(),
+        token: String(setupToken || "").trim(),
+        company_id: companyId,
+      };
+      const [bRes, dRes] = await Promise.allSettled([
+        setupBranches(payload),
+        setupDevices(payload),
+      ]);
+      const branches = bRes.status === "fulfilled" ? toBranchRows(bRes.value?.branches || []) : [];
+      const devices = dRes.status === "fulfilled" ? toDeviceRows(dRes.value?.devices || []) : [];
+      if (isUnofficial) {
+        setupBranchesUnofficial = branches;
+        setupDevicesUnofficial = devices;
+      } else {
+        setupBranchesOfficial = branches;
+        setupDevicesOfficial = devices;
+      }
+      applyPickedDevice(kind);
+    } catch (e) {
+      setupErr = e?.message || String(e);
+    } finally {
+      setupBusy = false;
+    }
+  };
+
+  const runSetupLogin = async () => {
+    setupBusy = true;
+    setupErr = "";
+    setupNotice = "";
+    try {
+      const apiBase = String(setupApiBase || "").trim();
+      const email = String(setupEmail || "").trim();
+      const password = String(setupPassword || "");
+      if (!apiBase) throw new Error("Cloud API URL is required.");
+      if (!email) throw new Error("Email is required.");
+      if (!password) throw new Error("Password is required.");
+
+      const res = await setupLogin({
+        api_base_url: apiBase,
+        email,
+        password,
+      });
+
+      if (res?.mfa_required) {
+        setupMfaToken = String(res?.mfa_token || "").trim();
+        setupNotice = "MFA required. Enter code and click Verify MFA.";
+        setupToken = "";
+        return;
+      }
+
+      setupMfaToken = "";
+      setupToken = String(res?.token || "").trim();
+      setupCompanies = Array.isArray(res?.companies) ? res.companies : [];
+      const activeCompany = String(res?.active_company_id || "").trim();
+      const firstCompany = String((toCompanyOptions(setupCompanies)[0] || {}).id || "").trim();
+      setupCompanyOfficial = activeCompany || firstCompany;
+      setupCompanyUnofficial = activeCompany || firstCompany;
+      await refreshSetupCompany("official");
+      if (unofficialEnabled) await refreshSetupCompany("unofficial");
+      setupNotice = "Connected. Select company and POS, then Apply Express Setup.";
+    } catch (e) {
+      setupErr = e?.message || String(e);
+      resetSetupSession();
+    } finally {
+      setupBusy = false;
+    }
+  };
+
+  const runSetupVerifyMfa = async () => {
+    setupBusy = true;
+    setupErr = "";
+    setupNotice = "";
+    try {
+      const apiBase = String(setupApiBase || "").trim();
+      const mfaToken = String(setupMfaToken || "").trim();
+      const mfaCode = String(setupMfaCode || "").trim();
+      if (!apiBase) throw new Error("Cloud API URL is required.");
+      if (!mfaToken) throw new Error("MFA token missing. Click Log In again.");
+      if (!mfaCode) throw new Error("MFA code is required.");
+
+      const res = await setupLogin({
+        api_base_url: apiBase,
+        mfa_token: mfaToken,
+        mfa_code: mfaCode,
+      });
+      if (res?.mfa_required) throw new Error("MFA code not accepted. Try a fresh code.");
+
+      setupMfaToken = "";
+      setupMfaCode = "";
+      setupToken = String(res?.token || "").trim();
+      setupCompanies = Array.isArray(res?.companies) ? res.companies : [];
+      const activeCompany = String(res?.active_company_id || "").trim();
+      const firstCompany = String((toCompanyOptions(setupCompanies)[0] || {}).id || "").trim();
+      setupCompanyOfficial = activeCompany || firstCompany;
+      setupCompanyUnofficial = activeCompany || firstCompany;
+      await refreshSetupCompany("official");
+      if (unofficialEnabled) await refreshSetupCompany("unofficial");
+      setupNotice = "MFA verified. Select company and POS, then Apply Express Setup.";
+    } catch (e) {
+      setupErr = e?.message || String(e);
+    } finally {
+      setupBusy = false;
+    }
+  };
+
+  const applyExpressSetup = async () => {
+    setupBusy = true;
+    setupErr = "";
+    setupNotice = "";
+    try {
+      const apiBase = String(setupApiBase || "").trim();
+      const token = String(setupToken || "").trim();
+      const companyOff = String(setupCompanyOfficial || "").trim();
+      const companyUn = String(setupCompanyUnofficial || setupCompanyOfficial || "").trim();
+      const branchOff = String(setupBranchOfficial || "").trim();
+      const branchUn = String(setupBranchUnofficial || "").trim();
+      const codeOff = normalizeDeviceCode(setupDeviceCodeOfficial || setupDevicePickOfficial, "POS-01");
+      const codeUn = normalizeDeviceCode(setupDeviceCodeUnofficial || setupDevicePickUnofficial, "POS-02");
+      if (!apiBase) throw new Error("Cloud API URL is required.");
+      if (!token) throw new Error("You are not logged in. Click Log In first.");
+      if (!companyOff) throw new Error("Select Official company.");
+      if (!codeOff) throw new Error("Official POS code is required.");
+      if (unofficialEnabled && !companyUn) throw new Error("Select Unofficial company.");
+      if (unofficialEnabled && !codeUn) throw new Error("Unofficial POS code is required.");
+      if (unofficialEnabled && companyOff === companyUn && codeOff === codeUn) {
+        throw new Error("Official and Unofficial cannot use the same POS code in the same company.");
+      }
+
+      const regOff = await setupRegisterDevice({
+        api_base_url: apiBase,
+        token,
+        company_id: companyOff,
+        branch_id: branchOff,
+        device_code: codeOff,
+        reset_token: true,
+      });
+
+      await saveConfigFor("official", {
+        api_base_url: apiBase,
+        cloud_api_base_url: apiBase,
+        company_id: companyOff,
+        branch_id: branchOff || "",
+        device_code: codeOff,
+        device_id: String(regOff?.device_id || "").trim(),
+        device_token: String(regOff?.device_token || "").trim(),
+      });
+      try { await syncPullFor("official"); } catch (_) {}
+
+      if (unofficialEnabled) {
+        const regUn = await setupRegisterDevice({
+          api_base_url: apiBase,
+          token,
+          company_id: companyUn,
+          branch_id: branchUn,
+          device_code: codeUn,
+          reset_token: true,
+        });
+        await saveConfigFor("unofficial", {
+          api_base_url: apiBase,
+          cloud_api_base_url: apiBase,
+          company_id: companyUn,
+          branch_id: branchUn || "",
+          device_code: codeUn,
+          device_id: String(regUn?.device_id || "").trim(),
+          device_token: String(regUn?.device_token || "").trim(),
+        });
+        try { await syncPullFor("unofficial"); } catch (_) {}
+      }
+
+      setupNotice = `Connected successfully. Official: ${setupCompanyLabel(companyOff)}${unofficialEnabled ? ` · Unofficial: ${setupCompanyLabel(companyUn)}` : ""}.`;
+      notice = "Express setup applied and sync pull started.";
+      err = "";
+    } catch (e) {
+      setupErr = e?.message || String(e);
+    } finally {
+      setupBusy = false;
+    }
+  };
+
   const fmtMs = (v) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return "—";
@@ -252,6 +577,236 @@
             </button>
           </div>
         </div>
+      </div>
+
+      <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Express Onboarding</div>
+            <div class="mt-1 text-sm text-ink/90">
+              Log in once, pick company and POS from dropdowns, and auto-connect both agents.
+            </div>
+          </div>
+          <div class={`px-3 py-1 rounded-full border text-[11px] font-extrabold ${pillTone(setupToken ? "ok" : (setupMfaToken ? "warn" : "neutral"))}`}>
+            {setupToken ? "Connected" : (setupMfaToken ? "MFA" : "Not connected")}
+          </div>
+        </div>
+
+        {#if setupErr}
+          <div class="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">{setupErr}</div>
+        {/if}
+        {#if setupNotice}
+          <div class="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-ink/80">{setupNotice}</div>
+        {/if}
+
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="md:col-span-2">
+            <label class="text-xs text-muted" for="setup_api_base_url">Cloud API URL</label>
+            <input
+              id="setup_api_base_url"
+              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+              placeholder="https://app.melqard.com/api"
+              bind:value={setupApiBase}
+              disabled={setupBusy}
+            />
+          </div>
+          <div>
+            <label class="text-xs text-muted" for="setup_email">Email</label>
+            <input
+              id="setup_email"
+              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
+              placeholder="name@company.com"
+              bind:value={setupEmail}
+              disabled={setupBusy || !!setupToken}
+            />
+          </div>
+          <div>
+            <label class="text-xs text-muted" for="setup_password">Password</label>
+            <input
+              id="setup_password"
+              type="password"
+              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
+              placeholder="••••••••"
+              bind:value={setupPassword}
+              disabled={setupBusy || !!setupToken}
+            />
+          </div>
+        </div>
+
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="px-4 py-2 rounded-xl text-xs font-semibold border border-accent/30 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
+            on:click={runSetupLogin}
+            disabled={setupBusy || !!setupToken}
+          >
+            {setupBusy && !setupToken ? "Connecting..." : "Log In"}
+          </button>
+          <button
+            type="button"
+            class="px-4 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
+            on:click={() => { resetSetupSession(); setupErr = ""; setupNotice = ""; }}
+            disabled={setupBusy}
+          >
+            Clear
+          </button>
+        </div>
+
+        {#if setupMfaToken}
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+            <input
+              class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+              placeholder="MFA code"
+              bind:value={setupMfaCode}
+              disabled={setupBusy}
+            />
+            <button
+              type="button"
+              class="px-4 py-3 rounded-xl text-xs font-semibold border border-accent/30 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
+              on:click={runSetupVerifyMfa}
+              disabled={setupBusy}
+            >
+              Verify MFA
+            </button>
+          </div>
+        {/if}
+
+        {#if setupToken}
+          <div class="mt-4 rounded-xl border border-ink/10 bg-bg/35 p-3 space-y-3">
+            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Official</div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-muted" for="setup_off_company">Company</label>
+                <select
+                  id="setup_off_company"
+                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                  bind:value={setupCompanyOfficial}
+                  on:change={() => refreshSetupCompany("official")}
+                  disabled={setupBusy}
+                >
+                  <option value="">Select company...</option>
+                  {#each setupCompanyOptions as c}
+                    <option value={c.id}>{c.label}</option>
+                  {/each}
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-muted" for="setup_off_branch">Branch (optional)</label>
+                <select
+                  id="setup_off_branch"
+                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                  bind:value={setupBranchOfficial}
+                  disabled={setupBusy}
+                >
+                  <option value="">No branch</option>
+                  {#each setupBranchesOfficial as b}
+                    <option value={b.id}>{b.name}</option>
+                  {/each}
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-muted" for="setup_off_device_pick">POS from company (optional)</label>
+                <select
+                  id="setup_off_device_pick"
+                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                  bind:value={setupDevicePickOfficial}
+                  on:change={() => applyPickedDevice("official")}
+                  disabled={setupBusy}
+                >
+                  <option value="">Create/use manual code...</option>
+                  {#each setupDevicesOfficial as d}
+                    <option value={d.device_code}>{d.device_code}{d.branch_name ? ` (${d.branch_name})` : ""}</option>
+                  {/each}
+                </select>
+              </div>
+              <div>
+                <label class="text-xs text-muted" for="setup_off_device_code">POS code</label>
+                <input
+                  id="setup_off_device_code"
+                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                  bind:value={setupDeviceCodeOfficial}
+                  disabled={setupBusy}
+                />
+              </div>
+            </div>
+          </div>
+
+          {#if unofficialEnabled}
+            <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3 space-y-3">
+              <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Unofficial</div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label class="text-xs text-muted" for="setup_un_company">Company</label>
+                  <select
+                    id="setup_un_company"
+                    class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                    bind:value={setupCompanyUnofficial}
+                    on:change={() => refreshSetupCompany("unofficial")}
+                    disabled={setupBusy}
+                  >
+                    <option value="">Select company...</option>
+                    {#each setupCompanyOptions as c}
+                      <option value={c.id}>{c.label}</option>
+                    {/each}
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-muted" for="setup_un_branch">Branch (optional)</label>
+                  <select
+                    id="setup_un_branch"
+                    class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                    bind:value={setupBranchUnofficial}
+                    disabled={setupBusy}
+                  >
+                    <option value="">No branch</option>
+                    {#each setupBranchesUnofficial as b}
+                      <option value={b.id}>{b.name}</option>
+                    {/each}
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-muted" for="setup_un_device_pick">POS from company (optional)</label>
+                  <select
+                    id="setup_un_device_pick"
+                    class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                    bind:value={setupDevicePickUnofficial}
+                    on:change={() => applyPickedDevice("unofficial")}
+                    disabled={setupBusy}
+                  >
+                    <option value="">Create/use manual code...</option>
+                    {#each setupDevicesUnofficial as d}
+                      <option value={d.device_code}>{d.device_code}{d.branch_name ? ` (${d.branch_name})` : ""}</option>
+                    {/each}
+                  </select>
+                </div>
+                <div>
+                  <label class="text-xs text-muted" for="setup_un_device_code">POS code</label>
+                  <input
+                    id="setup_un_device_code"
+                    class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                    bind:value={setupDeviceCodeUnofficial}
+                    disabled={setupBusy}
+                  />
+                </div>
+              </div>
+            </div>
+          {:else}
+            <div class="mt-3 text-xs text-muted">
+              Secondary agent is disabled. Set Other Agent URL first if you want dual-company onboarding.
+            </div>
+          {/if}
+
+          <div class="mt-3">
+            <button
+              type="button"
+              class="px-5 py-3 rounded-xl bg-accent text-white font-extrabold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
+              on:click={applyExpressSetup}
+              disabled={setupBusy}
+            >
+              {setupBusy ? "Applying..." : "Apply Express Setup"}
+            </button>
+          </div>
+        {/if}
       </div>
 
       <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
