@@ -79,6 +79,7 @@ export default function MarginByItemPage() {
     }
     return { revUsd, revLbp, cogsUsd, cogsLbp, marUsd: revUsd - cogsUsd, marLbp: revLbp - cogsLbp };
   }, [data]);
+  const marginTone = totals.marUsd < 0 ? "danger" : totals.marUsd > 0 ? "success" : "info";
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -249,25 +250,25 @@ export default function MarginByItemPage() {
           <CardDescription>Sum across returned rows.</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-4">
-          <div className="rounded-md border border-border bg-bg-elevated p-3">
-            <div className="text-xs text-fg-subtle">Revenue</div>
-            <div className="mt-1 data-mono text-sm">{fmtUsd(totals.revUsd)}</div>
-            <div className="data-mono text-xs text-fg-muted">{fmtLbp(totals.revLbp)}</div>
+          <div className="ui-kpi-card" data-tone="success">
+            <div className="ui-kpi-label">Revenue</div>
+            <div className="ui-kpi-value">{fmtUsd(totals.revUsd)}</div>
+            <div className="ui-kpi-subvalue">{fmtLbp(totals.revLbp)}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-3">
-            <div className="text-xs text-fg-subtle">COGS</div>
-            <div className="mt-1 data-mono text-sm">{fmtUsd(totals.cogsUsd)}</div>
-            <div className="data-mono text-xs text-fg-muted">{fmtLbp(totals.cogsLbp)}</div>
+          <div className="ui-kpi-card" data-tone="warning">
+            <div className="ui-kpi-label">COGS</div>
+            <div className="ui-kpi-value">{fmtUsd(totals.cogsUsd)}</div>
+            <div className="ui-kpi-subvalue">{fmtLbp(totals.cogsLbp)}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-3">
-            <div className="text-xs text-fg-subtle">Margin</div>
-            <div className="mt-1 data-mono text-sm">{fmtUsd(totals.marUsd)}</div>
-            <div className="data-mono text-xs text-fg-muted">{fmtLbp(totals.marLbp)}</div>
+          <div className="ui-kpi-card" data-tone={marginTone}>
+            <div className="ui-kpi-label">Margin</div>
+            <div className="ui-kpi-value">{fmtUsd(totals.marUsd)}</div>
+            <div className="ui-kpi-subvalue">{fmtLbp(totals.marLbp)}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-3">
-            <div className="text-xs text-fg-subtle">Period</div>
-            <div className="mt-1 font-mono text-xs">{data?.start_date || startDate}</div>
-            <div className="font-mono text-xs text-fg-muted">{data?.end_date || endDate}</div>
+          <div className="ui-kpi-card" data-tone="info">
+            <div className="ui-kpi-label">Period</div>
+            <div className="mt-2 data-mono text-base font-semibold text-foreground">{data?.start_date || startDate}</div>
+            <div className="data-mono text-sm font-medium text-fg-muted">{data?.end_date || endDate}</div>
           </div>
         </CardContent>
       </Card>

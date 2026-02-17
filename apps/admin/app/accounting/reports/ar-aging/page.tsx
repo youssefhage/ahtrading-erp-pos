@@ -35,6 +35,22 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function bucketTone(bucket: string): "success" | "info" | "warning" | "danger" {
+  switch (bucket) {
+    case "current":
+      return "success";
+    case "1-30":
+      return "info";
+    case "31-60":
+      return "warning";
+    case "61-90":
+    case "90+":
+      return "danger";
+    default:
+      return "info";
+  }
+}
+
 export default function ArAgingPage() {
   const [status, setStatus] = useState("");
   const [data, setData] = useState<AgingRes | null>(null);
@@ -140,81 +156,82 @@ export default function ArAgingPage() {
     <div className="mx-auto max-w-7xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>As Of</CardTitle>
-            <CardDescription>
-              <span className="font-mono text-xs">{data?.as_of || asOf}</span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center justify-between gap-2">
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
-            <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline">Filters</Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-xl">
-                <DialogHeader>
-                  <DialogTitle>Report Filters</DialogTitle>
-                  <DialogDescription>Select an as-of date.</DialogDescription>
-                </DialogHeader>
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg-muted">As Of</label>
-                    <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
-                  </div>
-                  <div className="flex items-end justify-end">
-                    <Button
-                      onClick={async () => {
-                        setFiltersOpen(false);
-                        await load();
-                      }}
-                    >
-                      Apply
-                    </Button>
-                  </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>As Of</CardTitle>
+          <CardDescription>
+            <span className="font-mono text-xs">{data?.as_of || asOf}</span>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-2">
+          <Button variant="outline" onClick={load}>
+            Refresh
+          </Button>
+          <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">Filters</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-xl">
+              <DialogHeader>
+                <DialogTitle>Report Filters</DialogTitle>
+                <DialogDescription>Select an as-of date.</DialogDescription>
+              </DialogHeader>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">As Of</label>
+                  <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
                 </div>
-              </DialogContent>
-            </Dialog>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Bucket Totals</CardTitle>
-            <CardDescription>Outstanding receivables by bucket.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-4">
-            {bucketTotals.map(([bucket, t]) => (
-              <div key={bucket} className="rounded-md border border-border bg-bg-elevated p-3">
-                <div className="text-xs text-fg-subtle">{bucket}</div>
-                <div className="mt-1 data-mono text-sm">{fmtUsd(t.usd)}</div>
-                <div className="data-mono text-xs text-fg-muted">{fmtLbp(t.lbp)}</div>
+                <div className="flex items-end justify-end">
+                  <Button
+                    onClick={async () => {
+                      setFiltersOpen(false);
+                      await load();
+                    }}
+                  >
+                    Apply
+                  </Button>
+                </div>
               </div>
-            ))}
-            {bucketTotals.length === 0 ? (
-              <div className="text-sm text-fg-muted">No outstanding invoices.</div>
-            ) : null}
-          </CardContent>
-        </Card>
+            </DialogContent>
+          </Dialog>
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Invoices</CardTitle>
-            <CardDescription>{data?.rows?.length || 0} outstanding invoices</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable<AgingRow>
-              tableId="accounting.reports.ar_aging"
-              rows={data?.rows || []}
-              columns={columns}
-              initialSort={{ columnId: "balance_usd", dir: "desc" }}
-              globalFilterPlaceholder="Search invoice / customer..."
-              emptyText="No outstanding invoices."
-            />
-          </CardContent>
-        </Card>
-      </div>);
+      <Card>
+        <CardHeader>
+          <CardTitle>Bucket Totals</CardTitle>
+          <CardDescription>Outstanding receivables by bucket.</CardDescription>
+        </CardHeader>
+        <CardContent className="ui-kpi-grid ui-kpi-grid-dense">
+          {bucketTotals.map(([bucket, t]) => (
+            <div key={bucket} className="ui-kpi-card" data-tone={bucketTone(bucket)}>
+              <div className="ui-kpi-label">{bucket}</div>
+              <div className="ui-kpi-value">{fmtUsd(t.usd)}</div>
+              <div className="ui-kpi-subvalue">{fmtLbp(t.lbp)}</div>
+            </div>
+          ))}
+          {bucketTotals.length === 0 ? (
+            <div className="text-sm text-fg-muted">No outstanding invoices.</div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Invoices</CardTitle>
+          <CardDescription>{data?.rows?.length || 0} outstanding invoices</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable<AgingRow>
+            tableId="accounting.reports.ar_aging"
+            rows={data?.rows || []}
+            columns={columns}
+            initialSort={{ columnId: "balance_usd", dir: "desc" }}
+            globalFilterPlaceholder="Search invoice / customer..."
+            emptyText="No outstanding invoices."
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
 }

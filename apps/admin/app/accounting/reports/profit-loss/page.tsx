@@ -96,119 +96,123 @@ export default function ProfitLossPage() {
     ];
   }, []);
 
+  const netProfitUsd = Number(data?.net_profit_usd || 0);
+  const netProfitTone = netProfitUsd < 0 ? "danger" : netProfitUsd > 0 ? "success" : "info";
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Summary</CardTitle>
-            <CardDescription>
-              Period:{" "}
-              <span className="font-mono text-xs">
-                {data?.start_date || startDate} → {data?.end_date || endDate}
-              </span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                <div className="rounded-md border border-border bg-bg-elevated p-3">
-                  <div className="text-xs text-fg-subtle">Revenue</div>
-                  <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(data?.revenue_usd)}</div>
-                  <div className="data-mono text-xs text-fg-muted">
-                    {fmtLbpMaybe(data?.revenue_lbp, { dashIfZero: Number(data?.revenue_usd || 0) !== 0 })}
-                  </div>
-                </div>
-                <div className="rounded-md border border-border bg-bg-elevated p-3">
-                  <div className="text-xs text-fg-subtle">Expenses</div>
-                  <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(data?.expense_usd)}</div>
-                  <div className="data-mono text-xs text-fg-muted">
-                    {fmtLbpMaybe(data?.expense_lbp, { dashIfZero: Number(data?.expense_usd || 0) !== 0 })}
-                  </div>
-                </div>
-                <div className="rounded-md border border-border bg-bg-elevated p-3">
-                  <div className="text-xs text-fg-subtle">Net Profit</div>
-                  <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(data?.net_profit_usd)}</div>
-                  <div className="data-mono text-xs text-fg-muted">
-                    {fmtLbpMaybe(data?.net_profit_lbp, { dashIfZero: Number(data?.net_profit_usd || 0) !== 0 })}
-                  </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Summary</CardTitle>
+          <CardDescription>
+            Period:{" "}
+            <span className="font-mono text-xs">
+              {data?.start_date || startDate} → {data?.end_date || endDate}
+            </span>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="ui-kpi-grid w-full max-w-4xl">
+              <div className="ui-kpi-card" data-tone="success">
+                <div className="ui-kpi-label">Revenue</div>
+                <div className="ui-kpi-value">{fmtUsdMaybe(data?.revenue_usd)}</div>
+                <div className="ui-kpi-subvalue">
+                  {fmtLbpMaybe(data?.revenue_lbp, { dashIfZero: Number(data?.revenue_usd || 0) !== 0 })}
                 </div>
               </div>
-
-              <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={load}>
-                  Refresh
-                </Button>
-                <Button asChild variant="outline">
-                  <Link
-                    href={`/accounting/reports/profit-loss/print?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Print / PDF
-                  </Link>
-                </Button>
-                <Button asChild variant="outline">
-                  <a
-                    href={`/exports/reports/profit-loss/pdf?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Download PDF
-                  </a>
-                </Button>
-                <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline">Filters</Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-xl">
-                    <DialogHeader>
-                      <DialogTitle>Report Filters</DialogTitle>
-                      <DialogDescription>Select the P&L period.</DialogDescription>
-                    </DialogHeader>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">Start Date</label>
-                        <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-fg-muted">End Date</label>
-                        <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-                      </div>
-                      <div className="flex justify-end md:col-span-2">
-                        <Button
-                          onClick={async () => {
-                            setFiltersOpen(false);
-                            await load();
-                          }}
-                        >
-                          Apply
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
+              <div className="ui-kpi-card" data-tone="warning">
+                <div className="ui-kpi-label">Expenses</div>
+                <div className="ui-kpi-value">{fmtUsdMaybe(data?.expense_usd)}</div>
+                <div className="ui-kpi-subvalue">
+                  {fmtLbpMaybe(data?.expense_lbp, { dashIfZero: Number(data?.expense_usd || 0) !== 0 })}
+                </div>
+              </div>
+              <div className="ui-kpi-card" data-tone={netProfitTone}>
+                <div className="ui-kpi-label">Net Profit</div>
+                <div className="ui-kpi-value">{fmtUsdMaybe(data?.net_profit_usd)}</div>
+                <div className="ui-kpi-subvalue">
+                  {fmtLbpMaybe(data?.net_profit_lbp, { dashIfZero: Number(data?.net_profit_usd || 0) !== 0 })}
+                </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Details</CardTitle>
-            <CardDescription>{data?.rows?.length || 0} accounts</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable<PlRow>
-              tableId="accounting.reports.profit_loss"
-              rows={data?.rows || []}
-              columns={columns}
-              initialSort={{ columnId: "amount_usd", dir: "desc" }}
-              globalFilterPlaceholder="Search account..."
-              emptyText="No rows."
-            />
-          </CardContent>
-        </Card>
-      </div>);
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={load}>
+                Refresh
+              </Button>
+              <Button asChild variant="outline">
+                <Link
+                  href={`/accounting/reports/profit-loss/print?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Print / PDF
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <a
+                  href={`/exports/reports/profit-loss/pdf?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Download PDF
+                </a>
+              </Button>
+              <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline">Filters</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-xl">
+                  <DialogHeader>
+                    <DialogTitle>Report Filters</DialogTitle>
+                    <DialogDescription>Select the P&L period.</DialogDescription>
+                  </DialogHeader>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-fg-muted">Start Date</label>
+                      <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-fg-muted">End Date</label>
+                      <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                    </div>
+                    <div className="flex justify-end md:col-span-2">
+                      <Button
+                        onClick={async () => {
+                          setFiltersOpen(false);
+                          await load();
+                        }}
+                      >
+                        Apply
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Details</CardTitle>
+          <CardDescription>{data?.rows?.length || 0} accounts</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable<PlRow>
+            tableId="accounting.reports.profit_loss"
+            rows={data?.rows || []}
+            columns={columns}
+            initialSort={{ columnId: "amount_usd", dir: "desc" }}
+            globalFilterPlaceholder="Search account..."
+            emptyText="No rows."
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
 }

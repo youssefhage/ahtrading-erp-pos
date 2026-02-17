@@ -534,34 +534,34 @@ export default function AiHubPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
-          <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-xs font-medium text-fg-muted">Recommendations</div>
-            <div className="mt-1 text-sm font-mono">{stat(recommendationTotal)}</div>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="ui-kpi-grid ui-kpi-grid-dense flex-1">
+          <div className="ui-kpi-card" data-tone="info">
+            <div className="ui-kpi-label">Recommendations</div>
+            <div className="ui-kpi-value">{stat(recommendationTotal)}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-xs font-medium text-fg-muted">Pending Recommendations</div>
-            <div className="mt-1 text-sm font-mono">{stat(recommendationStatusCounts.pending)}</div>
+          <div className="ui-kpi-card" data-tone="warning">
+            <div className="ui-kpi-label">Pending Recommendations</div>
+            <div className="ui-kpi-value">{stat(recommendationStatusCounts.pending)}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-xs font-medium text-fg-muted">Queued Actions</div>
-            <div className="mt-1 text-sm font-mono">{stat(actionStatusCounts.queued)}</div>
+          <div className="ui-kpi-card" data-tone="info">
+            <div className="ui-kpi-label">Queued Actions</div>
+            <div className="ui-kpi-value">{stat(actionStatusCounts.queued)}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-xs font-medium text-fg-muted">Failed Actions</div>
-            <div className="mt-1 text-sm font-mono">{stat(actionStatusCounts.failed)}</div>
+          <div className="ui-kpi-card" data-tone="danger">
+            <div className="ui-kpi-label">Failed Actions</div>
+            <div className="ui-kpi-value">{stat(actionStatusCounts.failed)}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-xs font-medium text-fg-muted">Blocked Actions</div>
-            <div className="mt-1 text-sm font-mono">{stat(actionStatusCounts.blocked)}</div>
+          <div className="ui-kpi-card" data-tone="warning">
+            <div className="ui-kpi-label">Blocked Actions</div>
+            <div className="ui-kpi-value">{stat(actionStatusCounts.blocked)}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-xs font-medium text-fg-muted">Scheduled Jobs</div>
-            <div className="mt-1 text-sm font-mono">{stat(scheduledJobCount)}</div>
+          <div className="ui-kpi-card">
+            <div className="ui-kpi-label">Scheduled Jobs</div>
+            <div className="ui-kpi-value">{stat(scheduledJobCount)}</div>
           </div>
         </div>
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-end lg:pt-1">
           <Button
             variant="outline"
             onClick={load}

@@ -54,6 +54,8 @@ export default function ExpiryExposurePage() {
     }
     return { valueUsd, valueLbp, qty };
   }, [data]);
+  const qtyTone = totals.qty > 0 ? "warning" : "info";
+  const valueTone = totals.valueUsd > 0 ? "warning" : "info";
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -218,17 +220,17 @@ export default function ExpiryExposurePage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-3">
-          <div className="rounded-md border border-border bg-bg-elevated p-3">
-            <div className="text-xs text-fg-subtle">On-hand qty</div>
-            <div className="mt-1 data-mono text-sm">{totals.qty.toLocaleString("en-US")}</div>
+          <div className="ui-kpi-card" data-tone={qtyTone}>
+            <div className="ui-kpi-label">On-hand Qty</div>
+            <div className="ui-kpi-value">{totals.qty.toLocaleString("en-US")}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-3">
-            <div className="text-xs text-fg-subtle">Est value (USD)</div>
-            <div className="mt-1 data-mono text-sm">{fmtUsd(totals.valueUsd)}</div>
+          <div className="ui-kpi-card" data-tone={valueTone}>
+            <div className="ui-kpi-label">Est Value (USD)</div>
+            <div className="ui-kpi-value">{fmtUsd(totals.valueUsd)}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-3">
-            <div className="text-xs text-fg-subtle">Est value (LL)</div>
-            <div className="mt-1 data-mono text-sm">{fmtLbp(totals.valueLbp)}</div>
+          <div className="ui-kpi-card" data-tone={valueTone}>
+            <div className="ui-kpi-label">Est Value (LL)</div>
+            <div className="ui-kpi-value">{fmtLbp(totals.valueLbp)}</div>
           </div>
         </CardContent>
       </Card>

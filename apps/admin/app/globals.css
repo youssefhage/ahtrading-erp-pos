@@ -386,6 +386,79 @@
     @apply mt-1 data-mono text-sm text-foreground;
   }
 
+  /* Reusable KPI cards (dashboard counters and monetary summaries). */
+  .ui-kpi-grid {
+    @apply grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3;
+  }
+
+  .ui-kpi-grid-dense {
+    @apply gap-2 sm:grid-cols-3 xl:grid-cols-6;
+  }
+
+  .ui-kpi-card {
+    @apply relative overflow-hidden rounded-xl border border-border-subtle bg-bg-elevated px-3 py-3;
+    min-height: 92px;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 10px 22px rgba(0, 0, 0, 0.05);
+  }
+
+  .ui-kpi-card::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: rgb(var(--border-strong) / 0.55);
+  }
+
+  .ui-kpi-card[data-tone="info"] {
+    border-color: rgb(var(--info) / 0.22);
+    background: linear-gradient(180deg, rgb(var(--info) / 0.04) 0%, rgb(var(--bg-elevated)) 60%);
+  }
+
+  .ui-kpi-card[data-tone="info"]::after {
+    background: rgb(var(--info) / 0.6);
+  }
+
+  .ui-kpi-card[data-tone="success"] {
+    border-color: rgb(var(--success) / 0.24);
+    background: linear-gradient(180deg, rgb(var(--success) / 0.05) 0%, rgb(var(--bg-elevated)) 60%);
+  }
+
+  .ui-kpi-card[data-tone="success"]::after {
+    background: rgb(var(--success) / 0.6);
+  }
+
+  .ui-kpi-card[data-tone="warning"] {
+    border-color: rgb(var(--warning) / 0.28);
+    background: linear-gradient(180deg, rgb(var(--warning) / 0.06) 0%, rgb(var(--bg-elevated)) 62%);
+  }
+
+  .ui-kpi-card[data-tone="warning"]::after {
+    background: rgb(var(--warning) / 0.62);
+  }
+
+  .ui-kpi-card[data-tone="danger"] {
+    border-color: rgb(var(--danger) / 0.3);
+    background: linear-gradient(180deg, rgb(var(--danger) / 0.08) 0%, rgb(var(--bg-elevated)) 62%);
+  }
+
+  .ui-kpi-card[data-tone="danger"]::after {
+    background: rgb(var(--danger) / 0.65);
+  }
+
+  .ui-kpi-label {
+    @apply text-[12px] font-semibold leading-snug text-fg-muted;
+  }
+
+  .ui-kpi-value {
+    @apply mt-2 data-mono text-[1.55rem] font-semibold leading-none text-foreground;
+  }
+
+  .ui-kpi-subvalue {
+    @apply mt-1 data-mono text-[1.15rem] font-semibold leading-tight text-foreground;
+  }
+
   /* Navigation rail item */
   .nav-rail-item {
     @apply relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-200;
