@@ -794,7 +794,19 @@ def submit_single_event(cfg: dict, event_id: str, event_type: str, payload: dict
             {"event_id": event_id, "event_type": event_type, "payload": payload, "created_at": created_at},
         ],
     }
-    res = post_json(f"{base.rstrip('/')}/pos/outbox/submit", bundle, headers=device_headers(cfg))
+    try:
+        res = post_json(f"{base.rstrip('/')}/pos/outbox/submit", bundle, headers=device_headers(cfg))
+    except HTTPError as ex:
+        body = ""
+        try:
+            body = ex.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        return False, {"error": f"http_{int(getattr(ex, 'code', 0) or 0)}", "detail": body or str(ex)}
+    except URLError as ex:
+        return False, {"error": "network_error", "detail": str(ex)}
+    except Exception as ex:
+        return False, {"error": "submit_failed", "detail": str(ex)}
     accepted = set(res.get("accepted") or [])
     return (event_id in accepted), res
 
@@ -1971,14 +1983,24 @@ def add_outbox_event(event_type, payload):
     # Must be UUID to match Postgres `pos_events_outbox.id` type.
     event_id = str(uuid.uuid4())
     created_at = datetime.utcnow().isoformat()
+    add_outbox_event_record(event_id, event_type, payload, created_at, status="pending")
+    return event_id
+
+
+def add_outbox_event_record(event_id, event_type, payload, created_at, status="pending"):
+    event_id = str(event_id or "").strip() or str(uuid.uuid4())
+    created_at = str(created_at or "").strip() or datetime.utcnow().isoformat()
+    st = str(status or "pending").strip().lower()
+    if st not in {"pending", "acked"}:
+        st = "pending"
     with db_connect() as conn:
         cur = conn.cursor()
         cur.execute(
             """
             INSERT INTO pos_outbox_events (event_id, event_type, payload_json, created_at, status)
-            VALUES (?, ?, ?, ?, 'pending')
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (event_id, event_type, json.dumps(payload), created_at),
+            (event_id, event_type, json.dumps(payload), created_at, st),
         )
         conn.commit()
     return event_id
@@ -3000,7 +3022,8 @@ class Handler(BaseHTTPRequestHandler):
             if "skip_stock_moves" in data:
                 payload["skip_stock_moves"] = bool(data.get("skip_stock_moves"))
             created_at = datetime.utcnow().isoformat()
-            event_id = add_outbox_event('sale.completed', payload)
+            event_id = str(uuid.uuid4())
+            outbox_status = "pending"
 
             # Higher-risk rule:
             # - Credit sales should only be allowed when the register can reach the edge AND the edge accepts the event.
@@ -3026,7 +3049,9 @@ class Handler(BaseHTTPRequestHandler):
                         status=409,
                     )
                     return
-                mark_outbox_sent([event_id])
+                outbox_status = "acked"
+
+            add_outbox_event_record(event_id, "sale.completed", payload, created_at, status=outbox_status)
 
             # Persist a printable receipt snapshot locally (offline-friendly).
             items_map = {i["id"]: i for i in (get_items() or [])}
@@ -3109,7 +3134,7 @@ class Handler(BaseHTTPRequestHandler):
             if "skip_stock_moves" in data:
                 payload["skip_stock_moves"] = bool(data.get("skip_stock_moves"))
             created_at = datetime.utcnow().isoformat()
-            event_id = add_outbox_event('sale.returned', payload)
+            event_id = str(uuid.uuid4())
 
             # Returns are also high-risk: do not print a refund receipt unless the edge accepts it.
             st = edge_health(cfg, timeout_s=0.8)
@@ -3132,7 +3157,7 @@ class Handler(BaseHTTPRequestHandler):
                     status=409,
                 )
                 return
-            mark_outbox_sent([event_id])
+            add_outbox_event_record(event_id, "sale.returned", payload, created_at, status="acked")
             items_map = {i["id"]: i for i in (get_items() or [])}
             cart_map = {str(i.get("id")): i for i in (cart or []) if i.get("id")}
             cashier_map = {c["id"]: c for c in (get_cashiers() or [])}

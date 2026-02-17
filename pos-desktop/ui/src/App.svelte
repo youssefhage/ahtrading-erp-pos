@@ -58,6 +58,7 @@
   
   let status = "Booting...";
   let unofficialStatus = "Pending";
+  let unofficialLocked = false;
   let loading = false;
   let notice = "";
   let error = "";
@@ -648,6 +649,7 @@
         const uOrigin = _normalizeAgentOrigin(otherAgentUrl);
         if (!uOrigin) {
           unofficialStatus = "Disabled";
+          unofficialLocked = false;
           unofficialItems = [];
           unofficialBarcodes = [];
           unofficialCustomers = [];
@@ -671,6 +673,7 @@
           const uCfgRes = uResults[0];
           if (uCfgRes.status === "fulfilled") {
             unofficialConfig = { ...unofficialConfig, ...(uCfgRes.value || {}) };
+            unofficialLocked = false;
             const setIfOkU = (idx, setter, fallback) => {
               const r = uResults[idx];
               if (r.status === "fulfilled") setter(r.value);
@@ -686,11 +689,23 @@
             setIfOkU(8, (v) => (unofficialPromotions = v.promotions || []), []);
             unofficialStatus = "Ready";
           } else {
-            unofficialStatus = "Offline";
+            const p = uCfgRes.reason?.payload;
+            if (p?.error === "pos_auth_required") {
+              unofficialStatus = "Locked";
+              unofficialLocked = true;
+              if (!showAdminPinModal) {
+                adminPinMode = "unlock";
+                openAdminPinModal();
+              }
+            } else {
+              unofficialStatus = "Offline";
+              unofficialLocked = false;
+            }
           }
         }
       } catch (_) {
         unofficialStatus = "Offline";
+        unofficialLocked = false;
       }
 
       // Promotions can affect cart pricing (min qty tiers). Reprice after refresh.
@@ -1551,10 +1566,10 @@
     try {
       const payment_method = String(method || "cash").trim().toLowerCase();
 
-      // Returns: keep single-agent for now (official), since Unified pilot only covers sales.
+      // Returns: enforce company-correct routing (single company or split by company).
       if (saleMode !== "sale") {
-        const payload = {
-          cart: cart.map(line => ({
+        const mapReturnLines = (lines) => {
+          return (lines || []).map((line) => ({
             id: line.id,
             qty: toNum(line.qty, 0),
             qty_factor: toNum(line.qty_factor, 1),
@@ -1565,21 +1580,66 @@
             tax_code_id: line.tax_code_id,
             batch_no: line.batch_no || null,
             expiry_date: line.expiry_date || null,
-          })),
-          customer_id: null,
-          payment_method,
-          pricing_currency: config.pricing_currency,
-          exchange_rate: config.exchange_rate,
-          shift_id: config.shift_id || null,
-          cashier_id: config.cashier_id || null,
+          }));
+        };
+        const cfgFor = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
+        const returnForCompany = async (companyKey, lines) => {
+          const cfg = cfgFor(companyKey);
+          return apiCallFor(companyKey, "/return", {
+            method: "POST",
+            body: {
+              cart: mapReturnLines(lines),
+              customer_id: null,
+              payment_method,
+              pricing_currency: cfg.pricing_currency,
+              exchange_rate: cfg.exchange_rate,
+              shift_id: cfg.shift_id || null,
+              cashier_id: cfg.cashier_id || null,
+            },
+          });
         };
 
-        const res = await apiCall("/return", { method: "POST", body: payload });
-        reportNotice(`Return complete: ${res.event_id}`);
+        const cartCompanies = cartCompaniesSet();
+        const mixedCompanies = cartCompanies.size > 1;
+        if (mixedCompanies) {
+          const companiesInOrder = ["official", "unofficial"].filter((k) => cart.some((c) => c.companyKey === k));
+          const done = [];
+          const failed = [];
+          for (const companyKey of companiesInOrder) {
+            const lines = cart.filter((c) => c.companyKey === companyKey);
+            if (!lines.length) continue;
+            try {
+              const res = await returnForCompany(companyKey, lines);
+              done.push({ companyKey, event_id: res?.event_id || "ok" });
+              queueSyncPush(companyKey);
+              cart = cart.filter((c) => c.companyKey !== companyKey);
+              try { window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer"); } catch (_) {}
+            } catch (e) {
+              failed.push({ companyKey, error: e?.message || String(e) });
+            }
+          }
+          await fetchData();
+          if (failed.length) {
+            const okText = done.length ? `Completed: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}. ` : "";
+            const failText = failed.map((f) => `${f.companyKey}: ${f.error}`).join(" | ");
+            reportError(`${okText}Split return incomplete. Failed: ${failText}`);
+            return;
+          }
+          cart = [];
+          activeCustomer = null;
+          reportNotice(`Split return complete: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}`);
+          return;
+        }
+
+        const returnCompany = primaryCompanyFromCart() || originCompanyKey;
+        const lines = cartCompanies.size === 1 ? cart.filter((c) => (c.companyKey || originCompanyKey) === returnCompany) : cart;
+        const res = await returnForCompany(returnCompany, lines);
+        queueSyncPush(returnCompany);
+        reportNotice(`Return complete (${returnCompany}): ${res.event_id}`);
         cart = [];
         activeCustomer = null;
-        fetchData();
-        try { window.open("/receipt/last", "_blank", "noopener,noreferrer"); } catch (_) {}
+        await fetchData();
+        try { window.open(_agentReceiptUrl(returnCompany), "_blank", "noopener,noreferrer"); } catch (_) {}
         return;
       }
 
@@ -1939,16 +1999,29 @@
     if (!pin) return;
     try {
       loading = true;
+      let unlockMsg = "Unlocked";
       if (adminPinMode === "set") {
         await apiCall("/admin/pin/set", { method: "POST", body: { pin } });
         adminPinMode = "unlock";
       }
       const res = await apiCall("/auth/pin", { method: "POST", body: { pin } });
       setSessionToken(originCompanyKey, res?.token || "");
+      if (unofficialLocked || unofficialStatus === "Locked") {
+        try {
+          const resUn = await apiCallFor(otherCompanyKey, "/auth/pin", { method: "POST", body: { pin } });
+          setSessionToken(otherCompanyKey, resUn?.token || "");
+          unofficialLocked = false;
+          unofficialStatus = "Ready";
+        } catch (_) {
+          unlockMsg = "Primary unlocked. Secondary is still locked.";
+          unofficialLocked = true;
+          unofficialStatus = "Locked";
+        }
+      }
       showAdminPinModal = false;
       adminPin = "";
       await fetchData();
-      reportNotice("Unlocked");
+      reportNotice(unlockMsg);
     } catch (e) {
       reportError(e.message);
     } finally {
