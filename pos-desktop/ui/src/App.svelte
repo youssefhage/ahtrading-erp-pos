@@ -154,6 +154,24 @@
     return `${Date.now()}-${Math.random().toString(16).slice(2, 12)}`;
   };
 
+  const makeUuid = () => {
+    try {
+      if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+      }
+    } catch (_) {}
+    const hex = "0123456789abcdef";
+    const r = () => hex[Math.floor(Math.random() * 16)];
+    let out = "";
+    for (let i = 0; i < 36; i += 1) {
+      if (i === 8 || i === 13 || i === 18 || i === 23) out += "-";
+      else if (i === 14) out += "4";
+      else if (i === 19) out += ["8", "9", "a", "b"][Math.floor(Math.random() * 4)];
+      else out += r();
+    }
+    return out;
+  };
+
   // State
   let apiBase = normalizeApiBase(DEFAULT_API_BASE);
   let sessionToken = "";
@@ -177,11 +195,13 @@
   let fetchDataDrainPromise = null;
   let webHostUnsupported = false;
   let webHostHint = "";
+  let webEventInvoiceMap = new Map();
+  let webIdempotencyMap = new Map();
 
   const activateWebHostUnsupported = (hint = "") => {
     webHostUnsupported = true;
     webHostHint = String(hint || "").trim();
-    status = "Web Setup Required";
+    status = "Web Setup Mode";
     error = "";
     activeScreen = "settings";
     try { localStorage.setItem(SCREEN_STORAGE_KEY, "settings"); } catch (_) {}
@@ -568,12 +588,32 @@
     return "/receipt/last";
   };
 
+  const cfgForCompanyKey = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
+
+  const _webConfigStorageKey = (companyKey) => (
+    companyKey === otherCompanyKey ? WEB_CONFIG_UNOFFICIAL_STORAGE_KEY : WEB_CONFIG_OFFICIAL_STORAGE_KEY
+  );
+
+  const _setCfgForCompanyKey = (companyKey, patch = {}) => {
+    const current = cfgForCompanyKey(companyKey) || {};
+    const nextCfg = { ...current, ...(patch || {}) };
+    if (Object.prototype.hasOwnProperty.call(patch || {}, "device_token")) {
+      nextCfg.has_device_token = !!String(nextCfg.device_token || "").trim();
+    } else if (typeof nextCfg.has_device_token !== "boolean") {
+      nextCfg.has_device_token = !!String(nextCfg.device_token || "").trim();
+    }
+    if (companyKey === otherCompanyKey) unofficialConfig = nextCfg;
+    else config = nextCfg;
+    try { localStorage.setItem(_webConfigStorageKey(companyKey), JSON.stringify(nextCfg)); } catch (_) {}
+    return nextCfg;
+  };
+
   const requestHeaders = (companyKey = "official") => {
     const h = { "Content-Type": "application/json" };
     const tok = companyKey === otherCompanyKey ? unofficialSessionToken : sessionToken;
     if (tok) h["X-POS-Session"] = tok;
     if (webHostUnsupported) {
-      const cfg = companyKey === otherCompanyKey ? unofficialConfig : config;
+      const cfg = cfgForCompanyKey(companyKey);
       const deviceId = String(cfg?.device_id || "").trim();
       const deviceToken = String(cfg?.device_token || "").trim();
       if (deviceId) h["X-Device-Id"] = deviceId;
@@ -582,7 +622,452 @@
     return h;
   };
 
+  const _webPosApiBaseFor = (companyKey) => {
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const candidate = String(cfg.cloud_api_base_url || cfg.api_base_url || apiBase || "").trim();
+    const normalized = normalizeApiBase(candidate || apiBase || "/api");
+    return normalized || "/api";
+  };
+
+  const _webPosCall = async (companyKey, path, { method = "GET", body = null, timeoutMs = 12000 } = {}) => {
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const deviceId = String(cfg.device_id || "").trim();
+    const deviceToken = String(cfg.device_token || "").trim();
+    if (!deviceId || !deviceToken) {
+      const err = new Error("Device is not connected. Run Express Setup first.");
+      err.status = 400;
+      throw err;
+    }
+
+    const base = _webPosApiBaseFor(companyKey);
+    const p = String(path || "").replace(/^\/+/, "");
+    const url = `${base}/${p}`;
+    const headers = {
+      "Content-Type": "application/json",
+      "X-Device-Id": deviceId,
+      "X-Device-Token": deviceToken,
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), Math.max(1000, toNum(timeoutMs, 12000)));
+    try {
+      const res = await fetch(url, {
+        method: String(method || "GET").toUpperCase(),
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (_) { data = text ? { raw: text } : null; }
+      if (!res.ok) {
+        const msg = data?.detail || data?.error || res.statusText || `HTTP ${res.status}`;
+        const err = new Error(String(msg));
+        err.status = res.status;
+        err.payload = data;
+        throw err;
+      }
+      return data || {};
+    } catch (e) {
+      if (e?.name === "AbortError") {
+        const err = new Error("Cloud POS request timed out.");
+        err.status = 408;
+        throw err;
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  const _toVatCodeMap = (vatCodes) => {
+    const map = {};
+    for (const row of vatCodes || []) {
+      const id = String(row?.id || "").trim();
+      if (!id) continue;
+      map[id] = toNum(row?.rate, 0);
+    }
+    return map;
+  };
+
+  const _withDualAmounts = (usd, lbp, exchangeRate) => {
+    let u = toNum(usd, 0);
+    let l = toNum(lbp, 0);
+    const ex = toNum(exchangeRate, 0);
+    if (l === 0 && ex > 0 && u !== 0) l = u * ex;
+    if (u === 0 && ex > 0 && l !== 0) u = l / ex;
+    return { usd: u, lbp: l };
+  };
+
+  const _buildSalePayloadWeb = (cartLines, cfg, payload = {}) => {
+    const exchangeRate = toNum(payload.exchange_rate, toNum(cfg.exchange_rate, 0));
+    const pricingCurrency = String(payload.pricing_currency || cfg.pricing_currency || "USD").toUpperCase();
+    const settlementCurrency = pricingCurrency;
+    const defaultTaxCodeId = payload.tax_code_id || cfg.tax_code_id || null;
+    const vatRate = toNum(cfg.vat_rate, 0);
+    const vatCodes = (cfg.vat_codes && typeof cfg.vat_codes === "object") ? cfg.vat_codes : {};
+
+    let baseUsd = 0;
+    let baseLbp = 0;
+    const lines = (cartLines || []).map((line) => {
+      const qty = Math.max(0, toNum(line.qty, 0));
+      const qtyFactor = Math.max(1e-9, toNum(line.qty_factor, 1));
+      const qtyEntered = line.qty_entered != null ? toNum(line.qty_entered, 0) : (qty / qtyFactor);
+      const unitUsd = toNum(line.price_usd, 0);
+      const unitLbp = toNum(line.price_lbp, 0);
+      const totals = _withDualAmounts(unitUsd * qty, unitLbp * qty, exchangeRate);
+      baseUsd += totals.usd;
+      baseLbp += totals.lbp;
+      return {
+        item_id: String(line.id || "").trim(),
+        tax_code_id: line.tax_code_id || null,
+        qty,
+        uom: line.uom || line.unit_of_measure || null,
+        qty_factor: qtyFactor,
+        qty_entered: qtyEntered,
+        unit_price_usd: unitUsd,
+        unit_price_lbp: unitLbp,
+        unit_price_entered_usd: unitUsd * qtyFactor,
+        unit_price_entered_lbp: unitLbp * qtyFactor,
+        pre_discount_unit_price_usd: toNum(line.pre_discount_unit_price_usd, 0),
+        pre_discount_unit_price_lbp: toNum(line.pre_discount_unit_price_lbp, 0),
+        discount_pct: toNum(line.discount_pct, 0),
+        discount_amount_usd: toNum(line.discount_amount_usd, 0),
+        discount_amount_lbp: toNum(line.discount_amount_lbp, 0),
+        applied_promotion_id: line.applied_promotion_id || null,
+        applied_promotion_item_id: line.applied_promotion_item_id || null,
+        line_total_usd: totals.usd,
+        line_total_lbp: totals.lbp,
+        unit_cost_usd: 0,
+        unit_cost_lbp: 0,
+        batch_no: line.batch_no || null,
+        expiry_date: line.expiry_date || null,
+      };
+    });
+
+    let taxUsd = 0;
+    let taxLbp = 0;
+    const taxBreakdown = [];
+    if (defaultTaxCodeId && (vatRate || Object.keys(vatCodes).length > 0)) {
+      const baseByTax = new Map();
+      for (const ln of lines) {
+        const taxCodeId = String(ln.tax_code_id || defaultTaxCodeId || "").trim();
+        if (!taxCodeId) continue;
+        if (Object.keys(vatCodes).length > 0 && !Object.prototype.hasOwnProperty.call(vatCodes, taxCodeId) && String(defaultTaxCodeId) !== taxCodeId) {
+          continue;
+        }
+        if (!baseByTax.has(taxCodeId)) baseByTax.set(taxCodeId, { usd: 0, lbp: 0 });
+        const b = baseByTax.get(taxCodeId);
+        b.usd += toNum(ln.line_total_usd, 0);
+        b.lbp += toNum(ln.line_total_lbp, 0);
+      }
+      for (const [taxCodeId, b] of baseByTax.entries()) {
+        let rate = Object.prototype.hasOwnProperty.call(vatCodes, taxCodeId) ? toNum(vatCodes[taxCodeId], 0) : vatRate;
+        if (!rate && String(defaultTaxCodeId) === taxCodeId) rate = vatRate;
+        const lineTaxLbp = b.lbp * rate;
+        const lineTaxUsd = exchangeRate > 0 ? (lineTaxLbp / exchangeRate) : 0;
+        taxUsd += lineTaxUsd;
+        taxLbp += lineTaxLbp;
+        taxBreakdown.push({
+          tax_code_id: taxCodeId,
+          base_usd: b.usd,
+          base_lbp: b.lbp,
+          tax_usd: lineTaxUsd,
+          tax_lbp: lineTaxLbp,
+          tax_date: new Date().toISOString().slice(0, 10),
+        });
+      }
+    }
+
+    const totalUsd = baseUsd + taxUsd;
+    const totalLbp = baseLbp + taxLbp;
+    const paymentMethod = String(payload.payment_method || "cash").trim().toLowerCase();
+    const payments = paymentMethod === "credit"
+      ? [{ method: "credit", amount_usd: 0, amount_lbp: 0 }]
+      : [{ method: paymentMethod || "cash", amount_usd: totalUsd, amount_lbp: totalLbp }];
+
+    return {
+      invoice_no: null,
+      exchange_rate: exchangeRate,
+      pricing_currency: pricingCurrency,
+      settlement_currency: settlementCurrency,
+      customer_id: payload.customer_id || null,
+      warehouse_id: cfg.warehouse_id || null,
+      shift_id: payload.shift_id || cfg.shift_id || null,
+      cashier_id: payload.cashier_id || cfg.cashier_id || null,
+      lines,
+      tax: defaultTaxCodeId ? {
+        tax_code_id: defaultTaxCodeId,
+        base_usd: baseUsd,
+        base_lbp: baseLbp,
+        tax_usd: taxUsd,
+        tax_lbp: taxLbp,
+        tax_date: new Date().toISOString().slice(0, 10),
+      } : null,
+      tax_breakdown: taxBreakdown,
+      payments,
+      loyalty_points: baseUsd * toNum(cfg.loyalty_rate, 0),
+      receipt_meta: payload.receipt_meta || null,
+      skip_stock_moves: !!payload.skip_stock_moves,
+    };
+  };
+
+  const _buildReturnPayloadWeb = (cartLines, cfg, payload = {}) => {
+    const salePayload = _buildSalePayloadWeb(cartLines, cfg, {
+      ...payload,
+      payment_method: payload.refund_method || payload.payment_method || "cash",
+      customer_id: null,
+    });
+    return {
+      return_no: null,
+      invoice_id: payload.invoice_id || null,
+      exchange_rate: salePayload.exchange_rate,
+      pricing_currency: salePayload.pricing_currency,
+      settlement_currency: salePayload.settlement_currency,
+      warehouse_id: salePayload.warehouse_id,
+      shift_id: salePayload.shift_id,
+      cashier_id: salePayload.cashier_id,
+      refund_method: String(payload.refund_method || payload.payment_method || "cash").trim().toLowerCase(),
+      lines: salePayload.lines,
+      tax: salePayload.tax,
+      tax_breakdown: salePayload.tax_breakdown || [],
+      receipt_meta: payload.receipt_meta || null,
+      skip_stock_moves: !!payload.skip_stock_moves,
+    };
+  };
+
+  const _submitAndProcessPosEventWeb = async (companyKey, eventType, payload, idempotencyKey = "") => {
+    const key = String(idempotencyKey || "").trim();
+    if (key && webIdempotencyMap.has(key)) {
+      const prev = webIdempotencyMap.get(key);
+      return { ...prev, idempotent_replay: true };
+    }
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const eventId = makeUuid();
+    const createdAt = new Date().toISOString();
+    await _webPosCall(companyKey, "/pos/outbox/submit", {
+      method: "POST",
+      body: {
+        company_id: cfg.company_id || null,
+        device_id: cfg.device_id,
+        events: [{ event_id: eventId, event_type: eventType, payload, created_at: createdAt }],
+      },
+    });
+    const processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
+      method: "POST",
+      body: { event_id: eventId },
+    });
+    const out = {
+      event_id: eventId,
+      edge_accepted: true,
+      idempotent_replay: false,
+      invoice_id: processed?.invoice_id || null,
+      invoice_no: processed?.invoice_no || null,
+    };
+    if (out.invoice_id) webEventInvoiceMap.set(eventId, out.invoice_id);
+    if (key) webIdempotencyMap.set(key, out);
+    return out;
+  };
+
+  const _webApiCallFor = async (companyKey, path, options = {}) => {
+    const rawPath = String(path || "");
+    const method = String(options?.method || "GET").toUpperCase();
+    const body = options?.body || {};
+    const [pathnameRaw, searchRaw] = rawPath.split("?");
+    const pathname = pathnameRaw.startsWith("/") ? pathnameRaw : `/${pathnameRaw}`;
+    const params = new URLSearchParams(searchRaw || "");
+    const cfg = cfgForCompanyKey(companyKey) || {};
+
+    if (method === "POST" && pathname === "/config") {
+      const next = _setCfgForCompanyKey(companyKey, body || {});
+      return { ok: true, config: next };
+    }
+    if (method === "GET" && pathname === "/config") {
+      const posCfg = await _webPosCall(companyKey, "/pos/config", { method: "GET" });
+      const rateRes = await _webPosCall(companyKey, "/pos/exchange-rate", { method: "GET" }).catch(() => ({}));
+      const openShiftRes = await _webPosCall(companyKey, "/pos/shifts/open", { method: "GET" }).catch(() => ({}));
+      const vatCodes = Array.isArray(posCfg?.vat_codes) ? posCfg.vat_codes : [];
+      const next = _setCfgForCompanyKey(companyKey, {
+        company_id: String(posCfg?.company_id || cfg.company_id || "").trim(),
+        device_id: String(posCfg?.device?.id || cfg.device_id || "").trim(),
+        device_code: String(posCfg?.device?.device_code || cfg.device_code || "").trim(),
+        branch_id: String(posCfg?.device?.branch_id || cfg.branch_id || "").trim(),
+        warehouse_id: posCfg?.default_warehouse_id || cfg.warehouse_id || "",
+        tax_code_id: posCfg?.vat?.id || cfg.tax_code_id || null,
+        vat_rate: toNum(posCfg?.vat?.rate, toNum(cfg.vat_rate, 0)),
+        vat_codes: _toVatCodeMap(vatCodes),
+        exchange_rate: toNum(rateRes?.rate?.usd_to_lbp, toNum(cfg.exchange_rate, 0)),
+        pricing_currency: String(cfg.pricing_currency || posCfg?.company?.base_currency || "USD").toUpperCase(),
+        shift_id: String(openShiftRes?.shift?.id || "").trim(),
+      });
+      return next;
+    }
+
+    if (method === "GET" && pathname === "/items") {
+      const companyId = String(cfg.company_id || "").trim();
+      const q = companyId ? `?company_id=${encodeURIComponent(companyId)}` : "";
+      const res = await _webPosCall(companyKey, `/pos/catalog${q}`, { method: "GET" });
+      return { items: Array.isArray(res?.items) ? res.items : [] };
+    }
+    if (method === "GET" && pathname === "/barcodes") {
+      const companyId = String(cfg.company_id || "").trim();
+      const q = companyId ? `?company_id=${encodeURIComponent(companyId)}` : "";
+      const res = await _webPosCall(companyKey, `/pos/catalog${q}`, { method: "GET" });
+      const barcodes = [];
+      for (const it of (res?.items || [])) {
+        const itemId = String(it?.id || "").trim();
+        for (const b of (it?.barcodes || [])) {
+          barcodes.push({
+            id: b?.id || `${itemId}:${b?.barcode || ""}`,
+            item_id: itemId,
+            barcode: b?.barcode,
+            qty_factor: toNum(b?.qty_factor, 1),
+            uom_code: b?.uom_code || it?.unit_of_measure || "pcs",
+            label: b?.label || "",
+            is_primary: !!b?.is_primary,
+          });
+        }
+      }
+      return { barcodes };
+    }
+    if (method === "GET" && pathname.startsWith("/items/") && pathname.endsWith("/batches")) {
+      const itemId = pathname.slice("/items/".length, -"/batches".length);
+      return await _webPosCall(companyKey, `/pos/items/${encodeURIComponent(itemId)}/batches`, { method: "GET" });
+    }
+    if (method === "GET" && pathname === "/customers") {
+      return await _webPosCall(companyKey, "/pos/customers/catalog", { method: "GET" });
+    }
+    if (method === "GET" && pathname === "/customers/by-id") {
+      const customerId = String(params.get("customer_id") || "").trim();
+      if (!customerId) return { customer: null };
+      const res = await _webPosCall(companyKey, "/pos/customers/catalog", { method: "GET" });
+      const found = (res?.customers || []).find((c) => String(c?.id || "") === customerId) || null;
+      return { customer: found };
+    }
+    if (method === "POST" && pathname === "/customers/create") {
+      return await _webPosCall(companyKey, "/pos/customers", {
+        method: "POST",
+        body: {
+          name: String(body?.name || "").trim(),
+          phone: String(body?.phone || "").trim() || null,
+          email: String(body?.email || "").trim() || null,
+          party_type: "individual",
+          customer_type: "retail",
+          payment_terms_days: 0,
+          is_active: true,
+        },
+      });
+    }
+    if (method === "GET" && pathname === "/cashiers") {
+      return await _webPosCall(companyKey, "/pos/cashiers/catalog", { method: "GET" });
+    }
+    if (method === "POST" && pathname === "/cashiers/login") {
+      const pin = String(body?.pin || "").trim();
+      if (!pin) throw new Error("PIN is required.");
+      const res = await _webPosCall(companyKey, "/pos/cashiers/verify", { method: "POST", body: { pin } });
+      const next = _setCfgForCompanyKey(companyKey, { cashier_id: String(res?.cashier?.id || "").trim() });
+      return { ok: true, cashier: res?.cashier || null, config: next };
+    }
+    if (method === "POST" && pathname === "/cashiers/logout") {
+      const next = _setCfgForCompanyKey(companyKey, { cashier_id: "" });
+      return { ok: true, config: next };
+    }
+    if (method === "GET" && pathname === "/promotions") {
+      return await _webPosCall(companyKey, "/pos/promotions/catalog", { method: "GET" });
+    }
+    if (method === "GET" && pathname === "/outbox") return { outbox: [] };
+    if (method === "GET" && pathname === "/edge/status") {
+      return { edge_ok: true, edge_auth_ok: true, mode: "cloud" };
+    }
+    if (method === "GET" && pathname === "/receipts/last") return { receipt: null };
+    if (method === "GET" && pathname === "/printers") return { printers: [], default_printer: null };
+    if (method === "POST" && pathname === "/printers/test") return { ok: false, warning: "Printer test is desktop-only." };
+    if (method === "POST" && pathname === "/receipts/print-last") return { ok: false, warning: "Receipt printing is desktop-only." };
+
+    if (method === "POST" && pathname === "/shift/status") {
+      const res = await _webPosCall(companyKey, "/pos/shifts/open", { method: "GET" });
+      const shiftId = String(res?.shift?.id || "").trim();
+      _setCfgForCompanyKey(companyKey, { shift_id: shiftId });
+      return { shift: res?.shift || null };
+    }
+    if (method === "POST" && pathname === "/shift/open") {
+      const res = await _webPosCall(companyKey, "/pos/shifts/open", {
+        method: "POST",
+        body: {
+          opening_cash_usd: toNum(body?.opening_cash_usd, 0),
+          opening_cash_lbp: toNum(body?.opening_cash_lbp, 0),
+          cashier_id: body?.cashier_id || cfg.cashier_id || null,
+        },
+      });
+      _setCfgForCompanyKey(companyKey, { shift_id: String(res?.shift?.id || "").trim() });
+      return { shift: res?.shift || null };
+    }
+    if (method === "POST" && pathname === "/shift/close") {
+      const shiftId = String(body?.shift_id || cfg.shift_id || "").trim();
+      if (!shiftId) throw new Error("No open shift.");
+      const res = await _webPosCall(companyKey, `/pos/shifts/${encodeURIComponent(shiftId)}/close`, {
+        method: "POST",
+        body: {
+          closing_cash_usd: toNum(body?.closing_cash_usd, 0),
+          closing_cash_lbp: toNum(body?.closing_cash_lbp, 0),
+          cashier_id: body?.cashier_id || cfg.cashier_id || null,
+        },
+      });
+      _setCfgForCompanyKey(companyKey, { shift_id: "" });
+      return { shift: res?.shift || null };
+    }
+
+    if (method === "POST" && pathname === "/sync/pull") {
+      const sync = {};
+      try {
+        const companyId = String(cfg.company_id || "").trim();
+        const q = companyId ? `?company_id=${encodeURIComponent(companyId)}` : "";
+        const catalog = await _webPosCall(companyKey, `/pos/catalog${q}`, { method: "GET" });
+        const customersRes = await _webPosCall(companyKey, "/pos/customers/catalog", { method: "GET" });
+        const cashiersRes = await _webPosCall(companyKey, "/pos/cashiers/catalog", { method: "GET" });
+        const promotionsRes = await _webPosCall(companyKey, "/pos/promotions/catalog", { method: "GET" });
+        sync.catalog = { mode: "snapshot", count: (catalog?.items || []).length };
+        sync.customers = { mode: "snapshot", count: (customersRes?.customers || []).length };
+        sync.cashiers = { mode: "snapshot", count: (cashiersRes?.cashiers || []).length };
+        sync.promotions = { mode: "snapshot", count: (promotionsRes?.promotions || []).length };
+      } catch (_) {}
+      return { ok: true, sync };
+    }
+    if (method === "POST" && pathname === "/sync/push") return { ok: true, sent: 0 };
+
+    if (method === "POST" && pathname === "/sale") {
+      const payloadSale = _buildSalePayloadWeb(body?.cart || [], cfg, body || {});
+      return await _submitAndProcessPosEventWeb(companyKey, "sale.completed", payloadSale, body?.idempotency_key || "");
+    }
+    if (method === "POST" && pathname === "/return") {
+      const payloadReturn = _buildReturnPayloadWeb(body?.cart || [], cfg, body || {});
+      return await _submitAndProcessPosEventWeb(companyKey, "sale.returned", payloadReturn, body?.idempotency_key || "");
+    }
+    if (method === "POST" && pathname === "/invoices/resolve-by-event") {
+      const eventId = String(body?.event_id || "").trim();
+      if (!eventId) throw new Error("event_id is required");
+      const cached = webEventInvoiceMap.get(eventId);
+      if (cached) return { ok: true, event_id: eventId, invoice_id: cached };
+      const processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
+        method: "POST",
+        body: { event_id: eventId },
+      });
+      const invoiceId = String(processed?.invoice_id || "").trim();
+      if (invoiceId) webEventInvoiceMap.set(eventId, invoiceId);
+      return { ok: true, event_id: eventId, invoice_id: invoiceId || null };
+    }
+    if (method === "POST" && pathname === "/invoices/print-by-event") {
+      throw new Error("Desktop printer is not available in browser mode.");
+    }
+
+    throw new Error(`Unsupported web POS route: ${method} ${pathname}`);
+  };
+
   const apiCallFor = async (companyKey, path, options = {}) => {
+    if (webHostUnsupported) {
+      return await _webApiCallFor(companyKey, path, options);
+    }
+
     const prefix = _agentApiPrefix(companyKey);
     const url = `${prefix}${path.startsWith("/") ? path : "/" + path}`;
     const timeoutMs = Math.max(
@@ -618,7 +1103,7 @@
     } catch (_) {
       data = { raw: text };
     }
-    
+
     if (!res.ok) {
       const err = new Error(data?.error || res.statusText);
       err.status = res.status;
@@ -628,11 +1113,14 @@
     return data;
   };
 
-  const cfgForCompanyKey = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
-
   const printAfterSale = async (companyKey, eventId = "", receiptWin = null) => {
     const cfg = cfgForCompanyKey(companyKey) || {};
     const eid = String(eventId || "").trim();
+
+    if (webHostUnsupported && companyKey !== "official") {
+      try { if (receiptWin) receiptWin.close(); } catch (_) {}
+      return;
+    }
 
     if (companyKey === "official") {
       const auto = !!cfg.auto_print_invoice;
@@ -802,11 +1290,24 @@
 
       status = "Ready";
 
-      // Unofficial agent (best-effort; the UI still works as single-company if unreachable)
+      // Unofficial agent (best-effort; in web setup mode it uses secondary cloud device config).
       try {
         const uOrigin = _normalizeAgentOrigin(otherAgentUrl);
-        if (!uOrigin) {
+        const hasUnofficialWebCfg =
+          !!String(unofficialConfig?.device_id || "").trim() &&
+          !!String(unofficialConfig?.device_token || "").trim();
+        if (!webHostUnsupported && !uOrigin) {
           unofficialStatus = "Disabled";
+          unofficialLocked = false;
+          unofficialItems = [];
+          unofficialBarcodes = [];
+          unofficialCustomers = [];
+          unofficialCashiers = [];
+          unofficialOutbox = [];
+          unofficialEdge = null;
+          unofficialLastReceipt = null;
+        } else if (webHostUnsupported && !hasUnofficialWebCfg) {
+          unofficialStatus = "Pending";
           unofficialLocked = false;
           unofficialItems = [];
           unofficialBarcodes = [];
@@ -1375,15 +1876,7 @@
   const saveConfigFor = async (companyKey, payload) => {
     const body = { ...(payload || {}) };
     if (webHostUnsupported) {
-      const target = companyKey === otherCompanyKey ? { ...unofficialConfig } : { ...config };
-      const nextCfg = { ...target, ...body };
-      if (companyKey === otherCompanyKey) {
-        unofficialConfig = nextCfg;
-        try { localStorage.setItem(WEB_CONFIG_UNOFFICIAL_STORAGE_KEY, JSON.stringify(nextCfg)); } catch (_) {}
-      } else {
-        config = nextCfg;
-        try { localStorage.setItem(WEB_CONFIG_OFFICIAL_STORAGE_KEY, JSON.stringify(nextCfg)); } catch (_) {}
-      }
+      const nextCfg = _setCfgForCompanyKey(companyKey, body);
       return { ok: true, config: nextCfg };
     }
     const res = await apiCallFor(companyKey, "/config", { method: "POST", body });
@@ -1540,7 +2033,7 @@
   };
 
   const testEdgeFor = async (companyKey) => {
-    if (webHostUnsupported) return { ok: true, mode: "cloud-web-setup" };
+    if (webHostUnsupported) return { edge_ok: true, edge_auth_ok: true, mode: "cloud-web-setup" };
     return await apiCallFor(companyKey, "/edge/status", { method: "GET" });
   };
 
@@ -2873,7 +3366,7 @@
     <SettingsScreen
       officialConfig={config}
       unofficialConfig={unofficialConfig}
-      unofficialEnabled={!!_normalizeAgentOrigin(otherAgentUrl)}
+      unofficialEnabled={webHostUnsupported ? true : !!_normalizeAgentOrigin(otherAgentUrl)}
       unofficialStatus={unofficialStatus}
       otherAgentUrl={otherAgentUrl}
       bind:otherAgentDraftUrl={otherAgentDraftUrl}
