@@ -60,9 +60,24 @@
     const timeoutId = setTimeout(() => controller.abort(), 1800);
     try {
       const res = await fetch(url, { method: "GET", signal: controller.signal });
-      return { ok: res.ok, status: res.status };
+      const text = await res.text();
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch (_) {
+        payload = null;
+      }
+      // Local POS agent contract: /api/health -> { "ok": true }.
+      // Backend contract usually includes fields like {status, service, db,...}.
+      const localAgentLike =
+        !!payload &&
+        typeof payload === "object" &&
+        payload.ok === true &&
+        !Object.prototype.hasOwnProperty.call(payload, "service") &&
+        !Object.prototype.hasOwnProperty.call(payload, "db");
+      return { ok: res.ok, status: res.status, localAgentLike, payload };
     } catch (_) {
-      return { ok: false, status: 0 };
+      return { ok: false, status: 0, localAgentLike: false, payload: null };
     } finally {
       clearTimeout(timeoutId);
     }
@@ -2224,9 +2239,9 @@
       const relativeApiBase = !String(apiBase || "").startsWith("http://") && !String(apiBase || "").startsWith("https://");
       if (remoteHost && relativeApiBase) {
         const probe = await _probeAgentHealth(apiBase);
-        if (!probe.ok && probe.status === 404) {
+        if (!probe.localAgentLike) {
           webHostUnsupported = true;
-          webHostHint = "This host is serving the desktop-unified UI without a local POS agent.";
+          webHostHint = "This host responds with backend health, not local POS agent health.";
           status = "Web Setup Required";
           error = "";
           activeScreen = "settings";
