@@ -1,6 +1,6 @@
 [package]
 name = "melqard-pos-desktop"
-version = "0.0.5"
+version = "0.0.11"
 description = "Melqard POS Desktop (Tauri)"
 authors = ["Melqard"]
 edition = "2021"
