@@ -63,7 +63,55 @@ type DeviceEmployeeRow = {
   assigned: boolean;
 };
 
-function inferDefaultApiBaseUrl(): string {
+const POS_SETUP_CLOUD_URL_KEY = "ahtrading.admin.posDevices.cloudApiBaseUrl";
+const POS_SETUP_EDGE_URL_KEY = "ahtrading.admin.posDevices.edgeApiBaseUrl";
+
+function normalizeApiBaseUrl(v: string): string {
+  const text = String(v || "").trim();
+  if (!text) return "";
+  try {
+    const u = new URL(text);
+    return `${u.origin}${u.pathname}`.replace(/\/+$/, "");
+  } catch {
+    return text.replace(/\/+$/, "");
+  }
+}
+
+function isLoopbackOrPrivateHost(hostname: string): boolean {
+  const host = String(hostname || "").trim().toLowerCase();
+  if (!host) return false;
+  if (host === "localhost" || host === "::1") return true;
+  if (host === "127.0.0.1" || host.startsWith("127.")) return true;
+  if (host === "0.0.0.0") return true;
+  if (host.startsWith("10.")) return true;
+  if (host.startsWith("192.168.")) return true;
+  const m = host.match(/^172\.(\d+)\./);
+  if (m) {
+    const oct = Number(m[1]);
+    if (Number.isFinite(oct) && oct >= 16 && oct <= 31) return true;
+  }
+  return false;
+}
+
+function validateApiBaseUrl(raw: string, mode: "cloud" | "edge"): string | null {
+  const text = normalizeApiBaseUrl(raw);
+  if (!text) return mode === "cloud" ? "Cloud API URL is required." : null;
+  let parsed: URL;
+  try {
+    parsed = new URL(text);
+  } catch {
+    return "Enter a valid URL (example: https://app.example.com/api).";
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return "Only http:// or https:// URLs are supported.";
+  }
+  if (parsed.protocol === "http:" && mode === "cloud" && !isLoopbackOrPrivateHost(parsed.hostname)) {
+    return "Cloud URL should use HTTPS unless you are on localhost/private network testing.";
+  }
+  return null;
+}
+
+function inferDefaultCloudApiBaseUrl(): string {
   if (typeof window === "undefined") return "";
   const host = window.location.hostname;
   const proto = window.location.protocol || "http:";
@@ -74,12 +122,14 @@ function inferDefaultApiBaseUrl(): string {
   return `${window.location.origin.replace(/\/+$/, "")}/api`;
 }
 
-function buildPosConfigPayload(setup: DeviceSetup, apiBaseUrl: string) {
-  const cloud = apiBaseUrl.trim();
+function buildPosConfigPayload(setup: DeviceSetup, cloudApiBaseUrl: string, edgeApiBaseUrl: string) {
+  const cloud = normalizeApiBaseUrl(cloudApiBaseUrl);
+  const edge = normalizeApiBaseUrl(edgeApiBaseUrl);
+  const legacy = edge || cloud;
   return {
-    api_base_url: cloud,
+    api_base_url: legacy,
     cloud_api_base_url: cloud,
-    edge_api_base_url: "",
+    edge_api_base_url: edge,
     company_id: setup.company_id,
     branch_id: setup.branch_id || "",
     device_code: setup.device_code,
@@ -150,7 +200,8 @@ export default function PosDevicesPage() {
   const [branchId, setBranchId] = useState("");
   const [registering, setRegistering] = useState(false);
   const [lastSetup, setLastSetup] = useState<DeviceSetup | null>(null);
-  const [setupApiBaseUrl, setSetupApiBaseUrl] = useState("");
+  const [setupCloudApiBaseUrl, setSetupCloudApiBaseUrl] = useState("");
+  const [setupEdgeApiBaseUrl, setSetupEdgeApiBaseUrl] = useState("");
   const [editOpen, setEditOpen] = useState(false);
   const [editDeviceId, setEditDeviceId] = useState("");
   const [editDeviceCode, setEditDeviceCode] = useState("");
@@ -168,7 +219,20 @@ export default function PosDevicesPage() {
   const [assignEmployeeSearch, setAssignEmployeeSearch] = useState("");
 
   const branchById = useMemo(() => new Map(branches.map((b) => [b.id, b])), [branches]);
-  const effectiveApiBaseUrl = (setupApiBaseUrl || inferDefaultApiBaseUrl()).trim();
+  const effectiveCloudApiBaseUrl = normalizeApiBaseUrl(setupCloudApiBaseUrl || inferDefaultCloudApiBaseUrl());
+  const effectiveEdgeApiBaseUrl = normalizeApiBaseUrl(setupEdgeApiBaseUrl);
+  const cloudUrlError = validateApiBaseUrl(effectiveCloudApiBaseUrl, "cloud");
+  const edgeUrlError = validateApiBaseUrl(effectiveEdgeApiBaseUrl, "edge");
+  const launcherSetupPayload = useMemo(() => {
+    if (!lastSetup) return null;
+    return {
+      cloudUrl: effectiveCloudApiBaseUrl,
+      edgeLanUrl: effectiveEdgeApiBaseUrl,
+      companyOfficial: lastSetup.company_id,
+      deviceIdOfficial: lastSetup.device_id,
+      deviceTokenOfficial: lastSetup.device_token || "",
+    };
+  }, [lastSetup, effectiveCloudApiBaseUrl, effectiveEdgeApiBaseUrl]);
   const filteredAssignCashiers = useMemo(() => {
     const q = assignCashierSearch.trim().toLowerCase();
     if (!q) return assignCashiers;
@@ -187,8 +251,8 @@ export default function PosDevicesPage() {
   const selectedEmployeeCount = useMemo(() => assignEmployees.filter((u) => u.assigned).length, [assignEmployees]);
   const setupPayload = useMemo(() => {
     if (!lastSetup) return null;
-    return buildPosConfigPayload(lastSetup, effectiveApiBaseUrl);
-  }, [lastSetup, effectiveApiBaseUrl]);
+    return buildPosConfigPayload(lastSetup, effectiveCloudApiBaseUrl, effectiveEdgeApiBaseUrl);
+  }, [lastSetup, effectiveCloudApiBaseUrl, effectiveEdgeApiBaseUrl]);
 
   async function load() {
     setStatus("Loading...");
@@ -207,9 +271,23 @@ export default function PosDevicesPage() {
   }
 
   useEffect(() => {
-    setSetupApiBaseUrl(inferDefaultApiBaseUrl());
+    const inferred = inferDefaultCloudApiBaseUrl();
+    const savedCloud = typeof window === "undefined" ? "" : normalizeApiBaseUrl(window.localStorage.getItem(POS_SETUP_CLOUD_URL_KEY) || "");
+    const savedEdge = typeof window === "undefined" ? "" : normalizeApiBaseUrl(window.localStorage.getItem(POS_SETUP_EDGE_URL_KEY) || "");
+    setSetupCloudApiBaseUrl(savedCloud || inferred);
+    setSetupEdgeApiBaseUrl(savedEdge);
     load();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(POS_SETUP_CLOUD_URL_KEY, normalizeApiBaseUrl(setupCloudApiBaseUrl));
+  }, [setupCloudApiBaseUrl]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(POS_SETUP_EDGE_URL_KEY, normalizeApiBaseUrl(setupEdgeApiBaseUrl));
+  }, [setupEdgeApiBaseUrl]);
 
   async function registerDevice(e: React.FormEvent) {
     e.preventDefault();
@@ -647,8 +725,8 @@ async function resetToken(device: DeviceRow) {
         >
           <ol className="list-decimal space-y-1 pl-5 text-sm text-fg-subtle">
             <li>Click Register Device, choose an optional Branch, and set a device code like POS-01.</li>
-            <li>Copy the generated Setup Pack (includes API URL, company, branch, code, device id, token).</li>
-            <li>Paste those values in POS `Settings` and Save.</li>
+            <li>Set Cloud/Edge API URLs once, then copy the generated setup JSON.</li>
+            <li>Paste the JSON in POS Desktop Setup Pack (or copy individual fields in POS Settings), then Save.</li>
             <li>Sync to verify the agent can connect.</li>
           </ol>
         </Section>
@@ -660,23 +738,54 @@ async function resetToken(device: DeviceRow) {
           description="Everything needed for POS setup after register/reset. Copy values directly into the POS Settings screen."
         >
           <div className="space-y-3 text-sm">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-fg-muted">API Base URL for POS agents</label>
+            <div className="space-y-2 rounded-md border border-border bg-bg-sunken/20 p-3">
+              <div className="text-xs font-medium text-fg-muted">Cloud POS Connectivity</div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Cloud API URL (required)</label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={setupCloudApiBaseUrl}
+                      onChange={(e) => setSetupCloudApiBaseUrl(e.target.value)}
+                      placeholder="https://app.example.com/api"
+                    />
+                    <CopyValueButton text={effectiveCloudApiBaseUrl} label="Cloud API URL" />
+                  </div>
+                  {cloudUrlError ? <div className="text-xs text-destructive">{cloudUrlError}</div> : null}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Edge/LAN API URL (optional fallback)</label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={setupEdgeApiBaseUrl}
+                      onChange={(e) => setSetupEdgeApiBaseUrl(e.target.value)}
+                      placeholder="http://192.168.1.10:8001"
+                    />
+                    <CopyValueButton text={effectiveEdgeApiBaseUrl} label="Edge API URL" />
+                  </div>
+                  {edgeUrlError ? <div className="text-xs text-destructive">{edgeUrlError}</div> : null}
+                </div>
+              </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  value={setupApiBaseUrl}
-                  onChange={(e) => setSetupApiBaseUrl(e.target.value)}
-                  placeholder="https://pos.example.com/api"
-                  className="max-w-xl"
-                />
-                <CopyValueButton text={effectiveApiBaseUrl} label="API Base URL" />
+                <Button type="button" variant="outline" size="sm" onClick={() => setSetupCloudApiBaseUrl(inferDefaultCloudApiBaseUrl())}>
+                  Use Current Admin /api
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setSetupEdgeApiBaseUrl(effectiveCloudApiBaseUrl)}>
+                  Mirror Cloud to Edge
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setSetupEdgeApiBaseUrl("")}>
+                  Clear Edge Fallback
+                </Button>
               </div>
               <p className="text-xs text-fg-subtle">
-                Default is this admin host + `/api`. Change it only if your POS devices use a different API endpoint.
+                Legacy <code>api_base_url</code> will use <code>{(effectiveEdgeApiBaseUrl || effectiveCloudApiBaseUrl || "-")}</code>.
               </p>
             </div>
 
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <SetupField label="Cloud API URL" value={effectiveCloudApiBaseUrl} />
+              <SetupField label="Edge API URL (fallback)" value={effectiveEdgeApiBaseUrl} />
+              <SetupField label="api_base_url (legacy)" value={effectiveEdgeApiBaseUrl || effectiveCloudApiBaseUrl} />
               <SetupField label="Company ID" value={lastSetup.company_id} />
               <SetupField label="Branch ID" value={lastSetup.branch_id || ""} />
               <SetupField label="Branch Name" value={lastSetup.branch_name || ""} />
@@ -691,7 +800,26 @@ async function resetToken(device: DeviceRow) {
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-medium text-fg-muted">POS Config JSON</div>
                 </div>
-                <ViewRaw value={setupPayload} label="POS Config JSON" defaultOpen={false} />
+                <ViewRaw
+                  value={setupPayload}
+                  label="POS Config JSON"
+                  defaultOpen={false}
+                  downloadName={`pos-config-${lastSetup.device_code || "device"}.json`}
+                />
+              </div>
+            ) : null}
+
+            {launcherSetupPayload ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-medium text-fg-muted">POS Desktop Setup Pack JSON</div>
+                </div>
+                <ViewRaw
+                  value={launcherSetupPayload}
+                  label="Desktop Setup JSON"
+                  defaultOpen={false}
+                  downloadName={`pos-desktop-setup-${lastSetup.device_code || "device"}.json`}
+                />
               </div>
             ) : null}
 
@@ -702,7 +830,7 @@ async function resetToken(device: DeviceRow) {
             )}
 
             <div className="rounded-md border border-border bg-bg-sunken/20 p-3 text-xs text-fg-subtle">
-              Use this pack in POS: open POS &rarr; <strong>Settings</strong> &rarr; paste values &rarr; Save &rarr; Sync.
+              Fastest flow: copy <strong>POS Desktop Setup Pack JSON</strong> to POS Desktop launcher. Manual flow: paste individual values in POS Settings, then Save and Sync.
             </div>
           </div>
         </Section>

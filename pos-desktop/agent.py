@@ -153,8 +153,13 @@ def db_connect():
 
 
 def _is_loopback(ip: str) -> bool:
-    ip = (ip or "").strip()
-    return ip in {"127.0.0.1", "::1", "localhost"}
+    ip = (ip or "").strip().lower()
+    if ip in {"127.0.0.1", "::1", "localhost"}:
+        return True
+    if ip.startswith("::ffff:"):
+        tail = ip.split("::ffff:", 1)[1]
+        return tail.startswith("127.")
+    return ip.startswith("127.")
 
 def _parse_host_header(host_header: str) -> tuple[Optional[str], Optional[int]]:
     host_header = (host_header or "").strip()
@@ -657,6 +662,75 @@ def _setup_req_json_safe(url: str, method: str = "GET", payload=None, headers=No
 
 def _normalize_api_base_url(v) -> str:
     return str(v or "").strip().rstrip("/")
+
+
+def _join_url(base: str, endpoint: str) -> str:
+    return f"{_normalize_api_base_url(base)}/{str(endpoint or '').lstrip('/')}"
+
+
+def _replace_base_path(base: str, new_path: str) -> str:
+    u = urlparse(base)
+    return u._replace(path=new_path, params="", query="", fragment="").geturl().rstrip("/")
+
+
+def _setup_api_candidate_urls(api_base: str, endpoint: str) -> list[str]:
+    base = _normalize_api_base_url(api_base)
+    ep = str(endpoint or "").strip().lstrip("/")
+    if not base or not ep:
+        return []
+    out = []
+
+    def _add(url: str):
+        url = _normalize_api_base_url(url)
+        if url and url not in out:
+            out.append(url)
+
+    # First try exactly what user entered.
+    _add(_join_url(base, ep))
+
+    # Then try the sibling path with/without "/api" once.
+    p = urlparse(base)
+    path = (p.path or "").rstrip("/")
+    if path.endswith("/api"):
+        alt_path = path[:-4] or "/"
+    else:
+        alt_path = (path + "/api") if path else "/api"
+    alt_base = _replace_base_path(base, alt_path)
+    _add(_join_url(alt_base, ep))
+    return out
+
+
+def _setup_req_json_with_api_fallback(
+    api_base: str,
+    endpoint: str,
+    *,
+    method: str = "GET",
+    payload=None,
+    headers=None,
+    timeout_s: float = 12.0,
+):
+    attempts = _setup_api_candidate_urls(api_base, endpoint)
+    if not attempts:
+        return None, 400, "api_base_url is required"
+    last_res = None
+    last_status = None
+    last_err = None
+    for i, url in enumerate(attempts):
+        res, status, err = _setup_req_json_safe(
+            url,
+            method=method,
+            payload=payload,
+            headers=headers,
+            timeout_s=timeout_s,
+        )
+        if status is None:
+            return res, None, None
+        last_res, last_status, last_err = res, status, err
+        is_last = i == (len(attempts) - 1)
+        # Fallback only when endpoint likely does not exist on that base path.
+        if is_last or int(status or 0) not in (404, 405):
+            return last_res, last_status, last_err
+    return last_res, last_status, last_err
 
 
 _ACTIVE_API_CACHE = {
@@ -2628,9 +2702,14 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {"ok": True, "token": sess["token"], "expires_at": sess["expires_at"]})
             return
 
+        setup_route = parsed.path.startswith("/api/setup/")
+        if setup_route and not _is_loopback(client_ip):
+            json_response(self, {"error": "forbidden", "hint": "Setup endpoints are available only from localhost."}, status=403)
+            return
+
         # Guard mutating endpoints when the agent is LAN-exposed (or explicitly required).
         cfg = load_config()
-        if _admin_pin_required(client_ip, cfg):
+        if (not setup_route) and _admin_pin_required(client_ip, cfg):
             if not (cfg.get("admin_pin_hash") or "").strip():
                 json_response(
                     self,
@@ -2661,8 +2740,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not mfa_code:
                     json_response(self, {"error": "mfa_code is required"}, status=400)
                     return
-                auth_res, status, err = _setup_req_json_safe(
-                    f"{api_base}/auth/mfa/verify",
+                auth_res, status, err = _setup_req_json_with_api_fallback(
+                    api_base,
+                    "auth/mfa/verify",
                     method="POST",
                     payload={"mfa_token": mfa_token, "code": mfa_code},
                 )
@@ -2670,8 +2750,9 @@ class Handler(BaseHTTPRequestHandler):
                 if not email or not password:
                     json_response(self, {"error": "email and password are required"}, status=400)
                     return
-                auth_res, status, err = _setup_req_json_safe(
-                    f"{api_base}/auth/login",
+                auth_res, status, err = _setup_req_json_with_api_fallback(
+                    api_base,
+                    "auth/login",
                     method="POST",
                     payload={"email": email, "password": password},
                 )
@@ -2696,8 +2777,9 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, {"error": "no token returned by auth service"}, status=502)
                 return
 
-            companies_res, c_status, c_err = _setup_req_json_safe(
-                f"{api_base}/companies",
+            companies_res, c_status, c_err = _setup_req_json_with_api_fallback(
+                api_base,
+                "companies",
                 method="GET",
                 headers={"Authorization": f"Bearer {token}"},
             )
@@ -2736,8 +2818,9 @@ class Handler(BaseHTTPRequestHandler):
                 "Authorization": f"Bearer {token}",
                 "X-Company-Id": company_id,
             }
-            res, status, err = _setup_req_json_safe(
-                f"{api_base}/branches",
+            res, status, err = _setup_req_json_with_api_fallback(
+                api_base,
+                "branches",
                 method="GET",
                 headers=headers,
             )
@@ -2780,15 +2863,17 @@ class Handler(BaseHTTPRequestHandler):
             }
 
             # Best effort: align active company for the setup session.
-            _setup_req_json_safe(
-                f"{api_base}/auth/select-company",
+            _setup_req_json_with_api_fallback(
+                api_base,
+                "auth/select-company",
                 method="POST",
                 payload={"company_id": company_id},
                 headers={"Authorization": f"Bearer {token}"},
             )
 
-            res, status, err = _setup_req_json_safe(
-                f"{api_base}/pos/devices",
+            res, status, err = _setup_req_json_with_api_fallback(
+                api_base,
+                "pos/devices",
                 method="GET",
                 headers=headers,
             )
@@ -2845,8 +2930,9 @@ class Handler(BaseHTTPRequestHandler):
                 "Authorization": f"Bearer {token}",
                 "X-Company-Id": company_id,
             }
-            _perm_res, perm_status, perm_err = _setup_req_json_safe(
-                f"{api_base}/pos/devices?limit=1",
+            _perm_res, perm_status, perm_err = _setup_req_json_with_api_fallback(
+                api_base,
+                "pos/devices?limit=1",
                 method="GET",
                 headers=headers,
             )
@@ -2911,15 +2997,17 @@ class Handler(BaseHTTPRequestHandler):
             }
 
             # Best effort: align active company on the session used for setup.
-            _setup_req_json_safe(
-                f"{api_base}/auth/select-company",
+            _setup_req_json_with_api_fallback(
+                api_base,
+                "auth/select-company",
                 method="POST",
                 payload={"company_id": company_id},
                 headers={"Authorization": f"Bearer {token}"},
             )
 
-            reg_res, status, err = _setup_req_json_safe(
-                f"{api_base}/pos/devices/register?{urlencode(params)}",
+            reg_res, status, err = _setup_req_json_with_api_fallback(
+                api_base,
+                f"pos/devices/register?{urlencode(params)}",
                 method="POST",
                 headers=headers,
             )

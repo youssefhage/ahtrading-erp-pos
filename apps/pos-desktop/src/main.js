@@ -1274,7 +1274,7 @@ async function quickSetupLogin() {
       markInputError(e.fieldId, msg);
       focusField(e.fieldId);
     }
-    setQuickSetupStage("account", "error", "Login failed. Review credentials and cloud URL.");
+    setQuickSetupStage("account", "error", "Login failed. See details below.");
     setSetupNote(`Quick Setup login failed: ${msg}`, "error");
     setStatus(`Quick Setup login failed: ${msg}`);
     appendDebugLine(buildQuickSetupSnapshot());
