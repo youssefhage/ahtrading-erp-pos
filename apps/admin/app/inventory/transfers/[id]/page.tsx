@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { parseNumberInput } from "@/lib/numbers";
 
 import { ErrorBanner } from "@/components/error-banner";
@@ -66,8 +67,7 @@ type AllocationRow = {
 type Detail = { transfer: TransferDoc; lines: TransferLine[]; allocations_by_line: Record<string, AllocationRow[]> };
 
 function fmtIso(iso: string | null | undefined) {
-  const s = String(iso || "");
-  return s ? s.replace("T", " ").slice(0, 19) : "-";
+  return formatDateLike(iso);
 }
 
 function toNum(s: string) {

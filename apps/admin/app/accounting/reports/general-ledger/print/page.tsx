@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { applyPrintSettingsFromQuery } from "@/lib/print/page-settings";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
@@ -101,7 +102,7 @@ function GeneralLedgerPrintInner() {
           </div>
           <div className="text-right text-[11px] text-black/60">
             <div className="font-mono">Rows: {rows.length}</div>
-            <div className="font-mono">Generated: {new Date().toISOString().slice(0, 19).replace("T", " ")}</div>
+            <div className="font-mono">Generated: {formatDateTime(new Date())}</div>
           </div>
         </header>
 

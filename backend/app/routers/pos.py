@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime, date, timedelta
 import uuid
@@ -56,16 +56,46 @@ class PosDeviceUpdateIn(BaseModel):
 
 
 class PosDeviceCashierAssignmentsIn(BaseModel):
-    cashier_ids: List[str] = []
+    cashier_ids: List[str] = Field(default_factory=list)
 
 
 class PosDeviceEmployeeAssignmentsIn(BaseModel):
-    user_ids: List[str] = []
+    user_ids: List[str] = Field(default_factory=list)
 
 
-def _normalize_optional_uuid_text(value: Optional[str]) -> Optional[str]:
+def _normalize_optional_uuid_text(value: Optional[str], field_name: str = "id") -> Optional[str]:
     normalized = str(value or "").strip()
-    return normalized or None
+    if not normalized:
+        return None
+    try:
+        return str(uuid.UUID(normalized))
+    except Exception:
+        raise HTTPException(status_code=422, detail=f"invalid {field_name}: {normalized}")
+
+
+def _normalize_required_uuid_text(value: str, field_name: str) -> str:
+    normalized = _normalize_optional_uuid_text(value, field_name)
+    if not normalized:
+        raise HTTPException(status_code=422, detail=f"{field_name} is required")
+    return normalized
+
+
+def _normalize_uuid_list(values: list[str], field_name: str) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in values or []:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        try:
+            normalized = str(uuid.UUID(text))
+        except Exception:
+            raise HTTPException(status_code=422, detail=f"invalid {field_name}: {text}")
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        out.append(normalized)
+    return out
 
 
 def _require_branch_in_company(cur, company_id: str, branch_id: Optional[str]) -> None:
@@ -143,7 +173,7 @@ def _ensure_company_users_exist(cur, company_id: str, user_ids: list[str]) -> No
         FROM user_roles ur
         JOIN users u ON u.id = ur.user_id
         WHERE ur.company_id = %s
-          AND ur.user_id = ANY(%s)
+          AND ur.user_id = ANY(%s::uuid[])
           AND COALESCE(u.is_active, true) = true
         """,
         (company_id, user_ids),
@@ -169,7 +199,7 @@ def register_device(
     next_device_code = (device_code or "").strip()
     if not next_device_code:
         raise HTTPException(status_code=400, detail="device_code is required")
-    next_branch_id = _normalize_optional_uuid_text(branch_id)
+    next_branch_id = _normalize_optional_uuid_text(branch_id, "branch_id")
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -317,6 +347,7 @@ def update_device(
     _auth=Depends(require_company_access),
     user=Depends(get_current_user),
 ):
+    device_id = _normalize_required_uuid_text(device_id, "device_id")
     patch = data.model_dump(exclude_unset=True)
     if not patch:
         raise HTTPException(status_code=400, detail="no fields to update")
@@ -335,7 +366,7 @@ def update_device(
 
     next_branch_id = None
     if "branch_id" in patch:
-        next_branch_id = _normalize_optional_uuid_text(patch.get("branch_id"))
+        next_branch_id = _normalize_optional_uuid_text(patch.get("branch_id"), "branch_id")
         fields.append("branch_id = %s")
         params.append(next_branch_id)
         details["branch_id"] = next_branch_id
@@ -383,6 +414,7 @@ def list_device_cashier_assignments(
     company_id: str = Depends(get_company_id),
     _auth=Depends(require_company_access),
 ):
+    device_id = _normalize_required_uuid_text(device_id, "device_id")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -427,8 +459,8 @@ def replace_device_cashier_assignments(
     _auth=Depends(require_company_access),
     user=Depends(get_current_user),
 ):
-    cashier_ids = [str(c or "").strip() for c in (data.cashier_ids or []) if str(c or "").strip()]
-    cashier_ids = list(dict.fromkeys(cashier_ids))
+    device_id = _normalize_required_uuid_text(device_id, "device_id")
+    cashier_ids = _normalize_uuid_list(data.cashier_ids or [], "cashier_id")
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -453,7 +485,7 @@ def replace_device_cashier_assignments(
                         SELECT id
                         FROM pos_cashiers
                         WHERE company_id = %s
-                          AND id = ANY(%s)
+                          AND id = ANY(%s::uuid[])
                         """,
                         (company_id, cashier_ids),
                     )
@@ -524,6 +556,7 @@ def list_device_employee_assignments(
     company_id: str = Depends(get_company_id),
     _auth=Depends(require_company_access),
 ):
+    device_id = _normalize_required_uuid_text(device_id, "device_id")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -562,8 +595,8 @@ def replace_device_employee_assignments(
     _auth=Depends(require_company_access),
     user=Depends(get_current_user),
 ):
-    user_ids = [str(u or "").strip() for u in (data.user_ids or []) if str(u or "").strip()]
-    user_ids = list(dict.fromkeys(user_ids))
+    device_id = _normalize_required_uuid_text(device_id, "device_id")
+    user_ids = _normalize_uuid_list(data.user_ids or [], "user_id")
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -708,6 +741,7 @@ def requeue_outbox_event(
     company_id: str = Depends(get_company_id),
     _auth=Depends(require_company_access),
 ):
+    event_id = _normalize_required_uuid_text(event_id, "event_id")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -739,6 +773,7 @@ def reset_device_token(
     company_id: str = Depends(get_company_id),
     _auth=Depends(require_company_access),
 ):
+    device_id = _normalize_required_uuid_text(device_id, "device_id")
     token = secrets.token_urlsafe(32)
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -770,6 +805,7 @@ def deactivate_device(
     _auth=Depends(require_company_access),
     user=Depends(get_current_user),
 ):
+    device_id = _normalize_required_uuid_text(device_id, "device_id")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
@@ -803,6 +839,7 @@ def delete_device(
     _auth=Depends(require_company_access),
     user=Depends(get_current_user),
 ):
+    device_id = _normalize_required_uuid_text(device_id, "device_id")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
@@ -2591,6 +2628,7 @@ def list_cash_movements_admin(
     company_id: str = Depends(get_company_id),
     _auth=Depends(require_company_access),
 ):
+    shift_id = _normalize_required_uuid_text(shift_id, "shift_id")
     if limit <= 0 or limit > 1000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
     with get_conn() as conn:

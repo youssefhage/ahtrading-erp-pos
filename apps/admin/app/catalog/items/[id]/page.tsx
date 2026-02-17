@@ -7,6 +7,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Check, Copy } from "lucide-react";
 
 import { apiGet, apiUrl } from "@/lib/api";
+import { formatDate, formatDateLike } from "@/lib/datetime";
 import { fmtLbpMaybe, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -212,7 +213,7 @@ function fmtPctFrac(v: string | number | null | undefined) {
 }
 
 function fmtIso(iso?: string | null) {
-  return String(iso || "").slice(0, 19).replace("T", " ") || "-";
+  return formatDateLike(iso);
 }
 
 function fmtQty(v: string | number | null | undefined) {
@@ -550,7 +551,7 @@ export default function ItemViewPage() {
   }, [warehouseById]);
 
   const priceChangeColumns = useMemo((): Array<DataTableColumn<PriceChangeRow>> => {
-    const fmtWhen = (iso: string) => (iso ? String(iso).replace("T", " ").slice(0, 19) : "-");
+    const fmtWhen = (iso: string) => formatDateLike(iso);
     const fmtPct = (v: string | number | null | undefined) => {
       if (v == null) return "-";
       const n = typeof v === "number" ? v : Number(v);
@@ -574,7 +575,7 @@ export default function ItemViewPage() {
         sortable: true,
         mono: true,
         accessor: (r) => String(r.effective_from || ""),
-        cell: (r) => <span className="text-xs text-fg-subtle">{String(r.effective_from || "-").slice(0, 10)}</span>,
+        cell: (r) => <span className="text-xs text-fg-subtle">{formatDate(r.effective_from)}</span>,
       },
       {
         id: "usd",

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Any, Optional
 from datetime import datetime
+from urllib.parse import quote
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..validation import AiActionStatus, AiRecommendationStatus, AiRecommendationDecisionStatus
@@ -31,6 +32,321 @@ def _with_execution_mode(row: dict[str, Any]) -> dict[str, Any]:
 
 def _execution_mode(agent_code: str) -> str:
     return "executable" if _is_executable_agent(agent_code) else "review_only"
+
+
+def _first_non_empty(*values: Any) -> Optional[str]:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return None
+
+
+def _to_json_obj(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            return {}
+    return {}
+
+
+def _to_float(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _fmt_ratio_percent(value: Any, digits: int = 1) -> Optional[str]:
+    n = _to_float(value)
+    if n is None:
+        return None
+    return f"{n * 100:.{digits}f}%"
+
+
+def _fmt_amount_usd(value: Any, digits: int = 2) -> Optional[str]:
+    n = _to_float(value)
+    if n is None:
+        return None
+    return f"${n:,.{digits}f}"
+
+
+def _normalize_severity(value: Any) -> Optional[str]:
+    s = str(value or "").strip().lower()
+    if s in {"critical", "high", "med", "medium", "low", "info"}:
+        if s == "med":
+            return "medium"
+        return s
+    return None
+
+
+def _max_severity(values: list[Any]) -> Optional[str]:
+    rank = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+    best = None
+    best_rank = -1
+    for value in values:
+        normalized = _normalize_severity(value)
+        if not normalized:
+            continue
+        score = rank[normalized]
+        if score > best_rank:
+            best_rank = score
+            best = normalized
+    return best
+
+
+def _humanize_token(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "Recommendation"
+    parts = [p for p in raw.replace("-", "_").split("_") if p]
+    return " ".join(p.capitalize() for p in parts) if parts else "Recommendation"
+
+
+def _entity_link(entity_type: Optional[str], entity_id: Optional[str]) -> Optional[str]:
+    et = str(entity_type or "").strip().lower()
+    eid = str(entity_id or "").strip()
+    if not eid:
+        if et == "pos_outbox":
+            return "/system/pos-devices"
+        return None
+    qid = quote(eid, safe="")
+    if et in {"item"}:
+        return f"/catalog/items/{qid}"
+    if et in {"supplier_invoice", "invoice"}:
+        return f"/purchasing/supplier-invoices/{qid}"
+    if et == "customer":
+        return f"/partners/customers/{qid}"
+    if et == "purchase_order":
+        return f"/purchasing/purchase-orders/{qid}"
+    if et == "item_price":
+        return f"/pricing/item-prices/{qid}"
+    if et == "pos_outbox":
+        return "/system/pos-devices"
+    return None
+
+
+def _recommendation_view(row: dict[str, Any]) -> dict[str, Any]:
+    agent_code = _normalize_agent_code(str(row.get("agent_code") or ""))
+    payload = _to_json_obj(row.get("recommendation_json"))
+    raw_kind = _first_non_empty(payload.get("kind"), payload.get("type"), payload.get("recommendation"))
+    kind = (raw_kind or agent_code.lower() or "recommendation").strip().lower()
+    explain = payload.get("explain") if isinstance(payload.get("explain"), dict) else {}
+
+    entity_type: Optional[str] = _first_non_empty(payload.get("entity_type"))
+    entity_id: Optional[str] = _first_non_empty(payload.get("entity_id"))
+    if not entity_id:
+        if payload.get("item_id"):
+            entity_type, entity_id = "item", str(payload.get("item_id"))
+        elif payload.get("invoice_id"):
+            entity_type, entity_id = "supplier_invoice", str(payload.get("invoice_id"))
+        elif payload.get("customer_id"):
+            entity_type, entity_id = "customer", str(payload.get("customer_id"))
+        elif payload.get("outbox_id"):
+            entity_type, entity_id = "pos_outbox", str(payload.get("outbox_id"))
+        elif payload.get("change_id"):
+            entity_type, entity_id = "cost_change", str(payload.get("change_id"))
+
+    item_label = _first_non_empty(payload.get("name"), payload.get("item_name"), payload.get("sku"))
+    title = "Recommendation"
+    summary = _first_non_empty(explain.get("why"), payload.get("key"), "Triggered by an internal rule.") or "Triggered by an internal rule."
+    next_step = "Review recommendation details and decide."
+    severity = _normalize_severity(payload.get("severity")) or "medium"
+    details: list[str] = []
+    link_href: Optional[str] = None
+    link_label: Optional[str] = None
+
+    if agent_code == "AI_DATA_HYGIENE" or kind == "data_hygiene":
+        issues = payload.get("issues") if isinstance(payload.get("issues"), list) else []
+        issue_messages = []
+        issue_severities = []
+        for issue in issues:
+            if not isinstance(issue, dict):
+                continue
+            message = _first_non_empty(issue.get("message"), issue.get("code"))
+            if message:
+                issue_messages.append(message)
+            issue_severities.append(issue.get("severity"))
+        issue_count = len(issues)
+        title = "Item master-data issues"
+        summary = f"{item_label or 'Item'} has {issue_count} data issue(s)." if issue_count else "Item has data quality issues."
+        next_step = "Open item details and complete missing barcode, tax, or supplier fields."
+        severity = _max_severity(issue_severities) or "medium"
+        details = issue_messages[:4]
+        if entity_type == "item" and entity_id:
+            link_href = _entity_link(entity_type, entity_id)
+            link_label = "Open item"
+
+    elif agent_code == "AI_AP_GUARD" and kind == "supplier_invoice_hold":
+        invoice_no = _first_non_empty(payload.get("invoice_no"), payload.get("supplier_ref"), payload.get("invoice_id"))
+        hold_reason = _first_non_empty(payload.get("hold_reason"), "Invoice is on hold.")
+        title = "Supplier invoice on hold"
+        summary = f"Invoice {invoice_no or '-'} is on hold. {hold_reason}"
+        next_step = "Open invoice and resolve hold reason before posting or payment."
+        severity = "high"
+        link_href = _entity_link("supplier_invoice", _first_non_empty(payload.get("invoice_id"), entity_id))
+        link_label = "Open invoice"
+
+    elif agent_code == "AI_AP_GUARD" and kind == "supplier_invoice_due_soon":
+        invoice_no = _first_non_empty(payload.get("invoice_no"), payload.get("supplier_ref"), payload.get("invoice_id"))
+        due_date = _first_non_empty(payload.get("due_date"))
+        outstanding_usd = _fmt_amount_usd(payload.get("outstanding_usd"))
+        title = "Supplier invoice due soon"
+        summary = f"Invoice {invoice_no or '-'} is due on {due_date or '-'}{f' with {outstanding_usd} outstanding' if outstanding_usd else ''}."
+        next_step = "Plan payment and confirm terms before due date."
+        severity = "medium"
+        link_href = _entity_link("supplier_invoice", _first_non_empty(payload.get("invoice_id"), entity_id))
+        link_label = "Open invoice"
+
+    elif agent_code == "AI_EXPIRY_OPS" or kind == "expiry_ops":
+        expiry_date = _first_non_empty(payload.get("expiry_date")) or "-"
+        warehouse = _first_non_empty(payload.get("warehouse_name"), payload.get("warehouse_id"), "warehouse")
+        qty_on_hand = _first_non_empty(payload.get("qty_on_hand"), "0")
+        batch_no = _first_non_empty(payload.get("batch_no"), payload.get("batch_id"), "-")
+        title = "Batch expiring soon"
+        summary = f"{item_label or 'Item'} batch {batch_no} in {warehouse} expires on {expiry_date} (qty {qty_on_hand})."
+        next_step = "Review promotion, transfer, or write-off plan before expiry."
+        severity = "medium"
+        details = [str(x.get("message")) for x in (payload.get("suggestions") or []) if isinstance(x, dict) and str(x.get("message") or "").strip()][:3]
+        if _first_non_empty(payload.get("item_id")):
+            link_href = _entity_link("item", str(payload.get("item_id")))
+            link_label = "Open item"
+
+    elif agent_code == "AI_ANOMALY" and kind == "high_return_rate":
+        rate = _fmt_ratio_percent(payload.get("return_rate"))
+        sold = _first_non_empty(payload.get("sold_qty"), "0")
+        returned = _first_non_empty(payload.get("returned_qty"), "0")
+        title = "High return-rate anomaly"
+        summary = f"{item_label or 'Item'} shows {rate or 'high'} returns ({returned}/{sold} units)."
+        next_step = "Review item quality, supplier, and pricing signals."
+        severity = "high"
+        if _first_non_empty(payload.get("item_id")):
+            link_href = _entity_link("item", str(payload.get("item_id")))
+            link_label = "Open item"
+
+    elif agent_code == "AI_ANOMALY" and kind == "large_adjustment":
+        approx = _fmt_amount_usd(payload.get("approx_value_usd"))
+        warehouse = _first_non_empty(payload.get("warehouse_name"), payload.get("warehouse_id"), "warehouse")
+        qty_delta = _first_non_empty(payload.get("qty_delta"))
+        title = "Large inventory adjustment"
+        summary = f"{item_label or 'Item'} had a large adjustment in {warehouse}{f' (~{approx})' if approx else ''}{f', qty delta {qty_delta}' if qty_delta else ''}."
+        next_step = "Validate adjustment reason and supporting approvals."
+        severity = "high"
+        if _first_non_empty(payload.get("item_id")):
+            link_href = _entity_link("item", str(payload.get("item_id")))
+            link_label = "Open item"
+
+    elif agent_code == "AI_ANOMALY" and kind == "pos_outbox_failure":
+        device_code = _first_non_empty(payload.get("device_code"), "-")
+        event_type = _first_non_empty(payload.get("event_type"), "-")
+        attempts = _first_non_empty(payload.get("attempt_count"), "0")
+        title = "POS sync failure"
+        summary = f"POS outbox failure on {device_code} for {event_type} after {attempts} attempt(s)."
+        next_step = "Check POS devices and retry failed outbox events."
+        severity = "high"
+        link_href = _entity_link("pos_outbox", _first_non_empty(payload.get("outbox_id")))
+        link_label = "Open POS devices"
+
+    elif agent_code == "AI_SHRINKAGE":
+        warehouse = _first_non_empty(payload.get("warehouse_name"), payload.get("warehouse_id"), "warehouse")
+        qty = _first_non_empty(payload.get("on_hand_qty"), "0")
+        approx = _fmt_amount_usd(payload.get("approx_value_usd"))
+        title = "Negative stock signal"
+        summary = f"{item_label or 'Item'} is negative in {warehouse} (qty {qty}{f', value ~{approx}' if approx else ''})."
+        next_step = "Investigate stock moves and reconcile inventory."
+        severity = "high"
+        if _first_non_empty(payload.get("item_id")):
+            link_href = _entity_link("item", str(payload.get("item_id")))
+            link_label = "Open item"
+
+    elif agent_code in {"AI_PURCHASE", "AI_DEMAND", "AI_INVENTORY"}:
+        on_hand = _first_non_empty(payload.get("on_hand_qty"), payload.get("qty_on_hand"))
+        reorder_qty = _first_non_empty(payload.get("reorder_qty"))
+        title = "Reorder recommendation"
+        summary = f"{item_label or 'Item'} is below target stock{f' (on hand {on_hand})' if on_hand else ''}{f'; suggested reorder {reorder_qty}' if reorder_qty else ''}."
+        next_step = "Review quantity, then approve to create purchase action."
+        severity = "medium"
+        if _first_non_empty(payload.get("item_id")):
+            link_href = _entity_link("item", str(payload.get("item_id")))
+            link_label = "Open item"
+
+    elif agent_code == "AI_PRICING":
+        margin = _fmt_ratio_percent(payload.get("margin_pct"))
+        suggested = _fmt_amount_usd(payload.get("suggested_price_usd"), digits=4)
+        title = "Low margin pricing signal"
+        summary = f"{item_label or 'Item'} margin is {margin or 'below target'}{f'; suggested price {suggested}' if suggested else ''}."
+        next_step = "Review selling price update to restore margin."
+        severity = "medium"
+        if _first_non_empty(payload.get("item_id")):
+            link_href = _entity_link("item", str(payload.get("item_id")))
+            link_label = "Open item"
+
+    elif agent_code == "AI_PRICE_IMPACT":
+        pct = _fmt_ratio_percent(payload.get("pct_change_usd"))
+        suggested = _fmt_amount_usd(payload.get("suggested_price_usd"), digits=4)
+        title = "Cost increase impact"
+        summary = f"{item_label or 'Item'} cost increased by {pct or 'a meaningful amount'}{f'; suggested price {suggested}' if suggested else ''}."
+        next_step = "Review price adjustment to preserve target margin."
+        severity = "medium"
+        if _first_non_empty(payload.get("item_id")):
+            link_href = _entity_link("item", str(payload.get("item_id")))
+            link_label = "Open item"
+
+    elif agent_code == "AI_CRM":
+        customer_name = _first_non_empty(payload.get("name"), "Customer")
+        last_purchase = _first_non_empty(payload.get("last_purchase"), "no purchase yet")
+        inactive_days = _first_non_empty(payload.get("inactive_days"))
+        title = "Customer inactivity"
+        summary = f"{customer_name} has been inactive since {last_purchase}{f' ({inactive_days} days threshold)' if inactive_days else ''}."
+        next_step = "Plan retention outreach or follow-up campaign."
+        severity = "low"
+        if _first_non_empty(payload.get("customer_id")):
+            link_href = _entity_link("customer", str(payload.get("customer_id")))
+            link_label = "Open customer"
+
+    elif agent_code == "AI_PURCHASE_INVOICE_INSIGHTS":
+        changes = payload.get("changes") if isinstance(payload.get("changes"), list) else payload.get("price_changes")
+        change_count = len(changes) if isinstance(changes, list) else 0
+        title = "Purchase invoice cost insights"
+        summary = f"Detected cost impact on {change_count} line(s) from imported invoice."
+        next_step = "Review margins and selling prices for impacted items."
+        severity = "medium"
+        if _first_non_empty(payload.get("invoice_id")):
+            link_href = _entity_link("supplier_invoice", str(payload.get("invoice_id")))
+            link_label = "Open invoice"
+
+    elif agent_code == "AI_CORE":
+        event_type = _first_non_empty(payload.get("event_type"), "event")
+        title = "Core AI review"
+        summary = f"Generated from {event_type}."
+        next_step = "Review recommendation and confirm next action."
+        severity = "low"
+
+    if not link_href:
+        link_href = _entity_link(entity_type, entity_id)
+    if not link_label and link_href:
+        link_label = "Open related document"
+
+    return {
+        "kind": kind,
+        "kind_label": _humanize_token(kind),
+        "title": title,
+        "summary": summary,
+        "next_step": next_step,
+        "severity": severity,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "link_href": link_href,
+        "link_label": link_label,
+        "details": details[:4],
+    }
 
 
 class RecommendationDecision(BaseModel):
@@ -155,7 +471,12 @@ def list_recommendations(
             params.append(limit)
             cur.execute(sql, params)
             rows = cur.fetchall()
-            return {"recommendations": [_with_execution_mode(dict(r)) for r in rows]}
+            out = []
+            for r in rows:
+                row = _with_execution_mode(dict(r))
+                row["recommendation_view"] = _recommendation_view(row)
+                out.append(row)
+            return {"recommendations": out}
 
 
 @router.get("/recommendations/summary", dependencies=[Depends(require_permission("ai:read"))])
@@ -636,12 +957,17 @@ def copilot_query(data: CopilotQueryIn, company_id: str = Depends(get_company_id
                     (company_id,),
                 )
                 rows = cur.fetchall()
-                answer = f"I found {len(rows)} pending reorder-related recommendations. You can approve them in AI Hub, then Queue actions if needed."
-                cards.append({"type": "reorder_recommendations", "rows": rows})
+                rec_rows: list[dict[str, Any]] = []
+                for row in rows:
+                    item = dict(row)
+                    item["recommendation_view"] = _recommendation_view(item)
+                    rec_rows.append(item)
+                answer = f"I found {len(rec_rows)} pending reorder-related recommendations. You can approve them in AI Hub, then Queue actions if needed."
+                cards.append({"type": "reorder_recommendations", "rows": rec_rows})
             elif "anomal" in ql or "shrink" in ql or "return" in ql or "adjust" in ql or "error" in ql:
                 cur.execute(
                     """
-                    SELECT r.id, r.created_at, r.recommendation_json
+                    SELECT r.id, r.agent_code, r.created_at, r.recommendation_json
                     FROM ai_recommendations r
                     WHERE r.company_id = %s
                       AND r.agent_code IN ('AI_ANOMALY','AI_SHRINKAGE')
@@ -652,8 +978,13 @@ def copilot_query(data: CopilotQueryIn, company_id: str = Depends(get_company_id
                     (company_id,),
                 )
                 rows = cur.fetchall()
-                answer = f"I found {len(rows)} pending anomalies/shrinkage signals."
-                cards.append({"type": "anomalies", "rows": rows})
+                anomaly_rows: list[dict[str, Any]] = []
+                for row in rows:
+                    item = dict(row)
+                    item["recommendation_view"] = _recommendation_view(item)
+                    anomaly_rows.append(item)
+                answer = f"I found {len(anomaly_rows)} pending anomalies/shrinkage signals."
+                cards.append({"type": "anomalies", "rows": anomaly_rows})
             elif "pos" in ql or "outbox" in ql or "sync" in ql:
                 cur.execute(
                     """

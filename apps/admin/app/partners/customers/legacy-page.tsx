@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { PartyAddresses } from "@/components/party-addresses";
@@ -857,7 +858,7 @@ export default function CustomersPage() {
                         <tbody>
                           {loyaltyLedger.map((r) => (
                             <tr key={r.id} className="ui-tr-hover">
-                              <td className="px-3 py-2 font-mono text-xs">{String(r.created_at || "").replace("T", " ").slice(0, 19)}</td>
+                              <td className="px-3 py-2 font-mono text-xs">{formatDateLike(r.created_at)}</td>
                               <td className="px-3 py-2 font-mono text-xs">{r.source_type}:{String(r.source_id).slice(0, 8)}</td>
                               <td className="px-3 py-2 text-right font-mono text-xs">{fmt(r.points)}</td>
                             </tr>

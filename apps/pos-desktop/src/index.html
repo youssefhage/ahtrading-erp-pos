@@ -15,7 +15,7 @@
           <div class="brand-mark">POS</div>
           <div>
             <h1>Melqard POS Desktop</h1>
-            <p>Setup for local POS agents with compact, enterprise-ready controls.</p>
+            <p>Set up local POS agents with fast, reliable controls.</p>
           </div>
         </div>
         <div class="topbar-right">
@@ -25,7 +25,7 @@
 
       <section class="glass card-setup">
         <h2>Store Setup</h2>
-        <p class="muted">Recommended: Quick Setup (login once, select your companies, start). Use Setup Pack only for manual recovery workflows.</p>
+        <p class="muted">Recommended: Quick Setup (log in once, pick companies, and launch). Use Setup Pack only for manual recovery.</p>
 
         <label class="field">
           <span>Cloud API URL</span>
@@ -40,6 +40,16 @@
           <p class="muted">
             Sign in, pick your main company, and start POS. Add a secondary company only if your terminal must run both books.
           </p>
+          <div class="setup-flow" id="setupFlow" aria-label="Quick setup progress">
+            <div class="setup-step setup-step--active" data-setup-step="account">1. Account</div>
+            <div class="setup-step" data-setup-step="company">2. Company</div>
+            <div class="setup-step" data-setup-step="permissions">3. Permissions</div>
+            <div class="setup-step" data-setup-step="register">4. Device</div>
+            <div class="setup-step" data-setup-step="start">5. Launch</div>
+          </div>
+          <div id="setupChecklist" class="setup-checklist muted" aria-live="polite">
+            Enter Cloud API URL and credentials, then click Log In.
+          </div>
 
           <div class="grid2 compact">
             <label class="field">
@@ -64,7 +74,7 @@
           </div>
 
           <div class="row compact">
-            <button id="setupLoginBtn" class="primary" type="button">Login</button>
+            <button id="setupLoginBtn" class="primary" type="button">Log In</button>
             <button id="setupClearBtn" class="ghost" type="button">Clear</button>
           </div>
 
@@ -101,9 +111,9 @@
           </div>
 
           <div class="row compact">
-            <button id="setupApplyBtn" class="primary" type="button">Generate Setup + Start POS</button>
+            <button id="setupApplyBtn" class="primary" type="button">Generate Setup and Start POS</button>
           </div>
-          <div id="setupNote" class="status muted setup-note"></div>
+          <div id="setupNote" class="status muted setup-note" aria-live="polite"></div>
         </div>
 
         <details class="advanced">

@@ -56,6 +56,7 @@ import {
 } from "lucide-react";
 
 import { apiBase, apiGet, apiPost, apiUrl, clearSession, getCompanyId, getCompanies } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import {
   addRecentForCompany,
@@ -1117,7 +1118,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           setEdgeHealth(ok ? "online" : "offline");
           const details = targets
             .map((r) => {
-              const ts = r?.last_seen_at ? String(r.last_seen_at) : "";
+              const ts = r?.last_seen_at ? formatDateLike(r.last_seen_at) : "";
               return `${r.worker_name}${ts ? ` (${ts})` : ""}`;
             })
             .join(" · ");
@@ -1145,8 +1146,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           setEdgeHealth(online ? "online" : "offline");
 
           const top = nodes[0];
-          const lastSeen = top?.last_seen_at ? String(top.last_seen_at) : "";
-          const lastImport = top?.last_import_at ? String(top.last_import_at) : "";
+          const lastSeen = top?.last_seen_at ? formatDateLike(top.last_seen_at) : "";
+          const lastImport = top?.last_import_at ? formatDateLike(top.last_import_at) : "";
           const details = [
             `Nodes: ${nodes.length}`,
             top?.node_id ? `Latest: ${top.node_id}` : "",
@@ -1613,7 +1614,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                       <CopyValueButton value={posApiBaseUrl || ""} label="POS API Base URL" />
                     </div>
                     <p className="mt-2 text-xs text-fg-subtle">
-                      Hybrid mode: POS Desktop should be configured with both Cloud + Edge (LAN) URLs. The POS will prefer Edge when reachable and fall back to Cloud automatically.
+                      Cloud-first mode: configure POS Desktop with this Cloud API URL. POS keeps selling offline with local cache/outbox and syncs when connectivity is restored.
                     </p>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                       <div className="text-xs text-fg-subtle">

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
+import { recommendationView, type RecommendationView } from "@/lib/ai-recommendations";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { ShortcutLink } from "@/components/shortcut-link";
@@ -40,6 +42,7 @@ type AiRecRow = {
   agent_code: string;
   status: string;
   recommendation_json: any;
+  recommendation_view?: RecommendationView;
   created_at: string;
 };
 
@@ -115,48 +118,44 @@ export default function InventoryAlertsPage() {
   const aiColumns = useMemo((): Array<DataTableColumn<AiRecRow>> => {
     return [
       {
-        id: "expiry",
-        header: "Expiry",
+        id: "type",
+        header: "Type",
         sortable: true,
-        accessor: (r) => String((r as any).recommendation_json?.expiry_date || ""),
-        cell: (r) => (
-          <span className="font-mono text-xs text-fg-muted">{String((r as any).recommendation_json?.expiry_date || "").slice(0, 10) || "-"}</span>
-        ),
+        accessor: (r) => recommendationView(r).kindLabel,
+        cell: (r) => <span className="font-mono text-xs text-fg-muted">{recommendationView(r).kindLabel}</span>,
       },
       {
-        id: "item",
-        header: "Item",
-        sortable: true,
-        accessor: (r) => `${String((r as any).recommendation_json?.sku || "")} ${String((r as any).recommendation_json?.item_name || "")}`,
+        id: "recommendation",
+        header: "Recommendation",
         cell: (r) => (
-          <div>
-            <div className="font-mono text-xs">{String((r as any).recommendation_json?.sku || "-")}</div>
-            <div className="text-xs text-fg-muted">{String((r as any).recommendation_json?.item_name || "")}</div>
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-foreground">{recommendationView(r).title}</div>
+            <div className="text-xs text-fg-muted">{recommendationView(r).summary}</div>
+            {recommendationView(r).details.length ? (
+              <div className="text-[11px] text-fg-subtle">{recommendationView(r).details[0]}</div>
+            ) : null}
+            {recommendationView(r).linkHref ? (
+              <a className="ui-link text-[11px]" href={recommendationView(r).linkHref}>
+                {recommendationView(r).linkLabel || "Open related document"}
+              </a>
+            ) : null}
           </div>
         ),
       },
       {
-        id: "warehouse",
-        header: "Warehouse",
+        id: "next",
+        header: "Next Step",
         sortable: true,
-        accessor: (r) => String((r as any).recommendation_json?.warehouse_name || (r as any).recommendation_json?.warehouse_id || ""),
-        cell: (r) => <span className="text-xs">{String((r as any).recommendation_json?.warehouse_name || (r as any).recommendation_json?.warehouse_id || "-")}</span>,
+        accessor: (r) => recommendationView(r).nextStep,
+        cell: (r) => <span className="text-xs text-fg-muted">{recommendationView(r).nextStep}</span>,
       },
       {
-        id: "batch",
-        header: "Batch",
+        id: "created",
+        header: "Created",
         sortable: true,
-        accessor: (r) => String((r as any).recommendation_json?.batch_no || ""),
-        cell: (r) => <span className="font-mono text-xs">{String((r as any).recommendation_json?.batch_no || "-")}</span>,
-      },
-      {
-        id: "qty",
-        header: "Qty",
-        sortable: true,
-        align: "right",
         mono: true,
-        accessor: (r) => Number((r as any).recommendation_json?.qty_on_hand || 0),
-        cell: (r) => <span className="font-mono text-xs">{String((r as any).recommendation_json?.qty_on_hand || "0")}</span>,
+        accessor: (r) => r.created_at,
+        cell: (r) => <span className="font-mono text-xs text-fg-muted">{formatDateLike(r.created_at)}</span>,
       },
     ];
   }, []);

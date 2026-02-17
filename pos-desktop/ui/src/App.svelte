@@ -8,6 +8,13 @@
   import SaleSummary from "./components/SaleSummary.svelte";
   import ItemLookup from "./components/ItemLookup.svelte";
   import SettingsScreen from "./components/SettingsScreen.svelte";
+  import {
+    cartCompaniesSet as cartCompaniesSetFromLines,
+    effectiveInvoiceCompany as effectiveInvoiceCompanyFor,
+    findMissingCompanyItems as findMissingCompanyItemsForCompany,
+    pickCompanyForAmbiguousMatch,
+    primaryCompanyFromCart as primaryCompanyFromLines,
+  } from "./lib/unified-sale-flow.js";
 
   const API_BASE_STORAGE_KEY = "pos_ui_api_base";
   const SESSION_STORAGE_KEY = "pos_ui_session_token";
@@ -56,6 +63,9 @@
   let error = "";
   let bgSyncWarnAt = 0;
   let bgSyncPushInFlight = { official: false, unofficial: false };
+  let fetchDataPending = false;
+  let fetchDataPendingBackground = true;
+  let fetchDataDrainPromise = null;
 
   // Unified: map "official/unofficial" keys onto (origin agent) + (other agent).
   // If the UI is loaded from the Unofficial agent, we flip routing automatically.
@@ -132,6 +142,8 @@
   let addCustomerMode = false;
   let customerDraft = { name: "", phone: "", email: "" };
   let _customerSearchSeq = 0;
+  let _customerRemoteTimer = null;
+  const CUSTOMER_REMOTE_SEARCH_DEBOUNCE_MS = 180;
 
   // Theme
   let theme = "dark"; // "dark" | "light"
@@ -194,19 +206,32 @@
   $: shiftText = config.shift_id ? "Shift: Open" : "Shift: Closed";
   $: checkoutTotal = currencyPrimary === "LBP" ? (totals.totalLbp || 0) : (totals.totalUsd || 0);
   
+  $: cartSubtotals = (() => {
+    let subtotalUsd = 0;
+    let subtotalLbpRaw = 0;
+    let officialSubtotalUsd = 0;
+    let unofficialSubtotalUsd = 0;
+    for (const ln of cart || []) {
+      const qty = toNum(ln?.qty, 0);
+      const extUsd = toNum(ln?.price_usd, 0) * qty;
+      const extLbp = toNum(ln?.price_lbp, 0) * qty;
+      subtotalUsd += extUsd;
+      subtotalLbpRaw += extLbp;
+      if (ln?.companyKey === "unofficial") unofficialSubtotalUsd += extUsd;
+      else officialSubtotalUsd += extUsd;
+    }
+    return { subtotalUsd, subtotalLbpRaw, officialSubtotalUsd, unofficialSubtotalUsd };
+  })();
+
   // Totals Calculation
   $: totals = (() => {
-    const usd = cart.reduce((sum, line) => sum + toNum(line.price_usd, 0) * toNum(line.qty, 0), 0);
-    const lbp = cart.reduce((sum, line) => sum + toNum(line.price_lbp, 0) * toNum(line.qty, 0), 0);
     const rate = toRate(config.exchange_rate);
     const vatRate = toRate(config.vat_rate);
-    
-    const subtotalUsd = usd;
-    const subtotalLbp = lbp === 0 && rate > 0 ? usd * rate : lbp;
-    
+    const subtotalUsd = toNum(cartSubtotals?.subtotalUsd, 0);
+    const subtotalLbpRaw = toNum(cartSubtotals?.subtotalLbpRaw, 0);
+    const subtotalLbp = subtotalLbpRaw === 0 && rate > 0 ? subtotalUsd * rate : subtotalLbpRaw;
     const taxUsd = subtotalUsd * vatRate;
     const taxLbp = subtotalLbp * vatRate;
-    
     return {
       subtotalUsd,
       subtotalLbp,
@@ -219,23 +244,16 @@
   })();
 
   $: totalsByCompany = (() => {
-    const out = {
-      official: { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
-      unofficial: { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
-    };
-    for (const ln of cart || []) {
-      const k = ln?.companyKey === "unofficial" ? "unofficial" : "official";
-      out[k].subtotalUsd += toNum(ln.price_usd, 0) * toNum(ln.qty, 0);
-    }
     const cfgOff = (otherCompanyKey === "official") ? unofficialConfig : config;
     const cfgUn = (otherCompanyKey === "unofficial") ? unofficialConfig : config;
     const vOff = toRate(cfgOff.vat_rate);
     const vUn = toRate(cfgUn.vat_rate);
-    out.official.taxUsd = out.official.subtotalUsd * vOff;
-    out.unofficial.taxUsd = out.unofficial.subtotalUsd * vUn;
-    out.official.totalUsd = out.official.subtotalUsd + out.official.taxUsd;
-    out.unofficial.totalUsd = out.unofficial.subtotalUsd + out.unofficial.taxUsd;
-    return out;
+    const offSub = toNum(cartSubtotals?.officialSubtotalUsd, 0);
+    const unSub = toNum(cartSubtotals?.unofficialSubtotalUsd, 0);
+    return {
+      official: { subtotalUsd: offSub, taxUsd: offSub * vOff, totalUsd: offSub + (offSub * vOff) },
+      unofficial: { subtotalUsd: unSub, taxUsd: unSub * vUn, totalUsd: unSub + (unSub * vUn) },
+    };
   })();
 
   const _itemHay = (e) => `${e?.sku || ""} ${e?.name || ""} ${e?.barcode || ""}`.toLowerCase();
@@ -258,10 +276,22 @@
     return m;
   };
 
+  const _buildItemsBySku = (list) => {
+    const m = new Map();
+    for (const it of list || []) {
+      const sku = String(it?.sku || "").trim().toLowerCase();
+      if (!sku) continue;
+      if (!m.has(sku)) m.set(sku, it);
+    }
+    return m;
+  };
+
   $: barcodeIndexOrigin = _buildBarcodeIndex(barcodes);
   $: barcodeIndexOther = _buildBarcodeIndex(unofficialBarcodes);
   $: itemsByIdOrigin = _buildItemsById(items);
   $: itemsByIdOther = _buildItemsById(unofficialItems);
+  $: itemsBySkuOrigin = _buildItemsBySku(items);
+  $: itemsBySkuOther = _buildItemsBySku(unofficialItems);
 
   const _buildBarcodesByItemId = (list) => {
     const m = new Map();
@@ -282,65 +312,79 @@
   $: barcodesByItemIdOrigin = _buildBarcodesByItemId(barcodes);
   $: barcodesByItemIdOther = _buildBarcodesByItemId(unofficialBarcodes);
 
-  $: itemsOriginTagged = (items || []).map((i) => ({ ...i, companyKey: originCompanyKey }));
-  $: itemsOtherTagged = (unofficialItems || []).map((i) => ({ ...i, companyKey: otherCompanyKey }));
+  const _buildUomOptionsByItemId = (itemsList, barcodesByItemId) => {
+    const out = new Map();
+    for (const item of itemsList || []) {
+      const itemId = String(item?.id || "").trim();
+      if (!itemId) continue;
+
+      const baseUom = String(item?.unit_of_measure || "pcs") || "pcs";
+      const rows = barcodesByItemId?.get(itemId) || [];
+      const opts = [];
+      const seen = new Set();
+
+      const pushOpt = (uom, qty_factor, label, is_primary = false) => {
+        const u = String(uom || "").trim() || baseUom;
+        const f = toNum(qty_factor, 1) || 1;
+        const key = `${u}|${f}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        opts.push({
+          uom: u,
+          qty_factor: f,
+          label: String(label || "").trim() || (f !== 1 ? `${u} x${f}` : u),
+          is_primary: !!is_primary,
+        });
+      };
+
+      pushOpt(baseUom, 1, baseUom, true);
+      for (const b of rows) {
+        const u = b?.uom_code || baseUom;
+        const f = toNum(b?.qty_factor, 1) || 1;
+        if (String(u).trim() === String(baseUom).trim() && f === 1) continue;
+        pushOpt(u, f, b?.label || "", !!b?.is_primary);
+      }
+      opts.sort((a, b) => {
+        if (a.is_primary !== b.is_primary) return a.is_primary ? -1 : 1;
+        return toNum(a.qty_factor, 1) - toNum(b.qty_factor, 1);
+      });
+      out.set(itemId, opts);
+    }
+    return out;
+  };
+
+  $: uomOptionsByItemIdOrigin = _buildUomOptionsByItemId(items, barcodesByItemIdOrigin);
+  $: uomOptionsByItemIdOther = _buildUomOptionsByItemId(unofficialItems, barcodesByItemIdOther);
+
+  $: itemsOriginTagged = (items || []).map((i) => ({ ...i, companyKey: originCompanyKey, _hay: _itemHay(i) }));
+  $: itemsOtherTagged = (unofficialItems || []).map((i) => ({ ...i, companyKey: otherCompanyKey, _hay: _itemHay(i) }));
   $: allItemsTagged = ([]).concat(itemsOriginTagged || [], itemsOtherTagged || []);
 
   const uomOptionsFor = (item) => {
     const companyKey = item?.companyKey || "official";
+    const itemId = String(item?.id || "").trim();
     const baseUom = String(item?.unit_of_measure || "pcs") || "pcs";
-    const map = companyKey === otherCompanyKey ? barcodesByItemIdOther : barcodesByItemIdOrigin;
-    const rows = map?.get(String(item?.id || "")) || [];
-    const opts = [];
-    const seen = new Set();
-
-    const pushOpt = (uom, qty_factor, label, is_primary = false) => {
-      const u = String(uom || "").trim() || baseUom;
-      const f = toNum(qty_factor, 1) || 1;
-      const key = `${u}|${f}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      opts.push({
-        uom: u,
-        qty_factor: f,
-        label: String(label || "").trim() || (f !== 1 ? `${u} x${f}` : u),
-        is_primary: !!is_primary,
-      });
-    };
-
-    // Always include base UOM option first.
-    pushOpt(baseUom, 1, baseUom, true);
-
-    for (const b of rows) {
-      const u = (b?.uom_code || baseUom);
-      const f = toNum(b?.qty_factor, 1) || 1;
-      // Skip duplicate base entry (already included).
-      if (String(u).trim() === String(baseUom).trim() && f === 1) continue;
-      pushOpt(u, f, b?.label || "", !!b?.is_primary);
-    }
-
-    // Keep primary options first, then smaller factors first.
-    opts.sort((a, b) => {
-      if (a.is_primary !== b.is_primary) return a.is_primary ? -1 : 1;
-      return toNum(a.qty_factor, 1) - toNum(b.qty_factor, 1);
-    });
-
-    return opts;
+    if (!itemId) return [{ uom: baseUom, qty_factor: 1, label: baseUom, is_primary: true }];
+    const map = companyKey === otherCompanyKey ? uomOptionsByItemIdOther : uomOptionsByItemIdOrigin;
+    const opts = map?.get(itemId);
+    if (Array.isArray(opts) && opts.length > 0) return opts;
+    return [{ uom: baseUom, qty_factor: 1, label: baseUom, is_primary: true }];
   };
 
   $: scanSuggestions = (() => {
     const q = scanTerm.trim().toLowerCase();
     if (!q) return [];
     const out = [];
-    const pushMatches = (list, companyKey) => {
+    const pushMatches = (list) => {
       for (const e of list || []) {
         if (!e) continue;
-        if (_itemHay(e).includes(q)) out.push({ ...e, companyKey });
+        const hay = String(e?._hay || _itemHay(e));
+        if (hay.includes(q)) out.push(e);
         if (out.length >= 24) break;
       }
     };
-    pushMatches(items, originCompanyKey);
-    pushMatches(unofficialItems, otherCompanyKey);
+    pushMatches(itemsOriginTagged);
+    pushMatches(itemsOtherTagged);
     return out.slice(0, 24);
   })();
 
@@ -387,11 +431,32 @@
   const apiCallFor = async (companyKey, path, options = {}) => {
     const prefix = _agentApiPrefix(companyKey);
     const url = `${prefix}${path.startsWith("/") ? path : "/" + path}`;
-    const res = await fetch(url, {
-      method: options.method || "GET",
-      headers: requestHeaders(companyKey),
-      body: options.body ? JSON.stringify(options.body) : undefined
-    });
+    const timeoutMs = Math.max(
+      1000,
+      toNum(options?.timeoutMs, companyKey === otherCompanyKey ? 7000 : 9000),
+    );
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    let res = null;
+    try {
+      res = await fetch(url, {
+        method: options.method || "GET",
+        headers: requestHeaders(companyKey),
+        body: options.body ? JSON.stringify(options.body) : undefined,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if (e?.name === "AbortError") {
+        const err = new Error(`Request timed out after ${timeoutMs}ms`);
+        err.status = 408;
+        err.payload = { error: "timeout", timeout_ms: timeoutMs };
+        throw err;
+      }
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     const text = await res.text();
     let data = null;
     try {
@@ -529,9 +594,10 @@
     try { cashierPinEl?.focus(); } catch (_) {}
   };
 
-  const fetchData = async () => {
+  const runFetchData = async ({ background = false } = {}) => {
+    const showBusy = !background;
     try {
-      loading = true;
+      if (showBusy) loading = true;
       const results = await Promise.allSettled([
         apiCall("/config"),
         apiCall("/items"),
@@ -639,12 +705,45 @@
       if (!customers || customers.length === 0) customers = MOCK_Customers;
       if (!unofficialItems || unofficialItems.length === 0) unofficialItems = [];
     } finally {
-      loading = false;
+      if (showBusy) loading = false;
+    }
+  };
+
+  const fetchData = async ({ background = false } = {}) => {
+    fetchDataPending = true;
+    fetchDataPendingBackground = fetchDataPendingBackground && !!background;
+
+    if (fetchDataDrainPromise) {
+      return fetchDataDrainPromise;
+    }
+
+    fetchDataDrainPromise = (async () => {
+      while (fetchDataPending) {
+        const nextBackground = fetchDataPendingBackground;
+        fetchDataPending = false;
+        fetchDataPendingBackground = true;
+        await runFetchData({ background: nextBackground });
+      }
+    })();
+
+    try {
+      await fetchDataDrainPromise;
+    } finally {
+      fetchDataDrainPromise = null;
     }
   };
 
   // Cart Logic
-  const promoNowYmd = () => new Date().toISOString().slice(0, 10);
+  let _promoTodayYmd = "";
+  let _promoTodayTickAt = 0;
+  const promoNowYmd = () => {
+    const now = Date.now();
+    if (!_promoTodayYmd || (now - _promoTodayTickAt) > 60000) {
+      _promoTodayTickAt = now;
+      _promoTodayYmd = new Date(now).toISOString().slice(0, 10);
+    }
+    return _promoTodayYmd;
+  };
 
   const _promoIsActive = (promoRules) => {
     const r = promoRules || {};
@@ -666,10 +765,35 @@
     return p;
   };
 
-  const _promosForCompanyKey = (companyKey) => {
-    const list = companyKey === otherCompanyKey ? unofficialPromotions : promotions;
-    return Array.isArray(list) ? list : [];
+  const _buildPromoCandidatesByItem = (list) => {
+    const out = new Map();
+    let rowIndex = 0;
+    for (const p of list || []) {
+      const rules = p?.rules || p?.rules_json || p?.rules || p;
+      const r = rules && typeof rules === "object" ? rules : (p?.rules || {});
+      const items = Array.isArray(r?.items) ? r.items : [];
+      const promoKey = String(p?.id || r?.id || `promo-${rowIndex}`);
+      const priority = toNum(r?.priority, toNum(p?.priority, 0));
+      for (const it of items) {
+        const itemId = String(it?.item_id || "").trim();
+        if (!itemId) continue;
+        if (!out.has(itemId)) out.set(itemId, []);
+        out.get(itemId).push({
+          promo: r,
+          promoRow: p,
+          promoItem: it,
+          promoKey,
+          minQty: toNum(it?.min_qty, 0),
+          priority,
+        });
+      }
+      rowIndex += 1;
+    }
+    return out;
   };
+
+  $: promoCandidatesByItemOrigin = _buildPromoCandidatesByItem(promotions);
+  $: promoCandidatesByItemOther = _buildPromoCandidatesByItem(unofficialPromotions);
 
   const _bestPromoForLine = (line) => {
     const companyKey = line?.companyKey || "official";
@@ -678,24 +802,31 @@
 
     const qtyBase = Math.max(0, toNum(line?.qty_entered, 0) * toNum(line?.qty_factor, 1));
     if (qtyBase <= 0) return null;
+    const promoMap = companyKey === otherCompanyKey ? promoCandidatesByItemOther : promoCandidatesByItemOrigin;
+    const candidates = promoMap?.get(itemId) || [];
+    if (!candidates.length) return null;
 
     const listUsd = toNum(line?.list_price_usd, toNum(line?.price_usd, 0));
     const listLbp = toNum(line?.list_price_lbp, toNum(line?.price_lbp, 0));
     const cfg = cfgForCompanyKey(companyKey) || {};
     const ex = toNum(cfg.exchange_rate, 0);
 
+    const bestTierByPromo = new Map();
+    for (const cand of candidates) {
+      if (qtyBase < toNum(cand?.minQty, 0)) continue;
+      const prev = bestTierByPromo.get(cand.promoKey);
+      if (!prev || toNum(cand.minQty, 0) > toNum(prev.minQty, 0)) {
+        bestTierByPromo.set(cand.promoKey, cand);
+      }
+    }
+    if (bestTierByPromo.size === 0) return null;
+
     let best = null;
     let bestScore = -1;
-    for (const p of _promosForCompanyKey(companyKey)) {
-      const rules = p?.rules || p?.rules_json || p?.rules || p;
-      const r = rules && typeof rules === "object" ? rules : (p?.rules || {});
+    for (const cand of bestTierByPromo.values()) {
+      const r = cand.promo;
       if (!_promoIsActive(r)) continue;
-
-      const items = Array.isArray(r.items) ? r.items : [];
-      const matches = items.filter((it) => String(it?.item_id || "") === itemId && qtyBase >= toNum(it?.min_qty, 0));
-      if (!matches.length) continue;
-      matches.sort((a, b) => toNum(b?.min_qty, 0) - toNum(a?.min_qty, 0));
-      const it = matches[0];
+      const it = cand.promoItem;
 
       const promoUsd = toNum(it?.promo_price_usd, 0);
       const promoLbp = toNum(it?.promo_price_lbp, 0);
@@ -721,11 +852,10 @@
       let pctScore = 0;
       if (listUsd > 0 && unitUsd > 0) pctScore = Math.max(0, (listUsd - unitUsd) / listUsd);
       else if (listLbp > 0 && unitLbp > 0) pctScore = Math.max(0, (listLbp - unitLbp) / listLbp);
-      const priority = toNum(r?.priority, toNum(p?.priority, 0));
-      const score = pctScore * 1000 + priority;
+      const score = pctScore * 1000 + toNum(cand?.priority, 0);
       if (score > bestScore) {
         bestScore = score;
-        best = { promo: r, promoRow: p, promoItem: it, unitUsd, unitLbp, pctScore };
+        best = { promo: r, promoRow: cand.promoRow, promoItem: it, unitUsd, unitLbp, pctScore };
       }
     }
     return best;
@@ -765,12 +895,28 @@
     return ln;
   };
 
+  const _cartLineKey = (companyKey, itemId, qtyFactor, uom) => {
+    const k = companyKey === "unofficial" ? "unofficial" : "official";
+    const factor = toNum(qtyFactor, 1) || 1;
+    const u = String(uom || "").trim();
+    return `${k}|${String(itemId || "")}|${String(factor)}|${u}`;
+  };
+
+  $: cartLineIndexByKey = (() => {
+    const m = new Map();
+    for (let i = 0; i < (cart || []).length; i += 1) {
+      const ln = cart[i];
+      m.set(_cartLineKey(ln?.companyKey, ln?.id, ln?.qty_factor, ln?.uom || ln?.unit_of_measure), i);
+    }
+    return m;
+  })();
+
   const buildLine = (item, qtyEntered = 1, extra = {}) => {
     const companyKey = extra.companyKey || item.companyKey || "official";
     const qtyFactor = toNum(extra.qty_factor, 1) || 1;
     const qtyBase = toNum(qtyEntered, 0) * qtyFactor;
     const uom = extra.uom || extra.uom_code || item.unit_of_measure || "pcs";
-    const lineKey = `${companyKey}|${String(item.id)}|${String(qtyFactor)}|${String(uom)}`;
+    const lineKey = _cartLineKey(companyKey, item.id, qtyFactor, uom);
     const ln = {
       key: lineKey,
       companyKey,
@@ -806,12 +952,9 @@
     const qtyFactor = toNum(extra.qty_factor, 1) || 1;
     const uom = extra.uom || extra.uom_code || item.unit_of_measure || "pcs";
     const qtyEntered = Math.max(1, toNum(extra.qty_entered, 1) || 1);
-    const existingIdx = cart.findIndex(
-      (x) =>
-        x.companyKey === companyKey &&
-        x.id === item.id &&
-        toNum(x.qty_factor, 1) === qtyFactor &&
-        (x.uom || x.unit_of_measure) === uom
+    const existingIdx = toNum(
+      cartLineIndexByKey.get(_cartLineKey(companyKey, item.id, qtyFactor, uom)),
+      -1,
     );
     if (existingIdx >= 0) {
       const copy = [...cart];
@@ -827,23 +970,15 @@
     return true;
   };
 
-  const cartCompaniesSet = () => new Set((cart || []).map((c) => c.companyKey).filter(Boolean));
+  const cartCompaniesSet = (lines = cart) => cartCompaniesSetFromLines(lines);
 
-  const primaryCompanyFromCart = () => {
-    const s = cartCompaniesSet();
-    if (s.size === 1) return Array.from(s.values())[0];
-    return null;
-  };
+  const primaryCompanyFromCart = (lines = cart) => primaryCompanyFromLines(lines);
 
-  const effectiveInvoiceCompany = () => {
-    const v = String(invoiceCompanyMode || "auto").trim().toLowerCase();
-    if (v === "official" || v === "unofficial") return v;
-    // Auto mode:
-    // 1) If the cart is single-company, follow it.
-    // 2) Otherwise default to the agent that is currently serving this UI (originCompanyKey).
-    // This avoids accidentally routing everything to Unofficial when both catalogs match.
-    return primaryCompanyFromCart() || originCompanyKey || "official";
-  };
+  const effectiveInvoiceCompany = () => effectiveInvoiceCompanyFor({
+    invoiceCompanyMode,
+    originCompanyKey,
+    cart,
+  });
 
   const addByBarcode = (barcode) => {
     const code = (barcode || "").trim();
@@ -863,37 +998,55 @@
     const mU = pick("unofficial");
     if (!mO && !mU) return false;
 
-    let companyKey = "official";
-    if (mO && !mU) companyKey = "official";
-    else if (mU && !mO) companyKey = "unofficial";
-    else companyKey = effectiveInvoiceCompany();
+    const companyKey = pickCompanyForAmbiguousMatch({
+      invoiceCompanyMode,
+      originCompanyKey,
+      cart,
+      availableCompanies: [mO ? "official" : null, mU ? "unofficial" : null],
+    });
 
-    const { b, item } = companyKey === "unofficial" ? mU : mO;
-    if (!b || !item) return false;
+    const preferred = companyKey === "unofficial" ? mU : mO;
+    const chosen = preferred || mO || mU;
+    if (!chosen?.b || !chosen?.item) return false;
+    const selectedCompanyKey = preferred ? companyKey : (chosen === mU ? "unofficial" : "official");
 
-    const qtyFactor = toNum(b.qty_factor, 1) || 1;
-    const uom = (b.uom_code || item.unit_of_measure || "pcs");
-    const it = { ...item, companyKey };
-    return addToCart(it, { companyKey, qty_factor: qtyFactor, uom });
+    const qtyFactor = toNum(chosen.b.qty_factor, 1) || 1;
+    const uom = (chosen.b.uom_code || chosen.item.unit_of_measure || "pcs");
+    const it = { ...chosen.item, companyKey: selectedCompanyKey };
+    return addToCart(it, { companyKey: selectedCompanyKey, qty_factor: qtyFactor, uom });
   };
 
   const addBySkuExact = (sku) => {
     const key = (sku || "").trim().toLowerCase();
     if (!key) return false;
-    const findIn = (list, companyKey) => {
-      const it = (list || []).find((i) => String(i?.sku || "").trim().toLowerCase() === key);
+    const findIn = (companyKey) => {
+      const idx = companyKey === otherCompanyKey ? itemsBySkuOther : itemsBySkuOrigin;
+      const it = idx?.get(key);
       return it ? { ...it, companyKey } : null;
     };
-    const a = findIn(items, originCompanyKey);
-    const b = findIn(unofficialItems, otherCompanyKey);
+    const a = findIn(originCompanyKey);
+    const b = findIn(otherCompanyKey);
     if (!a && !b) return false;
     if (a && !b) { addToCart(a); return true; }
     if (b && !a) { addToCart(b); return true; }
-    // Both match: pick based on invoice mode / cart
-    const companyKey = effectiveInvoiceCompany();
+    // Both match: pick based on invoice mode / cart.
+    const companyKey = pickCompanyForAmbiguousMatch({
+      invoiceCompanyMode,
+      originCompanyKey,
+      cart,
+      availableCompanies: [a?.companyKey, b?.companyKey],
+    });
     addToCart(companyKey === b.companyKey ? b : a);
     return true;
   };
+
+  const findMissingCompanyItems = (companyKey, lines) => findMissingCompanyItemsForCompany({
+    companyKey,
+    lines,
+    otherCompanyKey,
+    itemsByIdOrigin,
+    itemsByIdOther,
+  });
 
   const handleScanKeyDown = (e) => {
     if (e.key !== "Enter") return false;
@@ -1086,17 +1239,36 @@
     if (mO && !mU) return mO;
     if (mU && !mO) return mU;
     if (mO && mU) {
-      const companyKey = effectiveInvoiceCompany();
+      const companyKey = pickCompanyForAmbiguousMatch({
+        invoiceCompanyMode,
+        originCompanyKey,
+        cart,
+        availableCompanies: ["official", "unofficial"],
+      });
       return companyKey === "unofficial" ? mU : mO;
     }
 
     // Try exact SKU as fallback.
     const key = code.toLowerCase();
-    const findIn = (list, companyKey) => {
-      const it = (list || []).find((i) => String(i?.sku || "").trim().toLowerCase() === key);
+    const findIn = (companyKey) => {
+      const idx = companyKey === otherCompanyKey ? itemsBySkuOther : itemsBySkuOrigin;
+      const it = idx?.get(key);
       return it ? { b: null, item: { ...it, companyKey } } : null;
     };
-    return findIn(items, originCompanyKey) || findIn(unofficialItems, otherCompanyKey) || null;
+    const a = findIn(originCompanyKey);
+    const b = findIn(otherCompanyKey);
+    if (a && !b) return a;
+    if (b && !a) return b;
+    if (a && b) {
+      const companyKey = pickCompanyForAmbiguousMatch({
+        invoiceCompanyMode,
+        originCompanyKey,
+        cart,
+        availableCompanies: [a?.item?.companyKey, b?.item?.companyKey],
+      });
+      return companyKey === b.item.companyKey ? b : a;
+    }
+    return null;
   };
 
   const loadBatchesFor = async (companyKey, itemId) => {
@@ -1104,7 +1276,9 @@
   };
 
   const updateLineQty = (index, qty) => {
-    const q = Math.max(0, Number(qty));
+    const parsed = Number(qty);
+    if (!Number.isFinite(parsed)) return;
+    const q = Math.max(0, parsed);
     if (q === 0) {
       removeLine(index);
       return;
@@ -1136,14 +1310,7 @@
     // If nothing changes, do nothing.
     if (String(cur.uom || "") === nextUom && toNum(cur.qty_factor, 1) === nextFactor) return;
 
-    const targetIdx = copy.findIndex(
-      (x, i) =>
-        i !== index &&
-        x.companyKey === cur.companyKey &&
-        String(x.id) === String(cur.id) &&
-        String(x.uom || x.unit_of_measure || "") === nextUom &&
-        toNum(x.qty_factor, 1) === nextFactor
-    );
+    const targetIdx = cartLineIndexByKey.get(_cartLineKey(cur.companyKey, cur.id, nextFactor, nextUom));
 
     // Move qty_entered to the new UOM context (keep entered number, recompute base qty).
     const qe = Math.max(1, toNum(cur.qty_entered, 1) || 1);
@@ -1152,10 +1319,10 @@
       qty_factor: nextFactor,
       uom: nextUom,
       qty: qe * nextFactor,
-      key: `${cur.companyKey}|${String(cur.id)}|${String(nextFactor)}|${String(nextUom)}`
+      key: _cartLineKey(cur.companyKey, cur.id, nextFactor, nextUom)
     };
 
-    if (targetIdx >= 0) {
+    if (targetIdx !== undefined && targetIdx !== index) {
       // Merge into existing line for that UOM.
       const tgt = { ...copy[targetIdx] };
       tgt.qty_entered = toNum(tgt.qty_entered, 0) + qe;
@@ -1174,10 +1341,137 @@
     cart = cart.filter((_, i) => i !== index);
   };
 
+  const _benchmarkRng = (seedValue) => {
+    let seed = (Number(seedValue) >>> 0) || 1;
+    return () => {
+      seed = (1664525 * seed + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+  };
+
+  const _benchmarkPool = () => {
+    const pool = [];
+    for (const it of items || []) pool.push({ ...it, companyKey: originCompanyKey });
+    for (const it of unofficialItems || []) pool.push({ ...it, companyKey: otherCompanyKey });
+    if (pool.length > 0) return pool;
+    return (MOCK_ITEMS || []).map((it) => ({ ...it, companyKey: originCompanyKey }));
+  };
+
+  const _roundMs = (n) => Math.round(toNum(n, 0) * 100) / 100;
+
+  const runStressBenchmark = async (lineCountRaw = 200) => {
+    const lineCount = Math.max(50, Math.min(2000, Math.trunc(toNum(lineCountRaw, 200) || 200)));
+    const pool = _benchmarkPool();
+    if (!pool.length) throw new Error("No items available for benchmark.");
+
+    const snapshotCart = (cart || []).map((ln) => ({ ...(ln || {}) }));
+    const snapshotCustomer = activeCustomer;
+    const startedAt = performance.now();
+
+    try {
+      const rng = _benchmarkRng(0x9e3779b9 ^ lineCount ^ pool.length);
+      const tBuild0 = performance.now();
+      const generated = [];
+      for (let i = 0; i < lineCount; i += 1) {
+        const pickIdx = Math.floor(rng() * pool.length) % pool.length;
+        const item = pool[pickIdx] || pool[0];
+        const opts = uomOptionsFor(item) || [];
+        const picked = opts.length ? opts[i % opts.length] : null;
+        const qtyEntered = 1 + (i % 4);
+        const line = buildLine(item, qtyEntered, {
+          companyKey: item.companyKey,
+          qty_factor: toNum(picked?.qty_factor, 1) || 1,
+          uom: String(picked?.uom || item?.unit_of_measure || "pcs"),
+        });
+        line.key = `${line.key}|bench|${i}`;
+        generated.push(line);
+      }
+      const tBuild1 = performance.now();
+
+      cart = generated;
+      await tick();
+      const tRender1 = performance.now();
+
+      const tPartial0 = performance.now();
+      const step = Math.max(1, Math.floor(lineCount / 50));
+      const partial = [...generated];
+      for (let i = 0; i < partial.length; i += step) {
+        const ln = partial[i];
+        if (!ln) continue;
+        const qe = ((toNum(ln.qty_entered, 1) + 1) % 5) + 1;
+        partial[i] = applyPromotionToLine({
+          ...ln,
+          qty_entered: qe,
+          qty: qe * toNum(ln.qty_factor, 1),
+        });
+      }
+      cart = partial;
+      await tick();
+      const tPartial1 = performance.now();
+
+      const tReprice0 = performance.now();
+      cart = (cart || []).map((ln) => applyPromotionToLine(ln));
+      await tick();
+      const tReprice1 = performance.now();
+
+      const mid = Math.max(0, Math.min((cart || []).length - 1, Math.floor(lineCount / 2)));
+      const tSingle0 = performance.now();
+      if ((cart || []).length > 0) {
+        updateLineQty(mid, toNum(cart[mid]?.qty_entered, 1) + 1);
+        await tick();
+      }
+      const tSingle1 = performance.now();
+
+      let uomUpdateMs = null;
+      const tUom0 = performance.now();
+      let toggled = false;
+      for (let i = 0; i < (cart || []).length; i += 1) {
+        const opts = uomOptionsForLine(cart[i]) || [];
+        if (opts.length <= 1) continue;
+        const curU = String(cart[i]?.uom || cart[i]?.unit_of_measure || "");
+        const curF = toNum(cart[i]?.qty_factor, 1) || 1;
+        const curIdx = opts.findIndex((o) => String(o?.uom || "") === curU && (toNum(o?.qty_factor, 1) || 1) === curF);
+        const nextIdx = ((curIdx >= 0 ? curIdx : 0) + 1) % opts.length;
+        updateLineUom(i, opts[nextIdx]);
+        toggled = true;
+        break;
+      }
+      if (toggled) {
+        await tick();
+        uomUpdateMs = _roundMs(performance.now() - tUom0);
+      }
+
+      const finishedAt = performance.now();
+      return {
+        line_count: lineCount,
+        pool_items: pool.length,
+        started_at: new Date().toISOString(),
+        build_cart_ms: _roundMs(tBuild1 - tBuild0),
+        first_render_ms: _roundMs(tRender1 - tBuild1),
+        partial_reprice_ms: _roundMs(tPartial1 - tPartial0),
+        full_reprice_ms: _roundMs(tReprice1 - tReprice0),
+        single_qty_update_ms: _roundMs(tSingle1 - tSingle0),
+        single_uom_update_ms: uomUpdateMs,
+        total_benchmark_ms: _roundMs(finishedAt - startedAt),
+      };
+    } finally {
+      cart = snapshotCart;
+      activeCustomer = snapshotCustomer;
+      await tick();
+    }
+  };
+
   // Customer Logic
   const searchCustomers = async () => {
     const term = customerSearch.trim();
-    if (!term) { customerResults = []; return; }
+    if (!term) {
+      if (_customerRemoteTimer) {
+        clearTimeout(_customerRemoteTimer);
+        _customerRemoteTimer = null;
+      }
+      customerResults = [];
+      return;
+    }
     try {
       const seq = ++_customerSearchSeq;
       customerSearching = true;
@@ -1198,6 +1492,15 @@
       // Show local hits immediately for zero-latency typing.
       customerResults = local;
       if (local.length >= 12) return;
+
+      await new Promise((resolve) => {
+        if (_customerRemoteTimer) clearTimeout(_customerRemoteTimer);
+        _customerRemoteTimer = setTimeout(() => {
+          _customerRemoteTimer = null;
+          resolve();
+        }, CUSTOMER_REMOTE_SEARCH_DEBOUNCE_MS);
+      });
+      if (seq !== _customerSearchSeq) return;
 
       const res = await apiCallFor(companyKey, `/customers?query=${encodeURIComponent(term)}`);
       if (seq !== _customerSearchSeq) return;
@@ -1341,6 +1644,15 @@
       if (flagOfficial) {
         const invoiceCompany = "official";
         const crossCompany = mixedCompanies || !cartCompanies.has(invoiceCompany);
+        if (crossCompany) {
+          const missing = findMissingCompanyItems(invoiceCompany, cart);
+          if (missing.length) {
+            reportError(
+              `Flag to Official cannot proceed: ${missing.length} item(s) are not present in Official catalog. Use Auto (Split) or remove those lines.`,
+            );
+            return;
+          }
+        }
         const customer_id = await resolveCustomerId(invoiceCompany);
         if (requested_customer_id && !customer_id) {
           reportNotice("Customer not found on Official. Proceeding as walk-in.");
@@ -1412,6 +1724,7 @@
         }
 
         const done = [];
+        const failed = [];
         for (const companyKey of companiesInOrder) {
           const lines = cart.filter((c) => c.companyKey === companyKey);
           if (!lines.length) continue;
@@ -1432,33 +1745,47 @@
           };
 
           const cfg = cfgFor(companyKey);
-          const res = await apiCallFor(companyKey, "/sale", {
-            method: "POST",
-            body: {
-              cart: mapCartLines(lines),
-              customer_id,
-              payment_method,
-              receipt_meta,
-              pricing_currency: cfg.pricing_currency,
-              exchange_rate: cfg.exchange_rate,
-              shift_id: cfg.shift_id || null,
-              cashier_id: cfg.cashier_id || null,
-              skip_stock_moves: false,
-            }
-          });
+          try {
+            const res = await apiCallFor(companyKey, "/sale", {
+              method: "POST",
+              body: {
+                cart: mapCartLines(lines),
+                customer_id,
+                payment_method,
+                receipt_meta,
+                pricing_currency: cfg.pricing_currency,
+                exchange_rate: cfg.exchange_rate,
+                shift_id: cfg.shift_id || null,
+                cashier_id: cfg.cashier_id || null,
+                skip_stock_moves: false,
+              }
+            });
 
-          done.push({ companyKey, event_id: res.event_id || "ok" });
-          queueSyncPush(companyKey);
+            done.push({ companyKey, event_id: res.event_id || "ok" });
+            queueSyncPush(companyKey);
 
-          // Remove only the successfully invoiced lines.
-          cart = cart.filter((c) => c.companyKey !== companyKey);
-          const w = receiptWins[companyKey];
-          await printAfterSale(companyKey, res?.event_id || "", w);
+            // Remove only the successfully invoiced lines.
+            cart = cart.filter((c) => c.companyKey !== companyKey);
+            const w = receiptWins[companyKey];
+            await printAfterSale(companyKey, res?.event_id || "", w);
+          } catch (e) {
+            failed.push({ companyKey, error: e?.message || String(e) });
+            try {
+              const w = receiptWins[companyKey];
+              if (w && w.close) w.close();
+            } catch (_) {}
+          }
         }
 
+        fetchData();
+        if (failed.length) {
+          const okText = done.length ? `Completed: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}. ` : "";
+          const failText = failed.map((f) => `${f.companyKey}: ${f.error}`).join(" | ");
+          reportError(`${okText}Split sale incomplete. Failed: ${failText}`);
+          return;
+        }
         cart = [];
         activeCustomer = null;
-        fetchData();
         reportNotice(`Split sale queued: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}`);
         return;
       }
@@ -1466,6 +1793,15 @@
       // Single-company (or intentionally forced) flow.
       const invoiceCompany = effectiveInvoiceCompany();
       const crossCompany = cartCompanies.size > 1 || (cartCompanies.size === 1 && !cartCompanies.has(invoiceCompany));
+      if (crossCompany) {
+        const missing = findMissingCompanyItems(invoiceCompany, cart);
+        if (missing.length) {
+          reportError(
+            `${invoiceCompany} invoice cannot include ${missing.length} item(s) missing from that catalog. Use Auto (Split) or change invoice mode.`,
+          );
+          return;
+        }
+      }
       const customer_id = await resolveCustomerId(invoiceCompany);
       if (requested_customer_id && !customer_id) {
         reportNotice(`Customer not found on ${invoiceCompany}. Proceeding as walk-in.`);
@@ -1697,11 +2033,19 @@
 
     fetchData();
 
-    const poll = setInterval(fetchData, 30000); // Polling legacy style
+    const poll = setInterval(() => {
+      if (document.hidden) return;
+      fetchData({ background: true });
+    }, 30000); // Polling legacy style
     const pushPoll = setInterval(() => {
+      if (document.hidden) return;
       if (config?.device_id) queueSyncPush(originCompanyKey);
       if (unofficialConfig?.device_id) queueSyncPush(otherCompanyKey);
     }, 12000);
+    const onVisibilityChange = () => {
+      if (!document.hidden) fetchData({ background: true });
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     // Global barcode scan capture (keyboard-wedge scanners often type fast chars + Enter).
     // Captures scans even if focus isn't in the scan box, but avoids stealing normal typing.
@@ -1769,6 +2113,11 @@
     return () => {
       clearInterval(poll);
       clearInterval(pushPoll);
+      if (_customerRemoteTimer) {
+        clearTimeout(_customerRemoteTimer);
+        _customerRemoteTimer = null;
+      }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       document.removeEventListener("keydown", onKeyDown, true);
       reset();
     };
@@ -2006,6 +2355,7 @@
             cart={cart}
             totals={totals}
             totalsByCompany={totalsByCompany}
+            originCompanyKey={originCompanyKey}
             invoiceCompanyMode={invoiceCompanyMode}
             flagOfficial={flagOfficial}
             onInvoiceCompanyModeChange={onInvoiceCompanyModeChange}
@@ -2044,6 +2394,7 @@
       testEdgeFor={testEdgeFor}
       syncPullFor={syncPullFor}
       syncPushFor={syncPushFor}
+      runStressBenchmark={runStressBenchmark}
     />
   {/if}
 </Shell>

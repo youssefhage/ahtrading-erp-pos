@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { applyPrintSettingsFromQuery } from "@/lib/print/page-settings";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
@@ -220,7 +221,7 @@ export default function GoodsReceiptPrintPage() {
             <footer className="pt-2 text-[11px] text-black/60">
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-black/15 pt-3">
                 <span className="font-mono">GR ID: {receipt.id}</span>
-                <span className="font-mono">Generated: {new Date().toISOString().slice(0, 19).replace("T", " ")}</span>
+                <span className="font-mono">Generated: {formatDateTime(new Date())}</span>
               </div>
             </footer>
           </div>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Page, PageHeader, Section } from "@/components/page";
 import { ViewRaw } from "@/components/view-raw";
@@ -67,7 +68,7 @@ export default function AuditLogsPage() {
         accessor: (r) => r.created_at,
         sortable: true,
         mono: true,
-        cell: (r) => <span className="text-xs text-fg-subtle">{r.created_at}</span>,
+        cell: (r) => <span className="text-xs text-fg-subtle">{formatDateTime(r.created_at)}</span>,
       },
       {
         id: "action",

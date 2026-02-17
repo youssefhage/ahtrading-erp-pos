@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/datetime";
 import { fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -197,9 +198,9 @@ export default function SupplierPaymentsPage() {
         accessor: (p) => p.payment_date || "",
         sortable: true,
         mono: true,
-        cell: (p) => <span className="text-xs">{p.payment_date || String(p.created_at || "").slice(0, 10)}</span>,
+        cell: (p) => <span className="text-xs">{formatDate(p.payment_date || p.created_at)}</span>,
       },
-      { id: "created_at", header: "Created", accessor: (p) => p.created_at, sortable: true, mono: true, defaultHidden: true, cell: (p) => <span className="text-xs">{p.created_at}</span> },
+      { id: "created_at", header: "Created", accessor: (p) => p.created_at, sortable: true, mono: true, defaultHidden: true, cell: (p) => <span className="text-xs">{formatDateTime(p.created_at)}</span> },
       {
         id: "invoice",
         header: "Invoice",

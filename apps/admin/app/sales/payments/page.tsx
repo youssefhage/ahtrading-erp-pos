@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { fmtUsd } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -232,7 +233,7 @@ function SalesPaymentsPageInner() {
 
   const columns = useMemo((): Array<DataTableColumn<SalesPaymentRow>> => {
     return [
-      { id: "created_at", header: "Created", accessor: (p) => p.created_at, sortable: true, mono: true, cell: (p) => <span className="text-xs">{p.created_at}</span> },
+      { id: "created_at", header: "Created", accessor: (p) => p.created_at, sortable: true, mono: true, cell: (p) => <span className="text-xs">{formatDateTime(p.created_at)}</span> },
       {
         id: "invoice",
         header: "Invoice",

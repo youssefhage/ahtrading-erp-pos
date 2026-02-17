@@ -73,7 +73,17 @@ export default function ApImportQueuePage() {
     return () => window.clearTimeout(t);
   }, [load]);
 
-  const nextReview = useMemo(() => rows.find((r) => Number(r.attachment_count || 0) > 0) || null, [rows]);
+  const nextReview = useMemo(
+    () =>
+      rows.find(
+        (r) =>
+          String(r.import_status || "").toLowerCase() === "pending_review" &&
+          Number(r.attachment_count || 0) > 0
+      ) ||
+      rows.find((r) => Number(r.attachment_count || 0) > 0) ||
+      null,
+    [rows]
+  );
 
   const columns = useMemo((): Array<DataTableColumn<InvoiceRow>> => {
     return [

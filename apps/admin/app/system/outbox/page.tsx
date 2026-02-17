@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
@@ -56,7 +57,7 @@ export default function OutboxPage() {
   }, []);
 
   const columns: Array<DataTableColumn<OutboxRow>> = [
-    { id: "created_at", header: "Created", accessor: (e) => e.created_at, sortable: true, mono: true, cell: (e) => <span className="text-xs">{e.created_at}</span> },
+    { id: "created_at", header: "Created", accessor: (e) => e.created_at, sortable: true, mono: true, cell: (e) => <span className="text-xs">{formatDateTime(e.created_at)}</span> },
     { id: "status", header: "Status", accessor: (e) => e.status, sortable: true, mono: true, cell: (e) => <span className="text-xs">{e.status}</span> },
     {
       id: "device",
@@ -72,7 +73,7 @@ export default function OutboxPage() {
     },
     { id: "event_type", header: "Type", accessor: (e) => e.event_type, sortable: true, mono: true, cell: (e) => <span className="text-xs">{e.event_type}</span> },
     { id: "attempts", header: "Attempts", accessor: (e) => Number(e.attempt_count || 0), sortable: true, align: "right", mono: true, cell: (e) => <span className="text-xs">{Number(e.attempt_count || 0)}</span> },
-    { id: "processed_at", header: "Processed", accessor: (e) => e.processed_at || "", sortable: true, mono: true, cell: (e) => <span className="text-xs">{e.processed_at || "-"}</span> },
+    { id: "processed_at", header: "Processed", accessor: (e) => e.processed_at || "", sortable: true, mono: true, cell: (e) => <span className="text-xs">{formatDateTime(e.processed_at)}</span> },
     {
       id: "error",
       header: "Error",

@@ -1018,7 +1018,7 @@ def update_supplier_invoice_import_line(
     company_id: str = Depends(get_company_id),
     user=Depends(get_current_user),
 ):
-    patch = data.model_dump(exclude_none=True)
+    patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
     status = (patch.get("status") or "").strip().lower() if "status" in patch else None
@@ -1046,8 +1046,9 @@ def update_supplier_invoice_import_line(
                 if str(inv.get("import_status") or "").lower() != "pending_review":
                     raise HTTPException(status_code=409, detail="import is not in pending_review state")
 
-                resolved_item_id = patch.get("resolved_item_id") if "resolved_item_id" in patch else None
-                if resolved_item_id is not None:
+                has_resolved_item_id = "resolved_item_id" in patch
+                resolved_item_id = patch.get("resolved_item_id") if has_resolved_item_id else None
+                if has_resolved_item_id:
                     resolved_item_id = (resolved_item_id or "").strip() or None
                     if resolved_item_id:
                         cur.execute("SELECT 1 FROM items WHERE company_id=%s AND id=%s", (company_id, resolved_item_id))
@@ -1064,12 +1065,12 @@ def update_supplier_invoice_import_line(
                 cur.execute(
                     """
                     UPDATE supplier_invoice_import_lines
-                    SET resolved_item_id = COALESCE(%s, resolved_item_id),
+                    SET resolved_item_id = CASE WHEN %s THEN %s ELSE resolved_item_id END,
                         status = COALESCE(%s, status),
                         updated_at = now()
                     WHERE company_id=%s AND supplier_invoice_id=%s AND id=%s
                     """,
-                    (resolved_item_id, status, company_id, invoice_id, line_id),
+                    (has_resolved_item_id, resolved_item_id, status, company_id, invoice_id, line_id),
                 )
                 if cur.rowcount == 0:
                     raise HTTPException(status_code=404, detail="import line not found")

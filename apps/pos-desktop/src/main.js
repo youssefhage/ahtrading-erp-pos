@@ -144,10 +144,99 @@ function el(id) {
 }
 
 function normalizeUrl(raw) {
-  const v = String(raw || "").trim().replace(/\/+$/, "");
+  let v = String(raw || "").trim();
   if (!v) return "";
-  if (!/^https?:\/\//i.test(v)) return `http://${v}`;
-  return v;
+  if (!/^https?:\/\//i.test(v)) {
+    const host = String(v.split("/")[0] || "").toLowerCase();
+    const privateNet = host === "localhost" || host.startsWith("127.") || host.startsWith("10.") ||
+      host.startsWith("192.168.") || host.startsWith("0.0.0.0") || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+    v = `${privateNet ? "http" : "https"}://${v}`;
+  }
+  return v.replace(/\/+$/, "");
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DEVICE_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/;
+
+function parseUrlSafe(value) {
+  try {
+    return new URL(String(value || ""));
+  } catch {
+    return null;
+  }
+}
+
+function isLocalOrPrivateHost(hostnameRaw) {
+  const h = String(hostnameRaw || "").toLowerCase();
+  return h === "localhost" || h === "0.0.0.0" || h.endsWith(".local") ||
+    h.startsWith("127.") || h.startsWith("10.") || h.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(h);
+}
+
+function validateCloudUrl(rawUrl) {
+  const normalized = normalizeUrl(rawUrl);
+  if (!normalized) throw new Error("Cloud API URL is required.");
+  const parsed = parseUrlSafe(normalized);
+  if (!parsed) throw new Error("Cloud API URL is invalid.");
+  if (parsed.protocol !== "https:" && !isLocalOrPrivateHost(parsed.hostname)) {
+    throw new Error("Cloud API URL must use HTTPS (except localhost/private testing URLs).");
+  }
+  return normalized;
+}
+
+function parsePort(raw, label, fieldId = "") {
+  const text = String(raw || "").trim();
+  if (!text) throwFieldError(fieldId, `${label} is required.`);
+  const n = Number(text);
+  if (!Number.isInteger(n) || n < 1024 || n > 65535) {
+    throwFieldError(fieldId, `${label} must be an integer between 1024 and 65535.`);
+  }
+  return n;
+}
+
+function normalizeDeviceCode(raw) {
+  return String(raw || "").trim().toUpperCase();
+}
+
+function deriveSecondaryDeviceCode(primaryCodeRaw) {
+  const primary = normalizeDeviceCode(primaryCodeRaw) || "POS-01";
+  const base = primary.slice(0, 38) || "POS";
+  const candidates = [`${base}-B`, `${base}-2`, `${base}2`, "POS-02"];
+  for (const cand of candidates) {
+    const code = String(cand || "").slice(0, 40);
+    if (!DEVICE_CODE_RE.test(code)) continue;
+    if (code !== primary) return code;
+  }
+  return "POS-02";
+}
+
+function throwFieldError(fieldId, message) {
+  const err = new Error(String(message || "Invalid input."));
+  err.fieldId = String(fieldId || "");
+  throw err;
+}
+
+function clearInputError(id) {
+  const n = el(id);
+  if (!n) return;
+  n.classList.remove("input-invalid");
+  n.removeAttribute("aria-invalid");
+  n.removeAttribute("title");
+}
+
+function markInputError(id, message) {
+  const n = el(id);
+  if (!n) return;
+  n.classList.add("input-invalid");
+  n.setAttribute("aria-invalid", "true");
+  if (message) n.setAttribute("title", String(message));
+}
+
+function focusField(id) {
+  const n = el(id);
+  if (!n || typeof n.focus !== "function") return;
+  n.focus();
 }
 
 function setStatus(msg) {
@@ -178,7 +267,15 @@ async function loadAppVersion() {
 
 function fmtNow() {
   try {
-    return new Date().toISOString();
+    return new Date().toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
   } catch {
     return String(Date.now());
   }
@@ -218,8 +315,18 @@ async function persistDesktopLog(level, message, stack = "") {
   }
 }
 
-function setSetupNote(msg) {
+function setSetupNote(msg, level = "info") {
   const n = el("setupNote");
+  if (!n) return;
+  n.textContent = msg || "";
+  n.classList.remove("setup-note--error", "setup-note--warn", "setup-note--success");
+  if (level === "error") n.classList.add("setup-note--error");
+  else if (level === "warn") n.classList.add("setup-note--warn");
+  else if (level === "success") n.classList.add("setup-note--success");
+}
+
+function setSetupChecklist(msg) {
+  const n = el("setupChecklist");
   if (n) n.textContent = msg || "";
 }
 
@@ -271,7 +378,7 @@ function reportFatal(err, ctx = "Error") {
   const p = stringifyError(err);
   const msg = p.message;
   setStatus(`${ctx}: ${msg}`);
-  setSetupNote(`${ctx}: ${msg}`);
+  setSetupNote(`${ctx}: ${msg}`, "error");
   appendDebugLine(`[${fmtNow()}] [error] ${ctx}: ${msg}`);
   if (p.stack) appendDebugLine(p.stack);
   persistDesktopLog("error", `${ctx}: ${msg}`, p.stack);
@@ -431,6 +538,8 @@ async function load() {
   setStatus("");
   setDiag("");
   setSetupNote("");
+  setQuickSetupStage("account", "active", "Enter Cloud API URL and credentials, then click Log In.");
+  updateQuickSetupActionState();
 }
 
 async function waitForAgent(port, timeoutMs = 8000) {
@@ -612,6 +721,158 @@ let quickSetup = {
   companies: [],
   apiBaseUrl: null,
 };
+let quickSetupBusy = false;
+const QUICK_SETUP_STEPS = ["account", "company", "permissions", "register", "start"];
+const QUICK_SETUP_FIELD_IDS = [
+  "edgeUrl",
+  "portOfficial",
+  "portUnofficial",
+  "setupEmail",
+  "setupPassword",
+  "setupMfaCode",
+  "setupCompanyOfficial",
+  "setupCompanyUnofficial",
+  "setupDeviceCodeOfficial",
+  "setupDeviceCodeUnofficial",
+];
+
+function clearQuickSetupFieldErrors() {
+  for (const id of QUICK_SETUP_FIELD_IDS) clearInputError(id);
+}
+
+function setQuickSetupStage(step, state = "active", checklist = "") {
+  const idx = QUICK_SETUP_STEPS.indexOf(step);
+  if (idx < 0) return;
+  const nodes = Array.from(document.querySelectorAll("[data-setup-step]"));
+  for (const node of nodes) {
+    const s = String(node?.getAttribute?.("data-setup-step") || "");
+    const si = QUICK_SETUP_STEPS.indexOf(s);
+    node.classList.remove("setup-step--active", "setup-step--done", "setup-step--error");
+    if (si < idx || (si === idx && state === "done")) {
+      node.classList.add("setup-step--done");
+      continue;
+    }
+    if (si === idx && state === "error") {
+      node.classList.add("setup-step--error");
+      continue;
+    }
+    if (si === idx) {
+      node.classList.add("setup-step--active");
+    }
+  }
+  if (checklist) setSetupChecklist(checklist);
+}
+
+function setQuickSetupBusyState(busy, activeBtnId = "", label = "Working…") {
+  quickSetupBusy = !!busy;
+  const ids = ["setupLoginBtn", "setupVerifyMfaBtn", "setupApplyBtn", "setupClearBtn"];
+  if (quickSetupBusy) {
+    for (const id of ids) {
+      const b = el(id);
+      if (!b) continue;
+      b.disabled = true;
+    }
+    if (activeBtnId) setBtnBusy(activeBtnId, true, label);
+    return;
+  }
+  for (const id of ids) {
+    const b = el(id);
+    if (!b) continue;
+    if (b.dataset.origLabel) setBtnBusy(id, false);
+    else b.disabled = false;
+  }
+  updateQuickSetupActionState();
+}
+
+function getActiveQuickSetupStepId() {
+  const node = document.querySelector(".setup-step--active[data-setup-step]");
+  return String(node?.getAttribute?.("data-setup-step") || "").trim();
+}
+
+function quickSetupFail(message, fieldId = "") {
+  const msg = String(message || "Quick Setup validation failed.");
+  const step = getActiveQuickSetupStepId();
+  if (step) setQuickSetupStage(step, "error", msg);
+  setSetupNote(msg, "error");
+  setStatus(`Quick Setup: ${msg}`);
+  if (fieldId) {
+    markInputError(fieldId, msg);
+    focusField(fieldId);
+  }
+  return false;
+}
+
+function collectSetupPorts() {
+  const portOfficial = parsePort(el("portOfficial")?.value, "Primary agent port", "portOfficial");
+  const portUnofficial = parsePort(el("portUnofficial")?.value, "Secondary agent port", "portUnofficial");
+  if (portOfficial === portUnofficial) {
+    throwFieldError("portUnofficial", "Primary and secondary ports must be different.");
+  }
+  return { portOfficial, portUnofficial };
+}
+
+function buildQuickSetupSnapshot() {
+  const cloudUrl = normalizeUrl(el("edgeUrl")?.value || "");
+  const officialCompany = String(el("setupCompanyOfficial")?.value || "").trim();
+  const unofficialCompany = String(el("setupCompanyUnofficial")?.value || "").trim();
+  const officialCode = normalizeDeviceCode(el("setupDeviceCodeOfficial")?.value || "");
+  const unofficialCode = normalizeDeviceCode(el("setupDeviceCodeUnofficial")?.value || "");
+  const branch = String(el("setupBranch")?.value || "").trim();
+  const dual = quickSetupDualModeEnabled();
+  const tokenState = quickSetup.token ? "present" : "missing";
+  return [
+    "=== Quick Setup Snapshot ===",
+    `cloud_url=${cloudUrl || "(empty)"}`,
+    `dual_mode=${dual ? "yes" : "no"}`,
+    `primary_company=${officialCompany || "(empty)"}`,
+    `secondary_company=${unofficialCompany || "(empty)"}`,
+    `branch_id=${branch || "(none)"}`,
+    `primary_device_code=${officialCode || "(empty)"}`,
+    `secondary_device_code=${unofficialCode || "(empty)"}`,
+    `session_token=${tokenState}`,
+  ].join("\n");
+}
+
+function buildStartSnapshot() {
+  const cloudUrl = normalizeUrl(el("edgeUrl")?.value || "");
+  const portOfficial = String(el("portOfficial")?.value || "").trim();
+  const portUnofficial = String(el("portUnofficial")?.value || "").trim();
+  const companyOfficial = String(el("companyOfficial")?.value || "").trim();
+  const companyUnofficial = String(el("companyUnofficial")?.value || "").trim();
+  const deviceIdOfficial = String(el("deviceIdOfficial")?.value || "").trim();
+  const deviceIdUnofficial = String(el("deviceIdUnofficial")?.value || "").trim();
+  const tokO = String(el("deviceTokenOfficial")?.value || "").trim();
+  const tokU = String(el("deviceTokenUnofficial")?.value || "").trim();
+  return [
+    "=== Start Configuration Snapshot ===",
+    `cloud_url=${cloudUrl || "(empty)"}`,
+    `port_primary=${portOfficial || "(empty)"}`,
+    `port_secondary=${portUnofficial || "(empty)"}`,
+    `company_primary=${companyOfficial || "(empty)"}`,
+    `company_secondary=${companyUnofficial || "(empty)"}`,
+    `device_id_primary=${deviceIdOfficial || "(empty)"}`,
+    `device_id_secondary=${deviceIdUnofficial || "(empty)"}`,
+    `token_primary=${tokO ? "present" : "missing"}`,
+    `token_secondary=${tokU ? "present" : "missing"}`,
+  ].join("\n");
+}
+
+function updateQuickSetupActionState() {
+  const loginBtn = el("setupLoginBtn");
+  const verifyBtn = el("setupVerifyMfaBtn");
+  const applyBtn = el("setupApplyBtn");
+  const clearBtn = el("setupClearBtn");
+
+  const email = String(el("setupEmail")?.value || "").trim();
+  const pass = String(el("setupPassword")?.value || "");
+  const mfaCode = String(el("setupMfaCode")?.value || "").trim();
+  const hasCompany = String(el("setupCompanyOfficial")?.value || "").trim().length > 0;
+
+  if (loginBtn) loginBtn.disabled = quickSetupBusy || !email || !pass;
+  if (verifyBtn) verifyBtn.disabled = quickSetupBusy || !quickSetup.mfaToken || !mfaCode;
+  if (applyBtn) applyBtn.disabled = quickSetupBusy || !quickSetup.token || !hasCompany;
+  if (clearBtn) clearBtn.disabled = quickSetupBusy;
+}
 
 function quickSetupDualModeEnabled() {
   return !!el("setupDualMode")?.checked;
@@ -621,6 +882,7 @@ function syncQuickSetupSecondarySelection() {
   if (quickSetupDualModeEnabled()) return;
   if (el("setupCompanyUnofficial")) {
     el("setupCompanyUnofficial").value = String(el("setupCompanyOfficial")?.value || "").trim();
+    clearInputError("setupCompanyUnofficial");
   }
 }
 
@@ -629,21 +891,24 @@ function updateQuickSetupModeUI() {
   const secondaryWrap = el("setupSecondaryWrap");
   if (secondaryWrap) secondaryWrap.style.display = dual ? "" : "none";
   syncQuickSetupSecondarySelection();
-  const primaryCode = String(el("setupDeviceCodeOfficial")?.value || "").trim();
+  const primaryCode = normalizeDeviceCode(el("setupDeviceCodeOfficial")?.value || "");
+  if (el("setupDeviceCodeOfficial")) el("setupDeviceCodeOfficial").value = primaryCode;
+  if (dual && el("setupDeviceCodeUnofficial")) {
+    el("setupDeviceCodeUnofficial").value = normalizeDeviceCode(el("setupDeviceCodeUnofficial")?.value || "");
+  }
   if (!dual && el("setupDeviceCodeUnofficial")) {
-    const fallback = primaryCode ? `${primaryCode}-B` : "POS-02";
-    if (!String(el("setupDeviceCodeUnofficial").value || "").trim()) {
-      el("setupDeviceCodeUnofficial").value = fallback;
+    const current = normalizeDeviceCode(el("setupDeviceCodeUnofficial")?.value || "");
+    if (!current || current === primaryCode || !DEVICE_CODE_RE.test(current)) {
+      el("setupDeviceCodeUnofficial").value = deriveSecondaryDeviceCode(primaryCode);
     }
   }
+  updateQuickSetupActionState();
 }
 
 async function ensureAgentsRunningForSetup() {
-  const cloudUrl = normalizeUrl(el("edgeUrl").value);
+  const cloudUrl = validateCloudUrl(el("edgeUrl").value);
   const edgeLanUrl = "";
-  const portOfficial = Number(el("portOfficial").value || 7070);
-  const portUnofficial = Number(el("portUnofficial").value || 7072);
-  if (!cloudUrl) throw new Error("Please enter the Cloud API URL first.");
+  const { portOfficial, portUnofficial } = collectSetupPorts();
 
   await tauriInvoke("start_setup_agent", {
     edgeUrl: cloudUrl,
@@ -657,7 +922,7 @@ async function ensureAgentsRunningForSetup() {
   const ok = await waitForAgent(portOfficial, 8000);
   if (!ok) {
     throw new Error(
-      "Local primary agent did not become reachable. If port 7070 is already used, stop external pos-desktop/agent.py processes and retry."
+      `Local primary agent did not become reachable on port ${portOfficial}. If this port is already in use, stop external pos-desktop/agent.py processes and retry.`
     );
   }
   return { cloudUrl, edgeLanUrl, portOfficial, portUnofficial };
@@ -727,15 +992,24 @@ async function quickSetupCheckCompanyPermissions(base, apiBaseUrl, token, compan
 }
 
 async function quickSetupLogin() {
+  if (quickSetupBusy) return;
+  clearQuickSetupFieldErrors();
   setSetupNote("");
   setStatus("");
-  setBtnBusy("setupLoginBtn", true, "Logging in…");
+  setQuickSetupStage("account", "active", "Verify account credentials and Cloud API URL.");
+  setQuickSetupBusyState(true, "setupLoginBtn", "Logging in…");
   try {
     const email = String(el("setupEmail").value || "").trim();
     const password = String(el("setupPassword").value || "");
-    if (!email || !password) {
-      setSetupNote("Enter email and password.");
-      return;
+    if (!email) return quickSetupFail("Enter your email address.", "setupEmail");
+    if (!EMAIL_RE.test(email)) return quickSetupFail("Email format looks invalid.", "setupEmail");
+    if (!password) return quickSetupFail("Enter your password.", "setupPassword");
+    const cloudUrlInput = String(el("edgeUrl")?.value || "");
+    try {
+      validateCloudUrl(cloudUrlInput);
+      clearInputError("edgeUrl");
+    } catch (e) {
+      return quickSetupFail(e instanceof Error ? e.message : String(e), "edgeUrl");
     }
     localStorage.setItem(KEY_SETUP_EMAIL, email);
 
@@ -743,7 +1017,8 @@ async function quickSetupLogin() {
     quickSetup.apiBaseUrl = cloudUrl;
     const base = agentBase(portOfficial);
 
-    setSetupNote("Logging in…");
+    setSetupChecklist("Logging in and loading available companies…");
+    setSetupNote("Logging in…", "warn");
     setStatus("Quick Setup: logging in…");
     const res = await jpostJson(base, "/api/setup/login", {
       api_base_url: cloudUrl,
@@ -755,8 +1030,10 @@ async function quickSetupLogin() {
       quickSetup.mfaToken = String(res?.mfa_token || "").trim() || null;
       quickSetup.token = null;
       el("setupMfaWrap").style.display = "";
-      setSetupNote("MFA required. Enter your code and click Verify MFA.");
+      setSetupChecklist("MFA is required for this account. Enter the code to continue.");
+      setSetupNote("MFA required. Enter your code and click Verify MFA.", "warn");
       setStatus("Quick Setup: MFA required.");
+      updateQuickSetupActionState();
       return;
     }
 
@@ -777,33 +1054,48 @@ async function quickSetupLogin() {
     }
 
     updateQuickSetupModeUI();
-    setSetupNote("Logged in. Select your company and branch, then generate setup.");
+    setQuickSetupStage("company", "active", "Select company, branch, and device codes.");
+    setSetupNote("Logged in. Select your company and branch, then generate setup.", "success");
     setStatus("Quick Setup: logged in.");
     await quickSetupLoadBranches();
   } catch (e) {
+    const msg = humanizeApiError(e);
+    if (e?.fieldId) {
+      markInputError(e.fieldId, msg);
+      focusField(e.fieldId);
+    }
+    setQuickSetupStage("account", "error", "Login failed. Review credentials and cloud URL.");
+    setSetupNote(`Quick Setup login failed: ${msg}`, "error");
+    setStatus(`Quick Setup login failed: ${msg}`);
+    appendDebugLine(buildQuickSetupSnapshot());
     reportFatal(e, "Quick Setup login failed");
   } finally {
-    setBtnBusy("setupLoginBtn", false);
+    setQuickSetupBusyState(false, "setupLoginBtn");
   }
 }
 
 async function quickSetupVerifyMfa() {
+  if (quickSetupBusy) return;
+  clearQuickSetupFieldErrors();
   setSetupNote("");
   setStatus("");
-  setBtnBusy("setupVerifyMfaBtn", true, "Verifying…");
+  setQuickSetupStage("account", "active", "Verifying MFA code.");
+  setQuickSetupBusyState(true, "setupVerifyMfaBtn", "Verifying…");
   try {
     const code = String(el("setupMfaCode").value || "").trim();
     if (!quickSetup.mfaToken) {
-      setSetupNote("Missing MFA token. Click Login again.");
-      return;
+      return quickSetupFail("Missing MFA token. Click Login again.", "setupMfaCode");
     }
     if (!code) {
-      setSetupNote("Enter your MFA code.");
-      return;
+      return quickSetupFail("Enter your MFA code.", "setupMfaCode");
+    }
+    if (!/^\d{4,8}$/.test(code)) {
+      return quickSetupFail("MFA code must be 4 to 8 digits.", "setupMfaCode");
     }
     const { cloudUrl, portOfficial } = await ensureAgentsRunningForSetup();
     const base = agentBase(portOfficial);
-    setSetupNote("Verifying MFA…");
+    setSetupChecklist("MFA verification unlocks company selection.");
+    setSetupNote("Verifying MFA…", "warn");
     setStatus("Quick Setup: verifying MFA…");
     const res = await jpostJson(base, "/api/setup/login", {
       api_base_url: cloudUrl,
@@ -811,7 +1103,8 @@ async function quickSetupVerifyMfa() {
       mfa_code: code,
     });
     if (res?.mfa_required) {
-      setSetupNote("MFA still required. Double-check the code and retry.");
+      setQuickSetupStage("account", "error", "MFA code was rejected. Retry with a fresh code.");
+      setSetupNote("MFA still required. Double-check the code and retry.", "error");
       return;
     }
     quickSetup.token = String(res?.token || "").trim() || null;
@@ -823,20 +1116,45 @@ async function quickSetupVerifyMfa() {
     fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select primary company…" });
     fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select secondary company…" });
     updateQuickSetupModeUI();
-    setSetupNote("MFA verified. Select your company and branch, then generate setup.");
+    setQuickSetupStage("company", "active", "Select company, branch, and device codes.");
+    setSetupNote("MFA verified. Select your company and branch, then generate setup.", "success");
     setStatus("Quick Setup: MFA verified.");
     await quickSetupLoadBranches();
   } catch (e) {
+    const msg = humanizeApiError(e);
+    if (e?.fieldId) {
+      markInputError(e.fieldId, msg);
+      focusField(e.fieldId);
+    }
+    setQuickSetupStage("account", "error", "MFA verification failed. Retry.");
+    setSetupNote(`Quick Setup MFA failed: ${msg}`, "error");
+    setStatus(`Quick Setup MFA failed: ${msg}`);
+    appendDebugLine(buildQuickSetupSnapshot());
     reportFatal(e, "Quick Setup MFA failed");
   } finally {
-    setBtnBusy("setupVerifyMfaBtn", false);
+    setQuickSetupBusyState(false, "setupVerifyMfaBtn");
   }
 }
 
 async function quickSetupLoadBranches() {
   const companyId = String(el("setupCompanyOfficial")?.value || "").trim();
   if (!companyId || !quickSetup.token || !quickSetup.apiBaseUrl) return;
-  const portOfficial = Number(el("portOfficial").value || 7070);
+  if (!UUID_RE.test(companyId)) {
+    markInputError("setupCompanyOfficial", "Company ID format is invalid.");
+    setSetupNote("Primary company ID format looks invalid.", "error");
+    return;
+  }
+  clearInputError("setupCompanyOfficial");
+  let portOfficial = 7070;
+  try {
+    portOfficial = parsePort(el("portOfficial")?.value, "Primary agent port", "portOfficial");
+    clearInputError("portOfficial");
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    markInputError("portOfficial", msg);
+    setSetupNote(msg, "error");
+    return;
+  }
   const base = agentBase(portOfficial);
   try {
     const res = await jpostJson(base, "/api/setup/branches", {
@@ -852,26 +1170,45 @@ async function quickSetupLoadBranches() {
       }))
       .filter((x) => x.value);
     fillSelect(el("setupBranch"), items, { placeholder: "Select branch (optional)…" });
-    if (res?.warning) setSetupNote(String(res.warning));
+    if (res?.warning) setSetupNote(String(res.warning), "warn");
   } catch (e) {
     // Non-fatal; branches can be permissioned.
-    setSetupNote(`Branch list unavailable. You can proceed. (${e instanceof Error ? e.message : String(e)})`);
+    setSetupNote(`Branch list unavailable. You can proceed. (${e instanceof Error ? e.message : String(e)})`, "warn");
     fillSelect(el("setupBranch"), [], { placeholder: "Branch list unavailable…" });
   }
 }
 
 async function quickSetupApply() {
+  if (quickSetupBusy) return;
+  clearQuickSetupFieldErrors();
   setSetupNote("");
   setStatus("");
-  setBtnBusy("setupApplyBtn", true, "Generating…");
+  setQuickSetupStage("company", "active", "Validating company, branch, and device code inputs.");
+  setQuickSetupBusyState(true, "setupApplyBtn", "Generating…");
+  let stage = "company";
   try {
     if (!quickSetup.token || !quickSetup.apiBaseUrl) {
-      setSetupNote("Please Login first.");
-      return;
+      return quickSetupFail("Please log in first.", "setupEmail");
     }
 
-    const { cloudUrl, portOfficial, portUnofficial } = await ensureAgentsRunningForSetup();
-    const base = agentBase(portOfficial);
+    try {
+      validateCloudUrl(el("edgeUrl")?.value || "");
+      clearInputError("edgeUrl");
+    } catch (e) {
+      return quickSetupFail(e instanceof Error ? e.message : String(e), "edgeUrl");
+    }
+
+    let ports = null;
+    try {
+      ports = collectSetupPorts();
+      clearInputError("portOfficial");
+      clearInputError("portUnofficial");
+    } catch (e) {
+      markInputError("portOfficial", e instanceof Error ? e.message : String(e));
+      markInputError("portUnofficial", e instanceof Error ? e.message : String(e));
+      focusField("portOfficial");
+      return quickSetupFail(e instanceof Error ? e.message : String(e));
+    }
 
     const dualMode = quickSetupDualModeEnabled();
     const companyOfficial = String(el("setupCompanyOfficial").value || "").trim();
@@ -881,21 +1218,38 @@ async function quickSetupApply() {
     const branchId = String(el("setupBranch").value || "").trim();
     const branchIdOfficial = branchId;
     const branchIdUnofficial = companyOfficial === companyUnofficial ? branchId : "";
-    const deviceCodeOfficial = String(el("setupDeviceCodeOfficial").value || "").trim() || "POS-01";
+    const deviceCodeOfficial = normalizeDeviceCode(el("setupDeviceCodeOfficial").value || "") || "POS-01";
     const deviceCodeUnofficial = dualMode
-      ? (String(el("setupDeviceCodeUnofficial").value || "").trim() || "POS-02")
-      : `${deviceCodeOfficial}-B`;
+      ? (normalizeDeviceCode(el("setupDeviceCodeUnofficial").value || "") || "POS-02")
+      : deriveSecondaryDeviceCode(deviceCodeOfficial);
 
-    if (!companyOfficial) {
-      setSetupNote("Select the primary company.");
-      return;
+    el("setupDeviceCodeOfficial").value = deviceCodeOfficial;
+    el("setupDeviceCodeUnofficial").value = deviceCodeUnofficial;
+
+    if (!companyOfficial) return quickSetupFail("Select the primary company.", "setupCompanyOfficial");
+    if (!UUID_RE.test(companyOfficial)) return quickSetupFail("Primary company ID format is invalid.", "setupCompanyOfficial");
+    if (dualMode && !companyUnofficial) return quickSetupFail("Select the secondary company or turn off secondary mode.", "setupCompanyUnofficial");
+    if (dualMode && !UUID_RE.test(companyUnofficial)) return quickSetupFail("Secondary company ID format is invalid.", "setupCompanyUnofficial");
+    if (branchId && !UUID_RE.test(branchId)) return quickSetupFail("Branch ID format is invalid.", "setupBranch");
+    if (!DEVICE_CODE_RE.test(deviceCodeOfficial)) {
+      return quickSetupFail("Primary device code must be 2-40 chars (A-Z, 0-9, _ or -).", "setupDeviceCodeOfficial");
     }
-    if (dualMode && !companyUnofficial) {
-      setSetupNote("Select the secondary company or turn off secondary mode.");
-      return;
+    if (!DEVICE_CODE_RE.test(deviceCodeUnofficial)) {
+      return quickSetupFail("Secondary device code must be 2-40 chars (A-Z, 0-9, _ or -).", "setupDeviceCodeUnofficial");
+    }
+    if (deviceCodeOfficial === deviceCodeUnofficial) {
+      return quickSetupFail("Primary and secondary device codes must be different.", "setupDeviceCodeUnofficial");
     }
 
-    setSetupNote("Checking pos:manage permission for selected companies…");
+    const { cloudUrl, portOfficial, portUnofficial } = await ensureAgentsRunningForSetup();
+    if (!ports || portOfficial !== ports.portOfficial || portUnofficial !== ports.portUnofficial) {
+      setSetupChecklist("Ports were updated while setup was running. Review before retrying if needed.");
+    }
+    const base = agentBase(portOfficial);
+
+    stage = "permissions";
+    setQuickSetupStage("permissions", "active", "Checking pos:manage permissions on selected companies.");
+    setSetupNote("Checking pos:manage permission for selected companies…", "warn");
     setStatus("Quick Setup: checking permissions…");
     const officialName = normalizeCompanyLabel(getCompanyNameById(companyOfficial), companyOfficial);
     const unofficialName = normalizeCompanyLabel(getCompanyNameById(companyUnofficial), companyUnofficial);
@@ -918,12 +1272,14 @@ async function quickSetupApply() {
       setStatus(`Quick Setup: permission check failed for ${names.join(", ")}.`);
       if (companyOfficial === companyUnofficial) {
         const label = names[0] || "selected company";
-        setSetupNote(`Quick Setup: ${label} lacks pos:manage. Grant pos:manage to this account, then retry.`);
+        setQuickSetupStage("permissions", "error", "Permission check failed. Grant pos:manage and retry.");
+        setSetupNote(`Quick Setup: ${label} lacks pos:manage. Grant pos:manage to this account, then retry.`, "error");
       } else {
         const lines = names
           .map((n) => `${n} missing pos:manage. Grant permission and retry.`)
           .join(" | ");
-        setSetupNote(lines);
+        setQuickSetupStage("permissions", "error", "Permission check failed. Grant pos:manage and retry.");
+        setSetupNote(lines, "error");
       }
       return;
     }
@@ -931,11 +1287,14 @@ async function quickSetupApply() {
     const unavailable = permissionChecks.filter((r) => r && r.permissionEndpointSupported === false);
     if (unavailable.length) {
       setSetupNote(
-        `Permission check endpoint unavailable for ${[...new Set(unavailable.map((x) => x.companyLabel || x.companyId))].join(", ")}. Continuing.`,
+        `Permission check endpoint unavailable for ${[...new Set(unavailable.map((x) => x.companyLabel || x.companyId))].join(", ")}. Continuing with registration checks.`,
+        "warn",
       );
     }
 
-    setSetupNote("Registering POS devices…");
+    stage = "register";
+    setQuickSetupStage("register", "active", "Registering devices and applying credentials to local agents.");
+    setSetupNote("Registering POS devices…", "warn");
     setStatus("Quick Setup: registering devices…");
     const registerDevice = async (kind, companyId, branchId, deviceCode) => {
       try {
@@ -965,8 +1324,9 @@ async function quickSetupApply() {
     const deviceTokenOfficial = String(officialReg?.device_token || "").trim();
     const deviceIdUnofficial = String(unofficialReg?.device_id || "").trim();
     const deviceTokenUnofficial = String(unofficialReg?.device_token || "").trim();
-    if (!deviceIdOfficial || !deviceTokenOfficial || !deviceIdUnofficial || !deviceTokenUnofficial) {
-      setSetupNote("Device registration returned incomplete credentials. Please retry.");
+    if (!UUID_RE.test(deviceIdOfficial) || !deviceTokenOfficial || !UUID_RE.test(deviceIdUnofficial) || !deviceTokenUnofficial) {
+      setQuickSetupStage("register", "error", "Registration response was incomplete.");
+      setSetupNote("Device registration returned incomplete credentials. Please retry.", "error");
       return;
     }
 
@@ -988,7 +1348,7 @@ async function quickSetupApply() {
     await secureSet(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
 
     // Patch the agent config files live (agent reloads config on each request) so the POS can sync immediately.
-    setSetupNote("Applying config to local agents…");
+    setSetupNote("Applying config to local agents…", "warn");
     setStatus("Quick Setup: applying local config…");
     await jpostJson(agentBase(portOfficial), "/api/config", {
       api_base_url: cloudUrl,
@@ -1011,13 +1371,22 @@ async function quickSetupApply() {
       device_token: deviceTokenUnofficial,
     });
 
-    setSetupNote("Setup complete. Starting POS…");
+    stage = "start";
+    setQuickSetupStage("start", "active", "Setup saved. Launching POS now.");
+    setSetupNote("Setup complete. Starting POS…", "success");
     setStatus("Quick Setup: starting POS…");
     await start();
+    setQuickSetupStage("start", "done", "Quick Setup finished. POS is launching.");
   } catch (e) {
     const msg = humanizeApiError(e);
-    setSetupNote(`Quick Setup failed: ${msg}${permissionHintForError(msg)}`);
+    if (e?.fieldId) {
+      markInputError(e.fieldId, msg);
+      focusField(e.fieldId);
+    }
+    setQuickSetupStage(stage, "error", "Quick Setup failed. Review diagnostics and retry.");
+    setSetupNote(`Quick Setup failed: ${msg}${permissionHintForError(msg)}`, "error");
     setStatus(`Quick Setup failed: ${msg}`);
+    appendDebugLine(buildQuickSetupSnapshot());
     try {
       const logs = await tauriInvoke("tail_agent_logs", { maxLines: 120 });
       const a = String(logs?.official || "").trim();
@@ -1030,28 +1399,44 @@ async function quickSetupApply() {
       // ignore
     }
   } finally {
-    setBtnBusy("setupApplyBtn", false);
+    setQuickSetupBusyState(false, "setupApplyBtn");
   }
 }
 
 function quickSetupClear() {
+  if (quickSetupBusy) return;
   quickSetup = { token: null, mfaToken: null, companies: [], apiBaseUrl: null };
+  clearQuickSetupFieldErrors();
   if (el("setupPassword")) el("setupPassword").value = "";
   if (el("setupMfaCode")) el("setupMfaCode").value = "";
   if (el("setupMfaWrap")) el("setupMfaWrap").style.display = "none";
-  fillSelect(el("setupCompanyOfficial"), [], { placeholder: "Login to load companies…" });
-  fillSelect(el("setupCompanyUnofficial"), [], { placeholder: "Login to load companies…" });
-  fillSelect(el("setupBranch"), [], { placeholder: "Login to load branches…" });
+  fillSelect(el("setupCompanyOfficial"), [], { placeholder: "Log in to load companies…" });
+  fillSelect(el("setupCompanyUnofficial"), [], { placeholder: "Log in to load companies…" });
+  fillSelect(el("setupBranch"), [], { placeholder: "Log in to load branches…" });
   if (el("setupDualMode")) el("setupDualMode").checked = false;
   updateQuickSetupModeUI();
-  setSetupNote("Cleared Quick Setup session.");
+  setQuickSetupStage("account", "active", "Enter Cloud API URL and account credentials, then click Log In.");
+  setSetupNote("Quick Setup session cleared.", "success");
+  updateQuickSetupActionState();
 }
 
-async function start() {
-  const cloudUrl = normalizeUrl(el("edgeUrl").value);
+function validateStartConfiguration() {
+  const fieldIds = [
+    "edgeUrl",
+    "portOfficial",
+    "portUnofficial",
+    "companyOfficial",
+    "companyUnofficial",
+    "deviceIdOfficial",
+    "deviceIdUnofficial",
+    "deviceTokenOfficial",
+    "deviceTokenUnofficial",
+  ];
+  for (const id of fieldIds) clearInputError(id);
+
+  const cloudUrl = validateCloudUrl(el("edgeUrl").value);
   const edgeLanUrl = "";
-  const portOfficial = Number(el("portOfficial").value || 7070);
-  const portUnofficial = Number(el("portUnofficial").value || 7072);
+  const { portOfficial, portUnofficial } = collectSetupPorts();
   const companyOfficial = String(el("companyOfficial").value || "").trim();
   const companyUnofficial = String(el("companyUnofficial").value || "").trim();
   const deviceIdOfficial = String(el("deviceIdOfficial").value || "").trim();
@@ -1059,10 +1444,53 @@ async function start() {
   const deviceIdUnofficial = String(el("deviceIdUnofficial").value || "").trim();
   const deviceTokenUnofficial = String(el("deviceTokenUnofficial").value || "").trim();
 
-  if (!cloudUrl) {
-    setStatus("Please enter the Cloud API URL first.");
+  if (!UUID_RE.test(companyOfficial)) throwFieldError("companyOfficial", "Primary company ID is required and must be a UUID.");
+  if (!UUID_RE.test(companyUnofficial)) throwFieldError("companyUnofficial", "Secondary company ID is required and must be a UUID.");
+  if (!UUID_RE.test(deviceIdOfficial)) throwFieldError("deviceIdOfficial", "Primary device ID is required and must be a UUID.");
+  if (!deviceTokenOfficial) throwFieldError("deviceTokenOfficial", "Primary device token is required.");
+  if (!UUID_RE.test(deviceIdUnofficial)) throwFieldError("deviceIdUnofficial", "Secondary device ID is required and must be a UUID.");
+  if (!deviceTokenUnofficial) throwFieldError("deviceTokenUnofficial", "Secondary device token is required.");
+
+  return {
+    cloudUrl,
+    edgeLanUrl,
+    portOfficial,
+    portUnofficial,
+    companyOfficial,
+    companyUnofficial,
+    deviceIdOfficial,
+    deviceTokenOfficial,
+    deviceIdUnofficial,
+    deviceTokenUnofficial,
+  };
+}
+
+async function start() {
+  let cfg = null;
+  try {
+    cfg = validateStartConfiguration();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (e?.fieldId) {
+      markInputError(e.fieldId, msg);
+      focusField(e.fieldId);
+    }
+    setStatus(msg);
+    setSetupNote(msg, "error");
     return;
   }
+  const {
+    cloudUrl,
+    edgeLanUrl,
+    portOfficial,
+    portUnofficial,
+    companyOfficial,
+    companyUnofficial,
+    deviceIdOfficial,
+    deviceTokenOfficial,
+    deviceIdUnofficial,
+    deviceTokenUnofficial,
+  } = cfg;
 
   localStorage.setItem(KEY_EDGE, cloudUrl);
   localStorage.setItem(KEY_EDGE_LAN, "");
@@ -1091,12 +1519,16 @@ async function start() {
       deviceTokenUnofficial,
     });
   } catch (e) {
-    setStatus(`Failed to start agents: ${e instanceof Error ? e.message : String(e)}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    setStatus(`Failed to start agents: ${msg}`);
+    setSetupNote(`Start POS failed: ${msg}`, "error");
+    appendDebugLine(buildStartSnapshot());
     try {
       const logs = await tauriInvoke("tail_agent_logs", { maxLines: 120 });
       const a = String(logs?.official || "").trim();
       const b = String(logs?.unofficial || "").trim();
       const parts = [];
+      parts.push(buildStartSnapshot());
       if (a) parts.push(`Primary log:\n${a}`);
       if (b) parts.push(`Secondary log:\n${b}`);
       if (parts.length) setDiag(parts.join("\n\n"));
@@ -1113,11 +1545,14 @@ async function start() {
   ]);
   if (!okA || !okB) {
     setStatus(`Agent startup incomplete. Primary=${okA ? "ok" : "missing"} Secondary=${okB ? "ok" : "missing"}`);
+    setSetupNote("Agent startup incomplete. Check diagnostics and fix missing agent.", "error");
+    appendDebugLine(buildStartSnapshot());
     try {
       const logs = await tauriInvoke("tail_agent_logs", { maxLines: 120 });
       const a = String(logs?.official || "").trim();
       const b = String(logs?.unofficial || "").trim();
       const parts = [];
+      parts.push(buildStartSnapshot());
       if (!okA && a) parts.push(`Primary log:\n${a}`);
       if (!okB && b) parts.push(`Secondary log:\n${b}`);
       if (parts.length) setDiag(parts.join("\n\n"));
@@ -1140,13 +1575,15 @@ async function start() {
   setDiag(diagLines.join("\n"));
   if (authWarnings.length > 0) {
     setStatus("Server auth issue detected. See diagnostics below.");
-    setSetupNote(`Auth issue: ${authWarnings.join(" | ")}`);
+    setSetupNote(`Auth issue: ${authWarnings.join(" | ")}`, "error");
   } else {
     setStatus("Opening POS…");
   }
   const uiOk = await checkLatestUnifiedUi(portOfficial);
   if (!uiOk) {
     setStatus("Unified UI unavailable on this host.");
+    setSetupNote("Unified UI unavailable on this host.", "error");
+    appendDebugLine(buildStartSnapshot());
     return;
   }
   window.location.href = buildUnifiedUiUrl(portOfficial);
@@ -1384,19 +1821,56 @@ el("diagBtn").addEventListener("click", runDiagnostics);
 if (el("showDesktopLogsBtn")) el("showDesktopLogsBtn").addEventListener("click", showDesktopLogs);
 if (el("copyDebugBtn")) el("copyDebugBtn").addEventListener("click", copyDebugReport);
 if (el("setupCompanyOfficial")) {
-  fillSelect(el("setupCompanyOfficial"), [], { placeholder: "Login to load companies…" });
-  fillSelect(el("setupCompanyUnofficial"), [], { placeholder: "Login to load companies…" });
-  fillSelect(el("setupBranch"), [], { placeholder: "Login to load branches…" });
+  fillSelect(el("setupCompanyOfficial"), [], { placeholder: "Log in to load companies…" });
+  fillSelect(el("setupCompanyUnofficial"), [], { placeholder: "Log in to load companies…" });
+  fillSelect(el("setupBranch"), [], { placeholder: "Log in to load branches…" });
   el("setupLoginBtn").addEventListener("click", () => quickSetupLogin());
   el("setupVerifyMfaBtn").addEventListener("click", () => quickSetupVerifyMfa());
   el("setupClearBtn").addEventListener("click", quickSetupClear);
   el("setupApplyBtn").addEventListener("click", () => quickSetupApply());
+  if (el("setupPassword")) {
+    el("setupPassword").addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      quickSetupLogin();
+    });
+  }
+  if (el("setupMfaCode")) {
+    el("setupMfaCode").addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      quickSetupVerifyMfa();
+    });
+  }
+  for (const id of ["setupEmail", "setupPassword", "setupMfaCode", "setupDeviceCodeOfficial", "setupDeviceCodeUnofficial", "edgeUrl"]) {
+    const n = el(id);
+    if (!n) continue;
+    n.addEventListener("input", () => {
+      clearInputError(id);
+      updateQuickSetupActionState();
+    });
+  }
+  for (const id of ["portOfficial", "portUnofficial", "setupCompanyOfficial", "setupCompanyUnofficial", "setupBranch"]) {
+    const n = el(id);
+    if (!n) continue;
+    n.addEventListener("change", () => {
+      clearInputError(id);
+      updateQuickSetupActionState();
+    });
+  }
   el("setupCompanyOfficial").addEventListener("change", () => {
     syncQuickSetupSecondarySelection();
+    setQuickSetupStage("company", "active", "Company selected. Loading branches and waiting for device setup.");
     quickSetupLoadBranches().catch(() => {});
   });
+  if (el("setupCompanyUnofficial")) {
+    el("setupCompanyUnofficial").addEventListener("change", () => {
+      setQuickSetupStage("company", "active", "Company mapping updated.");
+    });
+  }
   if (el("setupDualMode")) el("setupDualMode").addEventListener("change", updateQuickSetupModeUI);
   updateQuickSetupModeUI();
+  setQuickSetupStage("account", "active", "Enter Cloud API URL and credentials, then click Log In.");
 }
 el("applyPackBtn").addEventListener("click", () => {
   const raw = el("setupPack").value;

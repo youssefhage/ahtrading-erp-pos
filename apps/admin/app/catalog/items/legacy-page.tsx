@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 
 import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm, apiUrl } from "@/lib/api";
+import { recommendationView, type RecommendationView } from "@/lib/ai-recommendations";
+import { formatDateLike } from "@/lib/datetime";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import { ErrorBanner } from "@/components/error-banner";
 import { ViewRaw } from "@/components/view-raw";
@@ -93,6 +95,7 @@ type AiRecRow = {
   agent_code: string;
   status: string;
   recommendation_json: any;
+  recommendation_view?: RecommendationView;
   created_at: string;
 };
 
@@ -823,21 +826,27 @@ export default function ItemsPage() {
 	                    </tr>
 	                  </thead>
 	                  <tbody>
-	                    {aiHygiene.slice(0, 8).map((r) => {
-	                      const j = (r as any).recommendation_json || {};
-	                      const issues = Array.isArray(j.issues) ? j.issues : [];
-	                      const issueCodes = issues.map((x: any) => x?.code).filter(Boolean);
-	                      return (
-	                        <tr key={r.id} className="border-t border-border-subtle align-top">
-	                          <td className="px-3 py-2">
-	                            <div className="font-mono text-xs">{j.sku || j.entity_id || "-"}</div>
-	                            <div className="text-xs text-fg-muted">{j.name || ""}</div>
-	                          </td>
-	                          <td className="px-3 py-2 font-mono text-xs text-fg-muted">
-	                            {issueCodes.length ? issueCodes.join(", ") : String(issues.length || 0)}
-	                          </td>
-	                          <td className="px-3 py-2 font-mono text-xs text-fg-muted">{r.created_at}</td>
-	                        </tr>
+		                    {aiHygiene.slice(0, 8).map((r) => {
+		                      const view = recommendationView(r);
+		                      return (
+		                        <tr key={r.id} className="border-t border-border-subtle align-top">
+		                          <td className="px-3 py-2">
+		                            <div className="font-mono text-xs text-fg-muted">{view.kindLabel}</div>
+		                            <div className="text-xs font-medium text-foreground">{view.title}</div>
+		                            {view.linkHref ? (
+		                              <a className="ui-link text-[11px]" href={view.linkHref}>
+		                                {view.linkLabel || "Open related document"}
+		                              </a>
+		                            ) : null}
+		                          </td>
+		                          <td className="px-3 py-2 font-mono text-xs text-fg-muted">
+		                            <div className="space-y-1">
+		                              <div className="font-sans text-xs text-fg-muted">{view.summary}</div>
+		                              {view.details.length ? <div>{view.details.join(", ")}</div> : null}
+		                            </div>
+		                          </td>
+		                          <td className="px-3 py-2 font-mono text-xs text-fg-muted">{formatDateLike(r.created_at)}</td>
+		                        </tr>
 	                      );
 	                    })}
 	                  </tbody>

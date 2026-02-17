@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { fmtUsd } from "@/lib/money";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
@@ -26,8 +27,7 @@ type Row = {
 };
 
 function fmtIso(iso: string) {
-  const s = String(iso || "");
-  return s.replace("T", " ").slice(0, 19);
+  return formatDateLike(iso);
 }
 
 function pct(v: unknown) {

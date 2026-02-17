@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -103,7 +104,7 @@ function todayIso() {
 }
 
 function fmtIso(iso?: string | null) {
-  return String(iso || "").slice(0, 10) || "-";
+  return formatDateLike(iso);
 }
 
 function n(v: unknown) {
@@ -974,7 +975,7 @@ function SalesInvoiceShowInner() {
                         <p className="mt-1 text-xs text-fg-muted">
                           Created{" "}
                           <span className="data-mono">
-                            {String(detail.invoice.created_at || "").slice(0, 19).replace("T", " ") || "-"}
+                            {formatDateLike(detail.invoice.created_at)}
                           </span>
                         </p>
                       </div>

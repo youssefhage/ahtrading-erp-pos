@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorBanner } from "@/components/error-banner";
@@ -20,8 +21,7 @@ type AuditLogRow = {
 };
 
 function fmtIso(iso: string) {
-  const s = String(iso || "");
-  return s.replace("T", " ").slice(0, 19);
+  return formatDateTime(iso);
 }
 
 export function DocumentTimeline(props: {

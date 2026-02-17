@@ -95,7 +95,7 @@
         <p class="text-sm">Cart is empty</p>
       </div>
     {:else}
-      {#each cart as line, i}
+      {#each cart as line, i (line.key || `${line.companyKey || "official"}|${line.id || ""}|${line.qty_factor || 1}|${line.uom || line.unit_of_measure || "pcs"}`)}
         {@const uomOpts = uomOptionsForLine(line) || []}
         {@const uomSel = findUomOpt(uomOpts, line)}
         <div class="group relative grid grid-cols-[minmax(0,1fr)_140px_150px_160px] items-center gap-3 p-3 rounded-2xl bg-surface/40 border border-ink/10 hover:bg-surface/60 transition-colors">

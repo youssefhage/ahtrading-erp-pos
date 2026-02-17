@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { parseNumberInput } from "@/lib/numbers";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 
@@ -416,7 +417,7 @@ export default function GoodsReceiptViewPage() {
                     </p>
                     <p className="mt-1 text-xs text-fg-muted">
                       Created{" "}
-                      <span className="data-mono">{String(detail.receipt.created_at || "").slice(0, 19).replace("T", " ") || "-"}</span>
+                      <span className="data-mono">{formatDateLike(detail.receipt.created_at)}</span>
                     </p>
                   </div>
 

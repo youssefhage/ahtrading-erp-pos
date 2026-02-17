@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { Button } from "@/components/ui/button";
@@ -90,7 +91,7 @@ export default function PriceRulesPage() {
       { id: "margin", header: "Min Margin", accessor: (r) => pctNum(r.min_margin_pct), sortable: true, cell: (r) => <span className="text-xs">{r.min_margin_pct == null ? "-" : `${(pctNum(r.min_margin_pct) * 100).toFixed(1)}%`}</span> },
       { id: "rounding", header: "Rounding", accessor: (r) => `${r.usd_round_step}|${r.lbp_round_step}`, sortable: false, cell: (r) => <span className="text-xs">USD {String(r.usd_round_step)} · LL {String(r.lbp_round_step)}</span> },
       { id: "active", header: "Active", accessor: (r) => (r.is_active ? "yes" : "no"), sortable: true, cell: (r) => <span className="text-xs">{r.is_active ? "yes" : "no"}</span> },
-      { id: "last", header: "Last Run", accessor: (r) => r.last_run_at || "", sortable: true, cell: (r) => <span className="text-xs">{r.last_run_at ? String(r.last_run_at).slice(0, 19).replace("T", " ") : "-"}</span> },
+      { id: "last", header: "Last Run", accessor: (r) => r.last_run_at || "", sortable: true, cell: (r) => <span className="text-xs">{formatDateTime(r.last_run_at)}</span> },
       {
         id: "actions",
         header: "",
@@ -283,4 +284,3 @@ export default function PriceRulesPage() {
     </div>
   );
 }
-

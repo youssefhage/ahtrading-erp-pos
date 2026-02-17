@@ -5,6 +5,8 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { recommendationView, type RecommendationView } from "@/lib/ai-recommendations";
+import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { parseNumberInput } from "@/lib/numbers";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -87,6 +89,7 @@ type AiRecRow = {
   agent_code: string;
   status: string;
   recommendation_json: any;
+  recommendation_view?: RecommendationView;
   created_at: string;
 };
 
@@ -130,7 +133,7 @@ function todayIso() {
 }
 
 function fmtIso(iso?: string | null) {
-  return String(iso || "").slice(0, 10) || "-";
+  return formatDateLike(iso);
 }
 
 function n(v: unknown) {
@@ -331,7 +334,11 @@ function SupplierInvoiceShowInner() {
         const ai = await apiGet<{ recommendations: AiRecRow[] }>(
           "/ai/recommendations?status=pending&agent_code=AI_PURCHASE_INVOICE_INSIGHTS&limit=200"
         );
-        const hit = (ai.recommendations || []).find((r) => String((r as any)?.recommendation_json?.invoice_id || "") === String(id));
+        const hit = (ai.recommendations || []).find((r) => {
+          const viewEntity = String((r.recommendation_view as any)?.entity_id || "");
+          const jsonEntity = String((r as any)?.recommendation_json?.invoice_id || "");
+          return viewEntity === String(id) || jsonEntity === String(id);
+        });
         setAiInsight(hit || null);
       } catch {
         setAiInsight(null);
@@ -422,6 +429,12 @@ function SupplierInvoiceShowInner() {
     if (t === "ai") return "ai";
     return "overview";
   })();
+
+  const aiInsightRows = useMemo(() => {
+    const rec = (aiInsight as any)?.recommendation_json || {};
+    const changes = Array.isArray(rec?.price_changes) ? rec.price_changes : Array.isArray(rec?.changes) ? rec.changes : [];
+    return changes.slice(0, 10);
+  }, [aiInsight]);
 
   // Canonicalize legacy tab names so the TabBar stays highlighted on old deep links.
   useEffect(() => {
@@ -776,7 +789,7 @@ function SupplierInvoiceShowInner() {
                           <p className="mt-1 text-xs text-fg-muted">
                             Created{" "}
                             <span className="data-mono">
-                              {String(detail.invoice.created_at || "").slice(0, 19).replace("T", " ") || "-"}
+                              {formatDateLike(detail.invoice.created_at)}
                             </span>
                           </p>
                         </div>
@@ -1018,19 +1031,22 @@ function SupplierInvoiceShowInner() {
                 </div>
               ) : null}
 
-              {activeTab === "ai" ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">AI: Price Impact</CardTitle>
-                    <CardDescription>Signals detected from this invoice (review recommended).</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {aiInsight ? (
-                      <>
-                        <DataTable<any>
-                          tableId="purchasing.supplier_invoice.ai_price_impact"
-                          rows={(((aiInsight as any).recommendation_json?.price_changes as any[]) || []).slice(0, 10)}
-                          columns={[
+	              {activeTab === "ai" ? (
+	                <Card>
+	                  <CardHeader>
+	                    <CardTitle className="text-base">AI: Price Impact</CardTitle>
+	                    <CardDescription>{aiInsight ? recommendationView(aiInsight).summary : "Signals detected from this invoice (review recommended)."}</CardDescription>
+	                  </CardHeader>
+	                  <CardContent className="space-y-2">
+	                    {aiInsight ? (
+	                      <>
+	                        <div className="rounded-md border border-border-subtle bg-bg-elevated/40 p-2 text-xs text-fg-muted">
+	                          {recommendationView(aiInsight).nextStep}
+	                        </div>
+	                        <DataTable<any>
+	                          tableId="purchasing.supplier_invoice.ai_price_impact"
+	                          rows={aiInsightRows}
+	                          columns={[
                             {
                               id: "item",
                               header: "Item",
@@ -1061,10 +1077,10 @@ function SupplierInvoiceShowInner() {
                             { id: "sell", header: "Sell USD", sortable: true, align: "right", mono: true, accessor: (c) => c.sell_price_usd || 0, cell: (c) => <span className="font-mono text-xs text-fg-muted">{c.sell_price_usd || "-"}</span> },
                             { id: "margin", header: "Margin", align: "right", mono: true, accessor: (c) => `${c.margin_before || ""}${c.margin_after || ""}`, cell: (c) => <span className="font-mono text-xs text-fg-muted">{typeof c.margin_before === "number" && typeof c.margin_after === "number" ? `${(c.margin_before * 100).toFixed(1)}% → ${(c.margin_after * 100).toFixed(1)}%` : "-"}</span> },
                           ]}
-                          getRowId={(c, idx) => String(c.item_id || idx)}
-                          emptyText="No AI price-change rows."
-                          enableGlobalFilter={false}
-                        />
+	                          getRowId={(c, idx) => String(c.item_id || idx)}
+	                          emptyText="No AI price-change rows."
+	                          enableGlobalFilter={false}
+	                        />
                         <div className="flex justify-end">
                           <Button asChild variant="outline" size="sm">
                             <a href="/automation/ai-hub">Open AI Hub</a>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { ErrorBanner } from "@/components/error-banner";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
@@ -155,8 +156,8 @@ export default function RecurringJournalsPage() {
           </span>
         ),
       },
-      { id: "next_run_date", header: "Next Run", accessor: (r) => r.next_run_date || "", mono: true, sortable: true, globalSearch: false, cell: (r) => <span className="data-mono text-xs">{String(r.next_run_date || "").slice(0, 10)}</span> },
-      { id: "last_run_at", header: "Last Run", accessor: (r) => r.last_run_at || "", mono: true, sortable: true, globalSearch: false, cell: (r) => <span className="data-mono text-xs text-fg-muted">{r.last_run_at ? String(r.last_run_at).slice(0, 19).replace("T", " ") : "-"}</span> },
+      { id: "next_run_date", header: "Next Run", accessor: (r) => r.next_run_date || "", mono: true, sortable: true, globalSearch: false, cell: (r) => <span className="data-mono text-xs">{formatDateLike(r.next_run_date)}</span> },
+      { id: "last_run_at", header: "Last Run", accessor: (r) => r.last_run_at || "", mono: true, sortable: true, globalSearch: false, cell: (r) => <span className="data-mono text-xs text-fg-muted">{formatDateLike(r.last_run_at)}</span> },
       {
         id: "is_active",
         header: "Status",

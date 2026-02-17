@@ -12,6 +12,7 @@
   export let testEdgeFor = async (companyKey) => {};
   export let syncPullFor = async (companyKey) => {};
   export let syncPushFor = async (companyKey) => {};
+  export let runStressBenchmark = async (lineCount) => null;
 
   let off = {};
   let un = {};
@@ -24,6 +25,10 @@
   let busy = false;
   let notice = "";
   let err = "";
+  let benchBusy = false;
+  let benchErr = "";
+  let benchCount = 500;
+  let benchRuns = [];
 
   let testOff = null;
   let testUn = null;
@@ -148,6 +153,34 @@
       busy = false;
     }
   };
+
+  const fmtMs = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return `${n.toFixed(2)} ms`;
+  };
+
+  const fmtTime = (iso) => {
+    try {
+      return new Date(String(iso || "")).toLocaleTimeString();
+    } catch (_) {
+      return String(iso || "");
+    }
+  };
+
+  const runBench = async (count) => {
+    benchBusy = true;
+    benchErr = "";
+    try {
+      const report = await runStressBenchmark(count);
+      if (!report) throw new Error("Benchmark did not return data.");
+      benchRuns = [report, ...(benchRuns || [])].slice(0, 10);
+    } catch (e) {
+      benchErr = e?.message || String(e);
+    } finally {
+      benchBusy = false;
+    }
+  };
 </script>
 
 <div class="h-full w-full overflow-hidden grid grid-cols-1 xl:grid-cols-[minmax(520px,720px)_1fr] gap-6">
@@ -219,6 +252,108 @@
           </div>
         </div>
       </div>
+
+      <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Stress Benchmark</div>
+            <div class="mt-1 text-sm text-ink/90">
+              Runs a repeatable synthetic cart benchmark and restores your current cart after completion.
+            </div>
+          </div>
+          <div class={`px-3 py-1 rounded-full border text-[11px] font-extrabold ${pillTone(benchBusy ? "warn" : "ok")}`}>
+            {benchBusy ? "Running" : "Ready"}
+          </div>
+        </div>
+
+        {#if benchErr}
+          <div class="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            {benchErr}
+          </div>
+        {/if}
+
+        <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <button
+            type="button"
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
+            on:click={() => runBench(200)}
+            disabled={benchBusy}
+          >
+            Run 200
+          </button>
+          <button
+            type="button"
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
+            on:click={() => runBench(500)}
+            disabled={benchBusy}
+          >
+            Run 500
+          </button>
+          <button
+            type="button"
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
+            on:click={() => runBench(1000)}
+            disabled={benchBusy}
+          >
+            Run 1000
+          </button>
+          <button
+            type="button"
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
+            on:click={() => { benchRuns = []; benchErr = ""; }}
+            disabled={benchBusy || !(benchRuns || []).length}
+          >
+            Clear
+          </button>
+        </div>
+
+        <div class="mt-3 flex items-center gap-2">
+          <label for="bench_custom_count" class="text-xs text-muted whitespace-nowrap">Custom lines</label>
+          <input
+            id="bench_custom_count"
+            type="number"
+            min="50"
+            max="2000"
+            step="50"
+            bind:value={benchCount}
+            class="w-28 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+          />
+          <button
+            type="button"
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-accent/30 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
+            on:click={() => runBench(benchCount)}
+            disabled={benchBusy}
+          >
+            Run Custom
+          </button>
+        </div>
+
+        {#if (benchRuns || []).length > 0}
+          <div class="mt-4 space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
+            {#each benchRuns as run}
+              <div class="rounded-xl border border-ink/10 bg-bg/35 p-3">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-xs font-extrabold text-ink/90">
+                    {run.line_count} lines
+                  </div>
+                  <div class="text-[11px] text-muted">
+                    {fmtTime(run.started_at)}
+                  </div>
+                </div>
+                <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+                  <div class="text-muted">Build cart</div><div class="text-right font-mono">{fmtMs(run.build_cart_ms)}</div>
+                  <div class="text-muted">First render</div><div class="text-right font-mono">{fmtMs(run.first_render_ms)}</div>
+                  <div class="text-muted">Partial reprice</div><div class="text-right font-mono">{fmtMs(run.partial_reprice_ms)}</div>
+                  <div class="text-muted">Full reprice</div><div class="text-right font-mono">{fmtMs(run.full_reprice_ms)}</div>
+                  <div class="text-muted">Qty update</div><div class="text-right font-mono">{fmtMs(run.single_qty_update_ms)}</div>
+                  <div class="text-muted">UOM update</div><div class="text-right font-mono">{fmtMs(run.single_uom_update_ms)}</div>
+                  <div class="text-muted">Total run</div><div class="text-right font-mono font-extrabold">{fmtMs(run.total_benchmark_ms)}</div>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
     </div>
   </section>
 
@@ -248,38 +383,39 @@
 
         <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label class="text-xs text-muted">cloud_api_base_url</label>
-            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.cloud_api_base_url} />
+            <label for="off_cloud_api_base_url" class="text-xs text-muted">cloud_api_base_url</label>
+            <input id="off_cloud_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.cloud_api_base_url} />
           </div>
           <div>
-            <label class="text-xs text-muted">edge_api_base_url (LAN, optional)</label>
-            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.edge_api_base_url} />
+            <label for="off_edge_api_base_url" class="text-xs text-muted">edge_api_base_url (LAN, optional)</label>
+            <input id="off_edge_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.edge_api_base_url} />
           </div>
           <div>
-            <label class="text-xs text-muted">company_id</label>
-            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.company_id} />
+            <label for="off_company_id" class="text-xs text-muted">company_id</label>
+            <input id="off_company_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.company_id} />
           </div>
           <div>
-            <label class="text-xs text-muted">device_id</label>
-            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.device_id} />
+            <label for="off_device_id" class="text-xs text-muted">device_id</label>
+            <input id="off_device_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.device_id} />
           </div>
           <div>
-            <label class="text-xs text-muted">api_base_url (active, auto)</label>
-            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={off.api_base_url} readonly />
+            <label for="off_api_base_url" class="text-xs text-muted">api_base_url (active, auto)</label>
+            <input id="off_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={off.api_base_url} readonly />
           </div>
           <div>
-            <label class="text-xs text-muted">warehouse_id</label>
-            <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.warehouse_id} />
+            <label for="off_warehouse_id" class="text-xs text-muted">warehouse_id</label>
+            <input id="off_warehouse_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.warehouse_id} />
           </div>
         </div>
 
         <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
           <div>
             <div class="flex items-center justify-between">
-              <label class="text-xs text-muted">device_token</label>
+              <label for="off_device_token" class="text-xs text-muted">device_token</label>
               <span class="text-[11px] text-muted">Current: {hasTokenText(officialConfig)}</span>
             </div>
             <input
+              id="off_device_token"
               class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
               type="password"
               placeholder="Enter token to set/replace"
@@ -322,38 +458,39 @@
         {:else}
           <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="text-xs text-muted">cloud_api_base_url</label>
-              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.cloud_api_base_url} />
+              <label for="un_cloud_api_base_url" class="text-xs text-muted">cloud_api_base_url</label>
+              <input id="un_cloud_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.cloud_api_base_url} />
             </div>
             <div>
-              <label class="text-xs text-muted">edge_api_base_url (LAN, optional)</label>
-              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.edge_api_base_url} />
+              <label for="un_edge_api_base_url" class="text-xs text-muted">edge_api_base_url (LAN, optional)</label>
+              <input id="un_edge_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.edge_api_base_url} />
             </div>
             <div>
-              <label class="text-xs text-muted">company_id</label>
-              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.company_id} />
+              <label for="un_company_id" class="text-xs text-muted">company_id</label>
+              <input id="un_company_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.company_id} />
             </div>
             <div>
-              <label class="text-xs text-muted">device_id</label>
-              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.device_id} />
+              <label for="un_device_id" class="text-xs text-muted">device_id</label>
+              <input id="un_device_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.device_id} />
             </div>
             <div>
-              <label class="text-xs text-muted">api_base_url (active, auto)</label>
-              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={un.api_base_url} readonly />
+              <label for="un_api_base_url" class="text-xs text-muted">api_base_url (active, auto)</label>
+              <input id="un_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={un.api_base_url} readonly />
             </div>
             <div>
-              <label class="text-xs text-muted">warehouse_id</label>
-              <input class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.warehouse_id} />
+              <label for="un_warehouse_id" class="text-xs text-muted">warehouse_id</label>
+              <input id="un_warehouse_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.warehouse_id} />
             </div>
           </div>
 
           <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
             <div>
               <div class="flex items-center justify-between">
-                <label class="text-xs text-muted">device_token</label>
+                <label for="un_device_token" class="text-xs text-muted">device_token</label>
                 <span class="text-[11px] text-muted">Current: {hasTokenText(unofficialConfig)}</span>
               </div>
               <input
+                id="un_device_token"
                 class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
                 type="password"
                 placeholder="Enter token to set/replace"

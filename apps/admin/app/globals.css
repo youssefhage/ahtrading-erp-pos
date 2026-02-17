@@ -323,11 +323,20 @@
     @apply cursor-not-allowed opacity-50;
   }
 
+  .ui-table-toolbar {
+    @apply rounded-lg border border-border-subtle bg-bg-sunken/15 px-2 py-2 md:px-3;
+  }
+
   /* Table styling - data terminal aesthetic */
+  .ui-table-wrap {
+    @apply relative overflow-auto rounded-xl border border-border-subtle bg-bg-elevated;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 8px 18px rgba(0, 0, 0, 0.05);
+  }
+
   .ui-table-scroll {
     /* Tables are dense: keep them crisp and high-contrast. */
-    @apply relative overflow-auto rounded-lg border border-border bg-bg-elevated;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+    @apply relative overflow-auto rounded-xl border border-border-subtle bg-bg-elevated;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 8px 18px rgba(0, 0, 0, 0.05);
   }
 
   .ui-table {
@@ -337,12 +346,14 @@
   }
 
   /* Enhanced table readability (applies to all ui-table inside ui-table-scroll) */
-  .ui-table-scroll .ui-table thead th {
+  .ui-table-scroll .ui-table thead th,
+  .ui-table-wrap .ui-table thead th {
     @apply sticky top-0 z-10;
     background: rgb(var(--table-head-bg));
   }
 
-  .ui-table-scroll .ui-table tbody tr:nth-child(even) {
+  .ui-table-scroll .ui-table tbody tr:nth-child(even),
+  .ui-table-wrap .ui-table tbody tr:nth-child(even) {
     background: rgba(var(--bg-sunken), 0.22);
   }
 
@@ -367,7 +378,7 @@
 
   .ui-table td {
     /* Higher contrast makes dense tables easier to scan */
-    @apply py-3 px-4 text-foreground;
+    @apply align-top px-4 py-3 leading-relaxed text-foreground;
   }
 
   /* Subtle data tinting for faster scanning (tables only).

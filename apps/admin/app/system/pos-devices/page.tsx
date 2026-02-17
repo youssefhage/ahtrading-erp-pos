@@ -164,9 +164,27 @@ export default function PosDevicesPage() {
   const [assignEmployeesDevice, setAssignEmployeesDevice] = useState<DeviceRow | null>(null);
   const [assignEmployees, setAssignEmployees] = useState<DeviceEmployeeRow[]>([]);
   const [savingEmployeeAssignments, setSavingEmployeeAssignments] = useState(false);
+  const [assignCashierSearch, setAssignCashierSearch] = useState("");
+  const [assignEmployeeSearch, setAssignEmployeeSearch] = useState("");
 
   const branchById = useMemo(() => new Map(branches.map((b) => [b.id, b])), [branches]);
   const effectiveApiBaseUrl = (setupApiBaseUrl || inferDefaultApiBaseUrl()).trim();
+  const filteredAssignCashiers = useMemo(() => {
+    const q = assignCashierSearch.trim().toLowerCase();
+    if (!q) return assignCashiers;
+    return assignCashiers.filter((c) => String(c.name || "").toLowerCase().includes(q));
+  }, [assignCashiers, assignCashierSearch]);
+  const filteredAssignEmployees = useMemo(() => {
+    const q = assignEmployeeSearch.trim().toLowerCase();
+    if (!q) return assignEmployees;
+    return assignEmployees.filter((u) => {
+      const name = String(u.full_name || "").toLowerCase();
+      const email = String(u.email || "").toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
+  }, [assignEmployees, assignEmployeeSearch]);
+  const selectedCashierCount = useMemo(() => assignCashiers.filter((c) => c.assigned).length, [assignCashiers]);
+  const selectedEmployeeCount = useMemo(() => assignEmployees.filter((u) => u.assigned).length, [assignEmployees]);
   const setupPayload = useMemo(() => {
     if (!lastSetup) return null;
     return buildPosConfigPayload(lastSetup, effectiveApiBaseUrl);
@@ -331,6 +349,7 @@ async function resetToken(device: DeviceRow) {
     setAssignOpen(true);
     setAssignDevice(device);
     setAssignCashiers([]);
+    setAssignCashierSearch("");
     setStatus("Loading cashier assignments...");
     try {
       const res = await apiGet<{ cashiers: DeviceCashierRow[] }>(`/pos/devices/${encodeURIComponent(device.id)}/cashiers`);
@@ -372,6 +391,7 @@ async function resetToken(device: DeviceRow) {
     setAssignEmployeesOpen(true);
     setAssignEmployeesDevice(device);
     setAssignEmployees([]);
+    setAssignEmployeeSearch("");
     setStatus("Loading employee assignments...");
     try {
       const res = await apiGet<{ employees: DeviceEmployeeRow[] }>(`/pos/devices/${encodeURIComponent(device.id)}/employees`);
@@ -504,6 +524,7 @@ async function resetToken(device: DeviceRow) {
           if (!open) {
             setAssignDevice(null);
             setAssignCashiers([]);
+            setAssignCashierSearch("");
           }
         }}
       >
@@ -511,12 +532,22 @@ async function resetToken(device: DeviceRow) {
           <DialogHeader>
             <DialogTitle>Assign Cashiers</DialogTitle>
             <DialogDescription>
-              {assignDevice ? `Choose who can log in on ${assignDevice.device_code}.` : "Choose who can log in on this device."}
+              {assignDevice
+                ? `Choose who can log in on ${assignDevice.device_code}. ${selectedCashierCount} selected.`
+                : "Choose who can log in on this device."}
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-fg-muted">Search cashiers</label>
+            <Input
+              value={assignCashierSearch}
+              onChange={(e) => setAssignCashierSearch(e.target.value)}
+              placeholder="Type cashier name..."
+            />
+          </div>
           <div className="max-h-[320px] space-y-2 overflow-y-auto rounded-md border border-border p-3">
-            {assignCashiers.length ? (
-              assignCashiers.map((c) => (
+            {filteredAssignCashiers.length ? (
+              filteredAssignCashiers.map((c) => (
                 <label key={c.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
                   <span className="truncate">{c.name}</span>
                   <span className="flex items-center gap-2">
@@ -530,7 +561,11 @@ async function resetToken(device: DeviceRow) {
                 </label>
               ))
             ) : (
-              <div className="text-xs text-fg-subtle">No cashiers found. Create cashiers first in System → POS Cashiers.</div>
+              <div className="text-xs text-fg-subtle">
+                {assignCashierSearch.trim()
+                  ? "No cashiers match your search."
+                  : "No cashiers found. Create cashiers first in System → POS Cashiers."}
+              </div>
             )}
           </div>
           <div className="flex justify-end gap-2">
@@ -551,6 +586,7 @@ async function resetToken(device: DeviceRow) {
           if (!open) {
             setAssignEmployeesDevice(null);
             setAssignEmployees([]);
+            setAssignEmployeeSearch("");
           }
         }}
       >
@@ -559,13 +595,21 @@ async function resetToken(device: DeviceRow) {
             <DialogTitle>Assign Employees</DialogTitle>
             <DialogDescription>
               {assignEmployeesDevice
-                ? `Assign employees allowed on ${assignEmployeesDevice.device_code}. Only cashiers linked to these employees can log in on this device.`
+                ? `Assign employees allowed on ${assignEmployeesDevice.device_code}. ${selectedEmployeeCount} selected. Only linked cashiers can log in.`
                 : "Assign employees allowed on this device. Only linked cashiers can log in."}
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-fg-muted">Search employees</label>
+            <Input
+              value={assignEmployeeSearch}
+              onChange={(e) => setAssignEmployeeSearch(e.target.value)}
+              placeholder="Type name or email..."
+            />
+          </div>
           <div className="max-h-[320px] space-y-2 overflow-y-auto rounded-md border border-border p-3">
-            {assignEmployees.length ? (
-              assignEmployees.map((u) => (
+            {filteredAssignEmployees.length ? (
+              filteredAssignEmployees.map((u) => (
                 <label key={u.id} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm">
                   <span className="truncate">{u.full_name || u.email}</span>
                   <span className="flex items-center gap-2">
@@ -579,7 +623,9 @@ async function resetToken(device: DeviceRow) {
                 </label>
               ))
             ) : (
-              <div className="text-xs text-fg-subtle">No employees found for this company.</div>
+              <div className="text-xs text-fg-subtle">
+                {assignEmployeeSearch.trim() ? "No employees match your search." : "No employees found for this company."}
+              </div>
             )}
           </div>
           <div className="flex justify-end gap-2">

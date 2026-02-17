@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
@@ -402,7 +403,7 @@ export default function PurchaseOrderViewPage() {
                 <p className="mt-1 text-xs text-fg-muted">
                   Created{" "}
                   <span className="data-mono">
-                    {order ? String(order.created_at || "").slice(0, 19).replace("T", " ") || "-" : "-"}
+                    {order ? formatDateLike(order.created_at) : "-"}
                   </span>
                 </p>
               </div>

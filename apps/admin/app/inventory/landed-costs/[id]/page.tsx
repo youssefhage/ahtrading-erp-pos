@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -45,8 +46,7 @@ type LandedCostLine = {
 type Detail = { landed_cost: LandedCostDoc; lines: LandedCostLine[] };
 
 function fmtIso(iso: string | null | undefined) {
-  const s = String(iso || "");
-  return s ? s.replace("T", " ").slice(0, 19) : "-";
+  return formatDateLike(iso);
 }
 
 function Inner({ id }: { id: string }) {

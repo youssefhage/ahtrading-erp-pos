@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmButton } from "@/components/confirm-button";
 import { Page, PageHeader, Section } from "@/components/page";
@@ -199,7 +200,7 @@ export default function ConfigPage() {
         sortable: true,
         mono: true,
         accessor: (m) => m.created_at,
-        cell: (m) => <span className="text-xs text-fg-muted">{m.created_at}</span>,
+        cell: (m) => <span className="text-xs text-fg-muted">{formatDateTime(m.created_at)}</span>,
       },
     ];
   }, []);

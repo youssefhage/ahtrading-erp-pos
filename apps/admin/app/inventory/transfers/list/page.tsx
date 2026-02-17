@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { ErrorBanner } from "@/components/error-banner";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
@@ -26,8 +27,7 @@ type TransferRow = {
 };
 
 function fmtIso(iso: string | null | undefined) {
-  const s = String(iso || "");
-  return s ? s.replace("T", " ").slice(0, 19) : "-";
+  return formatDateLike(iso);
 }
 
 function Inner() {

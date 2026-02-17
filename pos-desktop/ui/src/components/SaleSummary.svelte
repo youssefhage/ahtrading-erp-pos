@@ -2,6 +2,7 @@
   export let cart = [];
   export let totals = {};
   export let totalsByCompany = null;
+  export let originCompanyKey = "official";
   export let invoiceCompanyMode = "auto"; // "auto" | "official" | "unofficial"
   export let flagOfficial = false;
   export let onInvoiceCompanyModeChange = (v) => {};
@@ -13,6 +14,29 @@
     if (currency === "LBP") return `${Math.round(v).toLocaleString()} LBP`;
     return `${v.toFixed(2)} USD`;
   };
+
+  const companyLabel = (k) => (k === "unofficial" ? "Unofficial" : "Official");
+  const cartCompaniesSet = (lines) => new Set((lines || []).map((ln) => ln?.companyKey).filter(Boolean));
+
+  $: companies = cartCompaniesSet(cart);
+  $: mixedCart = companies.size > 1;
+  $: cartPrimaryCompany = companies.size === 1 ? Array.from(companies.values())[0] : null;
+  $: resolvedInvoiceCompany = (() => {
+    const m = String(invoiceCompanyMode || "auto").trim().toLowerCase();
+    if (m === "official" || m === "unofficial") return m;
+    return cartPrimaryCompany || originCompanyKey || "official";
+  })();
+  $: routePreview = (() => {
+    if (flagOfficial) return "Flagged -> Official (single invoice)";
+    if (mixedCart && invoiceCompanyMode === "auto") return "Auto Split -> Official + Unofficial";
+    if (mixedCart) return `Forced -> ${companyLabel(resolvedInvoiceCompany)} (cross-company)`;
+    return `${companyLabel(resolvedInvoiceCompany)} invoice`;
+  })();
+  $: routeHint = (() => {
+    if (flagOfficial && mixedCart) return "Mixed lines will be invoiced on Official only if all items exist in Official catalog.";
+    if (!flagOfficial && mixedCart && invoiceCompanyMode !== "auto") return "Cross-company stock moves are skipped and require later review.";
+    return "";
+  })();
 </script>
 
 <section class="glass-panel rounded-2xl p-4 flex flex-col gap-4 overflow-hidden">
@@ -42,6 +66,14 @@
       aria-label="Flag to Official"
     />
   </label>
+
+  <div class={`rounded-lg border p-3 text-xs ${routeHint ? "border-amber-500/30 bg-amber-500/10" : "border-ink/10 bg-ink/5"}`}>
+    <div class="text-muted font-semibold">Invoice Route</div>
+    <div class="mt-1 font-bold text-ink">{routePreview}</div>
+    {#if routeHint}
+      <div class="mt-1 text-amber-200">{routeHint}</div>
+    {/if}
+  </div>
 
   {#if totalsByCompany}
     <div class="grid grid-cols-2 gap-2 text-xs">

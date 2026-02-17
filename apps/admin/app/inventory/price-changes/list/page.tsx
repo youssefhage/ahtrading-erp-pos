@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { apiGet } from "@/lib/api";
+import { formatDate, formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdMaybe } from "@/lib/money";
 import { ErrorBanner } from "@/components/error-banner";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -28,8 +29,7 @@ type Row = {
 };
 
 function fmtIso(iso: string) {
-  const s = String(iso || "");
-  return s ? s.replace("T", " ").slice(0, 19) : "-";
+  return formatDateLike(iso);
 }
 
 function fmtPct(v: string | number | null | undefined) {
@@ -78,7 +78,7 @@ function Inner() {
             <Link className="ui-link" href={`/catalog/items/${encodeURIComponent(r.item_id)}`}>
               <span className="font-medium data-mono">{r.sku}</span> · {r.name}
             </Link>
-            {r.effective_from ? <div className="mt-0.5 text-xs text-fg-subtle">Effective: {String(r.effective_from).slice(0, 10)}</div> : null}
+            {r.effective_from ? <div className="mt-0.5 text-xs text-fg-subtle">Effective: {formatDate(r.effective_from)}</div> : null}
           </div>
         ),
       },

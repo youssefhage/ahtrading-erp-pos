@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { getFxRateUsdToLbp } from "@/lib/fx";
 import { ErrorBanner } from "@/components/error-banner";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -65,7 +66,7 @@ export default function IntercompanyPage() {
         mono: true,
         sortable: true,
         globalSearch: false,
-        cell: (d) => <span className="data-mono text-xs">{String(d.created_at || "").replace("T", " ").slice(0, 19)}</span>,
+        cell: (d) => <span className="data-mono text-xs">{formatDateTime(d.created_at)}</span>,
       },
       {
         id: "source",
@@ -95,7 +96,7 @@ export default function IntercompanyPage() {
         mono: true,
         sortable: true,
         globalSearch: false,
-        cell: (s) => <span className="data-mono text-xs">{String(s.created_at || "").replace("T", " ").slice(0, 19)}</span>,
+        cell: (s) => <span className="data-mono text-xs">{formatDateTime(s.created_at)}</span>,
       },
       { id: "from_company_name", header: "From", accessor: (s) => s.from_company_name || s.from_company_id.slice(0, 8), sortable: true },
       { id: "to_company_name", header: "To", accessor: (s) => s.to_company_name || s.to_company_id.slice(0, 8), sortable: true },

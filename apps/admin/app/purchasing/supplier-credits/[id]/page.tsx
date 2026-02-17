@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { fmtLbp, fmtLbpMaybe, fmtUsd, fmtUsdLbp, fmtUsdMaybe } from "@/lib/money";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
@@ -315,7 +316,7 @@ export default function SupplierCreditDetailPage() {
       sortable: true,
       mono: true,
       accessor: (a) => a.created_at,
-      cell: (a) => <span className="font-mono text-xs text-fg-muted">{(a.created_at || "").slice(0, 10)}</span>,
+      cell: (a) => <span className="font-mono text-xs text-fg-muted">{formatDateLike(a.created_at)}</span>,
     },
   ];
   const lineColumns: Array<DataTableColumn<LineRow>> = [

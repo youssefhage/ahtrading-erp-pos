@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Paperclip } from "lucide-react";
 
 import { apiGet } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
+import { recommendationKind, recommendationView, type RecommendationView } from "@/lib/ai-recommendations";
 import { fmtLbp, fmtUsd } from "@/lib/money";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { DataTableTabs } from "@/components/data-table-tabs";
@@ -39,11 +41,12 @@ type AiRecRow = {
   agent_code: string;
   status: string;
   recommendation_json: any;
+  recommendation_view?: RecommendationView;
   created_at: string;
 };
 
 function fmtIso(iso?: string | null) {
-  return String(iso || "").slice(0, 10) || "-";
+  return formatDateLike(iso);
 }
 
 function SupplierInvoicesListInner() {
@@ -107,8 +110,8 @@ function SupplierInvoicesListInner() {
   const canPrev = page > 0;
   const canNext = total == null ? invoices.length === pageSize : offset + invoices.length < total;
 
-  const aiHold = aiApGuard.filter((r) => (r as any)?.recommendation_json?.kind === "supplier_invoice_hold");
-  const aiDue = aiApGuard.filter((r) => (r as any)?.recommendation_json?.kind === "supplier_invoice_due_soon");
+  const aiHold = aiApGuard.filter((r) => recommendationKind(r) === "supplier_invoice_hold");
+  const aiDue = aiApGuard.filter((r) => recommendationKind(r) === "supplier_invoice_due_soon");
 
   const aiRows = useMemo(() => aiApGuard.slice(0, 8), [aiApGuard]);
 
@@ -117,61 +120,40 @@ function SupplierInvoicesListInner() {
       {
         id: "type",
         header: "Type",
-        accessor: (r) => String((r as any)?.recommendation_json?.kind || ""),
-        cell: (r) => <span className="font-mono text-xs text-fg-muted">{String((r as any)?.recommendation_json?.kind || "-")}</span>,
+        accessor: (r) => recommendationView(r).kindLabel,
+        cell: (r) => <span className="font-mono text-xs text-fg-muted">{recommendationView(r).kindLabel}</span>,
         mono: true,
       },
       {
-        id: "invoice",
-        header: "Invoice",
-        accessor: (r) => String((r as any)?.recommendation_json?.invoice_no || ""),
+        id: "recommendation",
+        header: "Recommendation",
+        accessor: (r) => recommendationView(r).summary,
         cell: (r) => {
-          const j = (r as any).recommendation_json || {};
+          const view = recommendationView(r);
           return (
-            <div>
-              <div className="data-mono text-xs text-foreground">{j.invoice_no || "(draft)"}</div>
-              {j.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {j.supplier_ref}</div> : null}
+            <div className="space-y-1">
+              <div className="text-xs font-medium text-foreground">{view.title}</div>
+              <div className="text-xs text-fg-muted">{view.summary}</div>
+              {view.linkHref ? (
+                <a className="ui-link text-[11px]" href={view.linkHref}>
+                  {view.linkLabel || "Open related document"}
+                </a>
+              ) : null}
             </div>
           );
         },
       },
       {
-        id: "supplier",
-        header: "Supplier",
-        accessor: (r) => String((r as any)?.recommendation_json?.supplier_name || (r as any)?.recommendation_json?.supplier_id || ""),
-        cell: (r) => {
-          const j = (r as any).recommendation_json || {};
-          return <span className="text-xs">{j.supplier_name || j.supplier_id || "-"}</span>;
-        },
-      },
-      {
-        id: "detail",
-        header: "Detail",
-        accessor: (r) => JSON.stringify((r as any)?.recommendation_json || {}),
-        cell: (r) => {
-          const j = (r as any).recommendation_json || {};
-          const kind = String(j.kind || "");
-          return (
-            <div className="text-xs text-fg-muted">
-              {kind === "supplier_invoice_hold" ? (
-                <span>{j.hold_reason || "On hold"}</span>
-              ) : kind === "supplier_invoice_due_soon" ? (
-                <span>
-                  Due: <span className="data-mono text-xs">{fmtIso(j.due_date)}</span> · Outstanding USD{" "}
-                  <span className="data-mono text-xs">{String(j.outstanding_usd || "0")}</span>
-                </span>
-              ) : (
-                <span className="data-mono text-xs">{j.key || "-"}</span>
-              )}
-            </div>
-          );
-        },
+        id: "next_step",
+        header: "Next Step",
+        accessor: (r) => recommendationView(r).nextStep,
+        cell: (r) => <span className="text-xs text-fg-muted">{recommendationView(r).nextStep}</span>,
       },
       {
         id: "created",
         header: "Created",
         accessor: (r) => r.created_at,
-        cell: (r) => <span className="font-mono text-xs text-fg-muted">{String(r.created_at || "").slice(0, 19)}</span>,
+        cell: (r) => <span className="font-mono text-xs text-fg-muted">{formatDateLike(r.created_at)}</span>,
         mono: true,
       },
     ];

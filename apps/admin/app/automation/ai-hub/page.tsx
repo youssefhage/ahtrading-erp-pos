@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { formatDateLike } from "@/lib/datetime";
 import { hasAnyPermission, hasPermission, permissionsToStringArray } from "@/lib/permissions";
 import { DataTable } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
@@ -13,12 +14,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 type RecommendationRow = {
   id: string;
   agent_code: string;
   status: string;
   recommendation_json: unknown;
+  recommendation_view?: RecommendationView;
   created_at: string;
   is_executable?: boolean;
   execution_mode?: string;
@@ -91,6 +94,20 @@ type MeContext = {
   permissions?: string[];
 };
 
+type RecommendationView = {
+  kind?: string;
+  kind_label?: string;
+  title?: string;
+  summary?: string;
+  next_step?: string;
+  severity?: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  link_href?: string | null;
+  link_label?: string | null;
+  details?: string[];
+};
+
 const recStatusChoices = ["", "pending", "approved", "rejected", "executed"] as const;
 const actionStatusChoices = ["", "approved", "queued", "blocked", "executed", "failed", "canceled"] as const;
 const executableAgentCodes = new Set(["AI_PURCHASE", "AI_DEMAND", "AI_PRICING"]);
@@ -150,47 +167,81 @@ function toNum(v: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function describeRec(j: any): { kind: string; why: string; next: string; link?: string } {
-  const kind = String(j?.kind || "");
-  if (kind === "purchase_invoice_insights") {
-    const changes = Array.isArray(j?.price_changes) ? j.price_changes.length : 0;
-    const invoiceId = String(j?.invoice_id || "");
-    const link = invoiceId ? `/purchasing/supplier-invoices/${encodeURIComponent(invoiceId)}` : undefined;
-    return {
-      kind,
-      why: changes ? `Detected cost increases on ${changes} item(s).` : "Detected purchase invoice pricing signals.",
-      next: "Review margins and selling prices for impacted items.",
-      link,
-    };
+function summarizeRecFallback(j: any): { kind: string; title: string; summary: string; nextStep: string; link?: string } {
+  const kind = String(j?.kind || j?.type || "recommendation");
+  const title = kind.replace(/[_-]+/g, " ");
+  const invoiceId = String(j?.invoice_id || "");
+  const link = invoiceId ? `/purchasing/supplier-invoices/${encodeURIComponent(invoiceId)}` : undefined;
+  return {
+    kind,
+    title: title || "recommendation",
+    summary: String(j?.explain?.why || j?.key || "Triggered by an internal rule."),
+    nextStep: "Review recommendation details and decide.",
+    link,
+  };
+}
+
+function normalizedRecommendationView(row: RecommendationRow): {
+  kind: string;
+  title: string;
+  summary: string;
+  nextStep: string;
+  severity: string;
+  details: string[];
+  linkHref?: string;
+  linkLabel?: string;
+} {
+  const fallback = summarizeRecFallback((row as any).recommendation_json || {});
+  const view = (row.recommendation_view || {}) as RecommendationView;
+  const details = Array.isArray(view.details) ? view.details.filter((d) => String(d || "").trim()).map((d) => String(d)) : [];
+  return {
+    kind: String(view.kind_label || view.kind || fallback.kind || "recommendation"),
+    title: String(view.title || fallback.title || "Recommendation"),
+    summary: String(view.summary || fallback.summary || "Triggered by an internal rule."),
+    nextStep: String(view.next_step || fallback.nextStep || "Review recommendation details and decide."),
+    severity: String(view.severity || "medium").toLowerCase(),
+    details: details.slice(0, 4),
+    linkHref: String(view.link_href || fallback.link || "") || undefined,
+    linkLabel: String(view.link_label || "Open related document"),
+  };
+}
+
+function statusLabel(raw: string) {
+  const normalized = String(raw || "pending").trim().toLowerCase();
+  return normalized.replace(/_/g, " ");
+}
+
+function statusChipClass(status: string) {
+  switch (status) {
+    case "approved":
+      return "ui-chip-success";
+    case "executed":
+      return "ui-chip-primary";
+    case "rejected":
+    case "failed":
+    case "canceled":
+      return "ui-chip-danger";
+    case "blocked":
+      return "ui-chip-warning";
+    case "pending":
+      return "ui-chip-default";
+    default:
+      return "ui-chip-default";
   }
-  if (kind === "supplier_invoice_hold") {
-    const invoiceId = String(j?.invoice_id || "");
-    const link = invoiceId ? `/purchasing/supplier-invoices/${encodeURIComponent(invoiceId)}` : undefined;
-    return {
-      kind,
-      why: String(j?.hold_reason || "Invoice on hold."),
-      next: "Open the invoice and resolve the hold reason.",
-      link,
-    };
-  }
-  if (kind === "supplier_invoice_due_soon") {
-    const invoiceId = String(j?.invoice_id || "");
-    const link = invoiceId ? `/purchasing/supplier-invoices/${encodeURIComponent(invoiceId)}` : undefined;
-    return {
-      kind,
-      why: `Due soon (${String(j?.due_date || "").slice(0, 10) || "-"})`,
-      next: "Plan payment or confirm payment terms.",
-      link,
-    };
-  }
-  const key = String(j?.key || "");
-  return { kind: kind || "recommendation", why: key || "Triggered by an internal rule.", next: "Review the recommendation JSON." };
+}
+
+function splitTimestamp(rawValue: string): { date: string; time: string } {
+  const text = formatDateLike(rawValue);
+  const idx = text.indexOf(", ");
+  if (idx === -1) return { date: text || "-", time: "" };
+  return { date: text.slice(0, idx), time: text.slice(idx + 2) };
 }
 
 function formatDecisionSummary(status: string) {
+  const normalized = String(status || "pending").trim().toLowerCase();
   return (
-    <span className="font-mono text-[11px] text-fg-muted">
-      {status || "pending"}
+    <span className={cn("ui-chip px-2 py-0.5 text-[11px] capitalize", statusChipClass(normalized))}>
+      {statusLabel(normalized)}
     </span>
   );
 }
@@ -246,6 +297,10 @@ export default function AiHubPage() {
 
   const recommendationStatusCounts = useMemo(() => toCountMap(recommendations), [recommendations]);
   const actionStatusCounts = useMemo(() => toCountMap(actions), [actions]);
+  const recommendationTotal = useMemo(
+    () => Object.values(recommendationStatusCounts).reduce((a, b) => a + b, 0),
+    [recommendationStatusCounts]
+  );
   const scheduledJobCount = schedules.length;
 
   function ensureWriteAccess(operation: string): boolean {
@@ -307,7 +362,9 @@ export default function AiHubPage() {
 
   useEffect(() => {
     load();
-  }, [load]);
+    // Initial load only. Filters are applied explicitly via the "Apply Filter" actions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function openDecision(recId: string, status: DecisionDraft["status"], agentCode: string) {
     if (!canWriteAi) {
@@ -481,9 +538,7 @@ export default function AiHubPage() {
         <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
           <div className="rounded-md border border-border bg-bg-elevated p-2">
             <div className="text-[11px] text-fg-muted">Recommendations</div>
-            <div className="mt-1 text-sm font-mono">
-              {stat(Object.values(recommendationStatusCounts).reduce((a, b) => a + b, 0))}
-            </div>
+            <div className="mt-1 text-sm font-mono">{stat(recommendationTotal)}</div>
           </div>
           <div className="rounded-md border border-border bg-bg-elevated p-2">
             <div className="text-[11px] text-fg-muted">Pending Recommendations</div>
@@ -518,79 +573,96 @@ export default function AiHubPage() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Recommendations</CardTitle>
-          <CardDescription>Review and process AI recommendations.</CardDescription>
+      <Card className="overflow-hidden">
+        <CardHeader className="bg-gradient-to-r from-bg-elevated to-bg-sunken/20">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Recommendations</CardTitle>
+              <CardDescription>Review and process AI recommendations.</CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="ui-chip ui-chip-default text-[11px]">Total {stat(recommendationTotal)}</span>
+              <span className="ui-chip ui-chip-warning text-[11px]">Pending {stat(recommendationStatusCounts.pending)}</span>
+              <span className="ui-chip ui-chip-success text-[11px]">Approved {stat(recommendationStatusCounts.approved)}</span>
+              <span className="ui-chip ui-chip-primary text-[11px]">Executed {stat(recommendationStatusCounts.executed)}</span>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-fg-muted">Status</label>
-              <select
-                className="ui-select"
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-              >
-                {recStatusChoices.map((s) => (
-                  <option key={s || "all"} value={s}>
-                    {s ? s : "all"}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1 md:col-span-1">
-              <label className="text-xs font-medium text-fg-muted">Agent</label>
-              <Input
-                value={filterAgent}
-                onChange={(e) => setFilterAgent(e.target.value)}
-                placeholder="e.g. AI_DEMAND"
-              />
-            </div>
-            <div className="md:col-span-2 flex items-end justify-end">
+          <DataTable<RecommendationRow>
+            tableId="automation.ai_hub.recommendations"
+            rows={recommendations}
+            className="space-y-4"
+            toolbarLeft={
+              <div className="flex flex-1 flex-wrap items-end gap-2">
+                <div className="w-full max-w-[170px] space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Status</label>
+                  <select className="ui-select h-9 text-sm" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                    {recStatusChoices.map((s) => (
+                      <option key={s || "all"} value={s}>
+                        {s ? s : "all"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="w-full max-w-[260px] space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Agent</label>
+                  <Input
+                    className="h-9"
+                    value={filterAgent}
+                    onChange={(e) => setFilterAgent(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") load();
+                    }}
+                    placeholder="e.g. AI_DEMAND"
+                  />
+                </div>
+              </div>
+            }
+            actions={
               <Button
-                variant="outline"
+                size="sm"
                 onClick={load}
                 disabled={!canReadAi || isLoading}
                 title={canReadAi ? "Reload using filters" : "Requires ai:read"}
               >
                 {isLoading ? "..." : "Apply Filter"}
               </Button>
-            </div>
-          </div>
-
-          <DataTable<RecommendationRow>
-            tableId="automation.ai_hub.recommendations"
-            rows={recommendations}
+            }
             columns={[
               {
                 id: "created_at",
                 header: "Created",
                 sortable: true,
                 mono: true,
+                cellClassName: "align-top",
                 accessor: (r) => r.created_at,
-                cell: (r) => <span className="font-mono text-xs">{r.created_at}</span>,
+                cell: (r) => {
+                  const ts = splitTimestamp(r.created_at);
+                  return (
+                    <div className="space-y-0.5">
+                      <div className="data-mono text-xs text-foreground">{ts.date}</div>
+                      {ts.time ? <div className="data-mono text-[11px] text-fg-subtle">{ts.time}</div> : null}
+                    </div>
+                  );
+                },
               },
               {
                 id: "agent_code",
                 header: "Agent",
                 sortable: true,
                 mono: true,
+                cellClassName: "align-top",
                 accessor: (r) => r.agent_code,
-                cell: (r) => <span className="font-mono text-xs">{r.agent_code}</span>,
+                cell: (r) => <span className="data-mono text-xs text-foreground">{r.agent_code}</span>,
               },
               {
                 id: "mode",
                 header: "Execution",
+                cellClassName: "align-top",
                 accessor: (r) => executionModeLabel(r),
                 cell: (r) => (
-                  <span
-                    className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${
-                      isRowExecutable(r)
-                        ? "border-success/40 text-success"
-                        : "border-warning/40 text-warning"
-                    }`}
-                  >
+                  <span className={cn("ui-chip px-2 py-0.5 text-[11px]", isRowExecutable(r) ? "ui-chip-success" : "ui-chip-warning")}>
                     {executionModeLabel(r)}
                   </span>
                 ),
@@ -600,20 +672,22 @@ export default function AiHubPage() {
                 header: "Status",
                 sortable: true,
                 mono: true,
+                cellClassName: "align-top",
                 accessor: (r) => r.status,
                 cell: (r) => formatDecisionSummary(r.status),
               },
               {
                 id: "decision",
                 header: "Decision",
+                cellClassName: "align-top",
                 accessor: (r) => String(r.decision_reason || ""),
                 cell: (r) => {
                   if (!r.decision_reason && !r.decision_notes) return <span className="text-xs text-fg-subtle">-</span>;
                   return (
-                    <div className="max-w-[280px] space-y-1 text-xs">
+                    <div className="max-w-[290px] space-y-1 rounded-md border border-border-subtle bg-bg-sunken/20 p-2 text-xs">
                       <div className="font-mono text-fg-muted">{r.decision_reason || "-"}</div>
                       {r.decision_notes ? <div className="text-fg-muted">{r.decision_notes}</div> : null}
-                      {r.decided_at ? <div className="text-fg-subtle">at {r.decided_at}</div> : null}
+                      {r.decided_at ? <div className="text-fg-subtle">at {formatDateLike(r.decided_at)}</div> : null}
                     </div>
                   );
                 },
@@ -621,26 +695,44 @@ export default function AiHubPage() {
               {
                 id: "recommendation",
                 header: "Recommendation",
+                cellClassName: "align-top",
                 accessor: (r) => JSON.stringify(r.recommendation_json || {}),
                 cell: (r) => {
                   const j: any = r.recommendation_json || {};
-                  const d = describeRec(j);
+                  const view = normalizedRecommendationView(r);
+                  const severityClass =
+                    view.severity === "critical" || view.severity === "high"
+                      ? "ui-chip-danger"
+                      : view.severity === "low" || view.severity === "info"
+                        ? "ui-chip-default"
+                        : "ui-chip-warning";
                   return (
-                    <div className="max-w-[560px] space-y-1">
-                      <div className="font-mono text-xs text-fg-muted">{d.kind}</div>
-                      <div className="text-sm text-foreground">{d.why}</div>
-                      <div className="text-sm text-fg-muted">{d.next}</div>
-                      {d.link ? (
+                    <div className="max-w-[620px] space-y-2 rounded-lg border border-border-subtle bg-bg-sunken/20 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs text-fg-muted">{view.kind}</span>
+                        <span className={cn("ui-chip px-2 py-0.5 text-[10px]", severityClass)}>{view.severity}</span>
+                      </div>
+                      <div className="text-sm font-medium text-foreground">{view.title}</div>
+                      <div className="text-sm text-foreground">{view.summary}</div>
+                      <div className="text-sm text-fg-muted">{view.nextStep}</div>
+                      {view.details.length ? (
+                        <ul className="space-y-1 text-xs text-fg-muted">
+                          {view.details.map((line, idx) => (
+                            <li key={`${r.id}-detail-${idx}`}>- {line}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {view.linkHref ? (
                         <div>
-                          <a className="ui-link text-xs" href={d.link}>
-                            Open related document
+                          <a className="ui-link text-xs" href={view.linkHref}>
+                            {view.linkLabel || "Open related document"}
                           </a>
                         </div>
                       ) : null}
                       <ViewRaw
                         value={j}
                         className="pt-1"
-                        label="Recommendation JSON"
+                        label="Technical Details (JSON)"
                         downloadName={`recommendation-${r.id}.json`}
                       />
                     </div>
@@ -651,12 +743,12 @@ export default function AiHubPage() {
                 id: "actions",
                 header: "Decision",
                 align: "right",
+                cellClassName: "align-top",
                 cell: (r) => (
-                  <div className="flex flex-col items-end gap-2">
+                  <div className="flex max-w-[220px] flex-wrap justify-end gap-2">
                     {r.status === "pending" ? (
                       <>
                         <Button
-                          variant="outline"
                           size="sm"
                           onClick={() => openDecision(r.id, "approved", r.agent_code)}
                           disabled={!canWriteAi || isLoading}
@@ -665,7 +757,7 @@ export default function AiHubPage() {
                           Approve
                         </Button>
                         <Button
-                          variant="outline"
+                          variant="destructive"
                           size="sm"
                           onClick={() => openDecision(r.id, "rejected", r.agent_code)}
                           disabled={!canWriteAi || isLoading}
@@ -688,6 +780,7 @@ export default function AiHubPage() {
                 ),
               },
             ]}
+            rowClassName={(r) => (r.status === "pending" ? "bg-warning/5" : undefined)}
             getRowId={(r) => r.id}
             emptyText="No recommendations."
             enableGlobalFilter={false}
@@ -739,7 +832,7 @@ export default function AiHubPage() {
                 sortable: true,
                 mono: true,
                 accessor: (a) => a.created_at,
-                cell: (a) => <span className="font-mono text-xs">{a.created_at}</span>,
+                cell: (a) => <span className="font-mono text-xs">{formatDateLike(a.created_at)}</span>,
               },
               {
                 id: "agent_code",
@@ -779,8 +872,8 @@ export default function AiHubPage() {
                 accessor: (a) => `${a.approved_at || ""} ${a.queued_at || ""}`,
                 cell: (a) => (
                   <div className="text-xs text-fg-muted">
-                    <div className="font-mono">{a.approved_at ? `approved ${a.approved_at}` : ""}</div>
-                    <div className="font-mono text-fg-subtle">{a.queued_at ? `queued ${a.queued_at}` : ""}</div>
+                    <div className="font-mono">{a.approved_at ? `approved ${formatDateLike(a.approved_at)}` : ""}</div>
+                    <div className="font-mono text-fg-subtle">{a.queued_at ? `queued ${formatDateLike(a.queued_at)}` : ""}</div>
                   </div>
                 ),
               },
@@ -933,7 +1026,7 @@ export default function AiHubPage() {
                 sortable: true,
                 mono: true,
                 accessor: (s) => s.next_run_at || "",
-                cell: (s) => <span className="font-mono text-xs">{s.next_run_at || "-"}</span>,
+                cell: (s) => <span className="font-mono text-xs">{formatDateLike(s.next_run_at)}</span>,
               },
               {
                 id: "last_run_at",
@@ -941,7 +1034,7 @@ export default function AiHubPage() {
                 sortable: true,
                 mono: true,
                 accessor: (s) => s.last_run_at || "",
-                cell: (s) => <span className="font-mono text-xs">{s.last_run_at || "-"}</span>,
+                cell: (s) => <span className="font-mono text-xs">{formatDateLike(s.last_run_at)}</span>,
               },
               {
                 id: "options_json",
@@ -993,7 +1086,7 @@ export default function AiHubPage() {
                 sortable: true,
                 mono: true,
                 accessor: (r) => r.started_at,
-                cell: (r) => <span className="font-mono text-xs">{r.started_at}</span>,
+                cell: (r) => <span className="font-mono text-xs">{formatDateLike(r.started_at)}</span>,
               },
               {
                 id: "job_code",
@@ -1017,7 +1110,7 @@ export default function AiHubPage() {
                 sortable: true,
                 mono: true,
                 accessor: (r) => r.finished_at || "",
-                cell: (r) => <span className="font-mono text-xs">{r.finished_at || ""}</span>,
+                cell: (r) => <span className="font-mono text-xs">{formatDateLike(r.finished_at)}</span>,
               },
               {
                 id: "error_message",

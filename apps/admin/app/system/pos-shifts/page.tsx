@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
+import { formatDateTime } from "@/lib/datetime";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Page, PageHeader, Section } from "@/components/page";
 import { Button } from "@/components/ui/button";
@@ -79,7 +80,7 @@ export default function PosShiftsPage() {
         sortable: true,
         mono: true,
         accessor: (s) => s.opened_at,
-        cell: (s) => <span className="font-mono text-xs">{s.opened_at}</span>,
+        cell: (s) => <span className="font-mono text-xs">{formatDateTime(s.opened_at)}</span>,
       },
       {
         id: "device",
@@ -175,7 +176,7 @@ export default function PosShiftsPage() {
         sortable: true,
         mono: true,
         accessor: (m) => m.created_at,
-        cell: (m) => <span className="font-mono text-xs">{m.created_at}</span>,
+        cell: (m) => <span className="font-mono text-xs">{formatDateTime(m.created_at)}</span>,
       },
       {
         id: "device_code",

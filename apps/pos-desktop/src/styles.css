@@ -382,6 +382,66 @@ button:disabled {
   letter-spacing: 0.45px;
 }
 
+.setup-flow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.setup-step {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.45px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.setup-step--active {
+  color: #ddfff2;
+  border-color: rgba(53, 215, 160, 0.6);
+  background: rgba(53, 215, 160, 0.14);
+}
+
+.setup-step--done {
+  color: #ddfff2;
+  border-color: rgba(53, 215, 160, 0.35);
+  background: rgba(53, 215, 160, 0.1);
+}
+
+.setup-step--error {
+  color: #ffd8cc;
+  border-color: rgba(255, 143, 112, 0.55);
+  background: rgba(255, 143, 112, 0.16);
+}
+
+.setup-checklist {
+  min-height: 18px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.setup-note--error {
+  color: #ffd2c6;
+}
+
+.setup-note--warn {
+  color: #ffe0af;
+}
+
+.setup-note--success {
+  color: #c8ffe9;
+}
+
+.input-invalid {
+  border-color: rgba(255, 143, 112, 0.8) !important;
+  box-shadow: 0 0 0 2px rgba(255, 143, 112, 0.2) !important;
+}
+
 .field-inline-btn {
   justify-content: flex-start;
 }
@@ -470,6 +530,10 @@ li {
 
   .grid2 {
     grid-template-columns: 1fr;
+  }
+
+  .setup-flow {
+    grid-template-columns: 1fr 1fr;
   }
 }
 

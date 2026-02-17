@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { recommendationView } from "@/lib/ai-recommendations";
+import { formatDateLike } from "@/lib/datetime";
 import { hasAnyPermission, permissionsToStringArray } from "@/lib/permissions";
 import { ErrorBanner } from "@/components/error-banner";
 import { AiSetupGate } from "@/components/ai-setup-gate";
@@ -28,15 +30,12 @@ type MeContext = {
 type Message = { role: "user" | "assistant"; content: string; createdAt: string };
 
 function safeIso(iso: unknown): string {
-  const s = String(iso || "");
-  return s ? s.slice(0, 19).replace("T", " ") : "-";
+  return formatDateLike(String(iso || ""));
 }
 
-function summarizeRecJson(v: unknown): string {
-  if (!v || typeof v !== "object") return "";
-  const o = v as Record<string, any>;
-  const candidates = [o.kind, o.type, o.title, o.reason, o.message, o.summary].filter((x) => typeof x === "string" && x.trim());
-  return String(candidates[0] || "").trim();
+function summarizeRec(row: any): string {
+  const v = recommendationView(row);
+  return `${v.title} ${v.summary}`.trim();
 }
 
 function MessageBubble(props: { role: Message["role"]; content: string; createdAt?: string }) {
@@ -360,8 +359,16 @@ export default function CopilotChatPage() {
                                   id: "summary",
                                   header: "Summary",
                                   sortable: true,
-                                  accessor: (r) => summarizeRecJson(r.recommendation_json),
-                                  cell: (r) => summarizeRecJson(r.recommendation_json) || <span className="text-fg-subtle">View raw</span>,
+                                  accessor: (r) => summarizeRec(r),
+                                  cell: (r) => {
+                                    const v = recommendationView(r);
+                                    return (
+                                      <div className="space-y-1">
+                                        <div className="text-xs font-medium text-foreground">{v.title}</div>
+                                        <div className="text-xs text-fg-muted">{v.summary}</div>
+                                      </div>
+                                    );
+                                  },
                                 },
                                 {
                                   id: "id",

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Settings2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { formatDateLike, formatDateTime, isIsoLikeDate } from "@/lib/datetime";
 import { scoreFuzzyQuery } from "@/lib/fuzzy";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,16 +103,25 @@ function humanizeKey(k: string): string {
 
 function renderCompactValue(v: unknown): string {
   if (v == null) return "";
-  if (typeof v === "string") return v;
+  if (typeof v === "string") return isIsoLikeDate(v) ? formatDateLike(v, "") : v;
   if (typeof v === "number") return Number.isFinite(v) ? v.toLocaleString("en-US") : String(v);
   if (typeof v === "boolean") return v ? "true" : "false";
-  if (v instanceof Date) return v.toISOString();
+  if (v instanceof Date) return formatDateTime(v, "");
   try {
     const raw = JSON.stringify(v);
     return raw.length > 140 ? raw.slice(0, 140) + "..." : raw;
   } catch {
     return String(v);
   }
+}
+
+function renderCellValue(v: unknown): ReactNode {
+  if (v == null) return "";
+  if (typeof v === "string") return isIsoLikeDate(v) ? formatDateLike(v, "") : v;
+  if (v instanceof Date) return formatDateTime(v, "");
+  if (typeof v === "number") return Number.isFinite(v) ? v.toLocaleString("en-US") : String(v);
+  if (typeof v === "boolean") return v ? "true" : "false";
+  return String(v);
 }
 
 function compareUnknown(a: unknown, b: unknown): number {
@@ -434,7 +444,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
     <div className={cn("space-y-3", className)}>
       {headerSlot ? <div>{headerSlot}</div> : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="ui-table-toolbar flex flex-wrap items-center justify-between gap-2">
         {enableGlobalFilter ? (
           <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
             <div className="w-full md:w-96">
@@ -446,8 +456,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
           <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">{toolbarLeft}</div>
         )}
 
-        <div className="flex items-center gap-2">
-          {actions}
+          <div className="flex w-full items-center justify-end gap-2 md:w-auto">
+            {actions}
 
           <Dialog>
             <DialogTrigger asChild>
@@ -606,7 +616,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                         typeof c.cellClassName === "function" ? c.cellClassName(r) : c.cellClassName
                       )}
                     >
-                      {c.cell ? c.cell(r) : (getCellValue(r, c) as any) ?? ""}
+                      {c.cell ? c.cell(r) : renderCellValue(getCellValue(r, c))}
                     </td>
                   ))}
                 </tr>

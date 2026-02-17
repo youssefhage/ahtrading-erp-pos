@@ -1,6 +1,7 @@
+import { formatDate, formatDateTime } from "@/lib/datetime";
+
 export function fmtIsoDate(iso?: string | null): string {
-  const s = String(iso || "").slice(0, 10);
-  return s || "-";
+  return formatDate(iso);
 }
 
 export function safeFilenamePart(s: string): string {
@@ -12,7 +13,5 @@ export function safeFilenamePart(s: string): string {
 }
 
 export function generatedAtStamp(): string {
-  // ISO-ish without timezone to keep filenames/logs tidy.
-  return new Date().toISOString().slice(0, 19).replace("T", " ");
+  return formatDateTime(new Date());
 }
-

@@ -62,41 +62,61 @@
     return rows || [];
   };
 
-  const scoreItem = (it, q) => {
-    if (!it || !q) return 0;
-    const sku = normalize(it.sku);
-    const name = normalize(it.name);
-    const primaryBarcode = String(it.barcode || "").trim();
-    const qRaw = String(q || "").trim();
+  const _buildSearchRows = (list, mapOrigin, mapOther, otherKey) => {
+    const rows = [];
+    for (const raw of list || []) {
+      if (!raw) continue;
+      const it = raw?.companyKey ? raw : { ...raw, companyKey: "official" };
+      const map = it?.companyKey === otherKey ? mapOther : mapOrigin;
+      const rowsByItem = map?.get(String(it?.id || "")) || [];
+      const allBarcodes = [];
+      for (const b of rowsByItem) {
+        const bc = String(b?.barcode || "").trim();
+        if (bc) allBarcodes.push(bc);
+      }
+      rows.push({
+        it,
+        sku: normalize(it.sku),
+        name: normalize(it.name),
+        primaryBarcode: String(it.barcode || "").trim(),
+        barcodes: allBarcodes,
+      });
+    }
+    return rows;
+  };
+
+  const scoreItem = (row, q, qRaw) => {
+    if (!row || !q) return 0;
+    const sku = row.sku;
+    const name = row.name;
+    const primaryBarcode = row.primaryBarcode;
 
     if (sku && sku === q) return 1000;
     if (primaryBarcode && primaryBarcode === qRaw) return 950;
-    for (const b of itemBarcodes(it)) {
-      const bc = String(b?.barcode || "").trim();
-      if (bc && bc === qRaw) return 940;
+    for (const bc of row.barcodes || []) {
+      if (bc === qRaw) return 940;
     }
 
     if (sku && sku.startsWith(q)) return 820;
     if (primaryBarcode && primaryBarcode.includes(qRaw)) return 520;
     if (name && name.includes(q)) return 500;
-    for (const b of itemBarcodes(it)) {
-      const bc = String(b?.barcode || "").trim();
-      if (bc && bc.includes(qRaw)) return 480;
+    for (const bc of row.barcodes || []) {
+      if (bc.includes(qRaw)) return 480;
     }
     return 0;
   };
 
+  $: searchRows = _buildSearchRows(items, barcodesByItemIdOrigin, barcodesByItemIdOther, otherCompanyKey);
   $: qn = normalize(query);
+  $: qRaw = String(query || "").trim();
   $: results = (() => {
     if (!qn) return [];
     const out = [];
     const cap = 120;
-    for (const raw of items || []) {
-      if (!raw) continue;
-      const it = raw?.companyKey ? raw : { ...raw, companyKey: "official" };
-      const s = scoreItem(it, qn);
+    for (const row of searchRows || []) {
+      const s = scoreItem(row, qn, qRaw);
       if (s <= 0) continue;
-      out.push({ it, s });
+      out.push({ it: row.it, s });
       if (out.length >= cap) break;
     }
     out.sort((a, b) => {

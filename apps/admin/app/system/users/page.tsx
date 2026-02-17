@@ -117,6 +117,12 @@ export default function UsersPage() {
     }
   }, [profileTypes, templateCode]);
 
+  useEffect(() => {
+    if (templateCode && createRoleId) {
+      setCreateRoleId("");
+    }
+  }, [templateCode, createRoleId]);
+
   const selectedProfileType = useMemo(
     () => profileTypes.find((t) => t.code === templateCode) || null,
     [profileTypes, templateCode],
