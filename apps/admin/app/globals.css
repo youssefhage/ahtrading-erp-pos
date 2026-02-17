@@ -29,20 +29,20 @@
     --primary-dim: 29 78 216; /* blue-700 */
     --primary-glow: 37 99 235; /* for shadows */
 
-    /* Status colors: functional but muted */
-    --success: 34 197 94;  /* green-500 */
-    --success-fg: 0 0 0;
-    /* Warning and danger: red family with different intensities. */
-    --warning: 239 68 68;  /* red-500 */
+    /* Status colors tuned for accessible contrast on light surfaces. */
+    --success: 21 128 61;  /* green-700 */
+    --success-fg: 255 255 255;
+    /* Warning and danger stay in red family per UI legend. */
+    --warning: 220 38 38;  /* red-600 */
     --warning-fg: 255 255 255;
-    --danger: 185 28 28;   /* red-700 */
+    --danger: 153 27 27;   /* red-800 */
     --danger-fg: 255 255 255;
-    --info: 59 130 246;    /* blue-500 */
+    --info: 29 78 216;     /* blue-700 */
     --info-fg: 255 255 255;
 
     /* Terminal-specific */
-    --terminal-green: 74 222 128; /* green-400: data accents */
-    --terminal-amber: 239 68 68;  /* legacy name; maps to warning (red) */
+    --terminal-green: 21 128 61;  /* green-700: data accents */
+    --terminal-amber: 220 38 38;  /* legacy name; maps to warning (red) */
     --terminal-cyan: 34 211 238;  /* cyan-400: info */
 
     /* Ring focus */
@@ -123,6 +123,20 @@
     --border: 63 63 70; /* zinc-700 */
     --border-subtle: 39 39 42; /* zinc-800 */
     --border-strong: 82 82 91; /* zinc-600 */
+
+    /* Status colors tuned for accessible contrast on dark surfaces. */
+    --success: 34 197 94; /* green-500 */
+    --success-fg: 0 0 0;
+    --warning: 248 113 113; /* red-400 */
+    --warning-fg: 0 0 0;
+    --danger: 239 68 68; /* red-500 */
+    --danger-fg: 0 0 0;
+    --info: 96 165 250; /* blue-400 */
+    --info-fg: 0 0 0;
+
+    --terminal-green: 34 197 94;
+    --terminal-amber: 248 113 113;
+    --terminal-cyan: 96 165 250;
 
     /* Text selection (subtle light grey) */
     --selection: 255 255 255;
@@ -392,7 +406,8 @@
     @apply h-10 w-full rounded-md px-3 text-sm transition-all duration-200;
     @apply bg-bg-elevated border border-border text-foreground;
     @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20;
+    @apply focus:outline-none focus:border-primary/60;
+    @apply focus-visible:ring-2 focus-visible:ring-primary/35;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
@@ -400,7 +415,8 @@
     @apply h-8 w-full rounded-md px-2.5 text-sm;
     @apply bg-bg-elevated border border-border text-foreground;
     @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20;
+    @apply focus:outline-none focus:border-primary/60;
+    @apply focus-visible:ring-2 focus-visible:ring-primary/35;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
@@ -415,7 +431,8 @@
     @apply w-full rounded-md px-3 py-2 text-sm min-h-[80px];
     @apply bg-bg-elevated border border-border text-foreground;
     @apply placeholder:text-fg-subtle;
-    @apply focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20;
+    @apply focus:outline-none focus:border-primary/60;
+    @apply focus-visible:ring-2 focus-visible:ring-primary/35;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
@@ -425,7 +442,7 @@
     -webkit-appearance: none;
     @apply inline-grid h-4 w-4 place-content-center rounded border border-border-strong bg-bg-elevated;
     @apply transition-colors;
-    @apply focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-0;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-1 focus-visible:ring-offset-background;
   }
 
   .ui-checkbox::before {
@@ -502,6 +519,15 @@
 
   .ui-tr-hover {
     @apply hover:bg-bg-sunken/60;
+  }
+
+  .ui-tr-focusable {
+    @apply focus-visible:outline-none;
+  }
+
+  .ui-tr-focusable:focus-visible {
+    box-shadow: inset 0 0 0 2px rgb(var(--primary) / 0.45);
+    background: rgb(var(--primary) / 0.06);
   }
 
   .ui-table td {
@@ -669,6 +695,22 @@
     @apply bg-warning;
   }
 
+  /* Table row state highlights with a left accent for non-color-only scanning. */
+  .ui-row-warning {
+    @apply bg-warning/5;
+    box-shadow: inset 3px 0 0 rgb(var(--warning) / 0.55);
+  }
+
+  .ui-row-danger {
+    @apply bg-danger/5;
+    box-shadow: inset 3px 0 0 rgb(var(--danger) / 0.6);
+  }
+
+  .ui-row-success {
+    @apply bg-success/5;
+    box-shadow: inset 3px 0 0 rgb(var(--success) / 0.55);
+  }
+
   /* Section dividers */
   .section-divider {
     @apply h-px bg-gradient-to-r from-transparent via-border-strong to-transparent;
@@ -785,7 +827,7 @@
 
   /* Focus ring */
   .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-primary/30 focus:ring-offset-2 focus:ring-offset-background;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
   }
 
   /* Links that should look like "actions" in dense tables/forms */

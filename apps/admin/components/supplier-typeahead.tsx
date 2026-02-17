@@ -314,7 +314,7 @@ export function SupplierTypeahead(props: {
                 ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
               }}
             >
-              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-sm text-fg-subtle">
+              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-xs text-fg-subtle">
                 <div className="flex items-center gap-2">
                   <span className="ui-kbd">Enter</span>
                   <span>select</span>
@@ -338,7 +338,7 @@ export function SupplierTypeahead(props: {
               </div>
 
               {showRecent ? (
-                <div className="border-b border-border-subtle px-3 py-2 text-sm font-semibold uppercase tracking-[0.14em] text-fg-subtle">
+                <div className="border-b border-border-subtle px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
                   Recent
                 </div>
               ) : null}
@@ -354,7 +354,7 @@ export function SupplierTypeahead(props: {
                         key={s.id}
                         type="button"
                         className={cn(
-                          "w-full px-3 py-2 text-left text-sm transition-colors",
+                          "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
                           "border-b border-border-subtle last:border-b-0",
                           isActive ? "bg-bg-sunken/70" : "hover:bg-bg-sunken/50"
                         )}
@@ -365,17 +365,17 @@ export function SupplierTypeahead(props: {
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
                             <div className="truncate">
-                              {s.code ? <span className="font-mono text-sm text-fg-muted">{s.code}</span> : null}
+                              {s.code ? <span className="font-mono text-xs text-fg-muted">{s.code}</span> : null}
                               {s.code ? <span className="text-fg-muted"> · </span> : null}
                               <span className="text-foreground">{s.name}</span>
                             </div>
                             {s.phone || s.email ? (
-                              <div className="mt-0.5 truncate font-mono text-sm text-fg-subtle">
+                              <div className="mt-0.5 truncate font-mono text-xs text-fg-subtle">
                                 {[s.phone, s.email].filter(Boolean).join(" · ")}
                               </div>
                             ) : null}
                           </div>
-                          {s.is_active === false ? <div className="shrink-0 font-mono text-sm text-fg-muted">inactive</div> : null}
+                          {s.is_active === false ? <div className="shrink-0 font-mono text-xs text-fg-muted">inactive</div> : null}
                         </div>
                       </button>
                     );

@@ -1249,7 +1249,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
             {!collapsed && (
               <div className="flex flex-col">
                 <span className="text-sm font-semibold text-foreground">AH Trading</span>
-                <span className="text-sm uppercase tracking-wider text-fg-subtle">Admin</span>
+                <span className="text-xs uppercase tracking-wider text-fg-subtle">Admin</span>
               </div>
             )}
           </div>
@@ -1284,7 +1284,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <div className="text-sm font-semibold uppercase tracking-[0.14em] text-fg-subtle">Context</div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">Context</div>
                   <button
                     type="button"
                     className="rounded p-1 text-fg-subtle hover:text-foreground"
@@ -1303,7 +1303,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                   {companyName || "Company"}
                 </button>
                 {!contextMinimized ? (
-                  <div className="mt-0.5 font-mono text-sm text-fg-subtle">{companyId || "-"}</div>
+                  <div className="mt-0.5 font-mono text-xs text-fg-subtle">{companyId || "-"}</div>
                 ) : null}
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => router.push("/company/select")}>
@@ -1315,7 +1315,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
               <div className="mt-3 grid grid-cols-1 gap-2">
                 {branches.length ? (
                   <div className="space-y-1">
-                    <label className="text-sm font-semibold uppercase tracking-[0.14em] text-fg-subtle">Default Branch</label>
+                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">Default Branch</label>
                     <select
                       className="ui-select h-9 text-sm"
                       value={defaultBranchId}
@@ -1336,7 +1336,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                 ) : null}
                 {warehouses.length ? (
                   <div className="space-y-1">
-                    <label className="text-sm font-semibold uppercase tracking-[0.14em] text-fg-subtle">Default Warehouse</label>
+                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">Default Warehouse</label>
                     <select
                       className="ui-select h-9 text-sm"
                       value={defaultWarehouseId}
@@ -1366,7 +1366,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
             <div className="px-2 py-2">
               {favorites.length ? (
                 <div className="mb-3">
-                  <div className="mb-1 flex items-center justify-between px-3 text-sm font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                  <div className="mb-1 flex items-center justify-between px-3 text-xs font-medium uppercase tracking-[0.14em] text-fg-subtle">
                     <span>Favorites</span>
                   </div>
                   <div className="space-y-0.5">
@@ -1384,11 +1384,11 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
 
               {recents.length ? (
                 <div className="mb-1">
-                  <div className="mb-1 flex items-center justify-between px-3 text-sm font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                  <div className="mb-1 flex items-center justify-between px-3 text-xs font-medium uppercase tracking-[0.14em] text-fg-subtle">
                     <span>Recent</span>
                     <button
                       type="button"
-                      className="text-sm text-fg-subtle hover:text-fg-muted"
+                      className="text-xs text-fg-subtle hover:text-fg-muted"
                       onClick={() => {
                         const cid = String(companyId || "").trim();
                         clearRecentsForCompany(cid);
@@ -1419,7 +1419,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                 <button
                   type="button"
                   className={cn(
-                    "mb-1 flex w-full items-center gap-2 rounded-md px-3 py-1 text-sm font-medium uppercase tracking-[0.14em] text-fg-subtle transition-colors hover:bg-bg-sunken/60 hover:text-fg-muted",
+                    "mb-1 flex w-full items-center gap-2 rounded-md px-3 py-1 text-xs font-medium uppercase tracking-[0.14em] text-fg-subtle transition-colors hover:bg-bg-sunken/60 hover:text-fg-muted",
                     openSections[section.label] ? "text-fg-muted" : "text-fg-subtle"
                   )}
                   onClick={() => toggleSection(section.label)}
@@ -1806,7 +1806,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
               </div>
               <div className="flex flex-col">
                 <DialogTitle className="text-sm font-semibold text-foreground">AH Trading</DialogTitle>
-                <span className="text-sm uppercase tracking-wider text-fg-subtle">Admin</span>
+                <span className="text-xs uppercase tracking-wider text-fg-subtle">Admin</span>
               </div>
             </div>
           </DialogHeader>
@@ -1814,15 +1814,15 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
           <div className="flex flex-col gap-1 p-2">
           <div className="mb-2 flex items-center gap-2 px-3 py-2">
               <Building2 className="h-4 w-4 text-fg-subtle" />
-              <span className="text-sm text-fg-muted">Company</span>
-              <code className="ml-auto rounded bg-bg-sunken px-1.5 py-0.5 text-sm text-fg-muted">
+              <span className="text-xs text-fg-muted">Company</span>
+              <code className="ml-auto rounded bg-bg-sunken px-1.5 py-0.5 text-xs text-fg-muted">
                 {companyName || companyId || "-"}
               </code>
             </div>
 
             {navSections.map((section) => (
               <div key={section.label} className="py-1">
-                <p className="mb-1 px-3 py-1 text-sm font-medium uppercase tracking-[0.14em] text-fg-subtle">
+                <p className="mb-1 px-3 py-1 text-xs font-medium uppercase tracking-[0.14em] text-fg-subtle">
                   {section.label}
                 </p>
                 <div className="space-y-0.5">
@@ -1859,7 +1859,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       {/* Command Palette */}
       <Dialog open={commandOpen} onOpenChange={setCommandOpen}>
         <DialogContent className="max-w-xl border-border-subtle bg-bg-elevated p-0 shadow-2xl">
-          <div className="flex items-center gap-3 border-b border-border-subtle px-4 py-3">
+          <div className="flex items-center gap-3 border-b border-border-subtle px-4 py-3 focus-within:ring-2 focus-within:ring-primary/40 focus-within:ring-inset">
             <Search className="h-5 w-5 text-fg-subtle" />
               <input
                 ref={commandInputRef}
@@ -1911,7 +1911,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                         commandItemRefs.current[idx] = el;
                       }}
                       className={cn(
-                        "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors",
+                        "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
                         active ? "bg-bg-sunken" : "hover:bg-bg-sunken"
                       )}
                       onMouseEnter={() => setCommandActiveIndex(idx)}

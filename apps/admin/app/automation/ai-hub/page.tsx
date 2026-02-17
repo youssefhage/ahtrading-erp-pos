@@ -793,7 +793,7 @@ export default function AiHubPage() {
                 ),
               },
             ]}
-            rowClassName={(r) => (r.status === "pending" ? "bg-warning/5" : undefined)}
+            rowClassName={(r) => (r.status === "pending" ? "ui-row-warning" : undefined)}
             getRowId={(r) => r.id}
             emptyText="No recommendations."
             enableGlobalFilter={false}

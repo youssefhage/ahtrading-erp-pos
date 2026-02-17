@@ -401,7 +401,7 @@ export function ItemTypeahead(props: {
                 ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
               }}
             >
-              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-sm text-fg-subtle">
+              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-xs text-fg-subtle">
                 <div className="flex items-center gap-2">
                   <span className="ui-kbd">Enter</span>
                   <span>select</span>
@@ -425,7 +425,7 @@ export function ItemTypeahead(props: {
               </div>
 
               {showRecent ? (
-                <div className="border-b border-border-subtle px-3 py-2 text-sm font-semibold uppercase tracking-[0.14em] text-fg-subtle">
+                <div className="border-b border-border-subtle px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">
                   Recent
                 </div>
               ) : null}
@@ -441,7 +441,7 @@ export function ItemTypeahead(props: {
                         key={it.id}
                         type="button"
                         className={cn(
-                          "w-full px-3 py-2 text-left text-sm transition-colors",
+                          "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
                           "border-b border-border-subtle last:border-b-0",
                           isActive ? "bg-bg-sunken/70" : "hover:bg-bg-sunken/50"
                         )}
@@ -452,12 +452,12 @@ export function ItemTypeahead(props: {
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
                             <div className="truncate">
-                              <span className="font-mono text-sm text-fg-muted">{it.sku}</span>{" "}
+                              <span className="font-mono text-xs text-fg-muted">{it.sku}</span>{" "}
                               <span className="text-foreground">· {it.name}</span>
                             </div>
-                            {it.barcode ? <div className="mt-0.5 truncate font-mono text-sm text-fg-subtle">{String(it.barcode)}</div> : null}
+                            {it.barcode ? <div className="mt-0.5 truncate font-mono text-xs text-fg-subtle">{String(it.barcode)}</div> : null}
                           </div>
-                          {it.unit_of_measure ? <div className="shrink-0 font-mono text-sm text-fg-muted">{String(it.unit_of_measure)}</div> : null}
+                          {it.unit_of_measure ? <div className="shrink-0 font-mono text-xs text-fg-muted">{String(it.unit_of_measure)}</div> : null}
                         </div>
                       </button>
                     );

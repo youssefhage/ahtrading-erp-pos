@@ -560,17 +560,38 @@ export function DataTable<T>(props: DataTableProps<T>) {
                   key={c.id}
                   className={cn(
                     "select-none",
-                    c.sortable && "cursor-pointer hover:text-foreground",
                     c.align === "right" && "text-right",
                     c.align === "center" && "text-center",
                     c.headerClassName
                   )}
-                  onClick={() => toggleSort(c)}
+                  scope="col"
+                  aria-sort={
+                    c.sortable
+                      ? sort?.columnId === c.id
+                        ? sort.dir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                      : undefined
+                  }
                 >
-                  <span className={cn("inline-flex items-center gap-1.5", c.align === "right" && "w-full justify-end")}>
-                    {c.header}
-                    {c.sortable ? sortIcon(c.id) : null}
-                  </span>
+                  {c.sortable ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(c)}
+                      aria-label={`Sort by ${c.header}`}
+                      className={cn(
+                        "inline-flex w-full items-center gap-1.5 rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
+                        c.align === "right" && "justify-end",
+                        c.align === "center" && "justify-center"
+                      )}
+                    >
+                      <span>{c.header}</span>
+                      {sortIcon(c.id)}
+                    </button>
+                  ) : (
+                    <span className={cn("inline-flex items-center gap-1.5", c.align === "right" && "w-full justify-end")}>{c.header}</span>
+                  )}
                 </th>
               ))}
             </tr>
@@ -589,15 +610,30 @@ export function DataTable<T>(props: DataTableProps<T>) {
                   key={key}
                   className={cn(
                     "ui-tr ui-tr-hover",
-                    onRowClick && "cursor-pointer",
+                    onRowClick && "ui-tr-focusable cursor-pointer",
                     typeof rowClassName === "function" ? rowClassName(r) : rowClassName
                   )}
-                  onClick={onRowClick ? () => onRowClick(r) : undefined}
+                  onClick={
+                    onRowClick
+                      ? (e) => {
+                          const target = e.target as HTMLElement | null;
+                          if (
+                            target?.closest(
+                              "button,a,input,select,textarea,[role='button'],[role='link'],[data-row-click-ignore='true']"
+                            )
+                          ) {
+                            return;
+                          }
+                          onRowClick(r);
+                        }
+                      : undefined
+                  }
                   tabIndex={onRowClick ? 0 : undefined}
                   role={onRowClick ? "button" : undefined}
                   onKeyDown={
                     onRowClick
                       ? (e) => {
+                          if (e.target !== e.currentTarget) return;
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
                             onRowClick(r);

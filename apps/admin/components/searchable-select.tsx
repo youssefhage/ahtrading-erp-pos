@@ -224,7 +224,7 @@ export function SearchableSelect(props: {
                         role="option"
                         aria-selected={isSelected}
                         className={cn(
-                          "w-full px-3 py-2 text-left text-sm transition-colors",
+                          "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
                           "border-b border-border-subtle last:border-b-0",
                           isActive ? "bg-bg-sunken/70" : "hover:bg-bg-sunken/50"
                         )}
