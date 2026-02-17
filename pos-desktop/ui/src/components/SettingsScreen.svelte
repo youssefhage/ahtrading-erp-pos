@@ -29,6 +29,7 @@
   let benchErr = "";
   let benchCount = 500;
   let benchRuns = [];
+  let sharedCloudUrl = "";
 
   let testOff = null;
   let testUn = null;
@@ -62,6 +63,9 @@
 
   $: off = copyFrom(officialConfig);
   $: un = copyFrom(unofficialConfig);
+  $: if (!String(sharedCloudUrl || "").trim()) {
+    sharedCloudUrl = String(off.cloud_api_base_url || un.cloud_api_base_url || "").trim();
+  }
 
   const pillTone = (kind) => {
     if (kind === "ok") return "bg-emerald-500/10 border-emerald-500/25 text-ink/80";
@@ -158,6 +162,14 @@
     }
   };
 
+  const applyCloudUrlToBoth = () => {
+    const v = String(sharedCloudUrl || "").trim();
+    off.cloud_api_base_url = v;
+    un.cloud_api_base_url = v;
+    notice = v ? "Applied Cloud URL to Official and Unofficial." : "Cleared Cloud URL for both agents.";
+    err = "";
+  };
+
   const fmtMs = (v) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return "—";
@@ -246,13 +258,13 @@
         <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Quick Guide</div>
         <div class="mt-3 text-sm text-ink/90 space-y-2">
           <div>
-            1. Set <span class="font-mono">api_base_url</span> to On-Prem Edge (LAN) or Cloud (internet).
+            1. Set your <span class="font-mono">Cloud API URL</span>, then use <span class="font-mono">Apply to Both Agents</span>.
           </div>
           <div>
-            2. Set <span class="font-mono">device_id</span> and <span class="font-mono">device_token</span> from Admin device registration.
+            2. Paste <span class="font-mono">Company ID</span>, <span class="font-mono">POS Device ID</span>, and <span class="font-mono">Device Token</span> from Admin device registration.
           </div>
           <div>
-            3. Press Sync Pull to cache items/customers/cashiers for offline operation.
+            3. Save each agent, then press <span class="font-mono">Pull</span> to cache items/customers/cashiers for offline operation.
           </div>
         </div>
       </div>
@@ -366,11 +378,33 @@
     <header class="pb-3 border-b border-ink/10 flex items-center justify-between gap-4">
       <div>
         <h3 class="text-lg font-extrabold tracking-tight">Agents</h3>
-        <p class="text-sm text-muted mt-1">Configure Official and Unofficial separately.</p>
+        <p class="text-sm text-muted mt-1">Cloud-first setup with simple fields. Open Advanced only when needed.</p>
       </div>
     </header>
 
     <div class="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-4 pt-4">
+      <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
+        <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Cloud URL Quick Apply</div>
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+          <input
+            class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+            placeholder="https://app.melqard.com/api"
+            bind:value={sharedCloudUrl}
+          />
+          <button
+            type="button"
+            class="px-4 py-3 rounded-xl text-xs font-semibold border border-accent/30 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
+            on:click={applyCloudUrlToBoth}
+            disabled={busy}
+          >
+            Apply to Both Agents
+          </button>
+        </div>
+        <div class="mt-2 text-[11px] text-muted">
+          This fills <span class="font-mono">cloud_api_base_url</span> for Official and Unofficial. You still save each agent separately.
+        </div>
+      </div>
+
       <!-- Official -->
       <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
         <div class="flex items-center justify-between gap-3">
@@ -385,90 +419,99 @@
           </div>
         </div>
 
-        <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label for="off_cloud_api_base_url" class="text-xs text-muted">cloud_api_base_url</label>
-            <input id="off_cloud_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.cloud_api_base_url} />
-          </div>
-          <div>
-            <label for="off_edge_api_base_url" class="text-xs text-muted">edge_api_base_url (LAN, optional)</label>
-            <input id="off_edge_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.edge_api_base_url} />
-          </div>
-          <div>
-            <label for="off_company_id" class="text-xs text-muted">company_id</label>
-            <input id="off_company_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.company_id} />
-          </div>
-          <div>
-            <label for="off_device_id" class="text-xs text-muted">device_id</label>
-            <input id="off_device_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.device_id} />
-          </div>
-          <div>
-            <label for="off_api_base_url" class="text-xs text-muted">api_base_url (active, auto)</label>
-            <input id="off_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={off.api_base_url} readonly />
-          </div>
-          <div>
-            <label for="off_warehouse_id" class="text-xs text-muted">warehouse_id</label>
-            <input id="off_warehouse_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.warehouse_id} />
-          </div>
-        </div>
-
-        <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Risk Controls</div>
-          <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-            <label class="flex items-center gap-2 text-xs text-ink/90">
-              <input type="checkbox" bind:checked={off.require_manager_approval_credit} />
-              Require manager approval for credit
-            </label>
-            <label class="flex items-center gap-2 text-xs text-ink/90">
-              <input type="checkbox" bind:checked={off.require_manager_approval_returns} />
-              Require manager approval for returns
-            </label>
-            <label class="flex items-center gap-2 text-xs text-ink/90 md:col-span-2">
-              <input type="checkbox" bind:checked={off.require_manager_approval_cross_company} />
-              Require manager approval for cross-company/flagged invoices
-            </label>
-          </div>
-          <div class="mt-3">
-            <label for="off_outbox_stale_warn_minutes" class="text-xs text-muted">outbox_stale_warn_minutes</label>
-            <input
-              id="off_outbox_stale_warn_minutes"
-              type="number"
-              min="1"
-              max="1440"
-              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-              bind:value={off.outbox_stale_warn_minutes}
-            />
-          </div>
-        </div>
-
-        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
-          <div>
-            <div class="flex items-center justify-between">
-              <label for="off_device_token" class="text-xs text-muted">device_token</label>
-              <span class="text-[11px] text-muted">Current: {hasTokenText(officialConfig)}</span>
+        <div class="mt-4 rounded-xl border border-ink/10 bg-bg/35 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Cloud Setup (Recommended)</div>
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label for="off_cloud_api_base_url" class="text-xs text-muted">Cloud API URL</label>
+              <input id="off_cloud_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="https://app.melqard.com/api" bind:value={off.cloud_api_base_url} />
             </div>
-            <input
-              id="off_device_token"
-              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-              type="password"
-              placeholder="Enter token to set/replace"
-              bind:value={offTokenDraft}
-            />
-            <label class="mt-2 flex items-center gap-2 text-xs text-muted">
-              <input type="checkbox" bind:checked={offClearToken} />
-              Clear token
-            </label>
+            <div>
+              <label for="off_company_id" class="text-xs text-muted">Company ID</label>
+              <input id="off_company_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="UUID" bind:value={off.company_id} />
+            </div>
+            <div>
+              <label for="off_device_id" class="text-xs text-muted">POS Device ID</label>
+              <input id="off_device_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="UUID" bind:value={off.device_id} />
+            </div>
+            <div>
+              <div class="flex items-center justify-between">
+                <label for="off_device_token" class="text-xs text-muted">Device Token</label>
+                <span class="text-[11px] text-muted">Current: {hasTokenText(officialConfig)}</span>
+              </div>
+              <input
+                id="off_device_token"
+                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                type="password"
+                placeholder="Paste token from POS Devices"
+                bind:value={offTokenDraft}
+              />
+              <label class="mt-2 flex items-center gap-2 text-xs text-muted">
+                <input type="checkbox" bind:checked={offClearToken} />
+                Clear token on save
+              </label>
+            </div>
           </div>
-          <div class="flex justify-end">
-            <button
-              type="button"
-              class="px-5 py-3 rounded-xl bg-accent text-white font-extrabold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
-              on:click={() => saveOne("official")}
-              disabled={busy}
-            >
-              Save Official
-            </button>
+          <div class="mt-2 text-[11px] text-muted">
+            Tip: generate these values from Admin → System → POS Devices (Reset Token & Setup).
           </div>
+        </div>
+
+        <details class="settings-advanced mt-3">
+          <summary>Advanced official settings</summary>
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label for="off_edge_api_base_url" class="text-xs text-muted">Edge API URL (LAN fallback, optional)</label>
+              <input id="off_edge_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="http://192.168.1.10:8001" bind:value={off.edge_api_base_url} />
+            </div>
+            <div>
+              <label for="off_api_base_url" class="text-xs text-muted">Active API URL (auto)</label>
+              <input id="off_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={off.api_base_url} readonly />
+            </div>
+            <div>
+              <label for="off_warehouse_id" class="text-xs text-muted">warehouse_id</label>
+              <input id="off_warehouse_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.warehouse_id} />
+            </div>
+            <div>
+              <label for="off_outbox_stale_warn_minutes" class="text-xs text-muted">outbox_stale_warn_minutes</label>
+              <input
+                id="off_outbox_stale_warn_minutes"
+                type="number"
+                min="1"
+                max="1440"
+                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                bind:value={off.outbox_stale_warn_minutes}
+              />
+            </div>
+          </div>
+          <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3">
+            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Risk Controls</div>
+            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+              <label class="flex items-center gap-2 text-xs text-ink/90">
+                <input type="checkbox" bind:checked={off.require_manager_approval_credit} />
+                Require manager approval for credit
+              </label>
+              <label class="flex items-center gap-2 text-xs text-ink/90">
+                <input type="checkbox" bind:checked={off.require_manager_approval_returns} />
+                Require manager approval for returns
+              </label>
+              <label class="flex items-center gap-2 text-xs text-ink/90 md:col-span-2">
+                <input type="checkbox" bind:checked={off.require_manager_approval_cross_company} />
+                Require manager approval for cross-company/flagged invoices
+              </label>
+            </div>
+          </div>
+        </details>
+
+        <div class="mt-3 flex justify-end">
+          <button
+            type="button"
+            class="px-5 py-3 rounded-xl bg-accent text-white font-extrabold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
+            on:click={() => saveOne("official")}
+            disabled={busy}
+          >
+            Save Official
+          </button>
         </div>
       </div>
 
@@ -489,90 +532,96 @@
         {#if !unofficialEnabled}
           <div class="mt-3 text-sm text-muted">Unofficial agent is disabled. Set Other Agent URL to enable.</div>
         {:else}
-          <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label for="un_cloud_api_base_url" class="text-xs text-muted">cloud_api_base_url</label>
-              <input id="un_cloud_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.cloud_api_base_url} />
-            </div>
-            <div>
-              <label for="un_edge_api_base_url" class="text-xs text-muted">edge_api_base_url (LAN, optional)</label>
-              <input id="un_edge_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.edge_api_base_url} />
-            </div>
-            <div>
-              <label for="un_company_id" class="text-xs text-muted">company_id</label>
-              <input id="un_company_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.company_id} />
-            </div>
-            <div>
-              <label for="un_device_id" class="text-xs text-muted">device_id</label>
-              <input id="un_device_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.device_id} />
-            </div>
-            <div>
-              <label for="un_api_base_url" class="text-xs text-muted">api_base_url (active, auto)</label>
-              <input id="un_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={un.api_base_url} readonly />
-            </div>
-            <div>
-              <label for="un_warehouse_id" class="text-xs text-muted">warehouse_id</label>
-              <input id="un_warehouse_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.warehouse_id} />
-            </div>
-          </div>
-
-          <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3">
-            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Risk Controls</div>
-            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-              <label class="flex items-center gap-2 text-xs text-ink/90">
-                <input type="checkbox" bind:checked={un.require_manager_approval_credit} />
-                Require manager approval for credit
-              </label>
-              <label class="flex items-center gap-2 text-xs text-ink/90">
-                <input type="checkbox" bind:checked={un.require_manager_approval_returns} />
-                Require manager approval for returns
-              </label>
-              <label class="flex items-center gap-2 text-xs text-ink/90 md:col-span-2">
-                <input type="checkbox" bind:checked={un.require_manager_approval_cross_company} />
-                Require manager approval for cross-company/flagged invoices
-              </label>
-            </div>
-            <div class="mt-3">
-              <label for="un_outbox_stale_warn_minutes" class="text-xs text-muted">outbox_stale_warn_minutes</label>
-              <input
-                id="un_outbox_stale_warn_minutes"
-                type="number"
-                min="1"
-                max="1440"
-                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                bind:value={un.outbox_stale_warn_minutes}
-              />
-            </div>
-          </div>
-
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
-            <div>
-              <div class="flex items-center justify-between">
-                <label for="un_device_token" class="text-xs text-muted">device_token</label>
-                <span class="text-[11px] text-muted">Current: {hasTokenText(unofficialConfig)}</span>
+          <div class="mt-4 rounded-xl border border-ink/10 bg-bg/35 p-3">
+            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Cloud Setup (Recommended)</div>
+            <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label for="un_cloud_api_base_url" class="text-xs text-muted">Cloud API URL</label>
+                <input id="un_cloud_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="https://app.melqard.com/api" bind:value={un.cloud_api_base_url} />
               </div>
-              <input
-                id="un_device_token"
-                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                type="password"
-                placeholder="Enter token to set/replace"
-                bind:value={unTokenDraft}
-              />
-              <label class="mt-2 flex items-center gap-2 text-xs text-muted">
-                <input type="checkbox" bind:checked={unClearToken} />
-                Clear token
-              </label>
+              <div>
+                <label for="un_company_id" class="text-xs text-muted">Company ID</label>
+                <input id="un_company_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="UUID" bind:value={un.company_id} />
+              </div>
+              <div>
+                <label for="un_device_id" class="text-xs text-muted">POS Device ID</label>
+                <input id="un_device_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="UUID" bind:value={un.device_id} />
+              </div>
+              <div>
+                <div class="flex items-center justify-between">
+                  <label for="un_device_token" class="text-xs text-muted">Device Token</label>
+                  <span class="text-[11px] text-muted">Current: {hasTokenText(unofficialConfig)}</span>
+                </div>
+                <input
+                  id="un_device_token"
+                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                  type="password"
+                  placeholder="Paste token from POS Devices"
+                  bind:value={unTokenDraft}
+                />
+                <label class="mt-2 flex items-center gap-2 text-xs text-muted">
+                  <input type="checkbox" bind:checked={unClearToken} />
+                  Clear token on save
+                </label>
+              </div>
             </div>
-            <div class="flex justify-end">
-              <button
-                type="button"
-                class="px-5 py-3 rounded-xl bg-accent text-white font-extrabold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
-                on:click={() => saveOne("unofficial")}
-                disabled={busy}
-              >
-                Save Unofficial
-              </button>
+          </div>
+
+          <details class="settings-advanced mt-3">
+            <summary>Advanced unofficial settings</summary>
+            <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label for="un_edge_api_base_url" class="text-xs text-muted">Edge API URL (LAN fallback, optional)</label>
+                <input id="un_edge_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="http://192.168.1.10:8001" bind:value={un.edge_api_base_url} />
+              </div>
+              <div>
+                <label for="un_api_base_url" class="text-xs text-muted">Active API URL (auto)</label>
+                <input id="un_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={un.api_base_url} readonly />
+              </div>
+              <div>
+                <label for="un_warehouse_id" class="text-xs text-muted">warehouse_id</label>
+                <input id="un_warehouse_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.warehouse_id} />
+              </div>
+              <div>
+                <label for="un_outbox_stale_warn_minutes" class="text-xs text-muted">outbox_stale_warn_minutes</label>
+                <input
+                  id="un_outbox_stale_warn_minutes"
+                  type="number"
+                  min="1"
+                  max="1440"
+                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                  bind:value={un.outbox_stale_warn_minutes}
+                />
+              </div>
             </div>
+            <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3">
+              <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Risk Controls</div>
+              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <label class="flex items-center gap-2 text-xs text-ink/90">
+                  <input type="checkbox" bind:checked={un.require_manager_approval_credit} />
+                  Require manager approval for credit
+                </label>
+                <label class="flex items-center gap-2 text-xs text-ink/90">
+                  <input type="checkbox" bind:checked={un.require_manager_approval_returns} />
+                  Require manager approval for returns
+                </label>
+                <label class="flex items-center gap-2 text-xs text-ink/90 md:col-span-2">
+                  <input type="checkbox" bind:checked={un.require_manager_approval_cross_company} />
+                  Require manager approval for cross-company/flagged invoices
+                </label>
+              </div>
+            </div>
+          </details>
+
+          <div class="mt-3 flex justify-end">
+            <button
+              type="button"
+              class="px-5 py-3 rounded-xl bg-accent text-white font-extrabold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
+              on:click={() => saveOne("unofficial")}
+              disabled={busy}
+            >
+              Save Unofficial
+            </button>
           </div>
         {/if}
       </div>
@@ -585,4 +634,13 @@
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
   .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.35); border-radius: 10px; }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.55); }
+  .settings-advanced > summary {
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted, #94a3b8);
+    user-select: none;
+  }
 </style>
