@@ -105,8 +105,8 @@ export default function JournalTemplateDetailPage() {
         ),
       },
       { id: "side", header: "Side", accessor: (l) => l.side, sortable: true, globalSearch: false, cell: (l) => <span className="text-xs">{l.side}</span> },
-      { id: "amount_usd", header: "USD", accessor: (l) => Number(l.amount_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (l) => <span className="data-mono ui-tone-usd text-xs">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</span> },
-      { id: "amount_lbp", header: "LL", accessor: (l) => Number(l.amount_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (l) => <span className="data-mono ui-tone-lbp text-xs">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</span> },
+      { id: "amount_usd", header: "USD", accessor: (l) => Number(l.amount_usd || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (l) => <span className="data-mono ui-tone-usd text-sm">{fmtUsd(l.amount_usd, { maximumFractionDigits: 4 })}</span> },
+      { id: "amount_lbp", header: "LL", accessor: (l) => Number(l.amount_lbp || 0), align: "right", mono: true, sortable: true, globalSearch: false, cell: (l) => <span className="data-mono ui-tone-lbp text-sm">{fmtLbp(l.amount_lbp, { maximumFractionDigits: 2 })}</span> },
       {
         id: "dims",
         header: "Dimensions",

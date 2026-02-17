@@ -146,7 +146,7 @@ export default function SalesReturnsPage() {
         align: "right",
         mono: true,
         accessor: (r) => Number(r.total_usd || 0),
-        cell: (r) => <span className="data-mono text-xs ui-tone-usd">{fmtUsd(r.total_usd)}</span>,
+        cell: (r) => <span className="data-mono text-sm ui-tone-usd">{fmtUsd(r.total_usd)}</span>,
       },
       {
         id: "total_lbp",
@@ -155,7 +155,7 @@ export default function SalesReturnsPage() {
         align: "right",
         mono: true,
         accessor: (r) => Number(r.total_lbp || 0),
-        cell: (r) => <span className="data-mono text-xs ui-tone-lbp">{fmtLbp(r.total_lbp)}</span>,
+        cell: (r) => <span className="data-mono text-sm ui-tone-lbp">{fmtLbp(r.total_lbp)}</span>,
       },
     ];
   }, [invoiceById, whById]);

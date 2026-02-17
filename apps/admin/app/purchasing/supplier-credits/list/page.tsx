@@ -82,7 +82,7 @@ export default function SupplierCreditsListPage() {
         mono: true,
         accessor: (c) => Number(c.total_usd || 0),
         cell: (c) => (
-          <div className="text-right data-mono text-xs">
+          <div className="text-right data-mono text-sm">
             {fmtUsd(c.total_usd)}
             <div className="text-xs text-fg-muted">{fmtLbp(c.total_lbp)}</div>
           </div>
@@ -96,7 +96,7 @@ export default function SupplierCreditsListPage() {
         mono: true,
         accessor: (c) => Number(c.remaining_usd || 0),
         cell: (c) => (
-          <div className="text-right data-mono text-xs">
+          <div className="text-right data-mono text-sm">
             {fmtUsd(c.remaining_usd)}
             <div className="text-xs text-fg-muted">{fmtLbp(c.remaining_lbp)}</div>
           </div>

@@ -94,12 +94,11 @@ function AdjustmentQueueInner() {
         globalSearch: true,
         cell: (inv) => (
           <div>
-            <div className="data-mono text-xs text-foreground">
+            <div className="data-mono text-sm text-foreground">
               <ShortcutLink href={`/sales/invoices/${encodeURIComponent(inv.id)}`} title="Open invoice">
                 {inv.invoice_no || "(draft)"}
               </ShortcutLink>
             </div>
-            <div className="data-mono text-xs text-fg-subtle">{inv.id}</div>
           </div>
         ),
       },
@@ -150,7 +149,7 @@ function AdjustmentQueueInner() {
         sortable: true,
         align: "right",
         mono: true,
-        cellClassName: "ui-tone-usd text-xs",
+        cellClassName: "ui-tone-usd",
         cell: (inv) => fmtUsd(inv.total_usd),
       },
       {
@@ -160,7 +159,7 @@ function AdjustmentQueueInner() {
         sortable: true,
         align: "right",
         mono: true,
-        cellClassName: "ui-tone-lbp text-xs",
+        cellClassName: "ui-tone-lbp",
         cell: (inv) => fmtLbp(inv.total_lbp),
       },
     ];

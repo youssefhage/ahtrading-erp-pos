@@ -59,10 +59,7 @@ import { apiBase, apiGet, apiPost, apiUrl, clearSession, getCompanyId, getCompan
 import { formatDateLike } from "@/lib/datetime";
 import { filterAndRankByFuzzy } from "@/lib/fuzzy";
 import {
-  addRecentForCompany,
-  clearRecentsForCompany,
   getFavoritesForCompany,
-  getRecentsForCompany,
   toggleFavoriteForCompany
 } from "@/lib/nav-memory";
 import { getDefaultBranchId, getDefaultWarehouseId, setDefaultBranchId, setDefaultWarehouseId } from "@/lib/op-context";
@@ -642,7 +639,6 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 
   const [favorites, setFavorites] = useState<{ href: string; label: string; at: string }[]>([]);
-  const [recents, setRecents] = useState<{ href: string; label: string; at: string }[]>([]);
 
   const [connectOpen, setConnectOpen] = useState(false);
 
@@ -714,18 +710,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     // Nav memory is client-only and company-scoped.
     const cid = String(companyId || "").trim();
     setFavorites(getFavoritesForCompany(cid));
-    setRecents(getRecentsForCompany(cid));
   }, [companyId]);
-
-  useEffect(() => {
-    // Track recents for deep links as well (document-first UX).
-    const path = String(pathname || "").trim();
-    if (!path || path === "/") return;
-    if (path.startsWith("/login") || path.startsWith("/company/select")) return;
-    const entry = { href: path, label: labelForMemory(path, title) };
-    addRecentForCompany(entry, String(companyId || "").trim());
-    setRecents(getRecentsForCompany(String(companyId || "").trim()));
-  }, [pathname, title, companyId]);
 
   useEffect(() => {
     // Keep companyId state synced with localStorage changes in the same tab.
@@ -1362,7 +1347,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-2">
-          {!collapsed && (favorites.length || recents.length) ? (
+          {!collapsed && favorites.length ? (
             <div className="px-2 py-2">
               {favorites.length ? (
                 <div className="mb-3">
@@ -1375,35 +1360,6 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                         key={`fav:${f.href}`}
                         item={{ href: f.href, label: f.label, icon: iconForHref(f.href) }}
                         isActive={pathname === f.href}
-                        collapsed={false}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {recents.length ? (
-                <div className="mb-1">
-                  <div className="mb-1 flex items-center justify-between px-3 text-xs font-medium uppercase tracking-[0.14em] text-fg-subtle">
-                    <span>Recent</span>
-                    <button
-                      type="button"
-                      className="text-xs text-fg-subtle hover:text-fg-muted"
-                      onClick={() => {
-                        const cid = String(companyId || "").trim();
-                        clearRecentsForCompany(cid);
-                        setRecents(getRecentsForCompany(cid));
-                      }}
-                    >
-                      Clear
-                    </button>
-                  </div>
-                  <div className="space-y-0.5">
-                    {recents.slice(0, 3).map((r) => (
-                      <NavItemComponent
-                        key={`recent:${r.href}`}
-                        item={{ href: r.href, label: r.label, icon: iconForHref(r.href) }}
-                        isActive={pathname === r.href}
                         collapsed={false}
                       />
                     ))}

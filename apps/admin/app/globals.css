@@ -545,10 +545,23 @@
   /* Optional semantic accents (keep subtle; used intentionally in tables). */
   .ui-tone-usd {
     color: rgb(var(--info));
+    font-weight: 600;
+    font-size: 0.95rem;
   }
 
   .ui-tone-lbp {
     color: rgb(var(--terminal-cyan));
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  /* Enforce readable monetary typography in dense table cells, even if legacy text-xs remains. */
+  .ui-table td.ui-tone-usd,
+  .ui-table td.ui-tone-lbp,
+  .ui-table td .ui-tone-usd,
+  .ui-table td .ui-tone-lbp {
+    font-size: 0.95rem;
+    font-weight: 600;
   }
 
   .ui-tone-qty {

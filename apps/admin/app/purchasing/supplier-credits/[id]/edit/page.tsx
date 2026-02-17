@@ -295,7 +295,7 @@ export default function SupplierCreditEditPage() {
                                   <td className="px-3 py-2 font-mono text-xs">{r.receipt_no}</td>
                                   <td className="px-3 py-2 text-xs">{r.warehouse_name || r.warehouse_id}</td>
                                   <td className="px-3 py-2 text-xs text-fg-muted">{r.supplier_ref || "-"}</td>
-                                  <td className="px-3 py-2 text-right data-mono text-xs">
+                                  <td className="px-3 py-2 text-right data-mono text-sm">
                                     {fmtUsd(r.total_usd)}
                                     <div className="text-xs text-fg-muted">{fmtLbp(r.total_lbp)}</div>
                                   </td>

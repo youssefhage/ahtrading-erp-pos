@@ -443,7 +443,7 @@ function SalesInvoiceShowInner() {
         mono: true,
         accessor: (l) => Number(l.qty_entered ?? l.qty ?? 0),
         cell: (l) => (
-          <div className="text-right data-mono text-xs">
+          <div className="text-right data-mono text-sm">
             <div className="text-foreground">
               {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
               <span className="text-xs text-fg-subtle">{String(l.uom || "").trim().toUpperCase() || "-"}</span>

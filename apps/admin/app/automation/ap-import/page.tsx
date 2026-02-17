@@ -93,13 +93,12 @@ export default function ApImportQueuePage() {
         accessor: (r) => `${r.invoice_no || ""} ${r.supplier_ref || ""}`,
         cell: (r) => (
           <div>
-            <div className="data-mono text-xs text-foreground">
+            <div className="data-mono text-sm text-foreground">
               <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(r.id)}/edit`} title="Open review form">
                 {r.invoice_no || "(draft)"}
               </ShortcutLink>
             </div>
             {r.supplier_ref ? <div className="data-mono text-xs text-fg-subtle">Ref: {r.supplier_ref}</div> : null}
-            <div className="data-mono text-xs text-fg-subtle">{r.id}</div>
           </div>
         ),
       },

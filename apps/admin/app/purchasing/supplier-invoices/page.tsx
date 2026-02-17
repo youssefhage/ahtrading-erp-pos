@@ -181,7 +181,6 @@ function SupplierInvoicesListInner() {
               ) : null}
             </div>
             {inv.supplier_ref ? <div className="data-mono text-xs text-fg-subtle">Ref: {inv.supplier_ref}</div> : null}
-            <div className="data-mono text-xs text-fg-subtle">{inv.id}</div>
           </div>
         ),
       },
@@ -250,7 +249,7 @@ function SupplierInvoicesListInner() {
         sortable: true,
         align: "right",
         mono: true,
-        cellClassName: "ui-tone-usd text-xs",
+        cellClassName: "ui-tone-usd",
         cell: (inv) => fmtUsd(inv.total_usd),
       },
       {
@@ -260,7 +259,7 @@ function SupplierInvoicesListInner() {
         sortable: true,
         align: "right",
         mono: true,
-        cellClassName: "ui-tone-lbp text-xs",
+        cellClassName: "ui-tone-lbp",
         cell: (inv) => fmtLbp(inv.total_lbp),
       },
     ];

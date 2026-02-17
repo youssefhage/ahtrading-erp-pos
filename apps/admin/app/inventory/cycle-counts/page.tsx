@@ -504,7 +504,7 @@ export default function CycleCountsPage() {
                                   <div className="data-mono text-xs">{l.item_sku || l.item_id.slice(0, 8)}</div>
                                   <div className="text-xs text-fg-muted">{l.item_name}</div>
                                 </td>
-                                <td className="px-3 py-2 text-right data-mono text-xs ui-tone-qty">
+                                <td className="px-3 py-2 text-right data-mono text-sm ui-tone-qty">
                                   {expected.toLocaleString("en-US", { maximumFractionDigits: 3 })}
                                 </td>
                                 <td className="px-3 py-2 text-right">
@@ -523,7 +523,7 @@ export default function CycleCountsPage() {
                                     className="h-9"
                                   />
                                 </td>
-                                <td className={`px-3 py-2 text-right data-mono text-xs ${diffTone}`}>
+                                <td className={`px-3 py-2 text-right data-mono text-sm ${diffTone}`}>
                                   {diff == null ? "-" : diff.toLocaleString("en-US", { maximumFractionDigits: 3 })}
                                 </td>
                               </tr>
