@@ -24,6 +24,8 @@
   const FLAG_OFFICIAL_STORAGE_KEY = "pos_ui_flag_official";
   const THEME_STORAGE_KEY = "pos_ui_theme";
   const SCREEN_STORAGE_KEY = "pos_ui_screen";
+  const WEB_CONFIG_OFFICIAL_STORAGE_KEY = "pos_web_config_official";
+  const WEB_CONFIG_UNOFFICIAL_STORAGE_KEY = "pos_web_config_unofficial";
   const DEFAULT_API_BASE = "/api";
   const DEFAULT_OTHER_AGENT_URL = "http://localhost:7072";
 
@@ -78,6 +80,66 @@
       return { ok: res.ok, status: res.status, localAgentLike, payload };
     } catch (_) {
       return { ok: false, status: 0, localAgentLike: false, payload: null };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  const _isAbsoluteHttpUrl = (value) => /^https?:\/\//i.test(String(value || "").trim());
+
+  const _normalizeCloudApiBase = (value) => {
+    const v = String(value || "").trim();
+    if (!v) return "";
+    const raw = _isAbsoluteHttpUrl(v) ? v : `https://${v}`;
+    return raw.endsWith("/") ? raw.slice(0, -1) : raw;
+  };
+
+  const _cloudSetupCall = async (
+    apiBaseUrl,
+    path,
+    { method = "GET", token = "", companyId = "", body = null, timeoutMs = 12000 } = {},
+  ) => {
+    const base = _normalizeCloudApiBase(apiBaseUrl);
+    if (!base) throw new Error("Cloud API URL is required.");
+    const p = String(path || "").replace(/^\/+/, "");
+    const url = `${base}/${p}`;
+    const headers = { "Content-Type": "application/json" };
+    const auth = String(token || "").trim();
+    const cid = String(companyId || "").trim();
+    if (auth) headers.Authorization = `Bearer ${auth}`;
+    if (cid) headers["X-Company-Id"] = cid;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), Math.max(1000, toNum(timeoutMs, 12000)));
+    try {
+      const res = await fetch(url, {
+        method: String(method || "GET").toUpperCase(),
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+      const text = await res.text();
+      let payload = null;
+      try {
+        payload = text ? JSON.parse(text) : null;
+      } catch (_) {
+        payload = text ? { raw: text } : null;
+      }
+      if (!res.ok) {
+        const msg = payload?.detail || payload?.error || res.statusText || `HTTP ${res.status}`;
+        const err = new Error(String(msg));
+        err.status = res.status;
+        err.payload = payload;
+        throw err;
+      }
+      return payload || {};
+    } catch (e) {
+      if (e?.name === "AbortError") {
+        const err = new Error("Cloud setup request timed out.");
+        err.status = 408;
+        throw err;
+      }
+      throw e;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -494,7 +556,10 @@
   };
 
   const _agentApiPrefix = (companyKey) => {
-    if (companyKey === otherCompanyKey) return `${_normalizeAgentOrigin(otherAgentUrl)}${apiBase}`;
+    if (companyKey === otherCompanyKey) {
+      if (webHostUnsupported) return apiBase;
+      return `${_normalizeAgentOrigin(otherAgentUrl)}${apiBase}`;
+    }
     return apiBase;
   };
 
@@ -507,6 +572,13 @@
     const h = { "Content-Type": "application/json" };
     const tok = companyKey === otherCompanyKey ? unofficialSessionToken : sessionToken;
     if (tok) h["X-POS-Session"] = tok;
+    if (webHostUnsupported) {
+      const cfg = companyKey === otherCompanyKey ? unofficialConfig : config;
+      const deviceId = String(cfg?.device_id || "").trim();
+      const deviceToken = String(cfg?.device_token || "").trim();
+      if (deviceId) h["X-Device-Id"] = deviceId;
+      if (deviceToken) h["X-Device-Token"] = deviceToken;
+    }
     return h;
   };
 
@@ -1302,6 +1374,18 @@
 
   const saveConfigFor = async (companyKey, payload) => {
     const body = { ...(payload || {}) };
+    if (webHostUnsupported) {
+      const target = companyKey === otherCompanyKey ? { ...unofficialConfig } : { ...config };
+      const nextCfg = { ...target, ...body };
+      if (companyKey === otherCompanyKey) {
+        unofficialConfig = nextCfg;
+        try { localStorage.setItem(WEB_CONFIG_UNOFFICIAL_STORAGE_KEY, JSON.stringify(nextCfg)); } catch (_) {}
+      } else {
+        config = nextCfg;
+        try { localStorage.setItem(WEB_CONFIG_OFFICIAL_STORAGE_KEY, JSON.stringify(nextCfg)); } catch (_) {}
+      }
+      return { ok: true, config: nextCfg };
+    }
     const res = await apiCallFor(companyKey, "/config", { method: "POST", body });
     if (companyKey === otherCompanyKey) unofficialConfig = { ...unofficialConfig, ...(res?.config || {}) };
     else config = { ...config, ...(res?.config || {}) };
@@ -1310,31 +1394,164 @@
   };
 
   const setupLogin = async (payload) => {
+    if (webHostUnsupported) {
+      const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
+      const mfaToken = String(payload?.mfa_token || "").trim();
+      const mfaCode = String(payload?.mfa_code || "").trim();
+      let authRes = null;
+      if (mfaToken) {
+        if (!mfaCode) throw new Error("MFA code is required.");
+        authRes = await _cloudSetupCall(apiBaseUrl, "auth/mfa/verify", {
+          method: "POST",
+          body: { mfa_token: mfaToken, code: mfaCode },
+        });
+      } else {
+        const email = String(payload?.email || "").trim();
+        const password = String(payload?.password || "");
+        if (!email || !password) throw new Error("Email and password are required.");
+        authRes = await _cloudSetupCall(apiBaseUrl, "auth/login", {
+          method: "POST",
+          body: { email, password },
+        });
+      }
+      if (authRes?.mfa_required) {
+        return {
+          ok: true,
+          mfa_required: true,
+          mfa_token: String(authRes?.mfa_token || "").trim(),
+        };
+      }
+      const token = String(authRes?.token || "").trim();
+      if (!token) throw new Error("No session token returned.");
+      const companiesRes = await _cloudSetupCall(apiBaseUrl, "companies", {
+        method: "GET",
+        token,
+      });
+      return {
+        ok: true,
+        mfa_required: false,
+        token,
+        companies: Array.isArray(companiesRes?.companies) ? companiesRes.companies : [],
+        active_company_id: String(authRes?.active_company_id || "").trim() || null,
+      };
+    }
     return await apiCall("/setup/login", { method: "POST", body: payload || {} });
   };
 
   const setupBranches = async (payload) => {
+    if (webHostUnsupported) {
+      const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
+      const token = String(payload?.token || "").trim();
+      const companyId = String(payload?.company_id || "").trim();
+      if (!token) throw new Error("Token is required.");
+      if (!companyId) throw new Error("Company is required.");
+      try {
+        return await _cloudSetupCall(apiBaseUrl, "branches", {
+          method: "GET",
+          token,
+          companyId,
+        });
+      } catch (e) {
+        const status = toNum(e?.status, 0);
+        if (status === 401 || status === 403) {
+          return {
+            ok: true,
+            branches: [],
+            warning: "Branches unavailable for this account; leave Branch empty.",
+          };
+        }
+        throw e;
+      }
+    }
     return await apiCall("/setup/branches", { method: "POST", body: payload || {} });
   };
 
   const setupDevices = async (payload) => {
+    if (webHostUnsupported) {
+      const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
+      const token = String(payload?.token || "").trim();
+      const companyId = String(payload?.company_id || "").trim();
+      if (!token) throw new Error("Token is required.");
+      if (!companyId) throw new Error("Company is required.");
+      try {
+        await _cloudSetupCall(apiBaseUrl, "auth/select-company", {
+          method: "POST",
+          token,
+          body: { company_id: companyId },
+        });
+      } catch (_) {}
+      try {
+        const res = await _cloudSetupCall(apiBaseUrl, "pos/devices", {
+          method: "GET",
+          token,
+          companyId,
+        });
+        return { ok: true, devices: Array.isArray(res?.devices) ? res.devices : [] };
+      } catch (e) {
+        const status = toNum(e?.status, 0);
+        if (status === 401 || status === 403) {
+          return {
+            ok: true,
+            devices: [],
+            warning: "Device list unavailable for this account; enter POS code manually.",
+          };
+        }
+        throw e;
+      }
+    }
     return await apiCall("/setup/devices", { method: "POST", body: payload || {} });
   };
 
   const setupRegisterDevice = async (payload) => {
+    if (webHostUnsupported) {
+      const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
+      const token = String(payload?.token || "").trim();
+      const companyId = String(payload?.company_id || "").trim();
+      const branchId = String(payload?.branch_id || "").trim();
+      const deviceCode = String(payload?.device_code || "").trim();
+      const resetToken = payload?.reset_token !== false;
+      if (!token) throw new Error("Token is required.");
+      if (!companyId) throw new Error("Company is required.");
+      if (!deviceCode) throw new Error("POS code is required.");
+      try {
+        await _cloudSetupCall(apiBaseUrl, "auth/select-company", {
+          method: "POST",
+          token,
+          body: { company_id: companyId },
+        });
+      } catch (_) {}
+      const params = new URLSearchParams();
+      params.set("company_id", companyId);
+      params.set("device_code", deviceCode);
+      params.set("reset_token", resetToken ? "true" : "false");
+      if (branchId) params.set("branch_id", branchId);
+      const reg = await _cloudSetupCall(apiBaseUrl, `pos/devices/register?${params.toString()}`, {
+        method: "POST",
+        token,
+        companyId,
+      });
+      const deviceId = String(reg?.id || "").trim();
+      const deviceToken = String(reg?.token || "").trim();
+      if (!deviceId) throw new Error("Device registration failed (missing device id).");
+      if (!deviceToken) throw new Error("Device exists but token was not returned. Enable reset token and retry.");
+      return { ok: true, device_id: deviceId, device_token: deviceToken };
+    }
     return await apiCall("/setup/register-device", { method: "POST", body: payload || {} });
   };
 
   const testEdgeFor = async (companyKey) => {
+    if (webHostUnsupported) return { ok: true, mode: "cloud-web-setup" };
     return await apiCallFor(companyKey, "/edge/status", { method: "GET" });
   };
 
   const syncPullFor = async (companyKey) => {
+    if (webHostUnsupported) return { ok: true, mode: "cloud-web-setup" };
     await apiCallFor(companyKey, "/sync/pull", { method: "POST", body: {} });
     await fetchData();
   };
 
   const syncPushFor = async (companyKey) => {
+    if (webHostUnsupported) return { ok: true, mode: "cloud-web-setup" };
     await apiCallFor(companyKey, "/sync/push", { method: "POST", body: {} });
     await fetchData();
   };
@@ -2244,12 +2461,24 @@
     const storedScreen = localStorage.getItem(SCREEN_STORAGE_KEY) || "pos";
     activeScreen = (storedScreen === "items") ? "items" : "pos";
 
+    try {
+      const offRaw = localStorage.getItem(WEB_CONFIG_OFFICIAL_STORAGE_KEY);
+      if (offRaw) config = { ...config, ...(JSON.parse(offRaw) || {}) };
+    } catch (_) {}
+    try {
+      const unRaw = localStorage.getItem(WEB_CONFIG_UNOFFICIAL_STORAGE_KEY);
+      if (unRaw) unofficialConfig = { ...unofficialConfig, ...(JSON.parse(unRaw) || {}) };
+    } catch (_) {}
+
     (async () => {
       // Guard: the unified POS UI expects local desktop agents (/api/*).
       // On remote web hosts this usually returns 404/401 and floods the console.
       const host = String(window?.location?.hostname || "").trim();
       const remoteHost = !_isLoopbackHost(host);
       if (remoteHost) {
+        otherAgentUrl = "";
+        otherAgentDraftUrl = "";
+        try { localStorage.setItem(OTHER_AGENT_URL_STORAGE_KEY, ""); } catch (_) {}
         const probe = await _probeAgentHealth(apiBase);
         if (!probe.localAgentLike) {
           activateWebHostUnsupported("This host responds with backend health, not local POS agent health.");
@@ -2522,35 +2751,7 @@
     {/if}
   </svelte:fragment>
 
-  {#if webHostUnsupported}
-    <section class="glass-panel rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6">
-      <h2 class="text-xl font-extrabold text-ink">Web Host Detected</h2>
-      <p class="mt-2 text-sm text-muted">
-        This URL is loading the unified desktop UI, which needs a local POS agent and cannot run directly from a pure web host.
-      </p>
-      {#if webHostHint}
-        <p class="mt-2 text-xs text-amber-300">{webHostHint}</p>
-      {/if}
-      <div class="mt-4 flex flex-wrap gap-3">
-        <a
-          class="px-4 py-2 rounded-xl border border-ink/10 bg-ink/5 hover:bg-ink/10 text-sm font-semibold"
-          href="https://download.melqard.com"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Download POS Desktop
-        </a>
-        <a
-          class="px-4 py-2 rounded-xl border border-ink/10 bg-ink/5 hover:bg-ink/10 text-sm font-semibold"
-          href="http://127.0.0.1:7070"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Open Local POS (after install)
-        </a>
-      </div>
-    </section>
-  {:else if activeScreen === "pos"}
+  {#if activeScreen === "pos"}
     <div
       class={`grid h-full gap-6 ${
         catalogCollapsed
@@ -2658,6 +2859,17 @@
       resolveByTerm={resolveByTerm}
     />
   {:else}
+    {#if webHostUnsupported}
+      <section class="glass-panel rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 mb-4">
+        <h2 class="text-lg font-extrabold text-ink">Web Setup Mode</h2>
+        <p class="mt-1 text-sm text-muted">
+          Cloud onboarding is available here. For cashier operations and offline-safe selling, use POS Desktop.
+        </p>
+        {#if webHostHint}
+          <p class="mt-1 text-xs text-amber-300">{webHostHint}</p>
+        {/if}
+      </section>
+    {/if}
     <SettingsScreen
       officialConfig={config}
       unofficialConfig={unofficialConfig}
