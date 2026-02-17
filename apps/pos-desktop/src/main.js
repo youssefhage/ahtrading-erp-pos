@@ -27,6 +27,73 @@ async function tauriInvoke(cmd, args = {}) {
   return await fn(String(cmd || ""), args || {});
 }
 
+function getGlobalUpdaterApi() {
+  const updater = globalThis?.__TAURI__?.updater;
+  return updater && typeof updater === "object" ? updater : null;
+}
+
+function createTauriChannel(handler) {
+  const transform = globalThis?.__TAURI_INTERNALS__?.transformCallback;
+  const unregister = globalThis?.__TAURI_INTERNALS__?.unregisterCallback;
+  if (typeof transform !== "function") {
+    throw new Error("Tauri channel bridge unavailable.");
+  }
+
+  const callbackId = transform((payload) => {
+    if (typeof handler !== "function") return;
+    try {
+      handler(payload);
+    } catch {
+      // ignore callback errors
+    }
+  }, false);
+
+  let closed = false;
+  return {
+    toJSON() {
+      return `__CHANNEL__:${callbackId}`;
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      if (typeof unregister !== "function") return;
+      try {
+        unregister(callbackId);
+      } catch {
+        // ignore channel cleanup errors
+      }
+    },
+  };
+}
+
+async function updaterCheck() {
+  const updater = getGlobalUpdaterApi();
+  if (updater && typeof updater.check === "function") {
+    return await updater.check();
+  }
+  return await tauriInvoke("plugin:updater|check", {});
+}
+
+async function updaterDownloadAndInstall(update, onEvent) {
+  if (!update) {
+    throw new Error("No update metadata provided.");
+  }
+  if (typeof update.downloadAndInstall === "function") {
+    await update.downloadAndInstall(onEvent);
+    return;
+  }
+  const rid = Number(update?.rid);
+  if (!Number.isFinite(rid) || rid <= 0) {
+    throw new Error("Update metadata is missing rid. Please check for updates again.");
+  }
+  const channel = createTauriChannel(onEvent);
+  try {
+    await tauriInvoke("plugin:updater|download_and_install", { rid, onEvent: channel });
+  } finally {
+    channel.close();
+  }
+}
+
 // Surface unexpected errors in the UI, otherwise the user experiences "nothing happens".
 window.addEventListener("error", (ev) => {
   try {
@@ -168,6 +235,36 @@ function setBtnBusy(btnId, busy, label = "Working…") {
   if (b.dataset.origLabel) b.textContent = b.dataset.origLabel;
   delete b.dataset.origLabel;
   b.disabled = false;
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text ?? "");
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // fall through to legacy copy
+    }
+  }
+
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    ta.style.pointerEvents = "none";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return !!ok;
+  } catch {
+    return false;
+  }
 }
 
 function reportFatal(err, ctx = "Error") {
@@ -1102,7 +1199,7 @@ async function checkForUpdates({ silent = false } = {}) {
     setStatus("Checking for updates…");
   }
   try {
-    const update = await tauriInvoke("plugin:updater|check", {});
+    const update = await updaterCheck();
     const version = getUpdateVersion(update);
     if (!version) {
       clearUpdateNotification();
@@ -1148,7 +1245,7 @@ async function downloadUpdateNow() {
   btn.disabled = true;
   btn.textContent = version ? `Downloading ${version}…` : "Downloading…";
   try {
-    await tauriInvoke("plugin:updater|download_and_install", { update: availableUpdate });
+    await updaterDownloadAndInstall(availableUpdate);
     setStatus("Update downloaded. Please restart the app.");
     clearUpdateNotification();
   } catch (e) {
@@ -1258,7 +1355,13 @@ async function copyDebugReport() {
       ``,
     ].join("\n");
 
-    await navigator.clipboard.writeText(report);
+    const copied = await copyTextToClipboard(report);
+    if (!copied) {
+      setDiag(report);
+      setStatus("Clipboard access was blocked. Debug report is shown in Diagnostics for manual copy.");
+      reportInfo("Clipboard blocked; rendered debug report in diagnostics.", "Diagnostics");
+      return;
+    }
     setStatus("Debug report copied to clipboard.");
     reportInfo("Debug report copied.", "Diagnostics");
   } catch (e) {

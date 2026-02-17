@@ -228,6 +228,7 @@ function iconForHref(href: string) {
     "/accounting/reports/consolidated": Workflow,
 
     "/automation/ai-hub": Sparkles,
+    "/automation/ap-import": Sparkles,
     "/automation/copilot": Bot,
     "/automation/ops-copilot": Workflow,
 
@@ -366,6 +367,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     label: "Automation",
     items: [
       { label: "AI Hub", href: "/automation/ai-hub" },
+      { label: "AP Import Queue", href: "/automation/ap-import" },
       { label: "Copilot", href: "/automation/copilot" },
       { label: "Ops Copilot", href: "/automation/ops-copilot" }
     ]

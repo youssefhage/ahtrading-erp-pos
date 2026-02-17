@@ -102,6 +102,12 @@ type InvoiceDetail = {
   }>;
 };
 
+type InvoiceNavRow = {
+  id: string;
+  attachment_count?: number;
+  import_status?: string | null;
+};
+
 function toNum(v: string) {
   const r = parseNumberInput(v);
   return r.ok ? r.value : 0;
@@ -126,6 +132,19 @@ function buildUomOptions(base: string | null | undefined, convs: UomConv[]) {
   return out.length ? out : baseUom ? [{ value: baseUom, label: baseUom }] : [];
 }
 
+function supportsInlinePreview(contentType: string) {
+  const ct = String(contentType || "").toLowerCase();
+  return ct.startsWith("image/") || ct === "application/pdf";
+}
+
+function isTypingEventTarget(t: EventTarget | null) {
+  if (!(t instanceof HTMLElement)) return false;
+  const tag = (t.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return true;
+  if ((t as any).isContentEditable) return true;
+  return false;
+}
+
 export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; invoiceId?: string }) {
   const router = useRouter();
 
@@ -140,6 +159,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   // Dev helper to test the end-to-end review/apply flow without OPENAI.
   const [importMockExtract, setImportMockExtract] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
+  const [previewAttachmentId, setPreviewAttachmentId] = useState("");
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [attachmentPickKey, setAttachmentPickKey] = useState(0);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
@@ -179,7 +199,19 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [addExpiry, setAddExpiry] = useState("");
   const addQtyRef = useRef<HTMLInputElement | null>(null);
   const saveHotkeyRef = useRef<() => void>(() => {});
+  const markReviewedHotkeyRef = useRef<() => void>(() => {});
+  const supplierFieldRef = useRef<HTMLDivElement | null>(null);
+  const supplierRefInputRef = useRef<HTMLInputElement | null>(null);
+  const addItemRootRef = useRef<HTMLDivElement | null>(null);
+  const autoFocusPendingRef = useRef(false);
   const supplierCostCache = useRef(new Map<string, { usd: number; lbp: number } | null>());
+  const [prevDraftId, setPrevDraftId] = useState("");
+  const [nextDraftId, setNextDraftId] = useState("");
+  const [navLoading, setNavLoading] = useState(false);
+  const [markReviewing, setMarkReviewing] = useState(false);
+  const lineCount = lines.length;
+  const importStatusLower = String(importStatus || "").toLowerCase();
+  const canMarkReviewed = props.mode === "edit" && importStatusLower !== "pending" && importStatusLower !== "processing";
 
   const ensureUomConversions = useCallback(async (itemIds: string[]) => {
     const ids = Array.from(new Set((itemIds || []).map((x) => String(x || "").trim()).filter(Boolean)));
@@ -268,6 +300,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
           setImportLines([]);
           setImportLinesLoading(false);
         }
+        autoFocusPendingRef.current = true;
       } else {
         setSupplierId("");
         setSupplierLabel("");
@@ -285,6 +318,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setImportError("");
         setImportLines([]);
         setImportLinesLoading(false);
+        autoFocusPendingRef.current = false;
       }
 
       setStatus("");
@@ -301,17 +335,9 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   }, [load]);
 
   useEffect(() => {
-    function isTypingTarget(t: EventTarget | null) {
-      if (!(t instanceof HTMLElement)) return false;
-      const tag = (t.tagName || "").toLowerCase();
-      if (tag === "input" || tag === "textarea" || tag === "select") return true;
-      if ((t as any).isContentEditable) return true;
-      return false;
-    }
-
     function onKeyDown(e: KeyboardEvent) {
       if (loading) return;
-      if (isTypingTarget(e.target)) return;
+      if (isTypingEventTarget(e.target)) return;
       const mod = e.metaKey || e.ctrlKey;
       const key = (e.key || "").toLowerCase();
       if (!mod) return;
@@ -319,6 +345,12 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       if (key === "s") {
         e.preventDefault();
         saveHotkeyRef.current?.();
+        return;
+      }
+      if (key === "enter" && e.shiftKey) {
+        if (!canMarkReviewed) return;
+        e.preventDefault();
+        markReviewedHotkeyRef.current?.();
         return;
       }
       if (key === "enter") {
@@ -329,7 +361,119 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [loading]);
+  }, [loading, canMarkReviewed]);
+
+  useEffect(() => {
+    if (!attachments.length) {
+      setPreviewAttachmentId("");
+      return;
+    }
+    if (!previewAttachmentId || !attachments.some((a) => String(a.id) === String(previewAttachmentId))) {
+      setPreviewAttachmentId(String(attachments[0].id || ""));
+    }
+  }, [attachments, previewAttachmentId]);
+
+  const refreshDraftNeighbors = useCallback(async () => {
+    if (props.mode !== "edit") return;
+    const currentId = (props.invoiceId || "").trim();
+    if (!currentId) {
+      setPrevDraftId("");
+      setNextDraftId("");
+      return;
+    }
+    setNavLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      qs.set("status", "draft");
+      qs.set("sort", "created_at");
+      qs.set("dir", "desc");
+      const st = String(importStatus || "").trim().toLowerCase();
+      if (st && st !== "none") qs.set("import_status", st);
+      const res = await apiGet<{ invoices: InvoiceNavRow[] }>(`/purchases/invoices?${qs.toString()}`);
+      const invoices = (res.invoices || []).filter((r) => String(r?.id || "").trim());
+      const withAttachments = invoices.filter((r) => Number(r.attachment_count || 0) > 0);
+      const source = withAttachments.length ? withAttachments : invoices;
+      const idx = source.findIndex((r) => String(r.id) === currentId);
+      if (idx < 0) {
+        setPrevDraftId("");
+        setNextDraftId("");
+        return;
+      }
+      setPrevDraftId(String(source[idx - 1]?.id || ""));
+      setNextDraftId(String(source[idx + 1]?.id || ""));
+    } catch {
+      setPrevDraftId("");
+      setNextDraftId("");
+    } finally {
+      setNavLoading(false);
+    }
+  }, [props.mode, props.invoiceId, importStatus]);
+
+  useEffect(() => {
+    if (props.mode !== "edit") return;
+    if (loading) return;
+    void refreshDraftNeighbors();
+  }, [props.mode, loading, refreshDraftNeighbors]);
+
+  useEffect(() => {
+    if (props.mode !== "edit") return;
+    if (loading) return;
+    if (!autoFocusPendingRef.current) return;
+
+    const focusWithin = (root: HTMLElement | null) => {
+      const input = root?.querySelector<HTMLInputElement>("input:not([type='hidden']):not([disabled])");
+      if (!input) return false;
+      input.focus();
+      try {
+        input.select?.();
+      } catch {
+        // ignore
+      }
+      return true;
+    };
+
+    let focused = false;
+    if (!String(supplierId || "").trim()) {
+      focused = focusWithin(supplierFieldRef.current);
+    } else if (!String(supplierRef || "").trim()) {
+      if (supplierRefInputRef.current) {
+        supplierRefInputRef.current.focus();
+        try {
+          supplierRefInputRef.current.select?.();
+        } catch {
+          // ignore
+        }
+        focused = true;
+      }
+    } else if (lineCount === 0) {
+      focused = focusWithin(addItemRootRef.current);
+    }
+
+    autoFocusPendingRef.current = false;
+    if (!focused) return;
+  }, [props.mode, loading, supplierId, supplierRef, lineCount]);
+
+  useEffect(() => {
+    if (props.mode !== "edit") return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (loading || saving || navLoading) return;
+      if (isTypingEventTarget(e.target)) return;
+      const key = (e.key || "").toLowerCase();
+      if ((e.altKey && key === "arrowup") || key === "[") {
+        if (!prevDraftId) return;
+        e.preventDefault();
+        router.push(`/purchasing/supplier-invoices/${encodeURIComponent(prevDraftId)}/edit`);
+        return;
+      }
+      if ((e.altKey && key === "arrowdown") || key === "]") {
+        if (!nextDraftId) return;
+        e.preventDefault();
+        router.push(`/purchasing/supplier-invoices/${encodeURIComponent(nextDraftId)}/edit`);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [props.mode, loading, saving, navLoading, prevDraftId, nextDraftId, router]);
 
   // If this draft was created via async import, poll until the worker fills it.
   useEffect(() => {
@@ -521,9 +665,13 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     }
   }
 
-  async function save(e?: React.FormEvent) {
+  async function save(
+    e?: React.FormEvent,
+    opts?: { navigateOnEdit?: boolean; onSaved?: () => Promise<void> | void; throwOnError?: boolean }
+  ) {
     e?.preventDefault();
     if (!supplierId) return setStatus("supplier is required");
+    const navigateOnEdit = opts?.navigateOnEdit ?? true;
 
     const exRes = parseNumberInput(exchangeRate);
     if (!exRes.ok && exRes.reason === "invalid") return setStatus("Invalid exchange rate.");
@@ -607,15 +755,20 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         if (!id) throw new Error("missing invoice id");
         await apiPatch(`/purchases/invoices/${id}/draft`, payload);
         setStatus("");
-        router.push(`/purchasing/supplier-invoices/${id}`);
+        if (typeof opts?.onSaved === "function") await opts.onSaved();
+        if (navigateOnEdit) {
+          router.push(`/purchasing/supplier-invoices/${id}`);
+        }
       } else {
         const res = await apiPost<{ id: string }>("/purchases/invoices/drafts", payload);
         setStatus("");
+        if (typeof opts?.onSaved === "function") await opts.onSaved();
         router.push(`/purchasing/supplier-invoices/${res.id}`);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+      if (opts?.throwOnError) throw err;
     } finally {
       setSaving(false);
     }
@@ -623,8 +776,52 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
 
   // Avoid hotkey effect re-attaching every render: keep latest save() in a ref.
   saveHotkeyRef.current = () => void save();
+  markReviewedHotkeyRef.current = () => void markReviewedAndNext();
 
   const title = props.mode === "edit" ? "Edit Draft Supplier Invoice" : "Create Draft Supplier Invoice";
+  const previewAttachment = useMemo(() => {
+    if (!attachments.length) return null;
+    const selected = attachments.find((a) => String(a.id) === String(previewAttachmentId));
+    return selected || attachments[0] || null;
+  }, [attachments, previewAttachmentId]);
+  const previewUrl = previewAttachment ? apiUrl(`/attachments/${encodeURIComponent(previewAttachment.id)}/view`) : "";
+  const hasInlinePreview = previewAttachment ? supportsInlinePreview(String(previewAttachment.content_type || "")) : false;
+
+  async function markReviewedAndNext() {
+    if (props.mode !== "edit") return;
+    const id = (props.invoiceId || "").trim();
+    if (!id) return;
+
+    setMarkReviewing(true);
+    setStatus("Saving + marking reviewed...");
+    let marked = false;
+    try {
+      await save(undefined, {
+        navigateOnEdit: false,
+        throwOnError: true,
+        onSaved: async () => {
+          const res = await apiPost<{ ok: boolean; import_status?: string; line_count?: number }>(
+            `/purchases/invoices/${encodeURIComponent(id)}/import-review/mark`,
+            {}
+          );
+          setImportStatus(String(res.import_status || ""));
+          marked = true;
+        },
+      });
+      if (!marked) return;
+      if (nextDraftId) {
+        router.push(`/purchasing/supplier-invoices/${encodeURIComponent(nextDraftId)}/edit`);
+        return;
+      }
+      await refreshDraftNeighbors();
+      setStatus("Marked reviewed. No next draft in the current queue.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setMarkReviewing(false);
+    }
+  }
 
   async function reloadAttachments(id: string) {
     try {
@@ -743,13 +940,40 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">{title}</h1>
           <p className="text-sm text-fg-muted">Draft first, then Post when ready (stock + GL).</p>
         </div>
         <div className="flex items-center gap-2">
+          {props.mode === "edit" ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => prevDraftId && router.push(`/purchasing/supplier-invoices/${encodeURIComponent(prevDraftId)}/edit`)}
+                disabled={!prevDraftId || loading || saving || navLoading}
+                title="Shortcut: [ or Alt+Up"
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => nextDraftId && router.push(`/purchasing/supplier-invoices/${encodeURIComponent(nextDraftId)}/edit`)}
+                disabled={!nextDraftId || loading || saving || navLoading}
+                title="Shortcut: ] or Alt+Down"
+              >
+                Next
+              </Button>
+              <Button
+                onClick={() => void markReviewedAndNext()}
+                disabled={!canMarkReviewed || loading || saving || markReviewing}
+                title="Save draft, mark reviewed, then open next draft"
+              >
+                {markReviewing ? "Reviewing..." : "Mark Reviewed + Next"}
+              </Button>
+            </>
+          ) : null}
           <Button variant="outline" onClick={() => router.push("/purchasing/supplier-invoices")}>
             Back
           </Button>
@@ -759,6 +983,15 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       {status ? (
         <ErrorBanner error={status} onRetry={load} />
       ) : null}
+
+      <div
+        className={
+          props.mode === "edit"
+            ? "grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_34rem] 2xl:grid-cols-[minmax(0,1fr)_38rem]"
+            : "space-y-6"
+        }
+      >
+      <div className="space-y-6">
 
       {props.mode === "edit" && importStatus ? (
         <Card>
@@ -981,14 +1214,24 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     </tr>
                   </thead>
                   <tbody>
-                    {attachments.map((a) => (
-                      <tr key={a.id} className="border-t border-border-subtle">
+                    {attachments.map((a) => {
+                      const selected = String(a.id) === String(previewAttachmentId);
+                      return (
+                      <tr key={a.id} className={`border-t border-border-subtle ${selected ? "bg-bg-elevated/40" : ""}`}>
                         <td className="px-3 py-2 text-xs">{a.filename || a.id}</td>
                         <td className="px-3 py-2 font-mono text-xs text-fg-muted">{a.content_type}</td>
                         <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{Math.max(0, Number(a.size_bytes || 0)).toLocaleString("en-US")}</td>
                         <td className="px-3 py-2 font-mono text-xs text-fg-muted">{String(a.uploaded_at || "")}</td>
                         <td className="px-3 py-2 text-right">
                           <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant={selected ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setPreviewAttachmentId(String(a.id))}
+                            >
+                              Preview
+                            </Button>
                             <Button asChild variant="outline" size="sm">
                               <a href={apiUrl(`/attachments/${a.id}/view`)} target="_blank" rel="noreferrer">
                                 View
@@ -1002,7 +1245,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );
+                  })}
                   </tbody>
                 </table>
               </div>
@@ -1021,7 +1265,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         <CardContent>
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="space-y-1 md:col-span-2">
+              <div className="space-y-1 md:col-span-2" ref={supplierFieldRef}>
                 <label className="text-xs font-medium text-fg-muted">Supplier</label>
                 <SupplierTypeahead
                   disabled={loading}
@@ -1041,7 +1285,13 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="space-y-1 md:col-span-2">
                 <label className="text-xs font-medium text-fg-muted">Supplier Ref (optional)</label>
-                <Input value={supplierRef} onChange={(e) => setSupplierRef(e.target.value)} placeholder="Vendor invoice number / reference" disabled={loading} />
+                <Input
+                  ref={supplierRefInputRef}
+                  value={supplierRef}
+                  onChange={(e) => setSupplierRef(e.target.value)}
+                  placeholder="Vendor invoice number / reference"
+                  disabled={loading}
+                />
                 <p className="text-[11px] text-fg-subtle">When set, we enforce uniqueness per supplier (helps avoid duplicate postings).</p>
               </div>
             </div>
@@ -1099,7 +1349,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
               </CardHeader>
               <CardContent className="space-y-3">
                 <form onSubmit={addLine} className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                  <div className={`space-y-1 ${showSecondaryCurrency ? "md:col-span-5" : "md:col-span-7"}`}>
+                  <div ref={addItemRootRef} className={`space-y-1 ${showSecondaryCurrency ? "md:col-span-5" : "md:col-span-7"}`}>
                     <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
                     <ItemTypeahead globalScan disabled={loading} onSelect={(it) => void onPickItem(it)} />
                     {addItem ? (
@@ -1310,6 +1560,77 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
           </div>
         </CardContent>
       </Card>
+
+      </div>
+
+      {props.mode === "edit" ? (
+        <div className="space-y-4 xl:sticky xl:top-6 xl:h-fit">
+          <Card>
+            <CardHeader>
+              <CardTitle>Document Preview</CardTitle>
+              <CardDescription>
+                Compare the source document on the right while editing the real invoice fields on the left.
+                Use <span className="font-mono text-[11px]">[</span> / <span className="font-mono text-[11px]">]</span> (or Alt+Up/Down) to move between drafts.
+                Use <span className="font-mono text-[11px]">Cmd/Ctrl+Shift+Enter</span> to mark reviewed and continue.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!previewAttachment ? (
+                <div className="rounded-md border border-dashed border-border-subtle p-4 text-sm text-fg-muted">
+                  No attachment selected yet.
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-md border border-border-subtle bg-bg-elevated/40 p-3">
+                    <div className="truncate text-sm font-medium">{previewAttachment.filename || previewAttachment.id}</div>
+                    <div className="mt-1 font-mono text-[11px] text-fg-subtle">
+                      {previewAttachment.content_type} · {Math.max(0, Number(previewAttachment.size_bytes || 0)).toLocaleString("en-US")} bytes
+                    </div>
+                  </div>
+                  {attachments.length > 1 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {attachments.map((a, idx) => {
+                        const selected = String(a.id) === String(previewAttachment.id);
+                        return (
+                          <Button
+                            key={a.id}
+                            type="button"
+                            size="sm"
+                            variant={selected ? "default" : "outline"}
+                            className="h-7 px-2 text-[11px]"
+                            onClick={() => setPreviewAttachmentId(String(a.id))}
+                          >
+                            {idx + 1}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {hasInlinePreview ? (
+                    <iframe
+                      title={previewAttachment.filename || "Attachment preview"}
+                      src={previewUrl}
+                      className="h-[78vh] w-full rounded-md border border-border-subtle"
+                    />
+                  ) : (
+                    <div className="rounded-md border border-dashed border-border-subtle p-4 text-sm text-fg-muted">
+                      This file type cannot be previewed inline.
+                    </div>
+                  )}
+                  <div className="flex justify-end">
+                    <Button asChild variant="outline" size="sm">
+                      <a href={previewUrl} target="_blank" rel="noreferrer">
+                        Open full size
+                      </a>
+                    </Button>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+      </div>
 
       <Dialog open={nameSuggestOpen} onOpenChange={(o) => setNameSuggestOpen(o)}>
         <DialogContent className="max-w-xl">

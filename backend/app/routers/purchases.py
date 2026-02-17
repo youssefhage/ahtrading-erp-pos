@@ -728,6 +728,11 @@ class SupplierInvoiceImportLineUpdateIn(BaseModel):
     status: Optional[str] = None  # pending|resolved|skipped
 
 
+class SupplierInvoiceImportReviewMarkIn(BaseModel):
+    outcome: Optional[str] = None  # filled|skipped (optional; auto by line_count when omitted)
+    note: Optional[str] = None
+
+
 @router.post("/invoices/drafts/import-file", dependencies=[Depends(require_permission("purchases:write"))])
 def import_supplier_invoice_draft_from_file(
     file: UploadFile = File(...),
@@ -736,6 +741,7 @@ def import_supplier_invoice_draft_from_file(
     auto_create_supplier: bool = Form(True),
     auto_create_items: bool = Form(True),
     auto_apply: bool = Form(False),
+    skip_extract: bool = Form(False),
     mock_extract: bool = Form(False),
     async_import: bool = Form(True),
     company_id: str = Depends(get_company_id),
@@ -748,6 +754,9 @@ def import_supplier_invoice_draft_from_file(
 
     Default (async_import=true): returns quickly (draft + attachment) and queues a background
     worker to fill the draft later.
+
+    Optional (skip_extract=true): create draft + attachment only and skip extraction entirely.
+    Useful for large manual migrations where external AI spend must be zero.
 
     Optional (async_import=false): extract + fill immediately (useful for local debugging).
     Optional (mock_extract=true): dev-only stub extraction to test the review/apply UX without OPENAI.
@@ -842,7 +851,46 @@ def import_supplier_invoice_draft_from_file(
                     ),
                 )
 
-                if async_import:
+                if skip_extract:
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoices
+                        SET import_status='skipped',
+                            import_error='Extraction skipped by request.',
+                            import_finished_at=now(),
+                            import_attachment_id=%s,
+                            import_options_json=%s::jsonb
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (
+                            attachment_id,
+                            json.dumps(
+                                {
+                                    "skip_extract": True,
+                                    "auto_create_supplier": bool(auto_create_supplier),
+                                    "auto_create_items": bool(auto_create_items),
+                                    "auto_apply": bool(auto_apply),
+                                    "mock_extract": bool(mock_extract),
+                                }
+                            ),
+                            company_id,
+                            invoice_id,
+                        ),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                        VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_skipped', 'supplier_invoice', %s, %s::jsonb)
+                        """,
+                        (
+                            company_id,
+                            user["user_id"],
+                            invoice_id,
+                            json.dumps({"attachment_id": str(attachment_id), "filename": filename, "reason": "skip_extract"}),
+                        ),
+                    )
+
+                if async_import and not skip_extract:
                     cur.execute(
                         """
                         UPDATE supplier_invoices
@@ -875,6 +923,10 @@ def import_supplier_invoice_draft_from_file(
                         """,
                         (company_id, user["user_id"], invoice_id, json.dumps({"attachment_id": str(attachment_id), "filename": filename})),
                     )
+
+        if skip_extract:
+            warnings.append("Extraction skipped by request: draft + attachment created for manual review.")
+            return {"id": invoice_id, "invoice_no": invoice_no, "attachment_id": attachment_id, "queued": False, "ai_extracted": False, "warnings": warnings}
 
         if async_import:
             warnings.append("Import queued: the worker will extract and prepare lines for review in the background.")
@@ -1030,6 +1082,95 @@ def update_supplier_invoice_import_line(
                     (company_id, user["user_id"], invoice_id, json.dumps({"line_id": line_id, "resolved_item_id": resolved_item_id, "status": status})),
                 )
                 return {"ok": True}
+
+
+@router.post("/invoices/{invoice_id}/import-review/mark", dependencies=[Depends(require_permission("purchases:write"))])
+def mark_supplier_invoice_import_reviewed(
+    invoice_id: str,
+    data: SupplierInvoiceImportReviewMarkIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    """
+    Mark an imported draft as reviewed.
+    - outcome is optional: defaults to 'filled' if draft has lines, otherwise 'skipped'.
+    - useful for manual migration workflows where reviewers need a fast queue progression step.
+    """
+    wanted = (data.outcome or "").strip().lower() or None
+    if wanted and wanted not in {"filled", "skipped"}:
+        raise HTTPException(status_code=400, detail="outcome must be filled|skipped when provided")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, status, import_status, import_error
+                    FROM supplier_invoices
+                    WHERE company_id=%s AND id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, invoice_id),
+                )
+                inv = cur.fetchone()
+                if not inv:
+                    raise HTTPException(status_code=404, detail="invoice not found")
+                if inv["status"] != "draft":
+                    raise HTTPException(status_code=400, detail="only draft invoices can be marked reviewed")
+                prev_import_status = str(inv.get("import_status") or "").lower()
+                if prev_import_status in {"pending", "processing"}:
+                    raise HTTPException(status_code=409, detail="import is still in progress")
+
+                cur.execute(
+                    """
+                    SELECT COUNT(*)::int AS n
+                    FROM supplier_invoice_lines
+                    WHERE company_id=%s AND supplier_invoice_id=%s
+                    """,
+                    (company_id, invoice_id),
+                )
+                line_count = int((cur.fetchone() or {}).get("n") or 0)
+                outcome = wanted or ("filled" if line_count > 0 else "skipped")
+                if outcome == "filled" and line_count <= 0:
+                    raise HTTPException(status_code=409, detail="cannot mark filled with zero invoice lines")
+
+                note = (data.note or "").strip() or None
+                skip_msg = note or "Marked reviewed: skipped from import queue."
+                cur.execute(
+                    """
+                    UPDATE supplier_invoices
+                    SET import_status=%s,
+                        import_finished_at=now(),
+                        import_error=CASE
+                          WHEN %s='filled' THEN NULL
+                          ELSE COALESCE(NULLIF(import_error,''), %s)
+                        END
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (outcome, outcome, skip_msg, company_id, invoice_id),
+                )
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_review_marked', 'supplier_invoice', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        invoice_id,
+                        json.dumps(
+                            {
+                                "outcome": outcome,
+                                "line_count": line_count,
+                                "previous_import_status": prev_import_status,
+                                "note": note,
+                            }
+                        ),
+                    ),
+                )
+                return {"ok": True, "import_status": outcome, "line_count": line_count}
 
 
 @router.post("/invoices/{invoice_id}/import-lines/apply", dependencies=[Depends(require_permission("purchases:write"))])
@@ -1360,6 +1501,7 @@ def list_supplier_invoices(
     offset: int = 0,
     q: Optional[str] = None,
     status: Optional[DocStatus] = None,
+    import_status: Optional[str] = None,
     supplier_id: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
@@ -1373,6 +1515,9 @@ def list_supplier_invoices(
                 raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
             if offset < 0:
                 raise HTTPException(status_code=400, detail="offset must be >= 0")
+            import_status = (import_status or "").strip().lower() or None
+            if import_status and import_status not in {"none", "pending", "processing", "pending_review", "filled", "skipped", "failed"}:
+                raise HTTPException(status_code=400, detail="invalid import_status")
 
             sort_allow = {
                 "created_at": "i.created_at",
@@ -1408,6 +1553,9 @@ def list_supplier_invoices(
             if supplier_id:
                 base_sql += " AND i.supplier_id = %s"
                 params.append(supplier_id)
+            if import_status:
+                base_sql += " AND lower(coalesce(i.import_status, 'none')) = %s"
+                params.append(import_status)
             if date_from:
                 base_sql += " AND i.created_at::date >= %s"
                 params.append(date_from)
@@ -1430,6 +1578,7 @@ def list_supplier_invoices(
             select_sql = f"""
                 SELECT i.id, i.invoice_no, i.supplier_ref, i.supplier_id, s.name AS supplier_name,
                        i.goods_receipt_id, gr.receipt_no AS goods_receipt_no,
+                       i.import_status,
                        i.is_on_hold, i.hold_reason,
                        i.status, i.total_usd, i.total_lbp, i.tax_code_id, i.invoice_date, i.due_date, i.created_at,
                        COALESCE(att.attachment_count, 0) AS attachment_count

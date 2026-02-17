@@ -83,7 +83,8 @@ const TITLE_BY_PATH: Record<string, string> = {
   "/system/audit-logs": "Audit Logs",
   "/automation/copilot": "Copilot",
   "/automation/ops-copilot": "Ops Copilot",
-  "/automation/ai-hub": "AI Hub"
+  "/automation/ai-hub": "AI Hub",
+  "/automation/ap-import": "AP Import Queue"
 };
 
 function isPublicPath(pathname: string) {

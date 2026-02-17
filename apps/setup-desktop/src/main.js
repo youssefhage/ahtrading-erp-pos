@@ -43,6 +43,68 @@ async function tauriListen(event, handler, options = {}) {
   };
 }
 
+function getGlobalUpdaterApi() {
+  const updater = globalThis?.__TAURI__?.updater;
+  return updater && typeof updater === "object" ? updater : null;
+}
+
+function createTauriChannel(handler) {
+  const unregister = globalThis?.__TAURI_INTERNALS__?.unregisterCallback;
+  const callbackId = tauriTransformCallback((payload) => {
+    if (typeof handler !== "function") return;
+    try {
+      handler(payload);
+    } catch {
+      // ignore callback errors
+    }
+  });
+
+  let closed = false;
+  return {
+    toJSON() {
+      return `__CHANNEL__:${callbackId}`;
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      if (typeof unregister !== "function") return;
+      try {
+        unregister(callbackId);
+      } catch {
+        // ignore channel cleanup errors
+      }
+    },
+  };
+}
+
+async function updaterCheck() {
+  const updater = getGlobalUpdaterApi();
+  if (updater && typeof updater.check === "function") {
+    return await updater.check();
+  }
+  return await tauriInvoke("plugin:updater|check", {});
+}
+
+async function updaterDownloadAndInstall(update, onEvent) {
+  if (!update) {
+    throw new Error("No update metadata provided.");
+  }
+  if (typeof update.downloadAndInstall === "function") {
+    await update.downloadAndInstall(onEvent);
+    return;
+  }
+  const rid = Number(update?.rid);
+  if (!Number.isFinite(rid) || rid <= 0) {
+    throw new Error("Update metadata is missing rid. Please check for updates again.");
+  }
+  const channel = createTauriChannel(onEvent);
+  try {
+    await tauriInvoke("plugin:updater|download_and_install", { rid, onEvent: channel });
+  } finally {
+    channel.close();
+  }
+}
+
 const KEY = "melqard.setupDesktop.state.v1";
 
 function el(id) {
@@ -151,10 +213,10 @@ function updateModeUi() {
 async function autoUpdate() {
   // Quiet auto-update: great for fast internal iteration, but should not block offline usage.
   try {
-    const update = await tauriInvoke("plugin:updater|check", {});
+    const update = await updaterCheck();
     if (!update) return;
     appendLog(`[updater] Update available: ${update.version}. Downloading...`);
-    await tauriInvoke("plugin:updater|download_and_install", { update });
+    await updaterDownloadAndInstall(update);
     appendLog("[updater] Update installed. Please restart the app.");
     setStatus("Update installed. Please restart the app.");
   } catch {
