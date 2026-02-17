@@ -139,8 +139,8 @@ export default function InventoryBatchesPage() {
         globalSearch: false,
         cell: (b) => (
           <div className="text-xs">
-            <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">{b.status}</span>
-            {b.hold_reason ? <span className="ml-2 text-[10px] text-fg-subtle">{b.hold_reason}</span> : null}
+            <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-xs text-fg-muted">{b.status}</span>
+            {b.hold_reason ? <span className="ml-2 text-xs text-fg-subtle">{b.hold_reason}</span> : null}
           </div>
         ),
       },
@@ -186,7 +186,7 @@ export default function InventoryBatchesPage() {
         accessor: (r) => `${r.source_type || ""} ${r.goods_receipt_no || ""} ${r.source_id || ""}`.trim(),
         cell: (r) => (
           <div className="text-xs">
-            <div className="font-mono text-[10px] text-fg-muted">{r.source_type}</div>
+            <div className="font-mono text-xs text-fg-muted">{r.source_type}</div>
             <div className="text-fg-subtle">{r.goods_receipt_no ? `GR ${r.goods_receipt_no}` : r.source_id}</div>
           </div>
         ),
@@ -198,8 +198,8 @@ export default function InventoryBatchesPage() {
         accessor: (r) => `${r.location_code || ""} ${r.location_name || ""}`.trim(),
         cell: (r) => (
           <div className="text-xs">
-            <div className="font-mono text-[10px]">{r.location_code || "-"}</div>
-            {r.location_name ? <div className="text-[10px] text-fg-subtle">{r.location_name}</div> : null}
+            <div className="font-mono text-xs">{r.location_code || "-"}</div>
+            {r.location_name ? <div className="text-xs text-fg-subtle">{r.location_name}</div> : null}
           </div>
         ),
       },

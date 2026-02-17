@@ -176,7 +176,12 @@ def _recommendation_view(row: dict[str, Any]) -> dict[str, Any]:
             issue_severities.append(issue.get("severity"))
         issue_count = len(issues)
         title = "Item master-data issues"
-        summary = f"{item_label or 'Item'} has {issue_count} data issue(s)." if issue_count else "Item has data quality issues."
+        primary_issue = issue_messages[0] if issue_messages else ""
+        if primary_issue:
+            extra = f" (+{max(0, issue_count - 1)} more)" if issue_count > 1 else ""
+            summary = f"{item_label or 'Item'}: {primary_issue}{extra}"
+        else:
+            summary = f"{item_label or 'Item'} has {issue_count} data issue(s)." if issue_count else "Item has data quality issues."
         next_step = "Open item details and complete missing barcode, tax, or supplier fields."
         severity = _max_severity(issue_severities) or "medium"
         details = issue_messages[:4]

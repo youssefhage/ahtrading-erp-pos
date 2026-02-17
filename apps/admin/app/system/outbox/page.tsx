@@ -67,7 +67,7 @@ export default function OutboxPage() {
       cell: (e) => (
         <span className="font-mono text-xs">
           {e.device_code}
-          <div className="text-[10px] text-fg-subtle">{e.device_id}</div>
+          <div className="text-xs text-fg-subtle">{e.device_id}</div>
         </span>
       ),
     },
@@ -82,7 +82,7 @@ export default function OutboxPage() {
       defaultHidden: true,
       cell: (e) =>
         e.error_message ? (
-          <pre className="max-w-[520px] whitespace-pre-wrap text-[11px] text-fg-muted">{e.error_message}</pre>
+          <pre className="max-w-[520px] whitespace-pre-wrap text-xs text-fg-muted">{e.error_message}</pre>
         ) : (
           <span className="text-xs text-fg-subtle">-</span>
         ),

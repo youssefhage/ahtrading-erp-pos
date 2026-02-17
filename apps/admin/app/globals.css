@@ -32,17 +32,17 @@
     /* Status colors: functional but muted */
     --success: 34 197 94;  /* green-500 */
     --success-fg: 0 0 0;
-    /* Warning should stand out but we avoid yellow/orange per preference; use cyan. */
-    --warning: 34 211 238; /* cyan-400 */
-    --warning-fg: 0 0 0;
-    --danger: 239 68 68;   /* red-500 */
+    /* Warning and danger: red family with different intensities. */
+    --warning: 239 68 68;  /* red-500 */
+    --warning-fg: 255 255 255;
+    --danger: 185 28 28;   /* red-700 */
     --danger-fg: 255 255 255;
     --info: 59 130 246;    /* blue-500 */
     --info-fg: 255 255 255;
 
     /* Terminal-specific */
     --terminal-green: 74 222 128; /* green-400: data accents */
-    --terminal-amber: 34 211 238; /* legacy name; maps to warning (cyan) */
+    --terminal-amber: 239 68 68;  /* legacy name; maps to warning (red) */
     --terminal-cyan: 34 211 238;  /* cyan-400: info */
 
     /* Ring focus */
@@ -208,7 +208,7 @@
   }
 
   .ui-panel-title {
-    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-fg-subtle;
+    @apply text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle;
   }
 
   .ui-panel-value {
@@ -242,6 +242,134 @@
 
   .ui-kv-sub {
     @apply text-xs text-fg-muted;
+  }
+
+  /* Shared detail-page outline (Sales/Purchasing/Accounting) */
+  .ui-detail-shell {
+    @apply mx-auto max-w-6xl space-y-5;
+  }
+
+  .ui-detail-shell-wide {
+    @apply mx-auto max-w-7xl space-y-5;
+  }
+
+  .ui-detail-header {
+    @apply rounded-xl border border-border-subtle bg-bg-elevated px-4 py-4 md:px-5;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 10px 24px rgba(0, 0, 0, 0.06);
+  }
+
+  .ui-detail-header-row {
+    @apply flex flex-wrap items-start justify-between gap-3;
+  }
+
+  .ui-detail-title {
+    @apply text-xl font-semibold tracking-tight text-foreground md:text-2xl;
+  }
+
+  .ui-detail-subtitle {
+    @apply text-sm leading-relaxed text-fg-muted;
+  }
+
+  .ui-detail-meta {
+    @apply mt-1 flex flex-wrap items-center gap-2 text-sm text-fg-muted;
+  }
+
+  .ui-detail-meta-id {
+    @apply data-mono text-sm text-foreground;
+  }
+
+  .ui-detail-actions {
+    @apply flex flex-wrap items-center justify-end gap-2;
+  }
+
+  .ui-detail-section {
+    @apply rounded-lg border border-border-subtle bg-bg-sunken/20 p-3;
+  }
+
+  .ui-detail-section-title {
+    @apply text-sm font-semibold text-foreground;
+  }
+
+  .ui-detail-section-copy {
+    @apply mt-1 text-sm leading-relaxed text-fg-muted;
+  }
+
+  /* Shared module/list-page outline */
+  .ui-module-shell {
+    @apply mx-auto max-w-7xl space-y-5;
+  }
+
+  .ui-module-shell-narrow {
+    @apply mx-auto max-w-6xl space-y-5;
+  }
+
+  .ui-module-head {
+    @apply rounded-xl border border-border-subtle bg-bg-elevated px-4 py-4 md:px-5;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03), 0 10px 24px rgba(0, 0, 0, 0.06);
+  }
+
+  .ui-module-head-row {
+    @apply flex flex-wrap items-start justify-between gap-3;
+  }
+
+  .ui-module-kicker {
+    @apply text-xs font-semibold uppercase tracking-[0.12em] text-fg-subtle;
+  }
+
+  .ui-module-title {
+    @apply mt-1 text-xl font-semibold tracking-tight text-foreground md:text-2xl;
+  }
+
+  .ui-module-subtitle {
+    @apply mt-1 text-sm leading-relaxed text-fg-muted;
+  }
+
+  .ui-module-actions {
+    @apply flex flex-wrap items-center justify-end gap-2;
+  }
+
+  .ui-actions-inline {
+    @apply flex flex-wrap items-center justify-end gap-2;
+  }
+
+  .ui-actions-between {
+    @apply flex flex-wrap items-center justify-between gap-2;
+  }
+
+  .ui-form-grid {
+    @apply grid grid-cols-1 gap-3;
+  }
+
+  .ui-form-grid-2 {
+    @apply ui-form-grid md:grid-cols-2;
+  }
+
+  .ui-form-grid-3 {
+    @apply ui-form-grid md:grid-cols-3;
+  }
+
+  .ui-form-grid-4 {
+    @apply ui-form-grid md:grid-cols-4;
+  }
+
+  .ui-form-grid-6 {
+    @apply ui-form-grid md:grid-cols-6;
+  }
+
+  .ui-metric-grid {
+    @apply grid grid-cols-1 gap-2 md:grid-cols-2;
+  }
+
+  .ui-metric {
+    @apply rounded-md border border-border bg-bg-elevated p-3;
+  }
+
+  .ui-metric-label {
+    @apply text-sm text-fg-subtle;
+  }
+
+  .ui-metric-value {
+    @apply mt-1 data-mono text-sm text-foreground;
   }
 
   /* Navigation rail item */
@@ -359,7 +487,7 @@
 
   .ui-thead {
     /* Slightly larger + darker header text improves scan-ability. */
-    @apply text-[11px] font-semibold uppercase tracking-wider text-fg-muted;
+    @apply text-xs font-semibold uppercase tracking-wider text-fg-muted;
     @apply border-b border-border-subtle;
     background: rgb(var(--table-head-bg));
   }
@@ -394,7 +522,7 @@
   }
 
   .ui-tone-lbp {
-    color: rgb(var(--warning));
+    color: rgb(var(--terminal-cyan));
   }
 
   .ui-tone-qty {
@@ -493,7 +621,7 @@
 
   /* Keyboard shortcuts */
   .ui-kbd {
-    @apply inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[11px] font-mono font-medium;
+    @apply inline-flex items-center justify-center rounded px-1.5 py-0.5 text-xs font-mono font-medium;
     @apply bg-bg-elevated text-fg-muted border border-border;
     box-shadow: 0 1px 0 rgb(var(--border-strong));
   }
@@ -504,23 +632,23 @@
   }
 
   .ui-chip-default {
-    @apply bg-bg-elevated text-fg-muted border border-border;
+    @apply border border-border bg-bg-elevated text-fg-muted;
   }
 
   .ui-chip-primary {
-    @apply bg-primary/10 text-primary border border-primary/20;
+    @apply border border-primary/20 bg-primary/5 text-foreground;
   }
 
   .ui-chip-success {
-    @apply bg-success/10 text-success border border-success/20;
+    @apply border border-success/20 bg-success/5 text-foreground;
   }
 
   .ui-chip-warning {
-    @apply bg-warning/10 text-warning border border-warning/20;
+    @apply border border-warning/25 bg-warning/5 text-foreground;
   }
 
   .ui-chip-danger {
-    @apply bg-danger/10 text-danger border border-danger/20;
+    @apply border border-danger/25 bg-danger/5 text-foreground;
   }
 
   /* Status indicators */

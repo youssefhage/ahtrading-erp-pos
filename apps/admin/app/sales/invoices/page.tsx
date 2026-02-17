@@ -94,12 +94,12 @@ function SalesInvoicesListInner() {
         globalSearch: true,
         cell: (inv) => (
           <div>
-            <div className="data-mono text-xs text-foreground">
+            <div className="data-mono text-sm text-foreground">
               <ShortcutLink href={`/sales/invoices/${encodeURIComponent(inv.id)}`} title="Open invoice">
                 {inv.invoice_no || "(draft)"}
               </ShortcutLink>
             </div>
-            <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
+            <div className="data-mono text-xs text-fg-subtle">{inv.id}</div>
           </div>
         ),
       },
@@ -133,7 +133,7 @@ function SalesInvoicesListInner() {
         header: "Dates",
         accessor: (inv) => `${inv.invoice_date || ""} ${inv.due_date || ""}`,
         cell: (inv) => (
-          <div className="text-xs text-fg-muted">
+          <div className="text-sm text-fg-muted">
             <div>
               Inv: <span className="data-mono">{fmtIso(inv.invoice_date)}</span>
             </div>
@@ -167,12 +167,33 @@ function SalesInvoicesListInner() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Sales</p>
+            <h1 className="ui-module-title">Sales Invoices</h1>
+            <p className="ui-module-subtitle">
+              {total != null ? `${total.toLocaleString("en-US")} total invoices` : `${invoices.length} invoices shown`}
+              {loading ? " · refreshing..." : ""}
+            </p>
+          </div>
+          <div className="ui-module-actions">
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              {loading ? "..." : "Refresh"}
+            </Button>
+            <Button size="sm" onClick={() => router.push("/sales/invoices/new")}>
+              New Draft
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
         <CardHeader>
-          <CardTitle>Sales Invoices</CardTitle>
+          <CardTitle>Invoices</CardTitle>
           <CardDescription>
             {total != null ? `${total.toLocaleString("en-US")} total` : `${invoices.length} shown`}
             {loading ? " · refreshing..." : ""}
@@ -208,16 +229,6 @@ function SalesInvoicesListInner() {
               onPageChange: setPage,
               onPageSizeChange: setPageSize,
             }}
-            actions={
-              <>
-                <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-                  {loading ? "..." : "Refresh"}
-                </Button>
-                <Button size="sm" onClick={() => router.push("/sales/invoices/new")}>
-                  New Draft
-                </Button>
-              </>
-            }
           />
         </CardContent>
       </Card>

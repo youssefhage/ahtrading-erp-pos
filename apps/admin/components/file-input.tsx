@@ -113,8 +113,8 @@ export function FileInput(props: Props) {
       </Button>
 
       <div className="min-w-0 flex-1">
-        <div className={cn("truncate text-xs", label ? "text-foreground" : "text-fg-muted")}>{label || placeholder}</div>
-        {meta ? <div className="truncate text-[10px] text-fg-subtle">{meta}</div> : null}
+        <div className={cn("truncate text-sm", label ? "text-foreground" : "text-fg-muted")}>{label || placeholder}</div>
+        {meta ? <div className="truncate text-sm text-fg-subtle">{meta}</div> : null}
       </div>
 
       {showClear && !!label ? (
@@ -135,4 +135,3 @@ export function FileInput(props: Props) {
     </div>
   );
 }
-

@@ -240,7 +240,7 @@ function splitTimestamp(rawValue: string): { date: string; time: string } {
 function formatDecisionSummary(status: string) {
   const normalized = String(status || "pending").trim().toLowerCase();
   return (
-    <span className={cn("ui-chip px-2 py-0.5 text-[11px] capitalize", statusChipClass(normalized))}>
+    <span className={cn("ui-chip px-2 py-0.5 text-xs capitalize", statusChipClass(normalized))}>
       {statusLabel(normalized)}
     </span>
   );
@@ -537,27 +537,27 @@ export default function AiHubPage() {
       <div className="grid gap-3 md:grid-cols-2">
         <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
           <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-[11px] text-fg-muted">Recommendations</div>
+            <div className="text-xs font-medium text-fg-muted">Recommendations</div>
             <div className="mt-1 text-sm font-mono">{stat(recommendationTotal)}</div>
           </div>
           <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-[11px] text-fg-muted">Pending Recommendations</div>
+            <div className="text-xs font-medium text-fg-muted">Pending Recommendations</div>
             <div className="mt-1 text-sm font-mono">{stat(recommendationStatusCounts.pending)}</div>
           </div>
           <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-[11px] text-fg-muted">Queued Actions</div>
+            <div className="text-xs font-medium text-fg-muted">Queued Actions</div>
             <div className="mt-1 text-sm font-mono">{stat(actionStatusCounts.queued)}</div>
           </div>
           <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-[11px] text-fg-muted">Failed Actions</div>
+            <div className="text-xs font-medium text-fg-muted">Failed Actions</div>
             <div className="mt-1 text-sm font-mono">{stat(actionStatusCounts.failed)}</div>
           </div>
           <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-[11px] text-fg-muted">Blocked Actions</div>
+            <div className="text-xs font-medium text-fg-muted">Blocked Actions</div>
             <div className="mt-1 text-sm font-mono">{stat(actionStatusCounts.blocked)}</div>
           </div>
           <div className="rounded-md border border-border bg-bg-elevated p-2">
-            <div className="text-[11px] text-fg-muted">Scheduled Jobs</div>
+            <div className="text-xs font-medium text-fg-muted">Scheduled Jobs</div>
             <div className="mt-1 text-sm font-mono">{stat(scheduledJobCount)}</div>
           </div>
         </div>
@@ -581,10 +581,10 @@ export default function AiHubPage() {
               <CardDescription>Review and process AI recommendations.</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="ui-chip ui-chip-default text-[11px]">Total {stat(recommendationTotal)}</span>
-              <span className="ui-chip ui-chip-warning text-[11px]">Pending {stat(recommendationStatusCounts.pending)}</span>
-              <span className="ui-chip ui-chip-success text-[11px]">Approved {stat(recommendationStatusCounts.approved)}</span>
-              <span className="ui-chip ui-chip-primary text-[11px]">Executed {stat(recommendationStatusCounts.executed)}</span>
+              <span className="ui-chip ui-chip-default text-xs">Total {stat(recommendationTotal)}</span>
+              <span className="ui-chip ui-chip-warning text-xs">Pending {stat(recommendationStatusCounts.pending)}</span>
+              <span className="ui-chip ui-chip-success text-xs">Approved {stat(recommendationStatusCounts.approved)}</span>
+              <span className="ui-chip ui-chip-primary text-xs">Executed {stat(recommendationStatusCounts.executed)}</span>
             </div>
           </div>
         </CardHeader>
@@ -642,7 +642,7 @@ export default function AiHubPage() {
                   return (
                     <div className="space-y-0.5">
                       <div className="data-mono text-xs text-foreground">{ts.date}</div>
-                      {ts.time ? <div className="data-mono text-[11px] text-fg-subtle">{ts.time}</div> : null}
+                      {ts.time ? <div className="data-mono text-xs text-fg-subtle">{ts.time}</div> : null}
                     </div>
                   );
                 },
@@ -662,7 +662,7 @@ export default function AiHubPage() {
                 cellClassName: "align-top",
                 accessor: (r) => executionModeLabel(r),
                 cell: (r) => (
-                  <span className={cn("ui-chip px-2 py-0.5 text-[11px]", isRowExecutable(r) ? "ui-chip-success" : "ui-chip-warning")}>
+                  <span className={cn("ui-chip px-2 py-0.5 text-xs", isRowExecutable(r) ? "ui-chip-success" : "ui-chip-warning")}>
                     {executionModeLabel(r)}
                   </span>
                 ),
@@ -700,31 +700,41 @@ export default function AiHubPage() {
                 cell: (r) => {
                   const j: any = r.recommendation_json || {};
                   const view = normalizedRecommendationView(r);
+                  const primaryIssue = view.details.length ? view.details[0] : "";
+                  const additionalDetails = view.details.length > 1 ? view.details.slice(1) : [];
                   const severityClass =
                     view.severity === "critical" || view.severity === "high"
                       ? "ui-chip-danger"
-                      : view.severity === "low" || view.severity === "info"
+                      : view.severity === "medium"
+                        ? "ui-chip-warning"
+                        : view.severity === "low" || view.severity === "info"
                         ? "ui-chip-default"
                         : "ui-chip-warning";
                   return (
                     <div className="max-w-[620px] space-y-2 rounded-lg border border-border-subtle bg-bg-sunken/20 p-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-xs text-fg-muted">{view.kind}</span>
-                        <span className={cn("ui-chip px-2 py-0.5 text-[10px]", severityClass)}>{view.severity}</span>
+                        <span className={cn("ui-chip px-2 py-0.5 text-xs capitalize", severityClass)}>{view.severity}</span>
                       </div>
-                      <div className="text-sm font-medium text-foreground">{view.title}</div>
-                      <div className="text-sm text-foreground">{view.summary}</div>
-                      <div className="text-sm text-fg-muted">{view.nextStep}</div>
-                      {view.details.length ? (
-                        <ul className="space-y-1 text-xs text-fg-muted">
-                          {view.details.map((line, idx) => (
+                      <div className="text-base font-semibold text-foreground">{view.title}</div>
+                      {primaryIssue ? (
+                        <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2">
+                          <div className="text-sm font-semibold text-fg-muted">Primary issue</div>
+                          <div className="mt-1 text-base leading-relaxed text-foreground">{primaryIssue}</div>
+                        </div>
+                      ) : null}
+                      <div className="text-base leading-relaxed text-foreground">{view.summary}</div>
+                      <div className="text-base leading-relaxed text-fg-muted">{view.nextStep}</div>
+                      {additionalDetails.length ? (
+                        <ul className="space-y-1 text-base leading-relaxed text-fg-muted">
+                          {additionalDetails.map((line, idx) => (
                             <li key={`${r.id}-detail-${idx}`}>- {line}</li>
                           ))}
                         </ul>
                       ) : null}
                       {view.linkHref ? (
                         <div>
-                          <a className="ui-link text-xs" href={view.linkHref}>
+                          <a className="ui-link text-sm" href={view.linkHref}>
                             {view.linkLabel || "Open related document"}
                           </a>
                         </div>
@@ -750,6 +760,8 @@ export default function AiHubPage() {
                       <>
                         <Button
                           size="sm"
+                          variant="outline"
+                          className="border-success/35 bg-success/10 text-foreground hover:bg-success/20"
                           onClick={() => openDecision(r.id, "approved", r.agent_code)}
                           disabled={!canWriteAi || isLoading}
                           title={canWriteAi ? "Approve" : "Requires ai:write"}
@@ -757,7 +769,8 @@ export default function AiHubPage() {
                           Approve
                         </Button>
                         <Button
-                          variant="destructive"
+                          variant="outline"
+                          className="border-danger/35 bg-danger/10 text-foreground hover:bg-danger/20"
                           size="sm"
                           onClick={() => openDecision(r.id, "rejected", r.agent_code)}
                           disabled={!canWriteAi || isLoading}
@@ -848,7 +861,7 @@ export default function AiHubPage() {
                 accessor: (a) => executionModeLabel(a),
                 cell: (a) => (
                   <span
-                    className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${
+                    className={`inline-flex items-center rounded-full border px-2 py-1 text-xs ${
                       isRowExecutable(a)
                         ? "border-success/40 text-success"
                         : "border-warning/40 text-warning"
@@ -1278,7 +1291,7 @@ export default function AiHubPage() {
                 accessor: (s) => executionModeLabel(s),
                 cell: (s) => (
                   <span
-                    className={`inline-flex items-center rounded-full border px-2 py-1 text-[11px] ${
+                    className={`inline-flex items-center rounded-full border px-2 py-1 text-xs ${
                       isRowExecutable(s)
                         ? "border-success/40 text-success"
                         : "border-warning/40 text-warning"

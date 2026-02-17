@@ -114,18 +114,18 @@ export default function ThreeWayMatchPage() {
                 {r.invoice_no || "(draft)"}
               </ShortcutLink>
             </div>
-            <div className="text-[11px] text-fg-subtle">
+            <div className="text-xs text-fg-subtle">
               {r.hold_reason ? (
-                <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 font-medium text-warning">
+                <span className="ui-chip ui-chip-warning">
                   HOLD: {r.hold_reason}
                 </span>
               ) : (
-                <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 font-medium text-warning">
+                <span className="ui-chip ui-chip-warning">
                   HOLD
                 </span>
               )}
             </div>
-            {r.supplier_ref ? <div className="data-mono text-[10px] text-fg-muted">Ref: {r.supplier_ref}</div> : null}
+            {r.supplier_ref ? <div className="data-mono text-xs text-fg-muted">Ref: {r.supplier_ref}</div> : null}
           </div>
         ),
       },
@@ -295,7 +295,16 @@ export default function ThreeWayMatchPage() {
   }, [doUnhold, router, unholdId, unholdOpen, unholdReason, unholding]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Purchasing</p>
+            <h1 className="ui-module-title">3-Way Match Exceptions</h1>
+            <p className="ui-module-subtitle">Held supplier invoices with quantity, cost, or tax variance signals.</p>
+          </div>
+        </div>
+      </div>
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>

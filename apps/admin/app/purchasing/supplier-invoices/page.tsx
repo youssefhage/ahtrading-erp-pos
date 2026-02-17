@@ -135,7 +135,7 @@ function SupplierInvoicesListInner() {
               <div className="text-xs font-medium text-foreground">{view.title}</div>
               <div className="text-xs text-fg-muted">{view.summary}</div>
               {view.linkHref ? (
-                <a className="ui-link text-[11px]" href={view.linkHref}>
+                <a className="ui-link text-xs" href={view.linkHref}>
                   {view.linkLabel || "Open related document"}
                 </a>
               ) : null}
@@ -168,20 +168,20 @@ function SupplierInvoicesListInner() {
         cell: (inv) => (
           <div>
             <div className="flex items-center gap-2">
-              <div className="data-mono text-xs text-foreground">
+              <div className="data-mono text-sm text-foreground">
                 <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(inv.id)}`} title="Open supplier invoice">
                   {inv.invoice_no || "(draft)"}
                 </ShortcutLink>
               </div>
               {Number(inv.attachment_count || 0) > 0 ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-muted px-2 py-0.5 text-[10px] text-fg-muted">
+                <span className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-muted px-2 py-0.5 text-xs text-fg-muted">
                   <Paperclip className="h-3 w-3" />
                   {Number(inv.attachment_count || 0)}
                 </span>
               ) : null}
             </div>
-            {inv.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {inv.supplier_ref}</div> : null}
-            <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
+            {inv.supplier_ref ? <div className="data-mono text-xs text-fg-subtle">Ref: {inv.supplier_ref}</div> : null}
+            <div className="data-mono text-xs text-fg-subtle">{inv.id}</div>
           </div>
         ),
       },
@@ -220,7 +220,7 @@ function SupplierInvoicesListInner() {
             <StatusChip value={inv.status} />
             {inv.is_on_hold ? (
               <div className="mt-1">
-                <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
+                <span className="ui-chip ui-chip-warning">
                   HOLD{inv.hold_reason ? `: ${inv.hold_reason}` : ""}
                 </span>
               </div>
@@ -233,7 +233,7 @@ function SupplierInvoicesListInner() {
         header: "Dates",
         accessor: (inv) => `${inv.invoice_date || ""} ${inv.due_date || ""}`,
         cell: (inv) => (
-          <div className="text-xs text-fg-muted">
+          <div className="text-sm text-fg-muted">
             <div>
               Inv: <span className="data-mono">{fmtIso(inv.invoice_date)}</span>
             </div>
@@ -267,7 +267,28 @@ function SupplierInvoicesListInner() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Purchasing</p>
+            <h1 className="ui-module-title">Supplier Invoices</h1>
+            <p className="ui-module-subtitle">
+              {total != null ? `${total.toLocaleString("en-US")} total invoices` : `${invoices.length} invoices shown`}
+              {loading ? " · refreshing..." : ""}
+            </p>
+          </div>
+          <div className="ui-module-actions">
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              {loading ? "..." : "Refresh"}
+            </Button>
+            <Button size="sm" onClick={() => router.push("/purchasing/supplier-invoices/new")}>
+              New Draft
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       {aiApGuard.length ? (
@@ -298,7 +319,7 @@ function SupplierInvoicesListInner() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Supplier Invoices</CardTitle>
+          <CardTitle>Invoices</CardTitle>
           <CardDescription>
             {total != null ? `${total.toLocaleString("en-US")} total` : `${invoices.length} shown`}
             {loading ? " · refreshing..." : ""}
@@ -334,16 +355,6 @@ function SupplierInvoicesListInner() {
               onPageChange: setPage,
               onPageSizeChange: setPageSize,
             }}
-            actions={
-              <>
-                <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-                  {loading ? "..." : "Refresh"}
-                </Button>
-                <Button size="sm" onClick={() => router.push("/purchasing/supplier-invoices/new")}>
-                  New Draft
-                </Button>
-              </>
-            }
           />
         </CardContent>
       </Card>

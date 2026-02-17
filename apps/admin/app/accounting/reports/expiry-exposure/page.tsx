@@ -93,7 +93,7 @@ export default function ExpiryExposurePage() {
         cell: (r) => (
           <span className="data-mono text-xs">
             {r.expiry_date || "-"}
-            <div className="text-[11px] text-fg-muted">{String(r.days_to_expiry ?? "-")}d</div>
+            <div className="text-xs text-fg-muted">{String(r.days_to_expiry ?? "-")}d</div>
           </span>
         ),
       },
@@ -105,7 +105,7 @@ export default function ExpiryExposurePage() {
         cell: (r) => (
           <div className="text-xs">
             <div className="data-mono text-xs">{r.batch_no || "-"}</div>
-            <div className="text-[11px] text-fg-muted">{r.batch_status || ""}</div>
+            <div className="text-xs text-fg-muted">{r.batch_status || ""}</div>
           </div>
         ),
       },

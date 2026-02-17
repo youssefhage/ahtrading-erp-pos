@@ -854,7 +854,7 @@ export default function ItemEditPage() {
                     searchPlaceholder="Search UOMs..."
                     options={uomOptions}
                   />
-                  <div className="mt-1 text-[11px] text-fg-subtle">
+                  <div className="mt-1 text-xs text-fg-subtle">
                     Missing a UOM? Add it in{" "}
                     <Link href="/system/uoms" className="underline underline-offset-2 hover:text-foreground">
                       System &rarr; UOMs

@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { StatusChip } from "@/components/ui/status-chip";
 import { MoneyInput } from "@/components/money-input";
 import { TabBar } from "@/components/tab-bar";
 
@@ -254,7 +255,7 @@ export default function SupplierCreditDetailPage() {
       cell: (inv) => (
         <div className="text-right data-mono text-xs">
           {fmtUsd(inv.balance_usd)}
-          <div className="text-[11px] text-fg-muted">{fmtLbp(inv.balance_lbp)}</div>
+          <div className="text-xs text-fg-muted">{fmtLbp(inv.balance_lbp)}</div>
         </div>
       ),
     },
@@ -292,7 +293,7 @@ export default function SupplierCreditDetailPage() {
           <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(a.supplier_invoice_id)}`} title="Open supplier invoice">
             {a.invoice_no}
           </ShortcutLink>
-          <div className="text-[11px] text-fg-muted">{a.invoice_date}</div>
+          <div className="text-xs text-fg-muted">{a.invoice_date}</div>
         </div>
       ),
     },
@@ -306,7 +307,7 @@ export default function SupplierCreditDetailPage() {
       cell: (a) => (
         <div className="text-right data-mono text-xs">
           {fmtUsd(a.amount_usd)}
-          <div className="text-[11px] text-fg-muted">{fmtLbp(a.amount_lbp)}</div>
+          <div className="text-xs text-fg-muted">{fmtLbp(a.amount_lbp)}</div>
         </div>
       ),
     },
@@ -392,19 +393,19 @@ export default function SupplierCreditDetailPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="ui-detail-shell-wide">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
         <CardHeader>
-          <CardTitle>Supplier Credit</CardTitle>
+          <CardTitle className="text-lg">Supplier Credit Overview</CardTitle>
           <CardDescription className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-mono">{credit?.credit_no || id}</span>
-            <span className="text-xs text-fg-muted">{credit?.status || ""}</span>
+            <StatusChip value={credit?.status || ""} />
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-xs text-fg-muted space-y-1">
+          <div className="text-sm text-fg-muted space-y-2">
             <div>
               Supplier:{" "}
               {credit?.supplier_id ? (
@@ -477,7 +478,7 @@ export default function SupplierCreditDetailPage() {
                       <DialogDescription>Apply this posted credit note to a posted supplier invoice.</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                         <div className="text-fg-muted">
                           Remaining: <span className="data-mono">{fmtUsd(remaining.usd)}</span> /{" "}
                           <span className="data-mono">{fmtLbp(remaining.lbp)}</span>
@@ -562,11 +563,11 @@ export default function SupplierCreditDetailPage() {
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
               <div className="rounded-md border border-border bg-bg-elevated p-3">
-                <div className="text-xs text-fg-subtle">Remaining USD</div>
+                <div className="text-sm text-fg-subtle">Remaining USD</div>
                 <div className="mt-1 data-mono text-sm">{fmtUsdMaybe(remaining.usd)}</div>
               </div>
               <div className="rounded-md border border-border bg-bg-elevated p-3">
-                <div className="text-xs text-fg-subtle">Remaining LL</div>
+                <div className="text-sm text-fg-subtle">Remaining LL</div>
                 <div className="mt-1 data-mono text-sm">{fmtLbpMaybe(remaining.lbp, { dashIfZero: remaining.usd !== 0 })}</div>
               </div>
             </CardContent>
@@ -577,7 +578,7 @@ export default function SupplierCreditDetailPage() {
               <CardTitle>Summary</CardTitle>
               <CardDescription>Quick status and application count.</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-2 text-xs text-fg-muted md:grid-cols-2">
+            <CardContent className="grid gap-2 text-sm text-fg-muted md:grid-cols-2">
               <div>Status: <span className="font-mono">{credit?.status || "-"}</span></div>
               <div>Applications: <span className="font-mono">{data?.applications?.length || 0}</span></div>
               <div>Items: <span className="font-mono">{data?.lines?.length || 0}</span></div>

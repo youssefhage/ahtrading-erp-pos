@@ -309,7 +309,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
                         {selectedSupplier.code ? <span className="text-fg-muted"> · </span> : null}
                         <span className="font-medium">{selectedSupplier.name}</span>
                       </div>
-                      <div className="truncate font-mono text-[10px] text-fg-subtle">{selectedSupplier.id}</div>
+                      <div className="truncate font-mono text-xs text-fg-subtle">{selectedSupplier.id}</div>
                     </div>
                     <Button type="button" variant="outline" size="sm" onClick={() => setSelectedSupplier(null)} disabled={saving || loading}>
                       Change
@@ -376,7 +376,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
                               <span className="font-mono text-xs text-fg-muted">{l.item.sku}</span> · {l.item.name}
                             </div>
                             <div className="mt-0.5 flex items-center justify-between gap-2">
-                              <div className="truncate font-mono text-[10px] text-fg-subtle">{l.item_id}</div>
+                              <div className="truncate font-mono text-xs text-fg-subtle">{l.item_id}</div>
                               <Button type="button" size="sm" variant="outline" onClick={() => updateLine(idx, { item_id: "", item: null })} disabled={saving || loading}>
                                 Clear
                               </Button>

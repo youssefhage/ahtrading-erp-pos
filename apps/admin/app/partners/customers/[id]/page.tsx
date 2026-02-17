@@ -123,7 +123,7 @@ export default function CustomerViewPage() {
         cell: (l) => (
           <span className="text-xs text-fg-muted">
             <span className="font-mono">{l.source_type}</span>{" "}
-            {l.source_id ? <span className="font-mono text-[10px]">{String(l.source_id).slice(0, 8)}</span> : null}
+            {l.source_id ? <span className="font-mono text-xs">{String(l.source_id).slice(0, 8)}</span> : null}
           </span>
         ),
       },

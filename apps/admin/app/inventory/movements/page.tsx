@@ -87,7 +87,7 @@ export default function InventoryMovementsPage() {
         cell: (m) => (
           <div>
             <span className="font-mono text-xs">{m.source_type || "-"}</span>
-            {m.source_id ? <div className="text-[10px] text-fg-subtle">{m.source_id}</div> : null}
+            {m.source_id ? <div className="text-xs text-fg-subtle">{m.source_id}</div> : null}
           </div>
         ),
       },

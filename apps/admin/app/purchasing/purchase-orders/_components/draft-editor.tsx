@@ -308,7 +308,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
             <div className="space-y-1 md:col-span-2">
               <label className="text-xs font-medium text-fg-muted">Supplier</label>
               <SupplierTypeahead disabled={loading || saving} onSelect={(s) => { setSupplierId(s.id); setSupplierLabel(s.name); }} />
-              {supplierId ? <div className="text-[11px] text-fg-subtle">Selected: {selectedSupplierText}</div> : null}
+              {supplierId ? <div className="text-xs text-fg-subtle">Selected: {selectedSupplierText}</div> : null}
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-fg-muted">Warehouse</label>
@@ -357,7 +357,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
               <label className="text-xs font-medium text-fg-muted">Item</label>
               <ItemTypeahead disabled={loading || saving} onSelect={onPickItem} />
               {addItem ? (
-                <div className="text-[11px] text-fg-subtle">
+                <div className="text-xs text-fg-subtle">
                   Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}{" "}
                   {(addItem as any).unit_of_measure ? <span className="font-mono">({String((addItem as any).unit_of_measure)})</span> : null}
                 </div>
@@ -402,7 +402,7 @@ export function PurchaseOrderDraftEditor(props: { mode: "create" | "edit"; order
                           <span className="font-mono text-xs text-fg-muted">{l.item_sku || l.item_id}</span>{" "}
                           {l.item_name ? <span className="text-foreground">· {l.item_name}</span> : null}
                         </div>
-                        {l.unit_of_measure ? <div className="mt-0.5 font-mono text-[10px] text-fg-subtle">{String(l.unit_of_measure)}</div> : null}
+                        {l.unit_of_measure ? <div className="mt-0.5 font-mono text-xs text-fg-subtle">{String(l.unit_of_measure)}</div> : null}
                       </div>
                     </td>
                     <td className="px-3 py-2 text-right">

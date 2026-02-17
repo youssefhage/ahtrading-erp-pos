@@ -99,7 +99,7 @@ function AdjustmentQueueInner() {
                 {inv.invoice_no || "(draft)"}
               </ShortcutLink>
             </div>
-            <div className="data-mono text-[10px] text-fg-subtle">{inv.id}</div>
+            <div className="data-mono text-xs text-fg-subtle">{inv.id}</div>
           </div>
         ),
       },
@@ -167,7 +167,19 @@ function AdjustmentQueueInner() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Sales</p>
+            <h1 className="ui-module-title">Adjustment Queue</h1>
+            <p className="ui-module-subtitle">
+              Flagged sales invoices awaiting follow-up adjustment.
+              {total != null ? ` ${total.toLocaleString("en-US")} total.` : ""}
+            </p>
+          </div>
+        </div>
+      </div>
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>

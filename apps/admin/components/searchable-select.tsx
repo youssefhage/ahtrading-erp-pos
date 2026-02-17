@@ -234,7 +234,7 @@ export function SearchableSelect(props: {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="min-w-0 truncate">{opt.label}</span>
-                          {isSelected ? <span className="shrink-0 font-mono text-[10px] text-fg-subtle">selected</span> : null}
+                          {isSelected ? <span className="shrink-0 font-mono text-xs text-fg-subtle">selected</span> : null}
                         </div>
                       </button>
                     );

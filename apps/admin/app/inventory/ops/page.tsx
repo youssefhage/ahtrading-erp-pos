@@ -583,7 +583,7 @@ export default function InventoryOpsPage() {
                             title="CSV errors"
                             description="Fix the issues below and try again."
                           >
-                            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-danger/20 bg-danger/5 p-2 text-[11px] leading-4 text-danger">
+                            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-danger/20 bg-danger/5 p-2 text-xs leading-4 text-danger">
                               {openingErrors}
                             </pre>
                           </Banner>

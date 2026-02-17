@@ -146,7 +146,21 @@ export default function CoaPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="ui-module-shell">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Accounting</p>
+            <h1 className="ui-module-title">Chart Of Accounts</h1>
+            <p className="ui-module-subtitle">Manage account names, posting flags, and parent structure.</p>
+          </div>
+          <div className="ui-module-actions">
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+          </div>
+        </div>
+      </div>
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
@@ -155,12 +169,6 @@ export default function CoaPage() {
           <CardDescription>{accounts.length} accounts</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex items-center justify-end">
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
-          </div>
-
           <datalist id="coa-parent-accounts">
             {accounts.map((a) => (
               <option key={a.id} value={a.account_code}>
@@ -187,7 +195,7 @@ export default function CoaPage() {
             <DialogDescription>Changes affect posting. Be careful.</DialogDescription>
           </DialogHeader>
           {edit ? (
-            <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <form onSubmit={saveEdit} className="ui-form-grid-2">
               <div className="space-y-1 md:col-span-2">
                 <label className="text-xs font-medium text-fg-muted">Account</label>
                 <div className="rounded-md border border-border bg-bg-sunken/20 px-3 py-2 font-mono text-xs text-fg-muted">

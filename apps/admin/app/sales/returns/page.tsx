@@ -297,7 +297,16 @@ export default function SalesReturnsPage() {
   }, [taxBreakdown]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Sales</p>
+            <h1 className="ui-module-title">Returns</h1>
+            <p className="ui-module-subtitle">Review returns, refund impact, and tax detail in one place.</p>
+          </div>
+        </div>
+      </div>
         {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
         <Card>
@@ -452,7 +461,7 @@ export default function SalesReturnsPage() {
                                     {fmtUsdLbp(r.tax_usd, r.tax_lbp)}
                                   </span>
                                 </div>
-                                <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-muted">
                                   <span className="text-fg-subtle">Base</span>
                                   <span className="data-mono">
                                     {fmtUsdLbp(r.base_usd, r.base_lbp)}
@@ -463,19 +472,19 @@ export default function SalesReturnsPage() {
                             {taxBreakdown.length ? (
                               <div className="mt-2 rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Total</span>
+                                  <span className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Total</span>
                                   <span className="data-mono text-foreground">
                                     {fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}
                                   </span>
                                 </div>
-                                <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-muted">
                                   <span className="text-fg-subtle">Taxable base</span>
                                   <span className="data-mono">
                                     {fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}
                                   </span>
                                 </div>
                                 <details className="mt-2">
-                                  <summary className="cursor-pointer text-[11px] font-medium text-fg-subtle">Raw tax lines</summary>
+                                  <summary className="cursor-pointer text-xs font-medium text-fg-subtle">Raw tax lines</summary>
                                   <div className="mt-2 space-y-1">
                                     {(detail.tax_lines || []).map((t) => (
                                       <div key={t.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/30 p-2">

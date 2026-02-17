@@ -610,7 +610,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
         ? "border-danger/35 bg-danger/10 text-danger"
         : "border-border-subtle bg-bg-sunken/40 text-fg-muted";
     return (
-      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${cls}`}>
+      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${cls}`}>
         {props.children}
       </span>
     );
@@ -668,11 +668,11 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                   placeholder="Walk-in or search customer..."
                 />
                 {selectedCustomer ? (
-                  <div className="text-[11px] text-fg-subtle">
+                  <div className="text-xs text-fg-subtle">
                     Selected: <span className="font-medium text-foreground">{selectedCustomer.name}</span>
                   </div>
                 ) : (
-                  <div className="text-[11px] text-fg-subtle">Walk-in customer</div>
+                  <div className="text-xs text-fg-subtle">Walk-in customer</div>
                 )}
               </div>
               <div className="space-y-1">
@@ -734,7 +734,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                    <CardDescription>Add items, then Post when ready.</CardDescription>
 	                  </div>
 	                  <div className="flex flex-wrap items-end justify-end gap-2">
-                      <label className="inline-flex items-center gap-2 text-[11px] text-fg-muted">
+                      <label className="inline-flex items-center gap-2 text-xs text-fg-muted">
                         <input
                           type="checkbox"
                           checked={showSecondaryCurrency}
@@ -743,7 +743,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                         Show secondary currency (LBP)
                       </label>
 	                    <div className="space-y-1">
-	                      <label className="text-[11px] font-medium text-fg-muted">Invoice Disc%</label>
+	                      <label className="text-xs font-medium text-fg-muted">Invoice Disc%</label>
 	                      <Input
 	                        value={invoiceDiscountPct}
 	                        onChange={(e) => setInvoiceDiscountPct(e.target.value)}
@@ -770,11 +770,11 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                       placeholder="Search item name / barcode..."
                     />
                     {addItem ? (
-                      <p className="text-[11px] text-fg-subtle">
+                      <p className="text-xs text-fg-subtle">
                         Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}
                       </p>
                     ) : (
-                      <p className="text-[11px] text-fg-subtle">Tip: scan a barcode or type a few letters of the name, then Enter.</p>
+                      <p className="text-xs text-fg-subtle">Tip: scan a barcode or type a few letters of the name, then Enter.</p>
                     )}
                   </div>
                   <div className="space-y-1 md:col-span-1">
@@ -813,7 +813,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                     <label className="text-xs font-medium text-fg-muted">Disc%</label>
                     <Input inputMode="decimal" value={addDiscPct} onChange={(e) => setAddDiscPct(e.target.value)} placeholder="0" />
                   </div>
-                  <div className="md:col-span-12 text-[11px] text-fg-subtle">
+                  <div className="md:col-span-12 text-xs text-fg-subtle">
                     Qty factor: <span className="font-mono">{toNum(addQtyFactor).toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
                   </div>
                   <div className="md:col-span-12 flex justify-end gap-2">
@@ -941,7 +941,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                                    options={uomOpts}
 	                                  />
 	                                </div>
-	                                <span className="text-[10px] text-fg-subtle font-mono">x{r.qtyFactor}</span>
+	                                <span className="text-xs text-fg-subtle font-mono">x{r.qtyFactor}</span>
 	                              </div>
 	                            </td>
 	                            <td className="px-3 py-2 text-right">

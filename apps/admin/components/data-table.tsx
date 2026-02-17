@@ -507,7 +507,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                       <label key={c.id} className={cn("flex items-center justify-between gap-3 text-sm", disableUncheck && "opacity-70")}>
                         <span className="min-w-0 text-foreground">
                           <span className="truncate">{c.header}</span>
-                          {isDynamic ? <span className="ml-2 text-[10px] uppercase tracking-wider text-fg-subtle">Field</span> : null}
+                          {isDynamic ? <span className="ml-2 text-xs uppercase tracking-wider text-fg-subtle">Field</span> : null}
                         </span>
                         <span className="flex items-center gap-2">
                           {isDynamic ? (

@@ -149,8 +149,8 @@ export default function SuppliersListPage() {
           <span
             className={
               s.is_active === false
-                ? "inline-flex items-center rounded-full border border-border-subtle bg-bg-muted px-2 py-0.5 text-[10px] font-medium text-fg-muted"
-                : "inline-flex items-center rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success"
+                ? "inline-flex items-center rounded-full border border-border-subtle bg-bg-muted px-2 py-0.5 text-xs font-medium text-fg-muted"
+                : "inline-flex items-center rounded-full border border-success/30 bg-success/10 px-2 py-0.5 text-xs font-medium text-success"
             }
           >
             {s.is_active === false ? "inactive" : "active"}

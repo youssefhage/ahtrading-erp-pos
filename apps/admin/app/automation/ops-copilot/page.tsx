@@ -82,7 +82,7 @@ type MeContext = {
 function pill(label: string, value: string) {
   return (
     <div className="rounded-md border border-border bg-bg-elevated px-3 py-2">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-fg-subtle">{label}</div>
+      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-fg-subtle">{label}</div>
       <div className="mt-1 font-mono text-xs text-foreground">{value}</div>
     </div>
   );
@@ -272,7 +272,7 @@ export default function OpsCopilotPage() {
                 {pill("actions failed", String(aiActions["failed"] || 0))}
               </div>
               <div className="rounded-md border border-border bg-bg-elevated p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-fg-subtle">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-fg-subtle">
                   Pending By Agent
                 </div>
                 <div className="mt-2">

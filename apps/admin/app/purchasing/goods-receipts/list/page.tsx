@@ -85,8 +85,8 @@ function Inner() {
           <Link className="ui-link inline-flex flex-col items-start" href={`/purchasing/goods-receipts/${encodeURIComponent(r.id)}`}>
             <div className="flex flex-col gap-0.5">
               <div className="font-medium text-foreground">{r.receipt_no || "(draft)"}</div>
-              {r.supplier_ref ? <div className="font-mono text-[11px] text-fg-muted">Ref: {r.supplier_ref}</div> : null}
-              {r.received_at ? <div className="font-mono text-[11px] text-fg-muted">Received: {r.received_at}</div> : null}
+              {r.supplier_ref ? <div className="font-mono text-xs text-fg-muted">Ref: {r.supplier_ref}</div> : null}
+              {r.received_at ? <div className="font-mono text-xs text-fg-muted">Received: {r.received_at}</div> : null}
             </div>
           </Link>
         ),
@@ -127,19 +127,22 @@ function Inner() {
   }, [supplierById, whById]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Goods Receipts</h1>
-          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${filtered.length} receipt(s)`}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-          <Button type="button" onClick={() => router.push("/purchasing/goods-receipts/new")}>
-            New Draft
-          </Button>
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Purchasing</p>
+            <h1 className="ui-module-title">Goods Receipts</h1>
+            <p className="ui-module-subtitle">{loading ? "Loading..." : `${filtered.length} receipt(s)`}</p>
+          </div>
+          <div className="ui-module-actions">
+            <Button type="button" variant="outline" onClick={load} disabled={loading}>
+              Refresh
+            </Button>
+            <Button type="button" onClick={() => router.push("/purchasing/goods-receipts/new")}>
+              New Draft
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -159,7 +162,7 @@ function Inner() {
             initialSort={{ columnId: "receipt", dir: "desc" }}
             globalFilterPlaceholder="Search receipt / supplier / ref / warehouse / PO"
             toolbarLeft={
-              <select className="ui-select h-9 text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <select className="ui-select h-9 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                 <option value="">All statuses</option>
                 <option value="draft">Draft</option>
                 <option value="posted">Posted</option>

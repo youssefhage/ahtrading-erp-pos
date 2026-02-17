@@ -231,7 +231,7 @@ export function ItemPicker(props: {
                 ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
               }}
             >
-              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-[11px] text-fg-subtle">
+              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-xs text-fg-subtle">
                 <div className="flex items-center gap-2">
                   <span className="ui-kbd">Enter</span>
                   <span>select</span>
@@ -278,11 +278,11 @@ export function ItemPicker(props: {
                               <span className="text-foreground">· {it.name}</span>
                             </div>
                             {it.barcode ? (
-                              <div className="mt-0.5 truncate font-mono text-[10px] text-fg-subtle">{String(it.barcode)}</div>
+                              <div className="mt-0.5 truncate font-mono text-xs text-fg-subtle">{String(it.barcode)}</div>
                             ) : null}
                           </div>
                           {it.unit_of_measure ? (
-                            <div className="shrink-0 font-mono text-[11px] text-fg-muted">{String(it.unit_of_measure)}</div>
+                            <div className="shrink-0 font-mono text-xs text-fg-muted">{String(it.unit_of_measure)}</div>
                           ) : null}
                         </div>
                       </button>

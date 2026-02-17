@@ -110,7 +110,7 @@ export default function LandedCostImpactPage() {
         cell: (r) => (
           <span className="data-mono ui-tone-usd">
             {fmtUsd(r.receipt_total_usd)}
-            <div className="text-[11px] text-fg-muted">{fmtLbp(r.receipt_total_lbp)}</div>
+            <div className="text-xs text-fg-muted">{fmtLbp(r.receipt_total_lbp)}</div>
           </span>
         ),
       },
@@ -124,7 +124,7 @@ export default function LandedCostImpactPage() {
         cell: (r) => (
           <span className="data-mono ui-tone-usd">
             {fmtUsd(r.landed_cost_usd)}
-            <div className="text-[11px] text-fg-muted">{fmtLbp(r.landed_cost_lbp)}</div>
+            <div className="text-xs text-fg-muted">{fmtLbp(r.landed_cost_lbp)}</div>
           </span>
         ),
       },
@@ -144,8 +144,8 @@ export default function LandedCostImpactPage() {
         globalSearch: false,
         cell: (r) => (
           <div className="text-xs">
-            <div className="data-mono text-[11px]">{r.first_posted_at || "-"}</div>
-            <div className="data-mono text-[11px] text-fg-muted">{r.last_posted_at || "-"}</div>
+            <div className="data-mono text-xs">{r.first_posted_at || "-"}</div>
+            <div className="data-mono text-xs text-fg-muted">{r.last_posted_at || "-"}</div>
           </div>
         ),
       },

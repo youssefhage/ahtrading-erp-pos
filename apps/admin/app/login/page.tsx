@@ -66,7 +66,7 @@ export default function LoginPage() {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-foreground">AH Trading</h2>
-              <p className="text-[10px] uppercase tracking-wider text-fg-subtle">Admin Portal</p>
+              <p className="text-xs uppercase tracking-wider text-fg-subtle">Admin Portal</p>
             </div>
           </div>
         </div>
@@ -233,7 +233,7 @@ export default function LoginPage() {
           </div>
 
           <div className="border-t border-border-subtle pt-4">
-            <p className="text-center text-[11px] text-fg-subtle">
+            <p className="text-center text-xs text-fg-subtle">
               Protected by industry-standard encryption
             </p>
           </div>

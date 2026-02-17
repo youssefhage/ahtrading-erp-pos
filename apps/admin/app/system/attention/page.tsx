@@ -33,7 +33,7 @@ function severityChip(sev: AttentionItem["severity"]) {
         ? "bg-warning/15 text-warning border-warning/25"
         : "bg-info/15 text-info border-info/25";
   const label = sev === "critical" ? "Critical" : sev === "warning" ? "Warning" : "Info";
-  return <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium ${cls}`}>{label}</span>;
+  return <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${cls}`}>{label}</span>;
 }
 
 function fmtAge(s?: number | null) {

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { StatusChip } from "@/components/ui/status-chip";
 
 type CoaAccount = {
   id: string;
@@ -69,7 +70,7 @@ export default function BankAccountsPage() {
           </span>
         ),
       },
-      { id: "is_active", header: "Active", accessor: (a) => (a.is_active ? "yes" : "no"), sortable: true, globalSearch: false, cell: (a) => <span className="text-xs">{a.is_active ? "yes" : "no"}</span> },
+      { id: "is_active", header: "Active", accessor: (a) => (a.is_active ? "active" : "inactive"), sortable: true, globalSearch: false, cell: (a) => <StatusChip value={a.is_active ? "active" : "inactive"} /> },
       {
         id: "actions",
         header: "",
@@ -169,7 +170,21 @@ export default function BankAccountsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Banking</p>
+            <h1 className="ui-module-title">Bank Accounts</h1>
+            <p className="ui-module-subtitle">Maintain bank account to GL mapping for payment and reconciliation flows.</p>
+          </div>
+          <div className="ui-module-actions">
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+          </div>
+        </div>
+      </div>
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
@@ -178,10 +193,7 @@ export default function BankAccountsPage() {
           <CardDescription>{accounts.length} bank accounts</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
+          <div className="ui-actions-inline">
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
                 <Button>Create Account</Button>

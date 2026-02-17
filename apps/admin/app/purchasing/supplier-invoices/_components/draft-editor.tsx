@@ -1061,7 +1061,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                         <tr key={l.id} className="border-t border-border-subtle">
                           <td className="px-3 py-2 font-mono text-xs">{l.line_no}</td>
                           <td className="px-3 py-2 text-xs">
-                            <div className="font-mono text-[11px] text-fg-muted">{l.supplier_item_code || "-"}</div>
+                            <div className="font-mono text-xs text-fg-muted">{l.supplier_item_code || "-"}</div>
                             <div className="font-medium">{l.supplier_item_name || l.description || "-"}</div>
                           </td>
                           <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
@@ -1070,7 +1070,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                           <td className="px-3 py-2 text-xs">
                             <div className="text-fg-muted">{suggestedLabel}</div>
                             {Number(l.suggested_confidence || 0) ? (
-                              <div className="font-mono text-[10px] text-fg-subtle">conf {Number(l.suggested_confidence || 0).toFixed(2)}</div>
+                              <div className="font-mono text-xs text-fg-subtle">conf {Number(l.suggested_confidence || 0).toFixed(2)}</div>
                             ) : null}
                           </td>
                           <td className="px-3 py-2 text-xs">
@@ -1171,7 +1171,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                   </Button>
                 </div>
               </div>
-              <p className="text-[11px] text-fg-subtle">
+              <p className="text-xs text-fg-subtle">
                 The uploaded file is always attached to the draft invoice so you can audit it later. By default, imports require a human review step before creating invoice lines.
               </p>
             </form>
@@ -1274,7 +1274,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     setSupplierLabel(s.name);
                   }}
                 />
-                {supplierId ? <div className="text-[11px] text-fg-subtle">Selected: {supplierLabel || supplierId}</div> : null}
+                {supplierId ? <div className="text-xs text-fg-subtle">Selected: {supplierLabel || supplierId}</div> : null}
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Internal Doc No (optional)</label>
@@ -1292,7 +1292,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                   placeholder="Vendor invoice number / reference"
                   disabled={loading}
                 />
-                <p className="text-[11px] text-fg-subtle">When set, we enforce uniqueness per supplier (helps avoid duplicate postings).</p>
+                <p className="text-xs text-fg-subtle">When set, we enforce uniqueness per supplier (helps avoid duplicate postings).</p>
               </div>
             </div>
 
@@ -1304,7 +1304,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Due Date (optional)</label>
                 <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={loading} />
-                <p className="text-[11px] text-fg-subtle">If empty, the backend auto-calculates from supplier payment terms.</p>
+                <p className="text-xs text-fg-subtle">If empty, the backend auto-calculates from supplier payment terms.</p>
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LBP)</label>
@@ -1353,11 +1353,11 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
                     <ItemTypeahead globalScan disabled={loading} onSelect={(it) => void onPickItem(it)} />
                     {addItem ? (
-                      <p className="text-[11px] text-fg-subtle">
+                      <p className="text-xs text-fg-subtle">
                         Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}
                       </p>
                     ) : (
-                      <p className="text-[11px] text-fg-subtle">Tip: pick the item first, then type qty and cost.</p>
+                      <p className="text-xs text-fg-subtle">Tip: pick the item first, then type qty and cost.</p>
                     )}
                   </div>
                   <div className="space-y-1 md:col-span-1">
@@ -1392,7 +1392,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                       <Input inputMode="decimal" value={addLbp} onChange={(e) => setAddLbp(e.target.value)} placeholder="0" />
                     </div>
                   ) : null}
-                  <div className="md:col-span-12 text-[11px] text-fg-subtle">
+                  <div className="md:col-span-12 text-xs text-fg-subtle">
                     Qty factor: <span className="font-mono">{toNum(addQtyFactor).toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
                   </div>
                   <div className="space-y-1 md:col-span-6">
@@ -1441,10 +1441,10 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                                   {l.item_name ? <span> · {l.item_name}</span> : null}
                                 </div>
                                 {costMissing ? (
-                                  <div className="mt-1 text-[10px] text-danger">Missing unit cost</div>
+                                  <div className="mt-1 text-xs text-danger">Missing unit cost</div>
                                 ) : null}
                                 {l.supplier_item_code || l.supplier_item_name ? (
-                                  <div className="mt-1 text-[10px] text-fg-subtle">
+                                  <div className="mt-1 text-xs text-fg-subtle">
                                     Supplier: <span className="font-mono">{l.supplier_item_code || "-"}</span>
                                     {l.supplier_item_name ? <span> · {l.supplier_item_name}</span> : null}
                                   </div>
@@ -1480,7 +1480,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                                     options={uomOptions}
                                   />
                                 </div>
-                                <span className="text-[10px] font-mono text-fg-subtle">x{qtyFactor.toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
+                                <span className="text-xs font-mono text-fg-subtle">x{qtyFactor.toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
                               </div>
                             </td>
                             <td className="px-3 py-2 text-right">
@@ -1570,8 +1570,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
               <CardTitle>Document Preview</CardTitle>
               <CardDescription>
                 Compare the source document on the right while editing the real invoice fields on the left.
-                Use <span className="font-mono text-[11px]">[</span> / <span className="font-mono text-[11px]">]</span> (or Alt+Up/Down) to move between drafts.
-                Use <span className="font-mono text-[11px]">Cmd/Ctrl+Shift+Enter</span> to mark reviewed and continue.
+                Use <span className="font-mono text-xs">[</span> / <span className="font-mono text-xs">]</span> (or Alt+Up/Down) to move between drafts.
+                Use <span className="font-mono text-xs">Cmd/Ctrl+Shift+Enter</span> to mark reviewed and continue.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -1583,7 +1583,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 <>
                   <div className="rounded-md border border-border-subtle bg-bg-elevated/40 p-3">
                     <div className="truncate text-sm font-medium">{previewAttachment.filename || previewAttachment.id}</div>
-                    <div className="mt-1 font-mono text-[11px] text-fg-subtle">
+                    <div className="mt-1 font-mono text-xs text-fg-subtle">
                       {previewAttachment.content_type} · {Math.max(0, Number(previewAttachment.size_bytes || 0)).toLocaleString("en-US")} bytes
                     </div>
                   </div>
@@ -1597,7 +1597,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                             type="button"
                             size="sm"
                             variant={selected ? "default" : "outline"}
-                            className="h-7 px-2 text-[11px]"
+                            className="h-7 px-2 text-xs"
                             onClick={() => setPreviewAttachmentId(String(a.id))}
                           >
                             {idx + 1}
@@ -1653,7 +1653,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 ))}
               </div>
             )}
-            <p className="text-[11px] text-fg-subtle">
+            <p className="text-xs text-fg-subtle">
               Applying a suggestion updates the Item master name (affects future documents). Supplier item code/name is preserved separately on the invoice line.
             </p>
           </div>

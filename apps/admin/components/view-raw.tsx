@@ -62,7 +62,7 @@ export function ViewRaw(props: {
         type="button"
         size="sm"
         variant="ghost"
-        className="h-7 px-2 text-xs"
+        className="h-8 px-2.5 text-sm"
         onClick={() => setOpen((v) => !v)}
       >
         {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -76,7 +76,7 @@ export function ViewRaw(props: {
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-7 px-2 text-xs"
+                className="h-8 px-2.5 text-sm"
                 onClick={copyRaw}
                 title={copied ? "Copied to clipboard" : "Copy JSON"}
               >
@@ -87,7 +87,7 @@ export function ViewRaw(props: {
             type="button"
             size="sm"
             variant="ghost"
-            className="h-7 px-2 text-xs"
+            className="h-8 px-2.5 text-sm"
             onClick={() => setWrap((v) => !v)}
             title={wrap ? "Disable line wrap" : "Enable line wrap"}
           >
@@ -97,7 +97,7 @@ export function ViewRaw(props: {
             type="button"
             size="sm"
             variant="ghost"
-            className="h-7 px-2 text-xs"
+            className="h-8 px-2.5 text-sm"
             onClick={downloadRaw}
             title="Download JSON"
           >
@@ -105,9 +105,9 @@ export function ViewRaw(props: {
             <span className="ml-1">Download</span>
           </Button>
         </div>
-        <span className="text-xs text-fg-subtle">{lines.length} lines</span>
+        <span className="text-sm text-fg-subtle">{lines.length} lines</span>
       </div>
-          <div className={cn("max-h-96 overflow-auto p-3 text-[11px] leading-5 text-fg-muted", wrap ? "whitespace-pre-wrap" : "whitespace-pre")}>
+          <div className={cn("max-h-96 overflow-auto p-3 text-sm leading-6 text-fg-muted", wrap ? "whitespace-pre-wrap" : "whitespace-pre")}>
             {lines.map((line, idx) => (
               <div key={idx} className="grid min-h-5 grid-cols-[2rem_1fr] gap-2">
                 <span className="select-none text-right text-fg-subtle">{String(idx + 1).padStart(3, "0")}</span>

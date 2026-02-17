@@ -98,8 +98,8 @@ export default function ApImportQueuePage() {
                 {r.invoice_no || "(draft)"}
               </ShortcutLink>
             </div>
-            {r.supplier_ref ? <div className="data-mono text-[10px] text-fg-subtle">Ref: {r.supplier_ref}</div> : null}
-            <div className="data-mono text-[10px] text-fg-subtle">{r.id}</div>
+            {r.supplier_ref ? <div className="data-mono text-xs text-fg-subtle">Ref: {r.supplier_ref}</div> : null}
+            <div className="data-mono text-xs text-fg-subtle">{r.id}</div>
           </div>
         ),
       },

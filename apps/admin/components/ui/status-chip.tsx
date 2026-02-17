@@ -23,8 +23,8 @@ export function StatusChip(props: { value?: string | null; className?: string })
 
   let variant: ChipVariant = "default";
   if (["posted", "paid", "active", "completed", "success", "executed", "approved", "reconciled", "done"].includes(raw)) variant = "success";
-  else if (["draft", "pending", "processing", "in_progress", "in-progress", "queued", "on_hold", "review", "scheduled", "partial", "partially_paid", "awaiting"].includes(raw)) variant = "warning";
-  else if (["canceled", "cancelled", "void", "voided", "inactive", "failed", "error", "rejected", "blocked", "overdue", "expired"].includes(raw)) variant = "danger";
+  else if (["on_hold", "on-hold", "blocked", "overdue", "expired"].includes(raw)) variant = "warning";
+  else if (["canceled", "cancelled", "void", "voided", "inactive", "failed", "error", "rejected"].includes(raw)) variant = "danger";
   else if (["open", "new", "sent"].includes(raw)) variant = "primary";
 
   return (

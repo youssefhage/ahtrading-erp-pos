@@ -126,7 +126,7 @@ export default function PurchaseOrderViewPage() {
                   {l.item_name ? <span> · {l.item_name}</span> : null}
                 </ShortcutLink>
               </div>
-              {l.unit_of_measure ? <div className="font-mono text-[10px] text-fg-subtle">UOM: {String(l.unit_of_measure)}</div> : null}
+              {l.unit_of_measure ? <div className="font-mono text-xs text-fg-subtle">UOM: {String(l.unit_of_measure)}</div> : null}
             </div>
           );
         },
@@ -290,7 +290,7 @@ export default function PurchaseOrderViewPage() {
 
   if (err) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="ui-detail-shell">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h1 className="text-xl font-semibold text-foreground">Purchase Order</h1>
@@ -307,79 +307,81 @@ export default function PurchaseOrderViewPage() {
 
   if (!loading && !detail) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="ui-detail-shell">
         <EmptyState title="Purchase order not found" description="This order may have been deleted or you may not have access." actionLabel="Back" onAction={() => router.push("/purchasing/purchase-orders/list")} />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">{order?.order_no || (loading ? "Loading..." : "Purchase Order")}</h1>
-          <p className="text-sm text-fg-muted">
-            <span className="font-mono text-xs">{id}</span>
-            {order ? (
-              <>
-                {" "}
-                · <StatusChip value={order.status} />
-              </>
+    <div className="ui-detail-shell">
+      <div className="ui-detail-header">
+        <div className="ui-detail-header-row">
+          <div>
+            <h1 className="ui-detail-title">{order?.order_no || (loading ? "Loading..." : "Purchase Order")}</h1>
+            <p className="ui-detail-meta">
+              <span className="ui-detail-meta-id">{id}</span>
+              {order ? (
+                <>
+                  {" "}
+                  · <StatusChip value={order.status} />
+                </>
+              ) : null}
+            </p>
+          </div>
+          <div className="ui-detail-actions">
+            <Button type="button" variant="outline" onClick={() => router.push("/purchasing/purchase-orders/list")} disabled={busy}>
+              Back
+            </Button>
+            <Button type="button" variant="outline" onClick={load} disabled={busy || loading}>
+              Refresh
+            </Button>
+            <Button asChild variant="outline" disabled={busy || !id}>
+              <Link
+                href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/print`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Print / PDF
+              </Link>
+            </Button>
+            <Button asChild variant="outline" disabled={busy || !id}>
+              <a href={`/exports/purchase-orders/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noopener noreferrer">
+                Download PDF
+              </a>
+            </Button>
+            {canEditDraft ? (
+              <Button asChild variant="outline" disabled={busy}>
+                <Link href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/edit`}>Edit Draft</Link>
+              </Button>
             ) : null}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" onClick={() => router.push("/purchasing/purchase-orders/list")} disabled={busy}>
-            Back
-          </Button>
-          <Button type="button" variant="outline" onClick={load} disabled={busy || loading}>
-            Refresh
-          </Button>
-          <Button asChild variant="outline" disabled={busy || !id}>
-            <Link
-              href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/print`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Print / PDF
-            </Link>
-          </Button>
-          <Button asChild variant="outline" disabled={busy || !id}>
-            <a href={`/exports/purchase-orders/${encodeURIComponent(id)}/pdf`} target="_blank" rel="noopener noreferrer">
-              Download PDF
-            </a>
-          </Button>
-          {canEditDraft ? (
-            <Button asChild variant="outline" disabled={busy}>
-              <Link href={`/purchasing/purchase-orders/${encodeURIComponent(id)}/edit`}>Edit Draft</Link>
+            {canPost ? (
+              <Button type="button" onClick={post} disabled={busy}>
+                Post
+              </Button>
+            ) : null}
+            {canCreateReceipt ? (
+              <Button type="button" variant="outline" onClick={openReceive} disabled={busy}>
+                Create GR Draft
+              </Button>
+            ) : null}
+            {canCancel ? (
+              <Button type="button" variant="outline" onClick={cancel} disabled={busy}>
+                Cancel
+              </Button>
+            ) : null}
+            {order ? (
+              <DocumentUtilitiesDrawer
+                entityType="purchase_order"
+                entityId={order.id}
+                allowUploadAttachments={order.status === "draft"}
+                className="ml-1"
+              />
+            ) : null}
+            <Button asChild disabled={busy}>
+              <Link href="/purchasing/purchase-orders/new">New Draft</Link>
             </Button>
-          ) : null}
-          {canPost ? (
-            <Button type="button" onClick={post} disabled={busy}>
-              Post
-            </Button>
-          ) : null}
-          {canCreateReceipt ? (
-            <Button type="button" variant="outline" onClick={openReceive} disabled={busy}>
-              Create GR Draft
-            </Button>
-          ) : null}
-          {canCancel ? (
-            <Button type="button" variant="outline" onClick={cancel} disabled={busy}>
-              Cancel
-            </Button>
-          ) : null}
-          {order ? (
-            <DocumentUtilitiesDrawer
-              entityType="purchase_order"
-              entityId={order.id}
-              allowUploadAttachments={order.status === "draft"}
-              className="ml-1"
-            />
-          ) : null}
-          <Button asChild disabled={busy}>
-            <Link href="/purchasing/purchase-orders/new">New Draft</Link>
-          </Button>
+          </div>
         </div>
       </div>
 
@@ -400,7 +402,7 @@ export default function PurchaseOrderViewPage() {
                     "-"
                   )}
                 </p>
-                <p className="mt-1 text-xs text-fg-muted">
+                <p className="mt-1 text-sm text-fg-muted">
                   Created{" "}
                   <span className="data-mono">
                     {order ? formatDateLike(order.created_at) : "-"}
@@ -461,7 +463,7 @@ export default function PurchaseOrderViewPage() {
             <p className="ui-panel-title">Totals</p>
 
             <div className="mt-3">
-              <div className="text-xs text-fg-muted">Total</div>
+              <div className="text-sm text-fg-muted">Total</div>
               <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{totals.usd}</div>
               <div className="data-mono mt-1 text-sm text-fg-muted">{totals.lbp}</div>
             </div>

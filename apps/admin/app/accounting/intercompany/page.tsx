@@ -10,6 +10,7 @@ import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { StatusChip } from "@/components/ui/status-chip";
 
 type DocRow = {
   id: string;
@@ -83,7 +84,7 @@ export default function IntercompanyPage() {
       { id: "source_company_name", header: "Source Co", accessor: (d) => d.source_company_name || d.source_company_id.slice(0, 8), sortable: true },
       { id: "issue_company_name", header: "Issue Co", accessor: (d) => d.issue_company_name || d.issue_company_id.slice(0, 8), sortable: true },
       { id: "sell_company_name", header: "Sell Co", accessor: (d) => d.sell_company_name || d.sell_company_id.slice(0, 8), sortable: true },
-      { id: "settlement_status", header: "Status", accessor: (d) => d.settlement_status, sortable: true, globalSearch: false },
+      { id: "settlement_status", header: "Status", accessor: (d) => d.settlement_status, sortable: true, globalSearch: false, cell: (d) => <StatusChip value={d.settlement_status} /> },
     ];
   }, []);
 
@@ -174,7 +175,16 @@ export default function IntercompanyPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Accounting</p>
+            <h1 className="ui-module-title">Intercompany</h1>
+            <p className="ui-module-subtitle">Track documents and settlements between legal entities.</p>
+          </div>
+        </div>
+      </div>
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
@@ -183,7 +193,7 @@ export default function IntercompanyPage() {
           <CardDescription>Record a settlement between companies (posts journals on both sides).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <form onSubmit={settle} className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <form onSubmit={settle} className="ui-form-grid-3">
             <div className="space-y-1">
               <label className="text-xs font-medium text-fg-muted">From (payer)</label>
               <select className="ui-select" value={fromCompanyId} onChange={(e) => setFromCompanyId(e.target.value)}>

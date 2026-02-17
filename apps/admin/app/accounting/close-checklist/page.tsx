@@ -82,7 +82,16 @@ export default function CloseChecklistPage() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Accounting</p>
+            <h1 className="ui-module-title">Period Close Checklist</h1>
+            <p className="ui-module-subtitle">Surface close blockers early before period lock.</p>
+          </div>
+        </div>
+      </div>
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
@@ -90,7 +99,7 @@ export default function CloseChecklistPage() {
           <CardTitle>Period Close Checklist</CardTitle>
           <CardDescription>Review blockers before locking a period.</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-2">
+        <CardContent className="ui-actions-between">
           <Button variant="outline" onClick={load}>
             Refresh
           </Button>
@@ -103,7 +112,7 @@ export default function CloseChecklistPage() {
                 <DialogTitle>Checklist Filters</DialogTitle>
                 <DialogDescription>Use as-of or override with a custom date range.</DialogDescription>
               </DialogHeader>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="ui-form-grid-3">
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">As Of</label>
                   <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />

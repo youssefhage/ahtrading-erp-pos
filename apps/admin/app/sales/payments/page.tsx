@@ -274,7 +274,7 @@ function SalesPaymentsPageInner() {
             <div className="text-right">
               <div className="text-xs">{show.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
               {hasTender(p) && Math.abs(show - applied) > 0.00005 ? (
-                <div className="mt-0.5 text-[10px] text-fg-muted">Applied: {applied.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                <div className="mt-0.5 text-xs text-fg-muted">Applied: {applied.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
               ) : null}
             </div>
           );
@@ -294,7 +294,7 @@ function SalesPaymentsPageInner() {
             <div className="text-right">
               <div className="text-xs">{show.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
               {hasTender(p) && Math.abs(show - applied) > 0.005 ? (
-                <div className="mt-0.5 text-[10px] text-fg-muted">Applied: {applied.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                <div className="mt-0.5 text-xs text-fg-muted">Applied: {applied.toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
               ) : null}
             </div>
           );
@@ -304,7 +304,16 @@ function SalesPaymentsPageInner() {
   }, [customerById]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Sales</p>
+            <h1 className="ui-module-title">Customer Payments</h1>
+            <p className="ui-module-subtitle">Record, filter, and review customer payment activity.</p>
+          </div>
+        </div>
+      </div>
         {status ? <ErrorBanner error={status} onRetry={loadPayments} /> : null}
 
         <Card>
@@ -313,7 +322,7 @@ function SalesPaymentsPageInner() {
             <CardDescription>Reduce results for faster review and matching.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
+            <div className="ui-actions-inline">
               <Button variant="outline" onClick={() => setFiltersOpen((v) => !v)}>
                 {filtersOpen ? "Hide Filters" : "Show Filters"}
               </Button>
@@ -331,7 +340,7 @@ function SalesPaymentsPageInner() {
                       Posts GL: Dr Cash/Bank, Cr AR. Requires payment method mapping and AR default.
                     </DialogDescription>
                   </DialogHeader>
-                  <form onSubmit={createPayment} className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                  <form onSubmit={createPayment} className="ui-form-grid-6">
                     <div className="space-y-1 md:col-span-4">
                       <label className="text-xs font-medium text-fg-muted">Invoice</label>
                       <select
@@ -432,7 +441,7 @@ function SalesPaymentsPageInner() {
             </div>
 
             {filtersOpen ? (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="ui-form-grid-4">
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Customer</label>
                   <SearchableSelect
@@ -507,13 +516,13 @@ function SalesPaymentsPageInner() {
                 <div className="ui-panel px-3 py-2">
                   <div className="ui-panel-title">Applied</div>
                   <div className="data-mono text-sm ui-tone-usd">{Number(totals.applied_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
-                  <div className="data-mono text-[11px] text-fg-muted ui-tone-lbp">{Number(totals.applied_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                  <div className="data-mono text-xs text-fg-muted ui-tone-lbp">{Number(totals.applied_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
                 </div>
                 {totals.has_tender ? (
                   <div className="ui-panel px-3 py-2">
                     <div className="ui-panel-title">Tender</div>
                     <div className="data-mono text-sm ui-tone-usd">{Number(totals.tender_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
-                    <div className="data-mono text-[11px] text-fg-muted ui-tone-lbp">{Number(totals.tender_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
+                    <div className="data-mono text-xs text-fg-muted ui-tone-lbp">{Number(totals.tender_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
                   </div>
                 ) : null}
               </div>

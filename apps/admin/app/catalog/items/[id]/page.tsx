@@ -256,7 +256,7 @@ function KeyField(props: { label: string; value: string; mono?: boolean; copyTex
   return (
     <div className="rounded-lg border border-border-subtle bg-bg-elevated/45 p-3">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
         {props.copyText ? <CopyIconButton text={props.copyText} label={props.label} className="h-7 w-7" /> : null}
       </div>
       <p
@@ -277,7 +277,7 @@ function SummaryField(props: { label: string; value: string; mono?: boolean; cop
   return (
     <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
         {props.copyText ? <CopyIconButton text={props.copyText} label={props.label} className="h-7 w-7" /> : null}
       </div>
       <p
@@ -949,12 +949,12 @@ export default function ItemViewPage() {
                       hint={item.short_name ? "Friendly label used on reports/receipts." : undefined}
                     />
                     <div className="rounded-md border border-border-subtle bg-bg-elevated/45 p-3">
-                      <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Description</p>
+                      <p className="text-xs font-medium uppercase tracking-wider text-fg-muted">Description</p>
                       <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{item.description || "—"}</p>
                     </div>
                     {item.external_ids ? (
                       <div className="rounded-md border border-border-subtle bg-bg-elevated/45 p-3">
-                        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">External IDs</p>
+                        <p className="text-xs font-medium uppercase tracking-wider text-fg-muted">External IDs</p>
                         <div className="mt-2">
                           <ViewRaw value={item.external_ids} label="View external IDs" defaultOpen={false} />
                         </div>

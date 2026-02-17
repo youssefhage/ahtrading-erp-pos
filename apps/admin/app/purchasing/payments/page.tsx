@@ -253,7 +253,16 @@ export default function SupplierPaymentsPage() {
   }, [supplierById]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Purchasing</p>
+            <h1 className="ui-module-title">Supplier Payments</h1>
+            <p className="ui-module-subtitle">Record and reconcile outgoing payments to supplier invoices.</p>
+          </div>
+        </div>
+      </div>
         {status ? <ErrorBanner error={status} onRetry={loadAll} /> : null}
 
         <Card>
@@ -262,7 +271,7 @@ export default function SupplierPaymentsPage() {
             <CardDescription>Reduce results for faster review.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
+            <div className="ui-actions-inline">
               <Button variant="outline" onClick={() => setFiltersOpen((v) => !v)}>
                 {filtersOpen ? "Hide Filters" : "Show Filters"}
               </Button>
@@ -278,7 +287,7 @@ export default function SupplierPaymentsPage() {
                     <DialogTitle>Record Supplier Payment</DialogTitle>
                     <DialogDescription>Posts GL: Dr AP, Cr Cash/Bank. Requires AP default and payment method mapping.</DialogDescription>
                   </DialogHeader>
-                  <form onSubmit={createPayment} className="grid grid-cols-1 gap-3 md:grid-cols-6">
+                  <form onSubmit={createPayment} className="ui-form-grid-6">
                     <div className="space-y-1 md:col-span-4">
                       <label className="text-xs font-medium text-fg-muted">Supplier Invoice</label>
                       <select
@@ -360,7 +369,7 @@ export default function SupplierPaymentsPage() {
             </div>
 
             {filtersOpen ? (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="ui-form-grid-4">
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Supplier</label>
                   <SearchableSelect

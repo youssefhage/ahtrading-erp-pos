@@ -793,27 +793,27 @@ export default function ConfigPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Pct Threshold</label>
                   <Input value={apPctThreshold} onChange={(e) => setApPctThreshold(e.target.value)} placeholder="0.15" />
-                  <div className="text-[11px] text-fg-subtle">Example: 0.15 = 15%</div>
+                  <div className="text-xs text-fg-subtle">Example: 0.15 = 15%</div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Abs USD Threshold</label>
                   <Input value={apAbsUsdThreshold} onChange={(e) => setApAbsUsdThreshold(e.target.value)} placeholder="25" />
-                  <div className="text-[11px] text-fg-subtle">Per-unit difference (USD)</div>
+                  <div className="text-xs text-fg-subtle">Per-unit difference (USD)</div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Abs LBP Threshold</label>
                   <Input value={apAbsLbpThreshold} onChange={(e) => setApAbsLbpThreshold(e.target.value)} placeholder="2500000" />
-                  <div className="text-[11px] text-fg-subtle">Fallback when only LBP is present</div>
+                  <div className="text-xs text-fg-subtle">Fallback when only LBP is present</div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Tax Diff Pct</label>
                   <Input value={apTaxDiffPctThreshold} onChange={(e) => setApTaxDiffPctThreshold(e.target.value)} placeholder="0.02" />
-                  <div className="text-[11px] text-fg-subtle">Tax mismatch threshold (% of base)</div>
+                  <div className="text-xs text-fg-subtle">Tax mismatch threshold (% of base)</div>
                 </div>
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">Tax Diff LBP</label>
                   <Input value={apTaxDiffLbpThreshold} onChange={(e) => setApTaxDiffLbpThreshold(e.target.value)} placeholder="500000" />
-                  <div className="text-[11px] text-fg-subtle">Minimum absolute tax mismatch (LBP)</div>
+                  <div className="text-xs text-fg-subtle">Minimum absolute tax mismatch (LBP)</div>
                 </div>
                 <div className="flex justify-end md:col-span-2">
                   <Button type="submit" disabled={savingApPolicy}>
@@ -864,17 +864,17 @@ export default function ConfigPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Target Margin (pct)</label>
                   <Input value={targetMarginPct} onChange={(e) => setTargetMarginPct(e.target.value)} placeholder="0.20" />
-                  <div className="text-[11px] text-fg-subtle">Example: 0.20 = 20% gross margin target</div>
+                  <div className="text-xs text-fg-subtle">Example: 0.20 = 20% gross margin target</div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">USD Round Step</label>
                   <Input value={usdRoundStep} onChange={(e) => setUsdRoundStep(e.target.value)} placeholder="0.25" />
-                  <div className="text-[11px] text-fg-subtle">Suggested USD prices round up to this step</div>
+                  <div className="text-xs text-fg-subtle">Suggested USD prices round up to this step</div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">LBP Round Step</label>
                   <Input value={lbpRoundStep} onChange={(e) => setLbpRoundStep(e.target.value)} placeholder="5000" />
-                  <div className="text-[11px] text-fg-subtle">Suggested LBP prices round up to this step</div>
+                  <div className="text-xs text-fg-subtle">Suggested LBP prices round up to this step</div>
                 </div>
                 <div className="flex justify-end">
                   <Button type="submit" disabled={savingPricingPolicy}>
@@ -1148,7 +1148,7 @@ export default function ConfigPage() {
               <div className="mt-1 text-sm text-foreground">{aiProvider}</div>
             </div>
           </div>
-          <p className="mt-3 text-[11px] text-fg-subtle">
+          <p className="mt-3 text-xs text-fg-subtle">
             If disabled, AI import and AI naming will still work in draft + attachment mode, but without external extraction/suggestions. Leaving
             model/base URL/API key blank will fall back to server environment variables.
           </p>

@@ -98,9 +98,9 @@ export default function JournalTemplateDetailPage() {
         sortable: true,
         cell: (l) => (
           <div className="text-xs">
-            <div className="font-mono text-[11px] text-fg-muted">{l.account_code}</div>
+            <div className="font-mono text-xs text-fg-muted">{l.account_code}</div>
             <div>{l.name_en || ""}</div>
-            {l.memo ? <div className="mt-1 text-[11px] text-fg-muted">{l.memo}</div> : null}
+            {l.memo ? <div className="mt-1 text-xs text-fg-muted">{l.memo}</div> : null}
           </div>
         ),
       },
@@ -193,7 +193,7 @@ export default function JournalTemplateDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="ui-detail-shell-wide">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <TabBar tabs={templateTabs} />
@@ -201,14 +201,14 @@ export default function JournalTemplateDetailPage() {
       {activeTab === "overview" ? (
         <Card>
         <CardHeader>
-          <CardTitle>Journal Template</CardTitle>
+          <CardTitle className="text-lg">Journal Template Overview</CardTitle>
           <CardDescription className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-fg-muted">{data?.template?.name || id}</span>
-            <span className="font-mono text-xs text-fg-muted">{data?.template?.id || ""}</span>
+            <span className="font-mono text-sm text-fg-muted">{data?.template?.id || ""}</span>
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-xs text-fg-muted">
+          <div className="text-sm text-fg-muted">
             Status: <span className="font-medium text-fg">{data?.template?.is_active ? "Active" : "Inactive"}</span>{" "}
             {"  "}Default rate type: <span className="font-mono">{data?.template?.default_rate_type}</span>
           </div>
@@ -258,7 +258,7 @@ export default function JournalTemplateDetailPage() {
                     </Button>
                   </div>
                   {runResult ? (
-                    <div className="rounded-md border border-border bg-bg-elevated p-3 text-xs md:col-span-3">
+                    <div className="rounded-md border border-border bg-bg-elevated p-3 text-sm md:col-span-3">
                       <div className="text-fg-muted">Created journal</div>
                       <div className="mt-1 font-mono">{runResult.journal_no}</div>
                       <div className="mt-2 flex flex-wrap gap-2">

@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { StatusChip } from "@/components/ui/status-chip";
 import { ErrorBanner } from "@/components/error-banner";
 
 type CreditRow = {
@@ -71,7 +72,7 @@ export default function SupplierCreditsListPage() {
         ),
       },
       { id: "supplier", header: "Supplier", sortable: true, accessor: (c) => c.supplier_name || c.supplier_id, cell: (c) => <span className="text-xs">{c.supplier_name || c.supplier_id}</span> },
-      { id: "status", header: "Status", sortable: true, accessor: (c) => c.status, cell: (c) => <span className="text-xs">{c.status}</span> },
+      { id: "status", header: "Status", sortable: true, accessor: (c) => c.status, cell: (c) => <StatusChip value={c.status} /> },
       { id: "kind", header: "Kind", sortable: true, accessor: (c) => c.kind, cell: (c) => <span className="text-xs">{c.kind}</span> },
       {
         id: "total",
@@ -83,7 +84,7 @@ export default function SupplierCreditsListPage() {
         cell: (c) => (
           <div className="text-right data-mono text-xs">
             {fmtUsd(c.total_usd)}
-            <div className="text-[11px] text-fg-muted">{fmtLbp(c.total_lbp)}</div>
+            <div className="text-xs text-fg-muted">{fmtLbp(c.total_lbp)}</div>
           </div>
         ),
       },
@@ -97,7 +98,7 @@ export default function SupplierCreditsListPage() {
         cell: (c) => (
           <div className="text-right data-mono text-xs">
             {fmtUsd(c.remaining_usd)}
-            <div className="text-[11px] text-fg-muted">{fmtLbp(c.remaining_lbp)}</div>
+            <div className="text-xs text-fg-muted">{fmtLbp(c.remaining_lbp)}</div>
           </div>
         ),
       },
@@ -132,19 +133,20 @@ export default function SupplierCreditsListPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="ui-module-shell">
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Supplier Credits</CardTitle>
-          <CardDescription>Vendor rebates/credit notes: post to GL and apply to invoices.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-2">
-          <Button variant="outline" onClick={load}>
-            Refresh
-          </Button>
-          <div className="flex flex-wrap items-center gap-2">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Purchasing</p>
+            <h1 className="ui-module-title">Supplier Credits</h1>
+            <p className="ui-module-subtitle">Vendor rebates and credit notes that can be applied to supplier invoices.</p>
+          </div>
+          <div className="ui-module-actions">
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
             <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline">Filters</Button>
@@ -179,7 +181,7 @@ export default function SupplierCreditsListPage() {
                       placeholder={supplierLabel || "Search supplier..."}
                     />
                     {supplierId ? (
-                      <div className="text-[11px] text-fg-muted">
+                      <div className="text-xs text-fg-muted">
                         Filtering by supplier.{" "}
                         <button
                           type="button"
@@ -211,22 +213,22 @@ export default function SupplierCreditsListPage() {
               <Link href="/purchasing/supplier-credits/new">New Credit</Link>
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Totals</CardTitle>
           <CardDescription>Remaining credit across returned rows.</CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-2 md:grid-cols-2">
-          <div className="rounded-md border border-border bg-bg-elevated p-3">
-            <div className="text-xs text-fg-subtle">Remaining USD</div>
-            <div className="mt-1 data-mono text-sm">{fmtUsd(totals.remainingUsd)}</div>
+        <CardContent className="ui-metric-grid">
+          <div className="ui-metric">
+            <div className="ui-metric-label">Remaining USD</div>
+            <div className="ui-metric-value">{fmtUsd(totals.remainingUsd)}</div>
           </div>
-          <div className="rounded-md border border-border bg-bg-elevated p-3">
-            <div className="text-xs text-fg-subtle">Remaining LL</div>
-            <div className="mt-1 data-mono text-sm">{fmtLbp(totals.remainingLbp)}</div>
+          <div className="ui-metric">
+            <div className="ui-metric-label">Remaining LL</div>
+            <div className="ui-metric-value">{fmtLbp(totals.remainingLbp)}</div>
           </div>
         </CardContent>
       </Card>

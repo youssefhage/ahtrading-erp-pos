@@ -229,7 +229,7 @@ export default function JournalTemplateNewPage() {
                 {lines.map((l, idx) => (
                   <div key={l.key} className="grid grid-cols-1 gap-2 rounded-md border border-border-subtle bg-bg-sunken p-2 md:grid-cols-[110px_160px_1fr_160px_160px_150px_150px_40px]">
                     <div className="space-y-1">
-                      <label className="text-[11px] font-medium text-fg-muted">Side</label>
+                      <label className="text-xs font-medium text-fg-muted">Side</label>
                       <select
                         className="ui-select w-full"
                         value={l.side}
@@ -241,30 +241,30 @@ export default function JournalTemplateNewPage() {
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] font-medium text-fg-muted">Account</label>
+                      <label className="text-xs font-medium text-fg-muted">Account</label>
                       <Input value={l.account_code} onChange={(e) => onAccountCodeChange(idx, e.target.value)} placeholder="4010" />
                       {!l.account_id && l.account_code ? (
-                        <div className="text-[11px] text-danger">Unknown code</div>
+                        <div className="text-xs text-danger">Unknown code</div>
                       ) : null}
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] font-medium text-fg-muted">Memo</label>
+                      <label className="text-xs font-medium text-fg-muted">Memo</label>
                       <Input value={l.memo} onChange={(e) => updateLine(idx, { memo: e.target.value })} placeholder="Optional..." />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] font-medium text-fg-muted">Amount USD</label>
+                      <label className="text-xs font-medium text-fg-muted">Amount USD</label>
                       <Input value={l.amount_usd} onChange={(e) => updateLine(idx, { amount_usd: e.target.value })} inputMode="decimal" />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] font-medium text-fg-muted">Amount LL</label>
+                      <label className="text-xs font-medium text-fg-muted">Amount LL</label>
                       <Input value={l.amount_lbp} onChange={(e) => updateLine(idx, { amount_lbp: e.target.value })} inputMode="decimal" />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] font-medium text-fg-muted">Cost Center</label>
+                      <label className="text-xs font-medium text-fg-muted">Cost Center</label>
                       <select className="ui-select w-full" value={l.cost_center_id} onChange={(e) => updateLine(idx, { cost_center_id: e.target.value })}>
                         <option value="">(none)</option>
                         {costCenters.filter((c) => c.is_active).map((c) => (
@@ -276,7 +276,7 @@ export default function JournalTemplateNewPage() {
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[11px] font-medium text-fg-muted">Project</label>
+                      <label className="text-xs font-medium text-fg-muted">Project</label>
                       <select className="ui-select w-full" value={l.project_id} onChange={(e) => updateLine(idx, { project_id: e.target.value })}>
                         <option value="">(none)</option>
                         {projects.filter((p) => p.is_active).map((p) => (

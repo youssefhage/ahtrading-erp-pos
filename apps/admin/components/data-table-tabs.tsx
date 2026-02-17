@@ -29,7 +29,7 @@ export function DataTableTabs(props: {
             type="button"
             onClick={() => onChange(t.value)}
             className={cn(
-              "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-medium transition-colors",
               active
                 ? "border-border bg-foreground text-background"
                 : "border-border-subtle bg-bg-muted/30 text-fg-muted hover:border-border hover:text-foreground"
@@ -40,7 +40,7 @@ export function DataTableTabs(props: {
             {typeof t.count === "number" ? (
               <span
                 className={cn(
-                  "data-mono rounded-full px-2 py-0.5 text-[10px]",
+                  "data-mono rounded-full px-2 py-0.5 text-sm",
                   active ? "bg-background/20 text-background" : "bg-bg-sunken/60 text-fg-muted"
                 )}
               >
@@ -53,4 +53,3 @@ export function DataTableTabs(props: {
     </div>
   );
 }
-

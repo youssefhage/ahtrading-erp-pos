@@ -133,8 +133,8 @@ export default function RecurringJournalsPage() {
         cell: (r) => (
           <div>
             <div className="font-medium">{r.template_name}</div>
-            {!r.template_active ? <div className="text-[11px] text-danger">Template inactive (rule will auto-disable)</div> : null}
-            <div className="text-[10px] text-fg-subtle data-mono">{r.journal_template_id}</div>
+            {!r.template_active ? <div className="text-xs text-danger">Template inactive (rule will auto-disable)</div> : null}
+            <div className="text-xs text-fg-subtle data-mono">{r.journal_template_id}</div>
           </div>
         ),
       },
@@ -173,7 +173,7 @@ export default function RecurringJournalsPage() {
         align: "right",
         globalSearch: false,
         cell: (r) => (
-          <div className="flex items-center justify-end gap-2">
+          <div className="ui-actions-inline">
             <Button variant="outline" size="sm" onClick={() => bumpNextRun(r.id, todayISO())}>
               Run Today
             </Button>
@@ -187,10 +187,19 @@ export default function RecurringJournalsPage() {
   }, [bumpNextRun, toggleRule]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Accounting</p>
+            <h1 className="ui-module-title">Recurring Journals</h1>
+            <p className="ui-module-subtitle">Automate scheduled journal creation from active templates.</p>
+          </div>
+        </div>
+      </div>
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="ui-actions-inline">
         <Button variant="outline" onClick={load} disabled={loading}>
           {loading ? "..." : "Refresh"}
         </Button>
@@ -204,7 +213,7 @@ export default function RecurringJournalsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <form onSubmit={createRule} className="grid grid-cols-1 gap-3 md:grid-cols-6">
+          <form onSubmit={createRule} className="ui-form-grid-6">
             <div className="space-y-1 md:col-span-2">
               <label className="text-xs font-medium text-fg-muted">Template</label>
               <select className="ui-select" value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
@@ -215,7 +224,7 @@ export default function RecurringJournalsPage() {
                   </option>
                 ))}
               </select>
-              <div className="text-[11px] text-fg-subtle">
+              <div className="text-xs text-fg-subtle">
                 Only active templates are shown. You can run templates manually from Journal Templates too.
               </div>
             </div>

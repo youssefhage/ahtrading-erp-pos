@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
 import { useToast } from "@/components/toast-provider";
-import { Page, PageHeader } from "@/components/page";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 
 type BankAccountRow = {
@@ -369,11 +368,16 @@ export default function BankingReconciliationPage() {
   }, [openCreateJournal, openMatch, unmatch]);
 
   return (
-    <Page width="lg">
-      <PageHeader
-        title="Banking Reconciliation"
-        description="Record statement lines and match them to accounting journals."
-      />
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Banking</p>
+            <h1 className="ui-module-title">Reconciliation</h1>
+            <p className="ui-module-subtitle">Record statement lines and match them to accounting journals.</p>
+          </div>
+        </div>
+      </div>
       {error ? <ErrorBanner error={error} onRetry={loadTxns} /> : null}
 
       <Card>
@@ -381,7 +385,7 @@ export default function BankingReconciliationPage() {
             <CardTitle>Filters</CardTitle>
             <CardDescription>Limit transactions for faster matching.</CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <CardContent className="ui-form-grid-4">
             <div className="space-y-1">
               <label className="text-xs font-medium text-fg-muted">Bank Account</label>
               <select
@@ -426,7 +430,7 @@ export default function BankingReconciliationPage() {
             <CardDescription>{txns.length} rows</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex items-center justify-end gap-2">
+            <div className="ui-actions-inline">
               <Button variant="outline" onClick={loadTxns} disabled={loadingTxns}>
                 {loadingTxns ? "..." : "Refresh"}
               </Button>
@@ -623,6 +627,6 @@ export default function BankingReconciliationPage() {
             </div>
           </DialogContent>
         </Dialog>
-    </Page>
+    </div>
   );
 }

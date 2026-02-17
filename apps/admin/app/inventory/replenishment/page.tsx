@@ -91,7 +91,7 @@ export default function ReplenishmentPage() {
             <div className="data-mono text-xs">{s.item_sku || s.item_id.slice(0, 8)}</div>
             <div className="text-xs text-fg-muted">{s.item_name}</div>
             {s.from_location_code ? (
-              <div className="text-[11px] text-fg-subtle">
+              <div className="text-xs text-fg-subtle">
                 From: <span className="data-mono">{s.from_location_code}</span>
               </div>
             ) : null}
@@ -444,7 +444,7 @@ export default function ReplenishmentPage() {
                     placeholder={pickedItem ? `${pickedItem.sku} · ${pickedItem.name}` : "Search items (sku, name, barcode)..."}
                   />
                 </div>
-                {pickedItem ? <div className="mt-1 text-[11px] text-fg-subtle data-mono">{pickedItem.id}</div> : null}
+                {pickedItem ? <div className="mt-1 text-xs text-fg-subtle data-mono">{pickedItem.id}</div> : null}
               </div>
 
               <div className="md:col-span-3">

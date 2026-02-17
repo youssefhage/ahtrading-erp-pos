@@ -185,7 +185,7 @@ export default function AppearanceSettingsPage() {
                 <div className="text-xs text-fg-subtle">Bright background, high contrast text.</div>
               </div>
               {colorTheme === "light" && (
-                <span className="ml-auto rounded bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                <span className="ml-auto rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                   ACTIVE
                 </span>
               )}
@@ -216,7 +216,7 @@ export default function AppearanceSettingsPage() {
                 <div className="text-xs text-fg-subtle">Low glare, better in dim environments.</div>
               </div>
               {colorTheme === "dark" && (
-                <span className="ml-auto rounded bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                <span className="ml-auto rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                   ACTIVE
                 </span>
               )}
@@ -259,7 +259,7 @@ export default function AppearanceSettingsPage() {
                   </div>
                 </div>
                 {accentTheme === t.key && (
-                  <span className="ml-auto rounded bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  <span className="ml-auto rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                     ACTIVE
                   </span>
                 )}

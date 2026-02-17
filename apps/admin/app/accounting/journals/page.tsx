@@ -137,11 +137,11 @@ export default function JournalsPage() {
 
   const journalColumns = useMemo((): Array<DataTableColumn<JournalRow>> => {
     return [
-      { id: "journal_date", header: "Date", accessor: (j) => j.journal_date, mono: true, sortable: true, globalSearch: false, cell: (j) => <span className="data-mono text-xs">{j.journal_date}</span> },
-      { id: "journal_no", header: "No", accessor: (j) => j.journal_no, mono: true, sortable: true, cell: (j) => <span className="data-mono text-xs">{j.journal_no}</span> },
-      { id: "source_type", header: "Source", accessor: (j) => j.source_type || "-", sortable: true, cell: (j) => <span className="text-xs text-fg-muted">{j.source_type || "-"}</span> },
-      { id: "memo", header: "Memo", accessor: (j) => j.memo || "", sortable: true, cell: (j) => <span className="text-xs text-fg-muted">{j.memo || ""}</span> },
-      { id: "created_by_email", header: "By", accessor: (j) => j.created_by_email || "-", sortable: true, cell: (j) => <span className="text-xs text-fg-muted">{j.created_by_email || "-"}</span> },
+      { id: "journal_date", header: "Date", accessor: (j) => j.journal_date, mono: true, sortable: true, globalSearch: false, cell: (j) => <span className="data-mono text-sm">{j.journal_date}</span> },
+      { id: "journal_no", header: "No", accessor: (j) => j.journal_no, mono: true, sortable: true, cell: (j) => <span className="data-mono text-sm">{j.journal_no}</span> },
+      { id: "source_type", header: "Source", accessor: (j) => j.source_type || "-", sortable: true, cell: (j) => <span className="text-sm text-fg-muted">{j.source_type || "-"}</span> },
+      { id: "memo", header: "Memo", accessor: (j) => j.memo || "", sortable: true, cell: (j) => <span className="text-sm text-fg-muted">{j.memo || ""}</span> },
+      { id: "created_by_email", header: "By", accessor: (j) => j.created_by_email || "-", sortable: true, cell: (j) => <span className="text-sm text-fg-muted">{j.created_by_email || "-"}</span> },
     ];
   }, []);
 
@@ -154,8 +154,8 @@ export default function JournalsPage() {
         sortable: true,
         cell: (e) => (
           <div>
-            <div className="font-mono text-xs">{e.account_code}</div>
-            <div className="text-xs text-fg-muted">{e.name_en || ""}</div>
+            <div className="font-mono text-sm">{e.account_code}</div>
+            <div className="text-sm text-fg-muted">{e.name_en || ""}</div>
           </div>
         ),
       },
@@ -165,7 +165,7 @@ export default function JournalsPage() {
         accessor: (e) => `${e.cost_center_code || ""} ${e.project_code || ""}`.trim(),
         sortable: true,
         cell: (e) => (
-          <div className="text-xs text-fg-muted">
+          <div className="text-sm text-fg-muted">
             {e.cost_center_code ? <span className="font-mono">{e.cost_center_code}</span> : <span>-</span>}
             {e.project_code ? <span className="ml-2 font-mono">{e.project_code}</span> : null}
           </div>
@@ -327,7 +327,16 @@ export default function JournalsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="ui-module-shell">
+        <div className="ui-module-head">
+          <div className="ui-module-head-row">
+            <div>
+              <p className="ui-module-kicker">Accounting</p>
+              <h1 className="ui-module-title">Journals</h1>
+              <p className="ui-module-subtitle">Review posted journals and create balanced manual entries.</p>
+            </div>
+          </div>
+        </div>
         {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">
@@ -472,7 +481,7 @@ export default function JournalsPage() {
                                       onChange={(e) => onAccountCodeChange(idx, e.target.value)}
                                       placeholder="Account code..."
                                     />
-                                    <div className="mt-1 text-[11px] text-fg-subtle">
+                                    <div className="mt-1 text-xs text-fg-subtle">
                                       {acc?.name_en || (l.account_code ? "Unknown account" : "")}
                                     </div>
                                   </td>
@@ -611,16 +620,16 @@ export default function JournalsPage() {
                   <div className="rounded-md border border-border bg-bg-elevated p-3 text-sm">
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <div>
-                        <div className="text-xs text-fg-subtle">Date</div>
-                        <div className="font-mono text-xs">{detail.journal.journal_date}</div>
+                        <div className="text-sm text-fg-subtle">Date</div>
+                        <div className="font-mono text-sm">{detail.journal.journal_date}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-fg-subtle">Source</div>
-                        <div className="text-xs text-fg-muted">{detail.journal.source_type || "-"}</div>
+                        <div className="text-sm text-fg-subtle">Source</div>
+                        <div className="text-sm text-fg-muted">{detail.journal.source_type || "-"}</div>
                       </div>
                       <div className="md:col-span-2">
-                        <div className="text-xs text-fg-subtle">Memo</div>
-                        <div className="text-xs text-fg-muted">{detail.journal.memo || "-"}</div>
+                        <div className="text-sm text-fg-subtle">Memo</div>
+                        <div className="text-sm text-fg-muted">{detail.journal.memo || "-"}</div>
                       </div>
                     </div>
                   </div>

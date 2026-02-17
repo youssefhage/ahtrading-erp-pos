@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { StatusChip } from "@/components/ui/status-chip";
 
 type PeriodLock = {
   id: string;
@@ -54,7 +55,7 @@ export default function PeriodLocksPage() {
           </span>
         ),
       },
-      { id: "locked", header: "Status", accessor: (l) => (l.locked ? "Locked" : "Unlocked"), sortable: true, globalSearch: false, cell: (l) => <span className="text-xs">{l.locked ? "Locked" : "Unlocked"}</span> },
+      { id: "locked", header: "Status", accessor: (l) => (l.locked ? "Locked" : "Unlocked"), sortable: true, globalSearch: false, cell: (l) => <StatusChip value={l.locked ? "locked" : "open"} /> },
       { id: "reason", header: "Reason", accessor: (l) => l.reason || "-", sortable: true, cell: (l) => <span className="text-xs text-fg-muted">{l.reason || "-"}</span> },
       { id: "created_by_email", header: "By", accessor: (l) => l.created_by_email || "-", sortable: true, cell: (l) => <span className="text-xs text-fg-muted">{l.created_by_email || "-"}</span> },
       {
@@ -139,7 +140,16 @@ export default function PeriodLocksPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Accounting</p>
+            <h1 className="ui-module-title">Period Locks</h1>
+            <p className="ui-module-subtitle">Control posting windows during month-end and close processes.</p>
+          </div>
+        </div>
+      </div>
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
@@ -148,7 +158,7 @@ export default function PeriodLocksPage() {
           <CardDescription>{locks.length} locks</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="ui-actions-between">
             <Button variant="outline" onClick={load}>
               Refresh
             </Button>
@@ -161,7 +171,7 @@ export default function PeriodLocksPage() {
                   <DialogTitle>Create Period Lock</DialogTitle>
                   <DialogDescription>Blocks journal inserts for the date range (inclusive).</DialogDescription>
                 </DialogHeader>
-                <form onSubmit={createLock} className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <form onSubmit={createLock} className="ui-form-grid-2">
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg-muted">Start Date</label>
                     <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />

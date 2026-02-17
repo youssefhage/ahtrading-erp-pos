@@ -123,7 +123,7 @@ function SetupField(props: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-border bg-bg-sunken/20 p-3">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</span>
+        <span className="text-xs font-medium uppercase tracking-wider text-fg-muted">{props.label}</span>
         <CopyValueButton text={props.value} label={props.label} className="h-7 w-7 text-fg-muted hover:text-foreground" />
       </div>
       <code className="block break-all text-xs">{props.value || "-"}</code>
@@ -467,7 +467,7 @@ async function resetToken(device: DeviceRow) {
                         ...branches.map((b) => ({ value: b.id, label: b.name })),
                       ]}
                     />
-                    {branchId ? <div className="text-[11px] text-fg-subtle">Branch ID: {branchId}</div> : null}
+                    {branchId ? <div className="text-xs text-fg-subtle">Branch ID: {branchId}</div> : null}
                   </div>
                   <div className="flex justify-end">
                     <Button type="submit" disabled={registering}>

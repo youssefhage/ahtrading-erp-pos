@@ -132,10 +132,10 @@ export default function InventoryAlertsPage() {
             <div className="text-xs font-medium text-foreground">{recommendationView(r).title}</div>
             <div className="text-xs text-fg-muted">{recommendationView(r).summary}</div>
             {recommendationView(r).details.length ? (
-              <div className="text-[11px] text-fg-subtle">{recommendationView(r).details[0]}</div>
+              <div className="text-xs text-fg-subtle">{recommendationView(r).details[0]}</div>
             ) : null}
             {recommendationView(r).linkHref ? (
-              <a className="ui-link text-[11px]" href={recommendationView(r).linkHref}>
+              <a className="ui-link text-xs" href={recommendationView(r).linkHref}>
                 {recommendationView(r).linkLabel || "Open related document"}
               </a>
             ) : null}
@@ -211,10 +211,10 @@ export default function InventoryAlertsPage() {
         accessor: (r) => (r.status as any) || "available",
         cell: (r) => (
           <div className="text-xs">
-            <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">
+            <span className="rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-xs text-fg-muted">
               {(r.status as any) || "available"}
             </span>
-            {r.hold_reason ? <span className="ml-2 text-[10px] text-fg-subtle">{r.hold_reason}</span> : null}
+            {r.hold_reason ? <span className="ml-2 text-xs text-fg-subtle">{r.hold_reason}</span> : null}
           </div>
         ),
       },

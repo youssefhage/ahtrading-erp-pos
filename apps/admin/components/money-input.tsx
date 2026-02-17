@@ -19,9 +19,9 @@ export function MoneyInput(props: {
   const quick = useMemo(() => props.quick || [], [props.quick]);
   return (
     <div className={cn("space-y-1", props.className)}>
-      <label className="text-xs font-medium text-fg-muted">{props.label}</label>
+      <label className="text-sm font-medium text-fg-muted">{props.label}</label>
       <div className="flex">
-        <span className="inline-flex h-10 items-center rounded-l-md border border-border bg-bg-sunken px-2 text-[11px] font-semibold text-fg-muted">
+        <span className="inline-flex h-10 items-center rounded-l-md border border-border bg-bg-sunken px-2 text-sm font-semibold text-fg-muted">
           {props.currency}
         </span>
         <Input
@@ -52,4 +52,3 @@ export function MoneyInput(props: {
     </div>
   );
 }
-

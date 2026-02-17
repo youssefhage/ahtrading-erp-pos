@@ -48,7 +48,7 @@ export default function CompanySelectPage() {
     <main className="min-h-screen px-6 py-10">
       <div className="mx-auto max-w-2xl space-y-6">
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-fg-muted">Context</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-fg-muted">Context</p>
           <h1 className="text-3xl font-semibold text-foreground">Select company</h1>
           <p className="text-sm text-fg-muted">This sets the active company for reports, posting, and POS operations.</p>
         </div>
@@ -79,7 +79,7 @@ export default function CompanySelectPage() {
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-foreground">{c.name}</div>
                       {c.legal_name ? <div className="truncate text-xs text-fg-subtle">{c.legal_name}</div> : null}
-                      <code className="mt-1 block truncate text-[11px] text-fg-muted">{c.id}</code>
+                      <code className="mt-1 block truncate text-xs text-fg-muted">{c.id}</code>
                     </div>
                     <Button variant="secondary" size="sm" onClick={() => selectCompany(c.id)}>
                       Use

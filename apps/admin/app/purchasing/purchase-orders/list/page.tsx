@@ -71,9 +71,9 @@ export default function PurchaseOrdersListPage() {
         cell: (o) => (
           <Link className="ui-link inline-flex flex-col items-start" href={`/purchasing/purchase-orders/${encodeURIComponent(o.id)}`}>
             <span className="font-medium text-foreground">{o.order_no || "(draft)"}</span>
-            {o.supplier_ref ? <span className="font-mono text-[11px] text-fg-muted">Ref: {o.supplier_ref}</span> : null}
-            {o.expected_delivery_date ? <span className="font-mono text-[11px] text-fg-muted">ETA: {o.expected_delivery_date}</span> : null}
-            <span className="font-mono text-[10px] text-fg-subtle">{o.id}</span>
+            {o.supplier_ref ? <span className="font-mono text-xs text-fg-muted">Ref: {o.supplier_ref}</span> : null}
+            {o.expected_delivery_date ? <span className="font-mono text-xs text-fg-muted">ETA: {o.expected_delivery_date}</span> : null}
+            <span className="font-mono text-xs text-fg-subtle">{o.id}</span>
           </Link>
         ),
       },
@@ -129,15 +129,20 @@ export default function PurchaseOrdersListPage() {
 
   if (err) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">Purchase Orders</h1>
-            <p className="text-sm text-fg-muted">List</p>
+      <div className="ui-module-shell-narrow">
+        <div className="ui-module-head">
+          <div className="ui-module-head-row">
+            <div>
+              <p className="ui-module-kicker">Purchasing</p>
+              <h1 className="ui-module-title">Purchase Orders</h1>
+              <p className="ui-module-subtitle">List</p>
+            </div>
+            <div className="ui-module-actions">
+              <Button asChild>
+                <Link href="/purchasing/purchase-orders/new">New Draft</Link>
+              </Button>
+            </div>
           </div>
-          <Button asChild>
-            <Link href="/purchasing/purchase-orders/new">New Draft</Link>
-          </Button>
         </div>
         <ErrorBanner error={err} onRetry={load} />
       </div>
@@ -145,19 +150,22 @@ export default function PurchaseOrdersListPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Purchase Orders</h1>
-          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${filtered.length} order(s)`}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-          <Button asChild>
-            <Link href="/purchasing/purchase-orders/new">New Draft</Link>
-          </Button>
+    <div className="ui-module-shell-narrow">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Purchasing</p>
+            <h1 className="ui-module-title">Purchase Orders</h1>
+            <p className="ui-module-subtitle">{loading ? "Loading..." : `${filtered.length} order(s)`}</p>
+          </div>
+          <div className="ui-module-actions">
+            <Button type="button" variant="outline" onClick={load} disabled={loading}>
+              Refresh
+            </Button>
+            <Button asChild>
+              <Link href="/purchasing/purchase-orders/new">New Draft</Link>
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -183,7 +191,7 @@ export default function PurchaseOrdersListPage() {
               initialSort={{ columnId: "order", dir: "desc" }}
               globalFilterPlaceholder="Search order / supplier / reference / warehouse"
               toolbarLeft={
-                <select className="ui-select h-9 text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <select className="ui-select h-9 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                   <option value="">All statuses</option>
                   <option value="draft">Draft</option>
                   <option value="posted">Posted</option>

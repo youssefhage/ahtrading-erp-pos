@@ -304,94 +304,97 @@ export default function GoodsReceiptViewPage() {
 
   if (!loading && !detail && !err) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="ui-detail-shell">
         <EmptyState title="Goods receipt not found" description="This goods receipt may not exist or you may not have access." actionLabel="Back" onAction={() => router.push("/purchasing/goods-receipts")} />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">{detail?.receipt?.receipt_no || (loading ? "Loading..." : "Goods Receipt")}</h1>
-          <p className="text-sm text-fg-muted">
-            <span className="font-mono text-xs">{id}</span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={() => router.push("/purchasing/goods-receipts")}>
-            Back
-          </Button>
-          <Button type="button" variant="outline" onClick={load} disabled={loading}>
-            Refresh
-          </Button>
-          <Button asChild variant="outline">
-            <a
-              href={`/purchasing/goods-receipts/${encodeURIComponent(id)}/print`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Print / PDF
-            </a>
-          </Button>
-          <Button asChild variant="outline">
-            <a
-              href={`/exports/goods-receipts/${encodeURIComponent(id)}/pdf`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Download PDF
-            </a>
-          </Button>
-          {detail?.receipt?.status === "draft" ? (
-            <Button type="button" variant="outline" onClick={() => router.push(`/purchasing/goods-receipts/${encodeURIComponent(id)}/edit`)}>
-              Edit Draft
+    <div className="ui-detail-shell">
+      <div className="ui-detail-header">
+        <div className="ui-detail-header-row">
+          <div>
+            <h1 className="ui-detail-title">{detail?.receipt?.receipt_no || (loading ? "Loading..." : "Goods Receipt")}</h1>
+            <p className="ui-detail-meta">
+              <span className="ui-detail-meta-id">{id}</span>
+              {detail?.receipt ? <StatusChip value={detail.receipt.status} /> : null}
+            </p>
+          </div>
+          <div className="ui-detail-actions">
+            <Button type="button" variant="outline" onClick={() => router.push("/purchasing/goods-receipts")}>
+              Back
             </Button>
-          ) : null}
-          {detail?.receipt?.status === "draft" ? (
-            <>
-              <Button type="button" onClick={openPost}>
-                Post
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => {
-                  setCancelDraftReason("");
-                  setCancelDraftOpen(true);
-                }}
+            <Button type="button" variant="outline" onClick={load} disabled={loading}>
+              Refresh
+            </Button>
+            <Button asChild variant="outline">
+              <a
+                href={`/purchasing/goods-receipts/${encodeURIComponent(id)}/print`}
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                Cancel Draft
-              </Button>
-            </>
-          ) : null}
-          {detail?.receipt?.status === "posted" ? (
-            <>
-              <Button type="button" variant="outline" onClick={openCreateInvoice}>
-                Create Supplier Invoice Draft
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => {
-                  setCancelDate(todayIso());
-                  setCancelReason("");
-                  setCancelOpen(true);
-                }}
+                Print / PDF
+              </a>
+            </Button>
+            <Button asChild variant="outline">
+              <a
+                href={`/exports/goods-receipts/${encodeURIComponent(id)}/pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
               >
-                Void
+                Download PDF
+              </a>
+            </Button>
+            {detail?.receipt?.status === "draft" ? (
+              <Button type="button" variant="outline" onClick={() => router.push(`/purchasing/goods-receipts/${encodeURIComponent(id)}/edit`)}>
+                Edit Draft
               </Button>
-            </>
-          ) : null}
-          {detail?.receipt ? (
-            <DocumentUtilitiesDrawer
-              entityType="goods_receipt"
-              entityId={detail.receipt.id}
-              allowUploadAttachments={detail.receipt.status === "draft"}
-              className="ml-1"
-            />
-          ) : null}
+            ) : null}
+            {detail?.receipt?.status === "draft" ? (
+              <>
+                <Button type="button" onClick={openPost}>
+                  Post
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    setCancelDraftReason("");
+                    setCancelDraftOpen(true);
+                  }}
+                >
+                  Cancel Draft
+                </Button>
+              </>
+            ) : null}
+            {detail?.receipt?.status === "posted" ? (
+              <>
+                <Button type="button" variant="outline" onClick={openCreateInvoice}>
+                  Create Supplier Invoice Draft
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    setCancelDate(todayIso());
+                    setCancelReason("");
+                    setCancelOpen(true);
+                  }}
+                >
+                  Void
+                </Button>
+              </>
+            ) : null}
+            {detail?.receipt ? (
+              <DocumentUtilitiesDrawer
+                entityType="goods_receipt"
+                entityId={detail.receipt.id}
+                allowUploadAttachments={detail.receipt.status === "draft"}
+                className="ml-1"
+              />
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -415,7 +418,7 @@ export default function GoodsReceiptViewPage() {
                         "-"
                       )}
                     </p>
-                    <p className="mt-1 text-xs text-fg-muted">
+                    <p className="mt-1 text-sm text-fg-muted">
                       Created{" "}
                       <span className="data-mono">{formatDateLike(detail.receipt.created_at)}</span>
                     </p>
@@ -482,7 +485,7 @@ export default function GoodsReceiptViewPage() {
                 <p className="ui-panel-title">Totals</p>
 
                 <div className="mt-3">
-                  <div className="text-xs text-fg-muted">Total</div>
+                  <div className="text-sm text-fg-muted">Total</div>
                   <div className="data-mono mt-1 text-3xl font-semibold leading-none ui-tone-usd">{fmtUsd(detail.receipt.total_usd)}</div>
                   <div className="data-mono mt-1 text-sm text-fg-muted">{fmtLbp(detail.receipt.total_lbp)}</div>
                 </div>

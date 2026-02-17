@@ -9,6 +9,7 @@ import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorBanner } from "@/components/error-banner";
+import { StatusChip } from "@/components/ui/status-chip";
 
 type TemplateRow = {
   id: string;
@@ -37,7 +38,7 @@ export default function JournalTemplatesListPage() {
           <ShortcutLink href={`/accounting/journal-templates/${encodeURIComponent(t.id)}`} title="Open template">
             {t.name}
           </ShortcutLink>
-          {t.memo ? <div className="mt-1 text-[11px] text-fg-muted">{t.memo}</div> : null}
+          {t.memo ? <div className="mt-1 text-xs text-fg-muted">{t.memo}</div> : null}
         </div>
       ),
     },
@@ -46,7 +47,7 @@ export default function JournalTemplatesListPage() {
       header: "Status",
       sortable: true,
       accessor: (t) => (t.is_active ? "Active" : "Inactive"),
-      cell: (t) => <span className="text-xs">{t.is_active ? "Active" : "Inactive"}</span>,
+      cell: (t) => <StatusChip value={t.is_active ? "active" : "inactive"} />,
     },
     { id: "rate_type", header: "Rate Type", sortable: true, mono: true, accessor: (t) => t.default_rate_type, cell: (t) => <span className="font-mono text-xs">{t.default_rate_type}</span> },
     { id: "lines", header: "Lines", sortable: true, align: "right", mono: true, accessor: (t) => Number(t.line_count || 0), cell: (t) => String(Number(t.line_count || 0)) },
@@ -70,23 +71,26 @@ export default function JournalTemplatesListPage() {
   }, [load]);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+    <div className="ui-module-shell">
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Accounting</p>
+            <h1 className="ui-module-title">Journal Templates</h1>
+            <p className="ui-module-subtitle">Create reusable templates for recurring balanced journal entries.</p>
+          </div>
+          <div className="ui-module-actions">
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+            <Button asChild>
+              <Link href="/accounting/journal-templates/new">New Template</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Journal Templates</CardTitle>
-          <CardDescription>Create recurring/templated journals (balanced entries).</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center justify-between gap-2">
-          <Button variant="outline" onClick={load}>
-            Refresh
-          </Button>
-          <Button asChild>
-            <Link href="/accounting/journal-templates/new">New Template</Link>
-          </Button>
-        </CardContent>
-      </Card>
+      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
         <CardHeader>

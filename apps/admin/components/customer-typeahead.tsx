@@ -315,7 +315,7 @@ export function CustomerTypeahead(props: {
                 ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
               }}
             >
-              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-[11px] text-fg-subtle">
+              <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 text-sm text-fg-subtle">
                 <div className="flex items-center gap-2">
                   <span className="ui-kbd">Enter</span>
                   <span>select</span>
@@ -339,7 +339,7 @@ export function CustomerTypeahead(props: {
               </div>
 
               {showRecent ? (
-                <div className="border-b border-border-subtle px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-fg-subtle">
+                <div className="border-b border-border-subtle px-3 py-2 text-sm font-semibold uppercase tracking-[0.14em] text-fg-subtle">
                   Recent
                 </div>
               ) : null}
@@ -366,17 +366,17 @@ export function CustomerTypeahead(props: {
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
                             <div className="truncate">
-                              {c.code ? <span className="font-mono text-xs text-fg-muted">{c.code}</span> : null}
+                              {c.code ? <span className="font-mono text-sm text-fg-muted">{c.code}</span> : null}
                               {c.code ? <span className="text-fg-muted"> · </span> : null}
                               <span className="text-foreground">{c.name}</span>
                             </div>
                             {c.phone || c.email || c.membership_no ? (
-                              <div className="mt-0.5 truncate font-mono text-[10px] text-fg-subtle">
+                              <div className="mt-0.5 truncate font-mono text-sm text-fg-subtle">
                                 {[c.phone, c.email, c.membership_no].filter(Boolean).join(" · ")}
                               </div>
                             ) : null}
                           </div>
-                          {c.is_active === false ? <div className="shrink-0 font-mono text-[11px] text-fg-muted">inactive</div> : null}
+                          {c.is_active === false ? <div className="shrink-0 font-mono text-sm text-fg-muted">inactive</div> : null}
                         </div>
                       </button>
                     );

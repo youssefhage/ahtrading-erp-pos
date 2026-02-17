@@ -53,11 +53,11 @@ function MessageBubble(props: { role: Message["role"]; content: string; createdA
       <div className={cn("absolute left-0 top-0 h-full w-1", isUser ? "bg-border-strong" : "bg-success")} />
 
       <div className="flex items-start justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-fg-subtle">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-fg-subtle">
           {isUser ? "You" : "Copilot"}
         </div>
         {props.createdAt ? (
-          <div className="text-[11px] tabular-nums text-fg-subtle">{safeIso(props.createdAt)}</div>
+          <div className="text-xs tabular-nums text-fg-subtle">{safeIso(props.createdAt)}</div>
         ) : null}
       </div>
 
@@ -376,7 +376,7 @@ export default function CopilotChatPage() {
                                   sortable: true,
                                   mono: true,
                                   accessor: (r) => String(r.id || "-"),
-                                  cell: (r) => <span className="font-mono text-[10px] text-fg-subtle">{String(r.id || "-")}</span>,
+                                  cell: (r) => <span className="font-mono text-xs text-fg-subtle">{String(r.id || "-")}</span>,
                                 },
                               ]}
                               getRowId={(_, i) => String(i)}

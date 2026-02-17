@@ -120,7 +120,7 @@ export default function MarginByCategoryPage() {
         cell: (r) => (
           <span className="data-mono ui-tone-usd">
             {fmtUsd(r.revenue_usd)}
-            <div className="text-[11px] text-fg-muted">{fmtLbp(r.revenue_lbp)}</div>
+            <div className="text-xs text-fg-muted">{fmtLbp(r.revenue_lbp)}</div>
           </span>
         ),
       },
@@ -134,7 +134,7 @@ export default function MarginByCategoryPage() {
         cell: (r) => (
           <span className="data-mono ui-tone-usd">
             {fmtUsd(r.cogs_usd)}
-            <div className="text-[11px] text-fg-muted">{fmtLbp(r.cogs_lbp)}</div>
+            <div className="text-xs text-fg-muted">{fmtLbp(r.cogs_lbp)}</div>
           </span>
         ),
       },
@@ -148,7 +148,7 @@ export default function MarginByCategoryPage() {
         cell: (r) => (
           <span className="data-mono ui-tone-usd">
             {fmtUsd(r.margin_usd)}
-            <div className="text-[11px] text-fg-muted">{fmtLbp(r.margin_lbp)}</div>
+            <div className="text-xs text-fg-muted">{fmtLbp(r.margin_lbp)}</div>
           </span>
         ),
       },

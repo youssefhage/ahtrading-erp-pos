@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { StatusChip } from "@/components/ui/status-chip";
 
 type PaymentMethodMapping = { method: string; role_code: string; created_at: string };
 
@@ -202,7 +203,7 @@ function SupplierInvoiceShowInner() {
                 </ShortcutLink>
               </div>
               {l.supplier_item_code || l.supplier_item_name ? (
-                <div className="mt-1 text-[10px] text-fg-subtle">
+                <div className="mt-1 text-xs text-fg-subtle">
                   Supplier: <span className="font-mono">{l.supplier_item_code || "-"}</span>
                   {l.supplier_item_name ? <span> · {l.supplier_item_name}</span> : null}
                 </div>
@@ -225,10 +226,10 @@ function SupplierInvoiceShowInner() {
           <div className="text-right font-mono text-xs">
             <div className="text-foreground">
               {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
-              <span className="text-[10px] text-fg-subtle">{String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}</span>
+              <span className="text-xs text-fg-subtle">{String(l.uom || l.unit_of_measure || "").trim().toUpperCase() || "-"}</span>
             </div>
             {Number(l.qty_factor || 1) !== 1 ? (
-              <div className="mt-0.5 text-[10px] text-fg-subtle">
+              <div className="mt-0.5 text-xs text-fg-subtle">
                 base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
               </div>
             ) : null}
@@ -245,7 +246,7 @@ function SupplierInvoiceShowInner() {
           <span className="font-mono text-xs">
             {l.batch_no || "-"}
             {l.batch_status && l.batch_status !== "available" ? (
-              <span className="ml-2 rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-fg-muted">
+              <span className="ml-2 rounded-full border border-border-subtle bg-bg-elevated px-2 py-0.5 text-xs text-fg-muted">
                 {l.batch_status}
               </span>
             ) : null}
@@ -661,18 +662,25 @@ function SupplierInvoiceShowInner() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => router.push("/purchasing/supplier-invoices")}>
-            Back to List
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" onClick={load} disabled={loading}>
-            {loading ? "..." : "Refresh"}
-          </Button>
-          <Button onClick={() => router.push("/purchasing/supplier-invoices/new")}>New Draft</Button>
+    <div className="ui-detail-shell">
+      <div className="ui-detail-header">
+        <div className="ui-detail-header-row">
+          <div>
+            <h1 className="ui-detail-title">{detail?.invoice?.invoice_no || "Supplier Invoice"}</h1>
+            <div className="ui-detail-meta">
+              <span className="ui-detail-meta-id">{detail?.invoice?.id || "-"}</span>
+              {detail ? <StatusChip value={detail.invoice.status} /> : null}
+            </div>
+          </div>
+          <div className="ui-detail-actions">
+            <Button variant="outline" onClick={() => router.push("/purchasing/supplier-invoices")}>
+              Back to List
+            </Button>
+            <Button variant="outline" onClick={load} disabled={loading}>
+              {loading ? "..." : "Refresh"}
+            </Button>
+            <Button onClick={() => router.push("/purchasing/supplier-invoices/new")}>New Draft</Button>
+          </div>
         </div>
       </div>
 
@@ -684,15 +692,15 @@ function SupplierInvoiceShowInner() {
             <CardHeader>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <CardTitle>Supplier Invoice</CardTitle>
+                  <CardTitle className="text-lg">Supplier Invoice Overview</CardTitle>
                   <CardDescription>
-                    <span className="font-mono text-xs">{detail.invoice.invoice_no || "(draft)"}</span> ·{" "}
-                    <span className="text-xs">{detail.invoice.status}</span>
+                    <span className="font-mono">{detail.invoice.invoice_no || "(draft)"}</span> ·{" "}
+                    <StatusChip value={detail.invoice.status} className="align-middle" />
                     {detail.invoice.is_on_hold ? (
                       <>
                         {" "}
                         ·{" "}
-                        <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
+                        <span className="ui-chip ui-chip-warning">
                           HOLD{detail.invoice.hold_reason ? `: ${detail.invoice.hold_reason}` : ""}
                         </span>
                       </>
@@ -786,7 +794,7 @@ function SupplierInvoiceShowInner() {
                               "-"
                             )}
                           </p>
-                          <p className="mt-1 text-xs text-fg-muted">
+                          <p className="mt-1 text-sm text-fg-muted">
                             Created{" "}
                             <span className="data-mono">
                               {formatDateLike(detail.invoice.created_at)}
@@ -862,7 +870,7 @@ function SupplierInvoiceShowInner() {
                     <div className="ui-panel p-5 md:col-span-4">
                       <p className="ui-panel-title">Totals</p>
                       <div className="mt-3">
-                        <div className="text-xs text-fg-muted">Total</div>
+                        <div className="text-sm text-fg-muted">Total</div>
                         <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${supplierOverview?.primaryTone || "ui-tone-usd"}`}>
                           {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryTotal) : fmtUsd(0)}
                         </div>
@@ -890,7 +898,7 @@ function SupplierInvoiceShowInner() {
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <p className="ui-panel-title">Payments</p>
-                          <p className="mt-1 text-xs text-fg-subtle">Payments belong to Overview for quick review.</p>
+                          <p className="mt-1 text-sm text-fg-subtle">Payments belong to Overview for quick review.</p>
                         </div>
                         {detail.invoice.status === "posted" ? (
                           <Button asChild variant="outline" size="sm">
@@ -903,7 +911,7 @@ function SupplierInvoiceShowInner() {
                         )}
                       </div>
 
-                      <div className="mt-3 space-y-1 text-xs text-fg-muted">
+                      <div className="mt-3 space-y-1 text-sm text-fg-muted">
                         {detail.payments.map((p) => (
                           <div key={p.id} className="flex items-center justify-between gap-2">
                             <span className="data-mono">
@@ -925,7 +933,7 @@ function SupplierInvoiceShowInner() {
                         <CardDescription>Posting and paying are blocked until you unhold.</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-2">
-                        <div className="text-xs text-fg-muted">
+                        <div className="text-sm text-fg-muted">
                           Reason: <span className="font-mono">{detail.invoice.hold_reason || "-"}</span>
                         </div>
                         {(() => {
@@ -933,7 +941,7 @@ function SupplierInvoiceShowInner() {
                           const flags: any[] = Array.isArray(hd?.flags) ? hd.flags : [];
                           if (!flags.length) {
                             return (
-                              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3 text-xs text-fg-muted">
+                              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-3 text-sm text-fg-muted">
                                 No structured hold details available.
                               </div>
                             );
@@ -968,7 +976,7 @@ function SupplierInvoiceShowInner() {
                                               </ShortcutLink>
                                             ) : "-"}
                                           </div>
-                                          <div className="mt-1 text-[11px] text-fg-muted">
+                                          <div className="mt-1 text-xs text-fg-muted">
                                             Expected: <span className="font-mono">{String(f.expected_unit_cost_usd || "0")}</span> USD{" · "}
                                             Actual: <span className="font-mono">{String(f.actual_unit_cost_usd || "0")}</span> USD
                                           </div>
@@ -979,7 +987,7 @@ function SupplierInvoiceShowInner() {
                                       return (
                                         <div className="text-xs">
                                           <div className="text-foreground">Invoiced qty exceeds received qty.</div>
-                                        <div className="mt-1 text-[11px] text-fg-muted font-mono">
+                                        <div className="mt-1 text-xs text-fg-muted font-mono">
                                             receipt line {String(f.goods_receipt_line_id || "").slice(0, 8)} · received {String(f.received_qty || "0")} · prev{" "}
                                             {String(f.previously_invoiced_qty || "0")} · this {String(f.this_invoice_qty || "0")}
                                         </div>
@@ -990,7 +998,7 @@ function SupplierInvoiceShowInner() {
                                       return (
                                         <div className="text-xs">
                                           <div className="text-foreground">Invoice tax does not match item-level expected tax.</div>
-                                          <div className="mt-1 text-[11px] text-fg-muted font-mono">
+                                          <div className="mt-1 text-xs text-fg-muted font-mono">
                                             invoice_tax {String(f.invoice_tax_lbp || "0")} · expected {String(f.expected_tax_lbp || "0")} · diff{" "}
                                             {String(f.diff_lbp || "0")} · items {String(f.mismatch_count || 0)}
                                           </div>
@@ -1057,12 +1065,12 @@ function SupplierInvoiceShowInner() {
                                     <ShortcutLink
                                       href={`/catalog/items/${encodeURIComponent(String(c.item_id))}`}
                                       title="Open item"
-                                      className="font-mono text-[10px] text-fg-subtle"
+                                      className="font-mono text-xs text-fg-subtle"
                                     >
                                       {String(c.item_id)}
                                     </ShortcutLink>
                                   ) : (
-                                    <div className="font-mono text-[10px] text-fg-subtle">-</div>
+                                    <div className="font-mono text-xs text-fg-subtle">-</div>
                                   )}
                                   <div className="text-xs text-foreground">
                                     {c.supplier_item_code ? <span className="font-mono">{c.supplier_item_code}</span> : null}
@@ -1088,7 +1096,7 @@ function SupplierInvoiceShowInner() {
                         </div>
                       </>
                     ) : (
-                      <p className="text-xs text-fg-subtle">No AI insight available.</p>
+                      <p className="text-sm text-fg-subtle">No AI insight available.</p>
                     )}
                   </CardContent>
                 </Card>
@@ -1128,7 +1136,7 @@ function SupplierInvoiceShowInner() {
                               {fmtUsdLbp(r.tax_usd, r.tax_lbp)}
                             </span>
                           </div>
-                          <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-muted">
                             <span className="text-fg-subtle">Base</span>
                             <span className="data-mono">
                               {fmtUsdLbp(r.base_usd, r.base_lbp)}
@@ -1139,19 +1147,19 @@ function SupplierInvoiceShowInner() {
                       {taxBreakdown.length ? (
                         <div className="mt-2 rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Total</span>
+                            <span className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Total</span>
                             <span className="data-mono text-foreground">
                               {fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}
                             </span>
                           </div>
-                          <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-muted">
                             <span className="text-fg-subtle">Taxable base</span>
                             <span className="data-mono">
                               {fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}
                             </span>
                           </div>
                           <details className="mt-2">
-                            <summary className="cursor-pointer text-[11px] font-medium text-fg-subtle">Raw tax lines</summary>
+                            <summary className="cursor-pointer text-xs font-medium text-fg-subtle">Raw tax lines</summary>
                             <div className="mt-2 space-y-1">
                               {(detail.tax_lines || []).map((t) => (
                                 <div key={t.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/30 p-2">
@@ -1186,7 +1194,7 @@ function SupplierInvoiceShowInner() {
                 <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-3 text-xs text-fg-muted">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="font-medium text-foreground">Posting checklist</div>
-                    <div className="text-[10px] text-fg-subtle">
+                    <div className="text-xs text-fg-subtle">
                       Hotkeys: <span className="ui-kbd">⌘</span>+<span className="ui-kbd">Enter</span> post,{" "}
                       <span className="ui-kbd">⌘</span>+<span className="ui-kbd">P</span> print
                     </div>

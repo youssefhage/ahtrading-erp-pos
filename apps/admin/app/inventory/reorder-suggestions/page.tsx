@@ -205,11 +205,11 @@ export default function ReorderSuggestionsPage() {
               <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
                 <span className="font-mono text-xs">{r.sku}</span> · {r.name}
               </ShortcutLink>
-              <div className="mt-1 text-[11px] text-fg-muted">
+              <div className="mt-1 text-xs text-fg-muted">
                 {wh?.name || r.warehouse_id}
                 {toNum(r.reserved_qty) > 0 ? (
                   <span className="ml-2">
-                    <span className="ui-chip ui-chip-warning px-2 py-0.5 text-[10px]">reserved {fmt(r.reserved_qty)}</span>
+                    <span className="ui-chip ui-chip-warning px-2 py-0.5 text-xs">reserved {fmt(r.reserved_qty)}</span>
                   </span>
                 ) : null}
               </div>
@@ -225,7 +225,7 @@ export default function ReorderSuggestionsPage() {
         cell: (r) => (
           <div className="text-xs">
             <div>{r.supplier_name || r.supplier_id}</div>
-            <div className="mt-1 text-[11px] text-fg-muted">
+            <div className="mt-1 text-xs text-fg-muted">
               lead {String(r.lead_time_days || 0)}d · MOQ {fmt(r.min_order_qty, 2)}
             </div>
           </div>

@@ -446,10 +446,10 @@ function SalesInvoiceShowInner() {
           <div className="text-right data-mono text-xs">
             <div className="text-foreground">
               {Number((l.qty_entered ?? l.qty) || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
-              <span className="text-[10px] text-fg-subtle">{String(l.uom || "").trim().toUpperCase() || "-"}</span>
+              <span className="text-xs text-fg-subtle">{String(l.uom || "").trim().toUpperCase() || "-"}</span>
             </div>
             {Number(l.qty_factor || 1) !== 1 ? (
-              <div className="mt-0.5 text-[10px] text-fg-subtle">
+              <div className="mt-0.5 text-xs text-fg-subtle">
                 base {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}
               </div>
             ) : null}
@@ -858,18 +858,25 @@ function SalesInvoiceShowInner() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => router.push("/sales/invoices")}>
-            Back to List
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" onClick={load} disabled={loading}>
-            {loading ? "..." : "Refresh"}
-          </Button>
-          <Button onClick={() => router.push("/sales/invoices/new")}>New Draft</Button>
+    <div className="ui-detail-shell">
+      <div className="ui-detail-header">
+        <div className="ui-detail-header-row">
+          <div>
+            <h1 className="ui-detail-title">{detail?.invoice?.invoice_no || "Sales Invoice"}</h1>
+            <div className="ui-detail-meta">
+              <span className="ui-detail-meta-id">{id}</span>
+              {detail ? <StatusChip value={detail.invoice.status} /> : null}
+            </div>
+          </div>
+          <div className="ui-detail-actions">
+            <Button variant="outline" onClick={() => router.push("/sales/invoices")}>
+              Back to List
+            </Button>
+            <Button variant="outline" onClick={load} disabled={loading}>
+              {loading ? "..." : "Refresh"}
+            </Button>
+            <Button onClick={() => router.push("/sales/invoices/new")}>New Draft</Button>
+          </div>
         </div>
       </div>
 
@@ -882,15 +889,15 @@ function SalesInvoiceShowInner() {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <CardTitle>Sales Invoice</CardTitle>
+                    <CardTitle className="text-lg">Sales Invoice Overview</CardTitle>
                     <StatusChip value={detail.invoice.status} className="translate-y-[1px]" />
                   </div>
-                  <CardDescription className="mt-1">
-                    <span className="font-mono text-xs">{detail.invoice.invoice_no || "(draft)"}</span>
+                  <CardDescription className="mt-1 text-sm">
+                    <span className="font-mono">{detail.invoice.invoice_no || "(draft)"}</span>
                     {detail.invoice.invoice_date ? (
                       <>
                         {" "}
-                        · <span className="data-mono text-xs">Inv {fmtIso(detail.invoice.invoice_date)}</span>
+                        · <span className="data-mono">Inv {fmtIso(detail.invoice.invoice_date)}</span>
                       </>
                     ) : null}
                   </CardDescription>
@@ -972,7 +979,7 @@ function SalesInvoiceShowInner() {
                             "Walk-in"
                           )}
                         </p>
-                        <p className="mt-1 text-xs text-fg-muted">
+                        <p className="mt-1 text-sm text-fg-muted">
                           Created{" "}
                           <span className="data-mono">
                             {formatDateLike(detail.invoice.created_at)}
@@ -1028,7 +1035,7 @@ function SalesInvoiceShowInner() {
                   <div className="ui-panel p-5 md:col-span-4">
                     <p className="ui-panel-title">Totals</p>
                     <div className="mt-3">
-                      <div className="text-xs text-fg-muted">Balance</div>
+                      <div className="text-sm text-fg-muted">Balance</div>
                       <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${salesOverview.primaryTone}`}>{salesOverview.primaryFmt(salesOverview.primaryBal)}</div>
                       <div className="data-mono mt-1 text-sm text-fg-muted">{salesOverview.secondaryFmt(salesOverview.secondaryBal)}</div>
                     </div>
@@ -1074,7 +1081,7 @@ function SalesInvoiceShowInner() {
 
                       <div className="section-divider my-3" />
                       <details className="mt-3 rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                        <summary className="cursor-pointer text-xs font-medium text-fg-muted">Breakdown</summary>
+                        <summary className="cursor-pointer text-sm font-medium text-fg-muted">Breakdown</summary>
                         <div className="mt-2 space-y-2">
                           <div className="ui-kv">
                             <span className="ui-kv-label">Subtotal</span>
@@ -1093,7 +1100,7 @@ function SalesInvoiceShowInner() {
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="ui-panel-title">Payments</p>
-                        <p className="mt-1 text-xs text-fg-subtle">Applied and tender amounts (if any).</p>
+                        <p className="mt-1 text-sm text-fg-subtle">Applied and tender amounts (if any).</p>
                       </div>
                       {detail.invoice.status === "posted" ? (
                         <Button asChild variant="outline" size="sm">
@@ -1107,10 +1114,10 @@ function SalesInvoiceShowInner() {
                     </div>
 
                     {detail.invoice.status !== "posted" ? (
-                      <p className="mt-2 text-xs text-fg-subtle">Payments are recorded after posting.</p>
+                      <p className="mt-2 text-sm text-fg-subtle">Payments are recorded after posting.</p>
                     ) : null}
 
-                    <div className="mt-3 space-y-1 text-xs text-fg-muted">
+                    <div className="mt-3 space-y-1 text-sm text-fg-muted">
                       {detail.payments.map((p) => (
                         <div key={p.id} className="flex items-center justify-between gap-2">
                           <span className="data-mono">{p.method}</span>
@@ -1179,11 +1186,11 @@ function SalesInvoiceShowInner() {
                       {detail.invoice.status === "draft" && draftTaxBreakdown.length ? (
                         <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Tax breakdown (preview)</span>
-                            <span className="text-[11px] text-fg-subtle">{draftTaxBreakdown.length} code(s)</span>
+                            <span className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Tax breakdown (preview)</span>
+                            <span className="text-xs text-fg-subtle">{draftTaxBreakdown.length} code(s)</span>
                           </div>
                           <div className="mt-2 space-y-1">
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-[11px] text-fg-subtle">
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-xs text-fg-subtle">
                               <span>Code</span>
                               <span className="text-right">Tax</span>
                             </div>
@@ -1204,7 +1211,7 @@ function SalesInvoiceShowInner() {
                                       {r.ratePct !== null ? <span className="text-fg-subtle"> · {r.ratePct.toFixed(2)}%</span> : null}
                                       {effectivePct !== null ? <span className="text-fg-subtle"> · eff {effectivePct.toFixed(2)}%</span> : null}
                                     </div>
-                                    <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-muted">
                                       <span className="text-fg-subtle">Base</span>
                                       <span className="data-mono">{fmtUsdLbp(r.base_usd, r.base_lbp)}</span>
                                     </div>
@@ -1214,17 +1221,17 @@ function SalesInvoiceShowInner() {
                               );
                             })}
 
-                            <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-[11px]">
+                            <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-xs">
                               <span className="text-fg-subtle">Total</span>
                               <span className="text-right data-mono text-foreground">{fmtUsdLbp(draftTaxBreakdownTotals.tax_usd, draftTaxBreakdownTotals.tax_lbp)}</span>
                             </div>
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-[11px] text-fg-muted">
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-xs text-fg-muted">
                               <span className="text-fg-subtle">Taxable base</span>
                               <span className="text-right data-mono">{fmtUsdLbp(draftTaxBreakdownTotals.base_usd, draftTaxBreakdownTotals.base_lbp)}</span>
                             </div>
                           </div>
 
-                          <div className="mt-2 text-[11px] text-fg-subtle">
+                          <div className="mt-2 text-xs text-fg-subtle">
                             Preview is calculated per item (item tax code or default VAT). Tax entries are recorded when you post.
                           </div>
                         </div>
@@ -1233,11 +1240,11 @@ function SalesInvoiceShowInner() {
                       {detail.invoice.status !== "draft" && taxBreakdown.length ? (
                         <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-medium uppercase tracking-wider text-fg-subtle">Tax breakdown</span>
-                            <span className="text-[11px] text-fg-subtle">{taxBreakdown.length} code(s)</span>
+                            <span className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Tax breakdown</span>
+                            <span className="text-xs text-fg-subtle">{taxBreakdown.length} code(s)</span>
                           </div>
                           <div className="mt-2 space-y-1">
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-[11px] text-fg-subtle">
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-xs text-fg-subtle">
                               <span>Code</span>
                               <span className="text-right">Tax</span>
                             </div>
@@ -1258,7 +1265,7 @@ function SalesInvoiceShowInner() {
                                       {r.ratePct !== null ? <span className="text-fg-subtle"> · {r.ratePct.toFixed(2)}%</span> : null}
                                       {effectivePct !== null ? <span className="text-fg-subtle"> · eff {effectivePct.toFixed(2)}%</span> : null}
                                     </div>
-                                    <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-fg-muted">
+                                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-muted">
                                       <span className="text-fg-subtle">Base</span>
                                       <span className="data-mono">{fmtUsdLbp(r.base_usd, r.base_lbp)}</span>
                                     </div>
@@ -1268,18 +1275,18 @@ function SalesInvoiceShowInner() {
                               );
                             })}
 
-                            <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-[11px]">
+                            <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-xs">
                               <span className="text-fg-subtle">Total</span>
                               <span className="text-right data-mono text-foreground">{fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}</span>
                             </div>
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-[11px] text-fg-muted">
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-xs text-fg-muted">
                               <span className="text-fg-subtle">Taxable base</span>
                               <span className="text-right data-mono">{fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}</span>
                             </div>
                           </div>
 
                           <details className="mt-2">
-                            <summary className="cursor-pointer text-[11px] font-medium text-fg-subtle">Raw tax lines</summary>
+                            <summary className="cursor-pointer text-xs font-medium text-fg-subtle">Raw tax lines</summary>
                             <div className="mt-2 space-y-1">
                               {detail.tax_lines.map((t) => {
                                 const tc = taxById.get(String(t.tax_code_id));
@@ -1295,8 +1302,8 @@ function SalesInvoiceShowInner() {
                                       <span className="data-mono text-foreground">{fmtUsdLbp(t.tax_usd, t.tax_lbp)}</span>
                                     </div>
                                     <div className="mt-1 flex items-center justify-between gap-2">
-                                      <span className="text-[11px] text-fg-subtle">Base</span>
-                                      <span className="data-mono text-[11px] text-fg-muted">{fmtUsdLbp(t.base_usd, t.base_lbp)}</span>
+                                      <span className="text-xs text-fg-subtle">Base</span>
+                                      <span className="data-mono text-xs text-fg-muted">{fmtUsdLbp(t.base_usd, t.base_lbp)}</span>
                                     </div>
                                   </div>
                                 );
@@ -1328,7 +1335,7 @@ function SalesInvoiceShowInner() {
                 <div className="md:col-span-6 rounded-md border border-border-subtle bg-bg-sunken/25 p-3 text-xs text-fg-muted">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="font-medium text-foreground">Posting checklist</div>
-                    <div className="text-[10px] text-fg-subtle">
+                    <div className="text-xs text-fg-subtle">
                       Hotkeys: <span className="ui-kbd">⌘</span>+<span className="ui-kbd">Enter</span> post,{" "}
                       <span className="ui-kbd">⌘</span>+<span className="ui-kbd">P</span> print
                     </div>

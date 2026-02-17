@@ -96,7 +96,7 @@ export default function CycleCountsPage() {
         cell: (p) => (
           <div>
             <div className="font-medium">{p.name}</div>
-            <div className="text-[10px] text-fg-subtle data-mono">{p.id}</div>
+            <div className="text-xs text-fg-subtle data-mono">{p.id}</div>
           </div>
         ),
       },

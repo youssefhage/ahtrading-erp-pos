@@ -834,7 +834,7 @@ export default function ItemsPage() {
 		                            <div className="font-mono text-xs text-fg-muted">{view.kindLabel}</div>
 		                            <div className="text-xs font-medium text-foreground">{view.title}</div>
 		                            {view.linkHref ? (
-		                              <a className="ui-link text-[11px]" href={view.linkHref}>
+		                              <a className="ui-link text-xs" href={view.linkHref}>
 		                                {view.linkLabel || "Open related document"}
 		                              </a>
 		                            ) : null}
@@ -1237,7 +1237,7 @@ export default function ItemsPage() {
                           <label className="text-xs font-medium text-fg-muted">Alt Text (for website/app)</label>
                           <Input value={editImageAlt} onChange={(e) => setEditImageAlt(e.target.value)} placeholder="e.g. 'Milk 1L bottle'" />
                         </div>
-                        <div className="text-[11px] text-fg-subtle">
+                        <div className="text-xs text-fg-subtle">
                           Tip: keep the background clean and the product centered. This will be used as consumer metadata later.
                         </div>
                       </div>

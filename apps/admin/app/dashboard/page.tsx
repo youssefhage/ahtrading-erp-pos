@@ -651,7 +651,7 @@ export default function DashboardPage() {
                     Open AI Hub
                   </Button>
                   {!canReadAi ? (
-                    <div className="pt-1 text-center text-[11px] text-fg-subtle">Ask your admin for ai:read</div>
+                    <div className="pt-1 text-center text-sm text-fg-subtle">Ask your admin for ai:read</div>
                   ) : null}
                 </div>
               </>
@@ -711,7 +711,7 @@ export default function DashboardPage() {
             <div className="mt-3 rounded-md border border-border-subtle bg-bg-elevated/60 px-3 py-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-medium text-fg-muted">Default FX (USD→LL)</div>
+                  <div className="text-sm font-medium text-fg-muted">Default FX (USD→LL)</div>
                   {fxLoading ? (
                     <div className="mt-1">
                       <Skeleton className="h-7 w-24" />
@@ -726,7 +726,7 @@ export default function DashboardPage() {
                     value={usdToLbp}
                     onChange={(e) => setUsdToLbp(e.target.value)}
                     inputMode="decimal"
-                    className="h-8 w-[120px] text-right font-mono text-xs"
+                    className="h-8 w-[120px] text-right font-mono text-sm"
                     disabled={fxLoading || savingFx}
                     aria-label="Default exchange rate USD to LBP"
                   />
@@ -759,10 +759,10 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="mt-2 flex items-center justify-between text-[11px]">
+              <div className="mt-2 flex items-center justify-between text-sm">
                 <button
                   type="button"
-                  className="ui-link text-[11px]"
+                  className="ui-link text-sm"
                   onClick={() => router.push("/system/config")}
                   title="Open Admin -> Config -> Exchange Rates"
                 >
@@ -776,8 +776,8 @@ export default function DashboardPage() {
               <div className="flex items-start gap-2">
                 <Activity className="mt-0.5 h-4 w-4 text-primary" />
                 <div>
-                  <p className="text-xs font-medium text-primary">Daily Summary</p>
-                  <p className="text-xs text-fg-muted">
+                  <p className="text-sm font-medium text-primary">Daily Summary</p>
+                  <p className="text-sm text-fg-muted">
                     Sales are up 12% compared to yesterday. Consider reviewing stock levels for fast-moving items.
                   </p>
                 </div>
