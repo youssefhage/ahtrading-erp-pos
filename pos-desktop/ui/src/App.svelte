@@ -1252,7 +1252,10 @@
   };
 
   const runFetchData = async ({ background = false } = {}) => {
-    if (webHostUnsupported) return;
+    if (webHostUnsupported && !_hasCloudDeviceConfig(originCompanyKey)) {
+      status = "Web Setup Mode";
+      return;
+    }
     const showBusy = !background;
     try {
       if (showBusy) loading = true;
@@ -1387,7 +1390,7 @@
   };
 
   const fetchData = async ({ background = false } = {}) => {
-    if (webHostUnsupported) return;
+    if (webHostUnsupported && !_hasCloudDeviceConfig(originCompanyKey)) return;
     fetchDataPending = true;
     fetchDataPendingBackground = fetchDataPendingBackground && !!background;
 
@@ -1880,7 +1883,7 @@
     const body = { ...(payload || {}) };
     if (_companyUsesCloudTransport(companyKey)) {
       const nextCfg = _setCfgForCompanyKey(companyKey, body);
-      if (!webHostUnsupported) await fetchData();
+      await fetchData();
       return { ok: true, config: nextCfg };
     }
     const res = await apiCallFor(companyKey, "/config", { method: "POST", body });
@@ -2967,7 +2970,6 @@
         const probe = await _probeAgentHealth(apiBase);
         if (!probe.localAgentLike) {
           activateWebHostUnsupported("This host responds with backend health, not local POS agent health.");
-          return;
         }
       }
 
@@ -3086,7 +3088,7 @@
   hasConnection={hasConnection}
   cashierName={cashierName}
   shiftText={shiftText}
-  showTabs={!webHostUnsupported}
+  showTabs={!webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
 >
   <svelte:fragment slot="tabs">
     {@const tabBase = "px-4 py-2 rounded-full text-xs font-extrabold border transition-colors whitespace-nowrap"}
@@ -3120,7 +3122,7 @@
   </svelte:fragment>
 
   <svelte:fragment slot="top-actions">
-    {#if !webHostUnsupported}
+    {#if !webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
     {@const topBtnBase = "px-3 py-2 rounded-full text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors whitespace-nowrap"}
     {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
     <button
@@ -3155,21 +3157,23 @@
     >
       Shift
     </button>
-    <button
-      class={topBtnBase}
-      on:click={() => { try { window.open('/receipt/last', '_blank', 'noopener,noreferrer'); } catch (_) {} }}
-      title="Open printable last receipt"
-    >
-      Receipt
-    </button>
-    <button
-      class={topBtnBase}
-      on:click={configurePrinting}
-      disabled={loading}
-      title="Detect printers and map each company to a printer"
-    >
-      Printing
-    </button>
+    {#if !webHostUnsupported}
+      <button
+        class={topBtnBase}
+        on:click={() => { try { window.open('/receipt/last', '_blank', 'noopener,noreferrer'); } catch (_) {} }}
+        title="Open printable last receipt"
+      >
+        Receipt
+      </button>
+      <button
+        class={topBtnBase}
+        on:click={configurePrinting}
+        disabled={loading}
+        title="Detect printers and map each company to a printer"
+      >
+        Printing
+      </button>
+    {/if}
     <button
       class={topBtnBase}
       on:click={configureOtherAgent}
@@ -3216,6 +3220,16 @@
         </svg>
       {/if}
     </button>
+    {#if webHostUnsupported}
+      <a
+        class="px-3 py-2 rounded-full text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors whitespace-nowrap"
+        href="https://download.melqard.com"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Download POS Desktop
+      </a>
+    {/if}
     {:else}
       <a
         class="px-3 py-2 rounded-full text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors whitespace-nowrap"
@@ -3350,6 +3364,24 @@
         <p class="mt-1 text-sm text-muted">
           Cloud onboarding is available here. For cashier operations and offline-safe selling, use POS Desktop.
         </p>
+        {#if _hasCloudDeviceConfig(originCompanyKey)}
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button
+              class="px-4 py-2 rounded-xl bg-accent text-white font-extrabold hover:bg-accent-hover transition-colors"
+              on:click={async () => { setActiveScreen("pos"); await fetchData(); }}
+              type="button"
+            >
+              Continue To POS
+            </button>
+            <button
+              class="px-4 py-2 rounded-xl border border-ink/10 bg-ink/5 text-ink hover:bg-ink/10 font-semibold transition-colors"
+              on:click={async () => { setActiveScreen("items"); await fetchData(); }}
+              type="button"
+            >
+              Open Items
+            </button>
+          </div>
+        {/if}
         {#if webHostHint}
           <p class="mt-1 text-xs text-amber-300">{webHostHint}</p>
         {/if}
