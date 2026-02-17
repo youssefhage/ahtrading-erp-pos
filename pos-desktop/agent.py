@@ -436,6 +436,7 @@ def file_response(handler, path):
             data = f.read()
         handler.send_response(200)
         handler.send_header('Content-Type', ctype)
+        _maybe_send_cors_headers(handler)
         handler.end_headers()
         handler.wfile.write(data)
     except Exception:

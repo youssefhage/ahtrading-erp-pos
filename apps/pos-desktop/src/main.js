@@ -629,16 +629,23 @@ function buildUnifiedUiUrl(port) {
 }
 
 async function checkLatestUnifiedUi(port) {
-  const url = `${agentBase(port)}/?check=1`;
-  try {
-    const resp = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-    });
-    return resp.status === 200;
-  } catch {
-    return false;
+  const base = agentBase(port);
+  const probes = [
+    { url: `${base}/api/health`, opts: { method: "GET", cache: "no-store" } },
+    // Fallback probe for older agents or static-only recoveries.
+    { url: `${base}/?check=1`, opts: { method: "GET", cache: "no-store", mode: "no-cors" } },
+  ];
+  for (const probe of probes) {
+    try {
+      const resp = await fetch(probe.url, probe.opts);
+      if (resp.ok || resp.status === 200 || resp.type === "opaque") {
+        return true;
+      }
+    } catch {
+      // try next probe
+    }
   }
+  return false;
 }
 
 class ApiError extends Error {
@@ -1840,10 +1847,9 @@ async function start() {
   }
   const uiOk = await checkLatestUnifiedUi(portOfficial);
   if (!uiOk) {
-    setStatus("Unified UI unavailable on this host.");
-    setSetupNote("Unified UI unavailable on this host.", "error");
+    setStatus("Could not verify Unified UI. Opening POS anyway…");
+    setSetupNote("Could not verify Unified UI from setup checks. Attempting open anyway.", "warn");
     appendDebugLine(buildStartSnapshot());
-    return;
   }
   window.location.href = buildUnifiedUiUrl(portOfficial);
 }
@@ -1852,8 +1858,7 @@ async function openPos() {
   const portOfficial = Number(el("portOfficial").value || 7070);
   const uiOk = await checkLatestUnifiedUi(portOfficial);
   if (!uiOk) {
-    setStatus("Unified UI unavailable on this host.");
-    return;
+    setStatus("Could not verify Unified UI. Opening POS anyway…");
   }
   window.location.href = buildUnifiedUiUrl(portOfficial);
 }
