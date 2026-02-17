@@ -48,6 +48,15 @@
     return v.startsWith("/") ? (v.endsWith("/") ? v.slice(0, -1) : v) : `/${v}`;
   };
 
+  const makeIntentId = () => {
+    try {
+      if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+      }
+    } catch (_) {}
+    return `${Date.now()}-${Math.random().toString(16).slice(2, 12)}`;
+  };
+
   // State
   let apiBase = normalizeApiBase(DEFAULT_API_BASE);
   let sessionToken = "";
@@ -62,6 +71,8 @@
   let loading = false;
   let notice = "";
   let error = "";
+  let pendingCheckoutMethod = "";
+  let checkoutIntentId = "";
   let bgSyncWarnAt = 0;
   let bgSyncPushInFlight = { official: false, unofficial: false };
   let fetchDataPending = false;
@@ -87,6 +98,10 @@
     invoice_printer: "",
     invoice_print_copies: 1,
     auto_print_invoice: false,
+    require_manager_approval_credit: false,
+    require_manager_approval_returns: false,
+    require_manager_approval_cross_company: false,
+    outbox_stale_warn_minutes: 5,
   };
   let edge = null;
   let unofficialEdge = null;
@@ -114,6 +129,10 @@
     invoice_printer: "",
     invoice_print_copies: 1,
     auto_print_invoice: false,
+    require_manager_approval_credit: false,
+    require_manager_approval_returns: false,
+    require_manager_approval_cross_company: false,
+    outbox_stale_warn_minutes: 5,
   };
   let unofficialItems = [];
   let unofficialBarcodes = [];
@@ -190,11 +209,27 @@
   // Derived
   $: activeCashier = cashiers.find((c) => c.id === config.cashier_id);
   $: cashierName = activeCashier ? activeCashier.name : (config.cashier_id ? "Unknown" : "Not Signed In");
+  const _isoAgeMinutes = (iso) => {
+    const t = Date.parse(String(iso || ""));
+    if (!Number.isFinite(t)) return 0;
+    return Math.max(0, (Date.now() - t) / 60000);
+  };
+  $: outboxOldestMinutes = (() => {
+    let maxMin = 0;
+    for (const ev of ([]).concat(outbox || [], unofficialOutbox || [])) {
+      maxMin = Math.max(maxMin, _isoAgeMinutes(ev?.created_at));
+    }
+    return maxMin;
+  })();
+  $: outboxWarnMinutes = Math.max(1, toNum(config?.outbox_stale_warn_minutes, 5) || 5);
   $: syncBadge = (() => {
     const o = (outbox || []).length;
     const u = (unofficialOutbox || []).length;
     const queued = o + u;
     if (status !== "Ready") return `Offline · queued ${queued}`;
+    if (queued > 0 && outboxOldestMinutes >= outboxWarnMinutes) {
+      return `Stale · queued ${queued} · oldest ${Math.round(outboxOldestMinutes)}m`;
+    }
     if (queued > 0) return `Syncing · queued ${queued}`;
     return "Synced";
   })();
@@ -981,6 +1016,7 @@
       cart = [buildLine(item, qtyEntered, { companyKey, qty_factor: qtyFactor, uom }), ...cart];
     }
     scanTerm = "";
+    checkoutIntentId = "";
     reportNotice(`Added ${item.name}`);
     return true;
   };
@@ -1303,6 +1339,7 @@
     copy[index].qty = q * toNum(copy[index].qty_factor, 1);
     copy[index] = applyPromotionToLine(copy[index]);
     cart = copy;
+    checkoutIntentId = "";
   };
 
   const uomOptionsForLine = (line) => {
@@ -1345,15 +1382,23 @@
       copy[targetIdx] = applyPromotionToLine(tgt);
       copy.splice(index, 1);
       cart = copy;
+      checkoutIntentId = "";
       return;
     }
 
     copy[index] = applyPromotionToLine(updated);
     cart = copy;
+    checkoutIntentId = "";
   };
 
   const removeLine = (index) => {
     cart = cart.filter((_, i) => i !== index);
+    checkoutIntentId = "";
+  };
+
+  const clearCartAll = () => {
+    cart = [];
+    checkoutIntentId = "";
   };
 
   const _benchmarkRng = (seedValue) => {
@@ -1556,16 +1601,19 @@
   // Checkout
   const handleCheckoutRequest = () => {
     if (cart.length === 0) return;
+    if (!checkoutIntentId) checkoutIntentId = makeIntentId();
     showPaymentModal = true;
   };
 
   const handleProcessSale = async (method) => {
     showPaymentModal = false;
     loading = true;
+    let payment_method = String(method || "cash").trim().toLowerCase();
+    pendingCheckoutMethod = "";
+    const checkoutIntent = checkoutIntentId || makeIntentId();
+    checkoutIntentId = checkoutIntent;
     
     try {
-      const payment_method = String(method || "cash").trim().toLowerCase();
-
       // Returns: enforce company-correct routing (single company or split by company).
       if (saleMode !== "sale") {
         const mapReturnLines = (lines) => {
@@ -1588,6 +1636,7 @@
           return apiCallFor(companyKey, "/return", {
             method: "POST",
             body: {
+              idempotency_key: `${checkoutIntent}:return:${companyKey}`,
               cart: mapReturnLines(lines),
               customer_id: null,
               payment_method,
@@ -1627,6 +1676,7 @@
           }
           cart = [];
           activeCustomer = null;
+          checkoutIntentId = "";
           reportNotice(`Split return complete: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}`);
           return;
         }
@@ -1638,6 +1688,7 @@
         reportNotice(`Return complete (${returnCompany}): ${res.event_id}`);
         cart = [];
         activeCustomer = null;
+        checkoutIntentId = "";
         await fetchData();
         try { window.open(_agentReceiptUrl(returnCompany), "_blank", "noopener,noreferrer"); } catch (_) {}
         return;
@@ -1739,6 +1790,7 @@
         const res = await apiCallFor(invoiceCompany, "/sale", {
           method: "POST",
           body: {
+            idempotency_key: `${checkoutIntent}:sale:${invoiceCompany}:flag`,
             cart: mapCartLines(cart),
             customer_id,
             payment_method,
@@ -1755,6 +1807,7 @@
 
         cart = [];
         activeCustomer = null;
+        checkoutIntentId = "";
         fetchData();
         reportNotice(`Sale queued (official): ${res.event_id || "ok"}`);
         await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
@@ -1809,6 +1862,7 @@
             const res = await apiCallFor(companyKey, "/sale", {
               method: "POST",
               body: {
+                idempotency_key: `${checkoutIntent}:sale:${companyKey}:split`,
                 cart: mapCartLines(lines),
                 customer_id,
                 payment_method,
@@ -1846,6 +1900,7 @@
         }
         cart = [];
         activeCustomer = null;
+        checkoutIntentId = "";
         reportNotice(`Split sale queued: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}`);
         return;
       }
@@ -1889,6 +1944,7 @@
       const res = await apiCallFor(invoiceCompany, "/sale", {
         method: "POST",
         body: {
+          idempotency_key: `${checkoutIntent}:sale:${invoiceCompany}:single`,
           cart: mapCartLines(cart),
           customer_id,
           payment_method,
@@ -1906,6 +1962,7 @@
       reportNotice(`Sale queued: ${res.event_id || "ok"}`);
       cart = [];
       activeCustomer = null;
+      checkoutIntentId = "";
       fetchData();
       await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
     } catch(e) {
@@ -1914,6 +1971,11 @@
         status = "Locked";
         adminPinMode = "unlock";
         openAdminPinModal();
+      } else if (p?.error === "manager_approval_required") {
+        pendingCheckoutMethod = payment_method;
+        adminPinMode = "unlock";
+        openAdminPinModal();
+        reportNotice("Manager approval required. Enter admin PIN to continue.");
       } else {
         reportError(e.message);
       }
@@ -2022,6 +2084,13 @@
       adminPin = "";
       await fetchData();
       reportNotice(unlockMsg);
+      const retryMethod = String(pendingCheckoutMethod || "").trim().toLowerCase();
+      pendingCheckoutMethod = "";
+      if (retryMethod) {
+        setTimeout(() => {
+          handleProcessSale(retryMethod);
+        }, 0);
+      }
     } catch (e) {
       reportError(e.message);
     } finally {
@@ -2403,7 +2472,7 @@
           uomOptionsForLine={uomOptionsForLine}
           updateUom={updateLineUom}
           removeLine={removeLine}
-          clearCart={() => cart = []}
+          clearCart={clearCartAll}
           companyLabelForLine={companyLabel}
           companyToneForLine={companyTone}
         />

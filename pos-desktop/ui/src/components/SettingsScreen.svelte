@@ -52,6 +52,10 @@
     pricing_currency: String(cfg?.pricing_currency || "").trim(),
     exchange_rate: cfg?.exchange_rate ?? "",
     vat_rate: cfg?.vat_rate ?? "",
+    outbox_stale_warn_minutes: cfg?.outbox_stale_warn_minutes ?? 5,
+    require_manager_approval_credit: !!cfg?.require_manager_approval_credit,
+    require_manager_approval_returns: !!cfg?.require_manager_approval_returns,
+    require_manager_approval_cross_company: !!cfg?.require_manager_approval_cross_company,
   });
 
   const hasTokenText = (cfg) => (cfg?.has_device_token ? "Set" : "Not set");
@@ -408,6 +412,35 @@
           </div>
         </div>
 
+        <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Risk Controls</div>
+          <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+            <label class="flex items-center gap-2 text-xs text-ink/90">
+              <input type="checkbox" bind:checked={off.require_manager_approval_credit} />
+              Require manager approval for credit
+            </label>
+            <label class="flex items-center gap-2 text-xs text-ink/90">
+              <input type="checkbox" bind:checked={off.require_manager_approval_returns} />
+              Require manager approval for returns
+            </label>
+            <label class="flex items-center gap-2 text-xs text-ink/90 md:col-span-2">
+              <input type="checkbox" bind:checked={off.require_manager_approval_cross_company} />
+              Require manager approval for cross-company/flagged invoices
+            </label>
+          </div>
+          <div class="mt-3">
+            <label for="off_outbox_stale_warn_minutes" class="text-xs text-muted">outbox_stale_warn_minutes</label>
+            <input
+              id="off_outbox_stale_warn_minutes"
+              type="number"
+              min="1"
+              max="1440"
+              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+              bind:value={off.outbox_stale_warn_minutes}
+            />
+          </div>
+        </div>
+
         <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
           <div>
             <div class="flex items-center justify-between">
@@ -480,6 +513,35 @@
             <div>
               <label for="un_warehouse_id" class="text-xs text-muted">warehouse_id</label>
               <input id="un_warehouse_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.warehouse_id} />
+            </div>
+          </div>
+
+          <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3">
+            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Risk Controls</div>
+            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+              <label class="flex items-center gap-2 text-xs text-ink/90">
+                <input type="checkbox" bind:checked={un.require_manager_approval_credit} />
+                Require manager approval for credit
+              </label>
+              <label class="flex items-center gap-2 text-xs text-ink/90">
+                <input type="checkbox" bind:checked={un.require_manager_approval_returns} />
+                Require manager approval for returns
+              </label>
+              <label class="flex items-center gap-2 text-xs text-ink/90 md:col-span-2">
+                <input type="checkbox" bind:checked={un.require_manager_approval_cross_company} />
+                Require manager approval for cross-company/flagged invoices
+              </label>
+            </div>
+            <div class="mt-3">
+              <label for="un_outbox_stale_warn_minutes" class="text-xs text-muted">outbox_stale_warn_minutes</label>
+              <input
+                id="un_outbox_stale_warn_minutes"
+                type="number"
+                min="1"
+                max="1440"
+                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+                bind:value={un.outbox_stale_warn_minutes}
+              />
             </div>
           </div>
 

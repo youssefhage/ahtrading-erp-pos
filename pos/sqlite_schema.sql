@@ -97,8 +97,15 @@ CREATE TABLE IF NOT EXISTS pos_outbox_events (
   event_type TEXT,
   payload_json TEXT,
   created_at TEXT,
-  status TEXT DEFAULT 'pending'
+  status TEXT DEFAULT 'pending',
+  idempotency_key TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_pos_outbox_event_type_idem
+  ON pos_outbox_events(event_type, idempotency_key);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pos_outbox_event_type_idem_nonempty
+  ON pos_outbox_events(event_type, idempotency_key)
+  WHERE idempotency_key IS NOT NULL AND idempotency_key <> '';
 
 CREATE TABLE IF NOT EXISTS pos_inbox_events (
   event_id TEXT PRIMARY KEY,

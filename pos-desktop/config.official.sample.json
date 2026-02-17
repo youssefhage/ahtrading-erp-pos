@@ -7,5 +7,9 @@
   "device_code": "POS-OFFICIAL-01",
   "device_id": "",
   "device_token": "",
-  "shift_id": ""
+  "shift_id": "",
+  "require_manager_approval_credit": false,
+  "require_manager_approval_returns": false,
+  "require_manager_approval_cross_company": false,
+  "outbox_stale_warn_minutes": 5
 }

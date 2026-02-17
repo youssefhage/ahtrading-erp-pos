@@ -79,6 +79,13 @@ DEFAULT_CONFIG = {
     'require_admin_pin': False,
     # Session duration for admin unlock when required.
     'admin_session_hours': 12,
+    # Optional operation-level manager approval gates.
+    # When enabled, cashier must unlock with admin PIN (X-POS-Session) before these actions.
+    'require_manager_approval_credit': False,
+    'require_manager_approval_returns': False,
+    'require_manager_approval_cross_company': False,
+    # UI warning threshold for stale outbox backlog.
+    'outbox_stale_warn_minutes': 5,
 
     # Company-level inventory policy (pulled from backend) used for POS lot prompting UX.
     # Shallow-merged; agent sync overwrites this object.
@@ -240,7 +247,7 @@ def _maybe_send_cors_headers(handler):
         return
     handler.send_header("Access-Control-Allow-Origin", origin)
     handler.send_header("Vary", "Origin")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type,X-POS-Session")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type,X-POS-Session,X-POS-Manager-Session")
     handler.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
     handler.send_header("Access-Control-Max-Age", "600")
 
@@ -318,6 +325,41 @@ def _verify_admin_pin(cfg: dict, pin: str) -> bool:
     except Exception:
         return False
 
+
+def _manager_session_valid(handler) -> bool:
+    token = (handler.headers.get("X-POS-Manager-Session") or "").strip()
+    if not token:
+        token = (handler.headers.get("X-POS-Session") or "").strip()
+    return _validate_admin_session(token)
+
+
+def _require_manager_approval(handler, cfg: dict) -> bool:
+    """
+    Require an admin-unlocked session for risky operations.
+    Returns True when request handling should stop.
+    """
+    if _manager_session_valid(handler):
+        return False
+    if not (cfg.get("admin_pin_hash") or "").strip():
+        json_response(
+            handler,
+            {
+                "error": "manager_approval_required",
+                "hint": "Set admin PIN first (POST /api/admin/pin/set), then unlock with POST /api/auth/pin.",
+            },
+            status=503,
+        )
+        return True
+    json_response(
+        handler,
+        {
+            "error": "manager_approval_required",
+            "hint": "Manager approval required. Unlock with admin PIN and retry.",
+        },
+        status=403,
+    )
+    return True
+
 def _public_config(cfg: dict) -> dict:
     """
     Return a config payload safe to expose via the local HTTP API.
@@ -383,6 +425,12 @@ def init_db():
         bc_cols = {r[1] for r in cur.fetchall()}
         if "uom_code" not in bc_cols:
             cur.execute("ALTER TABLE local_item_barcodes_cache ADD COLUMN uom_code TEXT")
+
+        # Outbox idempotency (safe retries without duplicate documents).
+        cur.execute("PRAGMA table_info(pos_outbox_events)")
+        outbox_cols = {r[1] for r in cur.fetchall()}
+        if "idempotency_key" not in outbox_cols:
+            cur.execute("ALTER TABLE pos_outbox_events ADD COLUMN idempotency_key TEXT")
         # Explicit indexes for fast cashier workflows (barcode and customer lookup hot paths).
         cur.executescript(
             """
@@ -398,6 +446,10 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_local_cashiers_active_name ON local_cashiers_cache(is_active, name);
             CREATE INDEX IF NOT EXISTS idx_pos_outbox_status_created ON pos_outbox_events(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_pos_outbox_event_type_idem ON pos_outbox_events(event_type, idempotency_key);
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_pos_outbox_event_type_idem_nonempty
+              ON pos_outbox_events(event_type, idempotency_key)
+              WHERE idempotency_key IS NOT NULL AND idempotency_key <> '';
             """
         )
         conn.commit()
@@ -1983,27 +2035,67 @@ def add_outbox_event(event_type, payload):
     # Must be UUID to match Postgres `pos_events_outbox.id` type.
     event_id = str(uuid.uuid4())
     created_at = datetime.utcnow().isoformat()
-    add_outbox_event_record(event_id, event_type, payload, created_at, status="pending")
+    add_outbox_event_record(
+        event_id,
+        event_type,
+        payload,
+        created_at,
+        status="pending",
+        idempotency_key=None,
+    )
     return event_id
 
 
-def add_outbox_event_record(event_id, event_type, payload, created_at, status="pending"):
+def get_outbox_event_by_idempotency(event_type: str, idempotency_key: str):
+    et = str(event_type or "").strip()
+    ik = str(idempotency_key or "").strip()
+    if not et or not ik:
+        return None
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT event_id, event_type, created_at, status, idempotency_key
+            FROM pos_outbox_events
+            WHERE event_type = ? AND idempotency_key = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (et, ik),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        return dict(row)
+
+
+def add_outbox_event_record(event_id, event_type, payload, created_at, status="pending", idempotency_key=None):
     event_id = str(event_id or "").strip() or str(uuid.uuid4())
     created_at = str(created_at or "").strip() or datetime.utcnow().isoformat()
     st = str(status or "pending").strip().lower()
     if st not in {"pending", "acked"}:
         st = "pending"
+    idem = str(idempotency_key or "").strip() or None
     with db_connect() as conn:
         cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO pos_outbox_events (event_id, event_type, payload_json, created_at, status)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (event_id, event_type, json.dumps(payload), created_at, st),
-        )
+        try:
+            cur.execute(
+                """
+                INSERT INTO pos_outbox_events (event_id, event_type, payload_json, created_at, status, idempotency_key)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (event_id, event_type, json.dumps(payload), created_at, st, idem),
+            )
+        except sqlite3.IntegrityError:
+            # Duplicate idempotency key for this event type: treat as replay.
+            if idem:
+                existing = get_outbox_event_by_idempotency(event_type, idem)
+                if existing and existing.get("event_id"):
+                    return str(existing["event_id"]), False
+            raise
         conn.commit()
-    return event_id
+    return event_id, True
 
 
 def list_outbox():
@@ -2860,6 +2952,18 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/api/config':
             data = self.read_json()
+            for k in (
+                "require_manager_approval_credit",
+                "require_manager_approval_returns",
+                "require_manager_approval_cross_company",
+            ):
+                if k in data:
+                    data[k] = bool(data.get(k))
+            if "outbox_stale_warn_minutes" in data:
+                try:
+                    data["outbox_stale_warn_minutes"] = max(1, min(1440, int(data.get("outbox_stale_warn_minutes") or 5)))
+                except Exception:
+                    data["outbox_stale_warn_minutes"] = int(cfg.get("outbox_stale_warn_minutes") or 5)
             cfg.update(data)
             save_config(cfg)
             json_response(self, {'ok': True, 'config': cfg})
@@ -3000,6 +3104,19 @@ class Handler(BaseHTTPRequestHandler):
             customer_id = data.get('customer_id')
             payment_method = data.get('payment_method') or 'cash'
             pm = (payment_method or "cash").strip().lower()
+            idempotency_key = str(data.get("idempotency_key") or "").strip() or None
+            if idempotency_key:
+                existing = get_outbox_event_by_idempotency("sale.completed", idempotency_key)
+                if existing and existing.get("event_id"):
+                    json_response(
+                        self,
+                        {
+                            "event_id": str(existing.get("event_id")),
+                            "edge_accepted": True if pm == "credit" and str(existing.get("status") or "") == "acked" else None,
+                            "idempotent_replay": True,
+                        },
+                    )
+                    return
             shift_id = data.get('shift_id') or cfg.get('shift_id') or None
             cashier_id = data.get('cashier_id') or cfg.get('cashier_id') or None
             payload = build_sale_payload(
@@ -3021,6 +3138,16 @@ class Handler(BaseHTTPRequestHandler):
                 payload["receipt_meta"] = data.get("receipt_meta")
             if "skip_stock_moves" in data:
                 payload["skip_stock_moves"] = bool(data.get("skip_stock_moves"))
+            needs_manager = False
+            if bool(cfg.get("require_manager_approval_credit")) and pm == "credit":
+                needs_manager = True
+            if bool(cfg.get("require_manager_approval_cross_company")):
+                rm = payload.get("receipt_meta")
+                pilot = rm.get("pilot") if isinstance(rm, dict) else {}
+                if bool(pilot.get("cross_company")) or bool(pilot.get("flagged_for_adjustment")):
+                    needs_manager = True
+            if needs_manager and _require_manager_approval(self, cfg):
+                return
             created_at = datetime.utcnow().isoformat()
             event_id = str(uuid.uuid4())
             outbox_status = "pending"
@@ -3051,7 +3178,25 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 outbox_status = "acked"
 
-            add_outbox_event_record(event_id, "sale.completed", payload, created_at, status=outbox_status)
+            event_id, inserted = add_outbox_event_record(
+                event_id,
+                "sale.completed",
+                payload,
+                created_at,
+                status=outbox_status,
+                idempotency_key=idempotency_key,
+            )
+            if not inserted:
+                existing = get_outbox_event_by_idempotency("sale.completed", idempotency_key) if idempotency_key else None
+                json_response(
+                    self,
+                    {
+                        "event_id": str((existing or {}).get("event_id") or event_id),
+                        "edge_accepted": True if pm == "credit" and str((existing or {}).get("status") or "") == "acked" else None,
+                        "idempotent_replay": True,
+                    },
+                )
+                return
 
             # Persist a printable receipt snapshot locally (offline-friendly).
             items_map = {i["id"]: i for i in (get_items() or [])}
@@ -3100,7 +3245,7 @@ class Handler(BaseHTTPRequestHandler):
                 ),
             }
             save_receipt("sale", receipt)
-            json_response(self, {'event_id': event_id, "edge_accepted": True if pm == "credit" else None})
+            json_response(self, {'event_id': event_id, "edge_accepted": True if pm == "credit" else None, "idempotent_replay": False})
             return
 
         if parsed.path == '/api/return':
@@ -3114,6 +3259,19 @@ class Handler(BaseHTTPRequestHandler):
             pricing_currency = data.get('pricing_currency') or cfg.get('pricing_currency') or 'USD'
             invoice_id = data.get('invoice_id') or None
             refund_method = data.get('refund_method') or data.get('payment_method') or 'cash'
+            idempotency_key = str(data.get("idempotency_key") or "").strip() or None
+            if idempotency_key:
+                existing = get_outbox_event_by_idempotency("sale.returned", idempotency_key)
+                if existing and existing.get("event_id"):
+                    json_response(
+                        self,
+                        {
+                            "event_id": str(existing.get("event_id")),
+                            "edge_accepted": True,
+                            "idempotent_replay": True,
+                        },
+                    )
+                    return
             shift_id = data.get('shift_id') or cfg.get('shift_id') or None
             cashier_id = data.get('cashier_id') or cfg.get('cashier_id') or None
             payload = build_return_payload(
@@ -3133,6 +3291,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload["receipt_meta"] = data.get("receipt_meta")
             if "skip_stock_moves" in data:
                 payload["skip_stock_moves"] = bool(data.get("skip_stock_moves"))
+            if bool(cfg.get("require_manager_approval_returns")) and _require_manager_approval(self, cfg):
+                return
             created_at = datetime.utcnow().isoformat()
             event_id = str(uuid.uuid4())
 
@@ -3157,7 +3317,25 @@ class Handler(BaseHTTPRequestHandler):
                     status=409,
                 )
                 return
-            add_outbox_event_record(event_id, "sale.returned", payload, created_at, status="acked")
+            event_id, inserted = add_outbox_event_record(
+                event_id,
+                "sale.returned",
+                payload,
+                created_at,
+                status="acked",
+                idempotency_key=idempotency_key,
+            )
+            if not inserted:
+                existing = get_outbox_event_by_idempotency("sale.returned", idempotency_key) if idempotency_key else None
+                json_response(
+                    self,
+                    {
+                        "event_id": str((existing or {}).get("event_id") or event_id),
+                        "edge_accepted": True,
+                        "idempotent_replay": True,
+                    },
+                )
+                return
             items_map = {i["id"]: i for i in (get_items() or [])}
             cart_map = {str(i.get("id")): i for i in (cart or []) if i.get("id")}
             cashier_map = {c["id"]: c for c in (get_cashiers() or [])}
@@ -3205,7 +3383,7 @@ class Handler(BaseHTTPRequestHandler):
                 "invoice_id": invoice_id,
             }
             save_receipt("return", receipt)
-            json_response(self, {'event_id': event_id, "edge_accepted": True})
+            json_response(self, {'event_id': event_id, "edge_accepted": True, "idempotent_replay": False})
             return
 
         if parsed.path == '/api/cashiers/login':
