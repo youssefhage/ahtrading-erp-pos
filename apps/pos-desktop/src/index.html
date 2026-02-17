@@ -84,9 +84,20 @@
               <select id="setupCompanyOfficial"></select>
             </label>
             <label class="field">
+              <span>Primary POS Device (optional)</span>
+              <select id="setupDeviceSelectOfficial"></select>
+            </label>
+          </div>
+
+          <div class="grid2 compact">
+            <label class="field">
               <span>Primary Device Code</span>
               <input id="setupDeviceCodeOfficial" value="POS-01" />
             </label>
+            <div class="field">
+              <span>Primary Device Picker</span>
+              <span class="muted">Choose an existing POS above or type a new code here.</span>
+            </div>
           </div>
 
           <label class="field">
@@ -105,9 +116,20 @@
               <select id="setupCompanyUnofficial"></select>
             </label>
             <label class="field">
+              <span>Secondary POS Device (optional)</span>
+              <select id="setupDeviceSelectUnofficial"></select>
+            </label>
+          </div>
+
+          <div id="setupSecondaryCodeWrap" class="grid2 compact" style="display: none;">
+            <label class="field">
               <span>Secondary Device Code</span>
               <input id="setupDeviceCodeUnofficial" value="POS-02" />
             </label>
+            <div class="field">
+              <span>Secondary Device Picker</span>
+              <span class="muted">Choose an existing POS above or type a new code here.</span>
+            </div>
           </div>
 
           <div class="row compact">

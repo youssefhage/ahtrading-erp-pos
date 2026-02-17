@@ -2644,6 +2644,73 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {"ok": True, "branches": list(res.get("branches") or [])})
             return
 
+        if parsed.path == "/api/setup/devices":
+            data = self.read_json()
+            api_base = _normalize_api_base_url(data.get("api_base_url"))
+            token = str(data.get("token") or "").strip()
+            company_id = str(data.get("company_id") or "").strip()
+            if not api_base:
+                json_response(self, {"error": "api_base_url is required"}, status=400)
+                return
+            if not token:
+                json_response(self, {"error": "token is required"}, status=400)
+                return
+            if not company_id:
+                json_response(self, {"error": "company_id is required"}, status=400)
+                return
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "X-Company-Id": company_id,
+            }
+
+            # Best effort: align active company for the setup session.
+            _setup_req_json_safe(
+                f"{api_base}/auth/select-company",
+                method="POST",
+                payload={"company_id": company_id},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+            res, status, err = _setup_req_json_safe(
+                f"{api_base}/pos/devices",
+                method="GET",
+                headers=headers,
+            )
+            if status:
+                # Keep quick setup usable even when listing is denied; user can still type a device code.
+                if status in (401, 403):
+                    json_response(
+                        self,
+                        {
+                            "ok": True,
+                            "devices": [],
+                            "warning": "Device list unavailable for this account; enter a device code manually.",
+                        },
+                    )
+                    return
+                json_response(self, {"error": err or f"devices request failed ({status})"}, status=status)
+                return
+
+            raw_devices = list(res.get("devices") or [])
+            out_devices = []
+            for d in raw_devices:
+                code = str((d or {}).get("device_code") or "").strip()
+                if not code:
+                    continue
+                out_devices.append(
+                    {
+                        "id": str((d or {}).get("id") or "").strip(),
+                        "device_code": code,
+                        "branch_id": str((d or {}).get("branch_id") or "").strip() or None,
+                        "branch_name": str((d or {}).get("branch_name") or "").strip() or None,
+                        "has_token": bool((d or {}).get("has_token")),
+                    }
+                )
+            out_devices.sort(key=lambda x: str(x.get("device_code") or "").lower())
+            json_response(self, {"ok": True, "devices": out_devices})
+            return
+
         if parsed.path == "/api/setup/check-permissions":
             data = self.read_json()
             api_base = _normalize_api_base_url(data.get("api_base_url"))
