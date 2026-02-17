@@ -1,6 +1,7 @@
 <script>
   export let officialConfig = {};
   export let unofficialConfig = {};
+  export let isWebSetupMode = false;
   export let unofficialEnabled = true;
   export let unofficialStatus = "Pending";
 
@@ -90,6 +91,7 @@
 
   $: off = copyFrom(officialConfig);
   $: un = copyFrom(unofficialConfig);
+  $: dualOnboardingEnabled = isWebSetupMode || unofficialEnabled;
   $: if (!String(sharedCloudUrl || "").trim()) {
     sharedCloudUrl = String(off.cloud_api_base_url || un.cloud_api_base_url || "").trim();
   }
@@ -374,7 +376,7 @@
       setupCompanyOfficial = activeCompany || firstCompany;
       setupCompanyUnofficial = activeCompany || firstCompany;
       await refreshSetupCompany("official");
-      if (unofficialEnabled) await refreshSetupCompany("unofficial");
+      if (dualOnboardingEnabled) await refreshSetupCompany("unofficial");
       setupNotice = "Connected. Select company and POS, then Apply Express Setup.";
     } catch (e) {
       setupErr = e?.message || String(e);
@@ -412,7 +414,7 @@
       setupCompanyOfficial = activeCompany || firstCompany;
       setupCompanyUnofficial = activeCompany || firstCompany;
       await refreshSetupCompany("official");
-      if (unofficialEnabled) await refreshSetupCompany("unofficial");
+      if (dualOnboardingEnabled) await refreshSetupCompany("unofficial");
       setupNotice = "MFA verified. Select company and POS, then Apply Express Setup.";
     } catch (e) {
       setupErr = e?.message || String(e);
@@ -438,9 +440,9 @@
       if (!token) throw new Error("You are not logged in. Click Log In first.");
       if (!companyOff) throw new Error("Select Official company.");
       if (!codeOff) throw new Error("Official POS code is required.");
-      if (unofficialEnabled && !companyUn) throw new Error("Select Unofficial company.");
-      if (unofficialEnabled && !codeUn) throw new Error("Unofficial POS code is required.");
-      if (unofficialEnabled && companyOff === companyUn && codeOff === codeUn) {
+      if (dualOnboardingEnabled && !companyUn) throw new Error("Select Unofficial company.");
+      if (dualOnboardingEnabled && !codeUn) throw new Error("Unofficial POS code is required.");
+      if (dualOnboardingEnabled && companyOff === companyUn && codeOff === codeUn) {
         throw new Error("Official and Unofficial cannot use the same POS code in the same company.");
       }
 
@@ -464,7 +466,7 @@
       });
       try { await syncPullFor("official"); } catch (_) {}
 
-      if (unofficialEnabled) {
+      if (dualOnboardingEnabled) {
         const regUn = await setupRegisterDevice({
           api_base_url: apiBase,
           token,
@@ -485,7 +487,7 @@
         try { await syncPullFor("unofficial"); } catch (_) {}
       }
 
-      setupNotice = `Connected successfully. Official: ${setupCompanyLabel(companyOff)}${unofficialEnabled ? ` · Unofficial: ${setupCompanyLabel(companyUn)}` : ""}.`;
+      setupNotice = `Connected successfully. Official: ${setupCompanyLabel(companyOff)}${dualOnboardingEnabled ? ` · Unofficial: ${setupCompanyLabel(companyUn)}` : ""}.`;
       notice = "Express setup applied and sync pull started.";
       err = "";
     } catch (e) {
@@ -547,36 +549,42 @@
           <div>
             <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Unified Mode</div>
             <div class="text-sm mt-1">
-              Other Agent is the second local agent (the other company), not the cloud.
+              {#if isWebSetupMode}
+                Browser setup uses cloud connections for both companies. Other Agent URL is not required here.
+              {:else}
+                Other Agent is the second local agent (the other company), not the cloud.
+              {/if}
             </div>
           </div>
-          <div class={`px-3 py-2 rounded-full border text-xs font-extrabold ${pillTone(unofficialEnabled ? "ok" : "warn")}`}>
-            {unofficialEnabled ? (unofficialStatus || "Enabled") : "Disabled"}
+          <div class={`px-3 py-2 rounded-full border text-xs font-extrabold ${pillTone(dualOnboardingEnabled ? "ok" : "warn")}`}>
+            {dualOnboardingEnabled ? (unofficialStatus || "Enabled") : "Disabled"}
           </div>
         </div>
 
-        <div class="mt-4">
-          <label class="text-xs text-muted" for="other-agent-url-settings">Other Agent URL</label>
-          <input
-            id="other-agent-url-settings"
-            class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-            placeholder="http://127.0.0.1:7072"
-            bind:value={otherAgentDraftUrl}
-          />
-          <div class="mt-3 flex items-center justify-between gap-3">
-            <div class="text-[11px] text-muted">
-              Current: <span class="font-mono">{normalizeUrl(otherAgentUrl) || "—"}</span>
+        {#if !isWebSetupMode}
+          <div class="mt-4">
+            <label class="text-xs text-muted" for="other-agent-url-settings">Other Agent URL (Desktop dual-agent only)</label>
+            <input
+              id="other-agent-url-settings"
+              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+              placeholder="http://127.0.0.1:7072"
+              bind:value={otherAgentDraftUrl}
+            />
+            <div class="mt-3 flex items-center justify-between gap-3">
+              <div class="text-[11px] text-muted">
+                Current: <span class="font-mono">{normalizeUrl(otherAgentUrl) || "—"}</span>
+              </div>
+              <button
+                type="button"
+                class="px-4 py-2 rounded-xl bg-accent/20 text-accent border border-accent/30 text-xs font-extrabold hover:bg-accent/30 transition-colors disabled:opacity-60"
+                on:click={saveOtherAgent}
+                disabled={busy}
+              >
+                Save Other Agent
+              </button>
             </div>
-            <button
-              type="button"
-              class="px-4 py-2 rounded-xl bg-accent/20 text-accent border border-accent/30 text-xs font-extrabold hover:bg-accent/30 transition-colors disabled:opacity-60"
-              on:click={saveOtherAgent}
-              disabled={busy}
-            >
-              Save Other Agent
-            </button>
           </div>
-        </div>
+        {/if}
       </div>
 
       <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
@@ -731,7 +739,7 @@
             </div>
           </div>
 
-          {#if unofficialEnabled}
+          {#if dualOnboardingEnabled}
             <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3 space-y-3">
               <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Unofficial</div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -792,7 +800,7 @@
             </div>
           {:else}
             <div class="mt-3 text-xs text-muted">
-              Secondary agent is disabled. Set Other Agent URL first if you want dual-company onboarding.
+              Secondary agent is disabled. Set Other Agent URL in the Unified Mode card above to enable dual-company onboarding.
             </div>
           {/if}
 
@@ -1078,13 +1086,13 @@
             <span class={`px-3 py-1 rounded-full border text-[11px] font-extrabold ${pillTone(edgeUn.kind)}`}>{edgeUn.text}</span>
           </div>
           <div class="flex items-center gap-2">
-            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60" on:click={() => runTest("unofficial")} disabled={busy || !unofficialEnabled}>Test</button>
-            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60" on:click={() => runPull("unofficial")} disabled={busy || !unofficialEnabled}>Pull</button>
-            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60" on:click={() => runPush("unofficial")} disabled={busy || !unofficialEnabled}>Push</button>
+            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60" on:click={() => runTest("unofficial")} disabled={busy || !dualOnboardingEnabled}>Test</button>
+            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60" on:click={() => runPull("unofficial")} disabled={busy || !dualOnboardingEnabled}>Pull</button>
+            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60" on:click={() => runPush("unofficial")} disabled={busy || !dualOnboardingEnabled}>Push</button>
           </div>
         </div>
 
-        {#if !unofficialEnabled}
+        {#if !dualOnboardingEnabled}
           <div class="mt-3 text-sm text-muted">Unofficial agent is disabled. Set Other Agent URL to enable.</div>
         {:else}
           <div class="mt-4 rounded-xl border border-ink/10 bg-bg/35 p-3">

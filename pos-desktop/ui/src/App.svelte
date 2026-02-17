@@ -3366,6 +3366,7 @@
     <SettingsScreen
       officialConfig={config}
       unofficialConfig={unofficialConfig}
+      isWebSetupMode={webHostUnsupported}
       unofficialEnabled={webHostUnsupported ? true : !!_normalizeAgentOrigin(otherAgentUrl)}
       unofficialStatus={unofficialStatus}
       otherAgentUrl={otherAgentUrl}
