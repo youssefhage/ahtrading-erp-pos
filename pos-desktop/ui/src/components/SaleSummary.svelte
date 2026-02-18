@@ -37,6 +37,7 @@
     if (!flagOfficial && mixedCart && invoiceCompanyMode !== "auto") return "Cross-company stock moves are skipped and require later review.";
     return "";
   })();
+  $: canCheckout = cart.length > 0;
 </script>
 
 <section class="glass-panel rounded-3xl p-6 flex flex-col gap-6 relative group/summary">
@@ -126,11 +127,17 @@
 
     <!-- Checkout Action -->
     <button
-      class="w-full py-4 rounded-2xl bg-gradient-to-br from-accent to-accent-hover text-white font-bold text-lg tracking-wide shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:grayscale disabled:pointer-events-none relative overflow-hidden group/btn"
-      disabled={cart.length === 0}
+      class={`w-full py-4 rounded-2xl font-bold text-lg tracking-wide transition-all relative overflow-hidden ${
+        canCheckout
+          ? "bg-gradient-to-br from-accent to-accent-hover text-white shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] group/btn"
+          : "bg-surface-highlight text-muted border border-ink/10 cursor-not-allowed"
+      }`}
+      disabled={!canCheckout}
       on:click={onCheckout}
     >
-      <div class="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300 rounded-2xl"></div>
+      {#if canCheckout}
+        <div class="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300 rounded-2xl"></div>
+      {/if}
       <span class="relative z-10 flex items-center justify-center gap-2">
         Checkout
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>

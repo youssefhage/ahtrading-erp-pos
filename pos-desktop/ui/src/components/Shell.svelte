@@ -55,7 +55,7 @@
         <!-- Brand & Status -->
         <div class="flex items-center gap-4 shrink-0">
           <div class="flex items-center gap-3">
-            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-accent-hover text-white shadow-lg shadow-accent/20 font-bold text-sm tracking-wide">
+            <div class="brand-mark flex h-10 w-10 items-center justify-center rounded-xl font-bold text-sm tracking-wide shadow-lg shadow-accent/20">
               WP
             </div>
             
@@ -129,5 +129,12 @@
   /* Optional: Fade mask for scrollable areas */
   .mask-fade-sides {
     mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+  }
+
+  .brand-mark {
+    color: rgb(var(--color-accent-content));
+    background: linear-gradient(135deg, rgb(var(--color-accent)) 0%, rgb(var(--color-accent-hover)) 100%);
+    border: 1px solid rgb(var(--color-ink) / 0.12);
+    text-shadow: 0 1px 0 rgb(0 0 0 / 0.15);
   }
 </style>

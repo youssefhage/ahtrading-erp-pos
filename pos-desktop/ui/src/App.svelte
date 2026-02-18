@@ -3150,7 +3150,7 @@
 >
   <svelte:fragment slot="tabs">
     {@const tabBase = "px-4 py-2.5 rounded-2xl text-sm font-bold border transition-all whitespace-nowrap shadow-sm"}
-    {@const tabOn = "bg-ink/90 text-white border-ink/70 hover:bg-ink"}
+    {@const tabOn = "bg-accent text-white border-accent/40 hover:bg-accent-hover shadow-lg shadow-accent/20"}
     {@const tabOff = "bg-surface/55 text-ink/85 border-ink/10 hover:bg-surface/75 hover:text-ink"}
 
     <button
