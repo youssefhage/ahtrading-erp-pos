@@ -68,6 +68,12 @@
     if (lbl) return lbl;
     return f !== 1 ? `${u} x${f}` : u;
   };
+
+  const uomMetaText = (opts) => {
+    const n = Array.isArray(opts) ? opts.length : 0;
+    if (n <= 1) return "Single UOM";
+    return `${n} options`;
+  };
 </script>
 
 <section class="glass-panel rounded-2xl p-0 flex flex-col h-full w-full overflow-hidden">
@@ -135,7 +141,7 @@
               </button>
               <input
                 type="number"
-                class="h-10 w-full text-center bg-transparent font-mono text-lg font-extrabold tracking-tight focus:outline-none focus:ring-2 focus:ring-accent/30 rounded-xl"
+                class="h-10 w-full text-center bg-transparent num-readable text-lg font-extrabold tracking-tight focus:outline-none focus:ring-2 focus:ring-accent/30 rounded-xl"
                 value={line.qty_entered}
                 on:change={(e) => updateQty(i, e.target.value)}
                 on:keydown={(e) => e.key === "Enter" && e.currentTarget?.blur?.()}
@@ -155,11 +161,12 @@
 
           <!-- UOM -->
           <div class="rounded-2xl border border-ink/10 bg-ink/5 p-2">
-            {#if uomOpts.length > 2}
+            <div class="text-[10px] uppercase tracking-wide text-muted mb-1 text-center">UOM</div>
+            {#if uomOpts.length > 1}
               <div class="relative">
                 <select
                   class="w-full h-10 appearance-none pl-3 pr-9 rounded-xl text-sm font-extrabold tracking-wide border border-ink/10 bg-surface/40 hover:bg-surface/60 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/30"
-                  title="Change UOM"
+                  title={`Change UOM (${uomMetaText(uomOpts)})`}
                   value={optValue(uomSel.opt || uomOpts[0])}
                   on:change={(e) => {
                     const v = String(e?.target?.value || "");
@@ -181,28 +188,22 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
                 </svg>
               </div>
-            {:else if uomOpts.length === 2}
-              <button
-                type="button"
-                class="w-full h-10 flex items-center justify-center gap-2 rounded-xl border border-ink/10 bg-surface/40 hover:bg-surface/60 transition-colors text-sm font-extrabold tracking-wide focus:outline-none focus:ring-2 focus:ring-accent/30"
-                title="Tap to toggle UOM"
-                on:click={() => cycleLineUom(i, 1)}
-              >
-                {optLabel(uomSel.opt || uomOpts[0], lineUom(line))}
-                <svg class="w-4 h-4 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
+              <div class="mt-1 text-[10px] text-muted text-center">
+                {uomMetaText(uomOpts)}
+              </div>
             {:else}
-              <div class="h-10 flex items-center justify-center rounded-xl border border-ink/10 bg-surface/40 text-sm font-extrabold tracking-wide">
+              <div class="h-10 flex items-center justify-center rounded-xl border border-ink/10 bg-surface/30 text-sm font-extrabold tracking-wide opacity-85">
                 {optLabel(uomSel.opt || { uom: lineUom(line), qty_factor: toNum(line.qty_factor, 1) || 1 }, lineUom(line))}
+              </div>
+              <div class="mt-1 text-[10px] text-muted text-center">
+                {uomMetaText(uomOpts)}
               </div>
             {/if}
           </div>
 
           <!-- Price -->
           <div class="text-right">
-            <div class="font-extrabold font-mono text-lg">
+            <div class="font-extrabold num-readable text-lg">
               {fmtMoney(
                 (currencyPrimary === "USD" ? toNum(line.price_usd) : toNum(line.price_lbp)) * toNum(line.qty),
                 currencyPrimary
@@ -210,13 +211,13 @@
             </div>
             <div class="text-xs text-muted">
               {#if toNum(line.pre_discount_unit_price_usd, 0) > 0 || toNum(line.pre_discount_unit_price_lbp, 0) > 0}
-                <span class="line-through opacity-70 mr-2">
+                <span class="line-through opacity-70 mr-2 num-readable">
                   {fmtMoney(
                     (currencyPrimary === "USD" ? toNum(line.pre_discount_unit_price_usd) : toNum(line.pre_discount_unit_price_lbp)) * toNum(line.qty_factor, 1),
                     currencyPrimary
                   )}
                 </span>
-                <span class="text-ink/80 font-mono">
+                <span class="text-ink/80 num-readable">
                   {fmtMoney(
                     (currencyPrimary === "USD" ? toNum(line.price_usd) : toNum(line.price_lbp)) * toNum(line.qty_factor, 1),
                     currencyPrimary
@@ -229,10 +230,10 @@
                 {/if}
                 <span class="ml-2">/ {lineUom(line)}</span>
               {:else}
-                {fmtMoney(
+                <span class="num-readable">{fmtMoney(
                   (currencyPrimary === "USD" ? toNum(line.price_usd) : toNum(line.price_lbp)) * toNum(line.qty_factor, 1),
                   currencyPrimary
-                )} / {lineUom(line)}
+                )}</span> / {lineUom(line)}
               {/if}
             </div>
           </div>

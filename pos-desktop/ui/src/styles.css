@@ -91,4 +91,11 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+
+  /* Numeric readability: clearer zeros + aligned columns for POS totals/qty. */
+  .num-readable {
+    font-family: "JetBrains Mono", "IBM Plex Mono", "SF Mono", "Cascadia Mono", "Menlo", "Consolas", monospace;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "zero" 1, "tnum" 1;
+  }
 }

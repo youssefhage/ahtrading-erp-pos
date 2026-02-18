@@ -40,7 +40,7 @@
 
       <div class="p-8 flex flex-col items-center gap-6">
         <div class="text-center">
-          <span class="text-5xl font-mono font-bold text-ink tracking-tighter">
+          <span class="text-5xl num-readable font-bold text-ink tracking-tighter">
             {fmtTotal(total)}
           </span>
           <span class="text-lg text-muted font-medium ml-2">{currency}</span>

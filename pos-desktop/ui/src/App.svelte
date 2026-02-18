@@ -172,6 +172,15 @@
     return out;
   };
 
+  const _normalizeScanCode = (value) => {
+    let v = String(value || "");
+    // Remove control chars scanners may inject (FNC/GS/CR/LF) and trim.
+    v = v.replace(/[\u0000-\u001F\u007F]/g, "").trim();
+    // Common GS1 keyboard-wedge prefix.
+    if (v.startsWith("]C1")) v = v.slice(3);
+    return v.trim();
+  };
+
   // State
   let apiBase = normalizeApiBase(DEFAULT_API_BASE);
   let sessionToken = "";
@@ -1663,7 +1672,7 @@
   });
 
   const addByBarcode = (barcode) => {
-    const code = (barcode || "").trim();
+    const code = _normalizeScanCode(barcode);
     if (!code) return false;
 
     const pick = (companyKey) => {
@@ -1699,7 +1708,7 @@
   };
 
   const addBySkuExact = (sku) => {
-    const key = (sku || "").trim().toLowerCase();
+    const key = _normalizeScanCode(sku).toLowerCase();
     if (!key) return false;
     const findIn = (companyKey) => {
       const idx = companyKey === otherCompanyKey ? itemsBySkuOther : itemsBySkuOrigin;
@@ -1731,9 +1740,9 @@
   });
 
   const handleScanKeyDown = (e) => {
-    if (e.key !== "Enter") return false;
+    if (e.key !== "Enter" && e.key !== "NumpadEnter") return false;
     e.preventDefault();
-    const term = scanTerm.trim();
+    const term = _normalizeScanCode(scanTerm);
     if (!term) return false;
     if (addByBarcode(term)) {
       scanTerm = "";
@@ -2997,6 +3006,8 @@
     let buf = "";
     let lastAt = 0;
     let clearTimer = null;
+    const SCAN_INTER_KEY_RESET_MS = 180;
+    const SCAN_BUFFER_TTL_MS = 450;
 
     const reset = () => {
       buf = "";
@@ -3024,9 +3035,14 @@
       // Don't hijack normal typing in other fields (customer search, etc.).
       if (focusedInText && !isScanField) return;
 
-      if (e.key === "Enter") {
-        const term = buf.trim();
-        if (term && term.length >= 4) {
+      if (e.key === "Enter" || e.key === "NumpadEnter") {
+        // If the dedicated scan input is focused, let ProductGrid handle Enter.
+        if (isScanField) {
+          reset();
+          return;
+        }
+        const term = _normalizeScanCode(buf);
+        if (term && term.length >= 3) {
           if (activeScreen === "items") {
             itemLookupQuery = term;
             itemLookupAutoPick++;
@@ -3044,12 +3060,12 @@
       if (typeof e.key === "string" && e.key.length === 1) {
         const now = Date.now();
         const dt = lastAt ? (now - lastAt) : 0;
-        // Scanner bursts are typically < 30ms between keys; anything slower is likely manual typing.
-        if (dt && dt > 60) buf = "";
+        // Allow occasional UI/render jitter without discarding a valid scan.
+        if (dt && dt > SCAN_INTER_KEY_RESET_MS) buf = "";
         buf += e.key;
         lastAt = now;
         if (clearTimer) clearTimeout(clearTimer);
-        clearTimer = setTimeout(reset, 250);
+        clearTimer = setTimeout(reset, SCAN_BUFFER_TTL_MS);
       }
     };
 
@@ -3291,6 +3307,7 @@
           uomOptionsFor={uomOptionsFor}
           collapseCatalog={toggleCatalog}
           currencyPrimary={currencyPrimary}
+          vatRate={toRate(config.vat_rate)}
           onScanKeyDown={handleScanKeyDown}
           companyLabel={companyLabel}
           companyTone={companyTone}
@@ -3347,6 +3364,8 @@
       bind:query={itemLookupQuery}
       autoPick={itemLookupAutoPick}
       isActive={activeScreen === "items"}
+      currencyPrimary={currencyPrimary}
+      vatRate={toRate(config.vat_rate)}
       otherCompanyKey={otherCompanyKey}
       barcodesByItemIdOrigin={barcodesByItemIdOrigin}
       barcodesByItemIdOther={barcodesByItemIdOther}

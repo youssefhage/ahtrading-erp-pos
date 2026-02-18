@@ -39,6 +39,7 @@
   $: edgeKind = _edgeKind(edgeStateText);
   $: cashierKind = _toText(cashierName).toLowerCase().includes("not signed") ? "warn" : "neutral";
   $: shiftKind = _toText(shiftText).toLowerCase().includes("open") ? "ok" : "neutral";
+  $: outboxCompactText = outboxKind === "ok" ? "READY" : (outboxKind === "warn" ? "SYNCING" : "OFFLINE");
 </script>
 
 <div class="min-h-screen bg-bg text-ink font-sans selection:bg-accent/20 selection:text-accent flex flex-col">
@@ -68,8 +69,8 @@
             </div>
 
             <div class={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 ${tone(outboxKind)} shrink-0`}>
-              <div class="text-[10px] font-extrabold uppercase tracking-wider opacity-80">Outbox</div>
-              <div class="text-xs font-semibold text-ink/90 whitespace-nowrap">{syncBadge || "—"}</div>
+              <span class={`h-2 w-2 rounded-full ${outboxKind === "ok" ? "bg-emerald-300" : outboxKind === "warn" ? "bg-amber-300" : "bg-red-300"}`}></span>
+              <div class="text-xs font-extrabold uppercase tracking-wider text-ink/90 whitespace-nowrap">{outboxCompactText}</div>
             </div>
 
             <div class={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 ${tone(cashierKind)} shrink-0`}>

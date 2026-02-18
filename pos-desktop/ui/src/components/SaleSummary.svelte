@@ -79,11 +79,11 @@
     <div class="grid grid-cols-2 gap-2 text-xs">
       <div class="rounded-lg border border-ink/10 bg-ink/5 p-2">
         <div class="text-[10px] font-bold text-ink/70">Official</div>
-        <div class="font-mono font-bold text-ink">{fmtMoney(totalsByCompany.official?.totalUsd || 0, "USD")}</div>
+        <div class="num-readable font-bold text-ink">{fmtMoney(totalsByCompany.official?.totalUsd || 0, "USD")}</div>
       </div>
       <div class="rounded-lg border border-ink/10 bg-ink/5 p-2">
         <div class="text-[10px] font-bold text-ink/70">Unofficial</div>
-        <div class="font-mono font-bold text-ink">{fmtMoney(totalsByCompany.unofficial?.totalUsd || 0, "USD")}</div>
+        <div class="num-readable font-bold text-ink">{fmtMoney(totalsByCompany.unofficial?.totalUsd || 0, "USD")}</div>
       </div>
     </div>
   {/if}
@@ -91,17 +91,17 @@
   <div class="space-y-1 text-sm">
     <div class="flex justify-between text-muted">
       <span>Subtotal</span>
-      <span class="font-mono">{fmtMoney(totals.subtotalUsd || 0, "USD")}</span>
+      <span class="num-readable">{fmtMoney(totals.subtotalUsd || 0, "USD")}</span>
     </div>
     {#if totals.taxUsd > 0}
       <div class="flex justify-between text-muted">
         <span>VAT</span>
-        <span class="font-mono">{fmtMoney(totals.taxUsd || 0, "USD")}</span>
+        <span class="num-readable">{fmtMoney(totals.taxUsd || 0, "USD")}</span>
       </div>
     {/if}
     <div class="flex justify-between items-end pt-2 text-xl font-bold text-ink border-t border-ink/10 mt-2">
       <span>Total</span>
-      <span class="font-mono text-emerald-400">{fmtMoney(totals.totalUsd || 0, "USD")}</span>
+      <span class="num-readable text-emerald-400">{fmtMoney(totals.totalUsd || 0, "USD")}</span>
     </div>
   </div>
 

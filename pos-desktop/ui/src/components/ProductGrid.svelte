@@ -6,6 +6,7 @@
   export let uomOptionsFor = (item) => [];
   export let collapseCatalog = () => {};
   export let currencyPrimary = "USD";
+  export let vatRate = 0;
   export let onScanKeyDown = (e) => false; // should return true if it handled Enter (barcode/SKU)
   export let companyLabel = (item) => ""; // e.g. "Official" / "Unofficial"
   export let companyTone = (item) => ""; // e.g. "official" / "unofficial" (CSS hook)
@@ -36,6 +37,16 @@
     }
     return `${v.toFixed(2)} USD`;
   };
+
+  const normalizeVatRate = (value) => {
+    let n = toNum(value, 0);
+    if (n > 1 && n <= 100) n = n / 100;
+    return Math.max(0, n);
+  };
+
+  $: vatFactor = 1 + normalizeVatRate(vatRate);
+  const basePrice = (item) => (currencyPrimary === "LBP" ? toNum(item?.price_lbp, 0) : toNum(item?.price_usd, 0));
+  const afterVatPrice = (item) => basePrice(item) * vatFactor;
 
   const optValue = (o) => {
     const u = String(o?.uom || "").trim();
@@ -142,7 +153,7 @@
       setUomIndex(it, idx);
       return;
     }
-    if (e.key === "Enter") {
+    if (e.key === "Enter" || e.key === "NumpadEnter") {
       // First allow the parent to treat this as barcode / exact SKU.
       const handled = (onScanKeyDown && onScanKeyDown(e) === true);
       if (handled) return;
@@ -297,9 +308,15 @@
                   {companyLabel(item)}
                 </span>
               {/if}
-              <span class="font-extrabold text-sm text-ink">
-                {fmtMoney(currencyPrimary === "USD" ? toNum(item.price_usd) : toNum(item.price_lbp), currencyPrimary)}
-              </span>
+              <div class="text-right leading-tight">
+                <div class="font-extrabold text-sm text-ink num-readable">
+                  {fmtMoney(afterVatPrice(item), currencyPrimary)}
+                </div>
+                <div class="text-[10px] text-emerald-300">After VAT</div>
+                <div class="text-[10px] text-muted num-readable">
+                  {fmtMoney(basePrice(item), currencyPrimary)} before
+                </div>
+              </div>
               <span class="w-8 h-8 rounded-xl bg-ink/5 border border-ink/10 flex items-center justify-center text-accent
                            group-hover:bg-accent/15 group-hover:border-accent/30 transition-colors">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">

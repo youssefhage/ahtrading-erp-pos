@@ -5,6 +5,8 @@
   export let query = "";
   export let autoPick = 0; // increment to trigger auto-selection (used by barcode scans)
   export let isActive = false;
+  export let currencyPrimary = "USD";
+  export let vatRate = 0;
 
   export let otherCompanyKey = "unofficial";
   export let barcodesByItemIdOrigin = new Map();
@@ -53,6 +55,16 @@
     if (currency === "LBP") return `${Math.round(n).toLocaleString()} LBP`;
     return `${n.toFixed(2)} USD`;
   };
+
+  const normalizeVatRate = (value) => {
+    let n = toNum(value, 0);
+    if (n > 1 && n <= 100) n = n / 100;
+    return Math.max(0, n);
+  };
+
+  $: vatFactor = 1 + normalizeVatRate(vatRate);
+  const withVat = (v) => Math.max(0, toNum(v, 0)) * vatFactor;
+  const priceBase = (it) => (currencyPrimary === "LBP" ? toNum(it?.price_lbp, 0) : toNum(it?.price_usd, 0));
 
   const normalize = (v) => String(v || "").trim().toLowerCase();
 
@@ -308,7 +320,9 @@
                   <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border ${tonePill(it)}`}>
                     {companyLabel(it)}
                   </span>
-                  <span class="text-[11px] font-mono text-ink/80">{fmtMoney(it.price_usd || 0, "USD")}</span>
+                  <span class="text-[11px] num-readable text-ink/90">{fmtMoney(withVat(priceBase(it)), currencyPrimary)}</span>
+                  <span class="text-[10px] text-emerald-300">After VAT</span>
+                  <span class="text-[10px] num-readable text-muted">{fmtMoney(priceBase(it), currencyPrimary)} before</span>
                 </div>
               </div>
             </button>
@@ -371,14 +385,23 @@
         <div class="grid grid-cols-1 xl:grid-cols-2 gap-3 pt-4">
           <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
             <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Pricing</div>
-            <div class="mt-3 space-y-1 font-mono">
+            <div class="mt-3 space-y-2 num-readable">
               <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">USD</span>
-                <span class="text-sm font-bold">{fmtMoney(selected.price_usd || 0, "USD")}</span>
+                <span class="text-xs text-muted">After VAT ({currencyPrimary})</span>
+                <span class="text-sm font-bold text-emerald-300">{fmtMoney(withVat(priceBase(selected)), currencyPrimary)}</span>
               </div>
               <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">LBP</span>
-                <span class="text-sm font-bold">{fmtMoney(selected.price_lbp || 0, "LBP")}</span>
+                <span class="text-xs text-muted">Before VAT ({currencyPrimary})</span>
+                <span class="text-sm font-bold">{fmtMoney(priceBase(selected), currencyPrimary)}</span>
+              </div>
+              <div class="h-px bg-ink/10"></div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-muted">After VAT (USD)</span>
+                <span class="text-sm font-bold text-emerald-300">{fmtMoney(withVat(selected.price_usd || 0), "USD")}</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-muted">After VAT (LBP)</span>
+                <span class="text-sm font-bold text-emerald-300">{fmtMoney(withVat(selected.price_lbp || 0), "LBP")}</span>
               </div>
             </div>
           </div>
