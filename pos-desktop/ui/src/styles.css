@@ -189,6 +189,115 @@
     @apply transition-all duration-200 active:scale-[0.98];
   }
 
+  /* Fallback token utilities for custom semantic colors used across POS UI. */
+  .text-ink { color: rgb(var(--color-ink)); }
+  .text-ink\/50 { color: rgb(var(--color-ink) / 0.5); }
+  .text-ink\/60 { color: rgb(var(--color-ink) / 0.6); }
+  .text-ink\/70 { color: rgb(var(--color-ink) / 0.7); }
+  .text-ink\/80 { color: rgb(var(--color-ink) / 0.8); }
+  .text-ink\/85 { color: rgb(var(--color-ink) / 0.85); }
+  .text-ink\/90 { color: rgb(var(--color-ink) / 0.9); }
+  .text-ink\/95 { color: rgb(var(--color-ink) / 0.95); }
+
+  .text-muted { color: rgb(var(--color-muted)); }
+  .text-muted\/40 { color: rgb(var(--color-muted) / 0.4); }
+  .text-muted\/50 { color: rgb(var(--color-muted) / 0.5); }
+  .text-muted\/60 { color: rgb(var(--color-muted) / 0.6); }
+  .text-muted\/70 { color: rgb(var(--color-muted) / 0.7); }
+  .text-muted\/80 { color: rgb(var(--color-muted) / 0.8); }
+
+  .text-accent { color: rgb(var(--color-accent)); }
+  .text-accent\/80 { color: rgb(var(--color-accent) / 0.8); }
+  .text-accent\/85 { color: rgb(var(--color-accent) / 0.85); }
+
+  .bg-bg { background-color: rgb(var(--color-bg)); }
+  .bg-bg\/50 { background-color: rgb(var(--color-bg) / 0.5); }
+  .bg-ink\/5 { background-color: rgb(var(--color-ink) / 0.05); }
+  .bg-ink\/10 { background-color: rgb(var(--color-ink) / 0.1); }
+  .bg-ink\/90 { background-color: rgb(var(--color-ink) / 0.9); }
+
+  .bg-surface { background-color: rgb(var(--color-surface)); }
+  .bg-surface\/20 { background-color: rgb(var(--color-surface) / 0.2); }
+  .bg-surface\/30 { background-color: rgb(var(--color-surface) / 0.3); }
+  .bg-surface\/40 { background-color: rgb(var(--color-surface) / 0.4); }
+  .bg-surface\/50 { background-color: rgb(var(--color-surface) / 0.5); }
+  .bg-surface\/55 { background-color: rgb(var(--color-surface) / 0.55); }
+  .bg-surface\/60 { background-color: rgb(var(--color-surface) / 0.6); }
+  .bg-surface\/75 { background-color: rgb(var(--color-surface) / 0.75); }
+
+  .bg-surface-highlight { background-color: rgb(var(--color-surface-highlight)); }
+  .bg-surface-highlight\/10 { background-color: rgb(var(--color-surface-highlight) / 0.1); }
+  .bg-surface-highlight\/20 { background-color: rgb(var(--color-surface-highlight) / 0.2); }
+  .bg-surface-highlight\/30 { background-color: rgb(var(--color-surface-highlight) / 0.3); }
+  .bg-surface-highlight\/40 { background-color: rgb(var(--color-surface-highlight) / 0.4); }
+  .bg-surface-highlight\/50 { background-color: rgb(var(--color-surface-highlight) / 0.5); }
+
+  .bg-accent { background-color: rgb(var(--color-accent)); }
+  .bg-accent\/5 { background-color: rgb(var(--color-accent) / 0.05); }
+  .bg-accent\/10 { background-color: rgb(var(--color-accent) / 0.1); }
+  .bg-accent\/15 { background-color: rgb(var(--color-accent) / 0.15); }
+  .bg-accent\/20 { background-color: rgb(var(--color-accent) / 0.2); }
+  .bg-accent\/30 { background-color: rgb(var(--color-accent) / 0.3); }
+  .bg-accent-hover { background-color: rgb(var(--color-accent-hover)); }
+
+  .border-ink\/10 { border-color: rgb(var(--color-ink) / 0.1); }
+  .border-ink\/70 { border-color: rgb(var(--color-ink) / 0.7); }
+  .border-accent\/10 { border-color: rgb(var(--color-accent) / 0.1); }
+  .border-accent\/30 { border-color: rgb(var(--color-accent) / 0.3); }
+  .border-accent\/40 { border-color: rgb(var(--color-accent) / 0.4); }
+  .border-accent\/50 { border-color: rgb(var(--color-accent) / 0.5); }
+  .border-accent\/60 { border-color: rgb(var(--color-accent) / 0.6); }
+
+  .ring-accent\/20 { --tw-ring-color: rgb(var(--color-accent) / 0.2); }
+  .ring-accent\/30 { --tw-ring-color: rgb(var(--color-accent) / 0.3); }
+
+  .shadow-accent\/5 { --tw-shadow-color: rgb(var(--color-accent) / 0.05); }
+  .shadow-accent\/20 { --tw-shadow-color: rgb(var(--color-accent) / 0.2); }
+  .shadow-accent\/25 { --tw-shadow-color: rgb(var(--color-accent) / 0.25); }
+  .shadow-accent\/40 { --tw-shadow-color: rgb(var(--color-accent) / 0.4); }
+
+  .from-accent {
+    --tw-gradient-from: rgb(var(--color-accent)) var(--tw-gradient-from-position);
+    --tw-gradient-to: rgb(var(--color-accent) / 0) var(--tw-gradient-to-position);
+    --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to);
+  }
+
+  .to-accent-hover {
+    --tw-gradient-to: rgb(var(--color-accent-hover)) var(--tw-gradient-to-position);
+  }
+
+  .hover\:text-ink:hover { color: rgb(var(--color-ink)); }
+  .hover\:text-accent:hover { color: rgb(var(--color-accent)); }
+  .hover\:text-accent-hover:hover { color: rgb(var(--color-accent-hover)); }
+
+  .hover\:bg-ink:hover { background-color: rgb(var(--color-ink)); }
+  .hover\:bg-ink\/5:hover { background-color: rgb(var(--color-ink) / 0.05); }
+  .hover\:bg-ink\/10:hover { background-color: rgb(var(--color-ink) / 0.1); }
+  .hover\:bg-accent-hover:hover { background-color: rgb(var(--color-accent-hover)); }
+  .hover\:bg-accent\/30:hover { background-color: rgb(var(--color-accent) / 0.3); }
+  .hover\:bg-surface\/60:hover { background-color: rgb(var(--color-surface) / 0.6); }
+  .hover\:bg-surface\/75:hover { background-color: rgb(var(--color-surface) / 0.75); }
+  .hover\:bg-surface-highlight:hover { background-color: rgb(var(--color-surface-highlight)); }
+  .hover\:bg-surface-highlight\/30:hover { background-color: rgb(var(--color-surface-highlight) / 0.3); }
+  .hover\:bg-surface-highlight\/60:hover { background-color: rgb(var(--color-surface-highlight) / 0.6); }
+
+  .hover\:border-accent\/30:hover { border-color: rgb(var(--color-accent) / 0.3); }
+  .hover\:border-accent\/40:hover { border-color: rgb(var(--color-accent) / 0.4); }
+  .hover\:border-accent\/50:hover { border-color: rgb(var(--color-accent) / 0.5); }
+
+  .hover\:shadow-accent\/10:hover { --tw-shadow-color: rgb(var(--color-accent) / 0.1); }
+  .hover\:shadow-accent\/25:hover { --tw-shadow-color: rgb(var(--color-accent) / 0.25); }
+  .hover\:shadow-accent\/40:hover { --tw-shadow-color: rgb(var(--color-accent) / 0.4); }
+
+  .focus\:border-accent\/50:focus { border-color: rgb(var(--color-accent) / 0.5); }
+  .focus\:ring-accent\/25:focus { --tw-ring-color: rgb(var(--color-accent) / 0.25); }
+  .focus\:ring-accent\/40:focus { --tw-ring-color: rgb(var(--color-accent) / 0.4); }
+  .focus\:ring-accent\/50:focus { --tw-ring-color: rgb(var(--color-accent) / 0.5); }
+  .focus\:text-accent:focus { color: rgb(var(--color-accent)); }
+
+  .group:hover .group-hover\:text-accent { color: rgb(var(--color-accent)); }
+  .group:hover .group-hover\:text-ink\/60 { color: rgb(var(--color-ink) / 0.6); }
+
   /* Light theme overrides for hardcoded dark/white utility classes in components. */
   :root[data-theme="light"] .bg-black\/20 {
     background-color: rgb(var(--color-surface-highlight) / 0.72) !important;
