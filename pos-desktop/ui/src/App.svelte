@@ -55,6 +55,59 @@
     return h === "localhost" || h === "127.0.0.1" || h === "::1" || h.endsWith(".local");
   };
 
+  const _normalizeOriginUrl = (value) => {
+    let v = String(value || "").trim();
+    if (!v) return "";
+    if (v.endsWith("/")) v = v.slice(0, -1);
+    return v;
+  };
+
+  const _currentLoopbackAgentContext = () => {
+    try {
+      if (typeof window === "undefined" || !window.location) return null;
+      const protocol = String(window.location.protocol || "http:").trim() || "http:";
+      const hostname = String(window.location.hostname || "").trim();
+      if (!_isLoopbackHost(hostname)) return null;
+      const currentPort = String(window.location.port || "").trim();
+      const currentOrigin = _normalizeOriginUrl(window.location.origin || `${protocol}//${hostname}${currentPort ? `:${currentPort}` : ""}`);
+      return {
+        currentPort,
+        currentOrigin,
+        officialOrigin: `${protocol}//${hostname}:7070`,
+        unofficialOrigin: `${protocol}//${hostname}:7072`,
+      };
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const _defaultOtherAgentUrlForCurrentHost = () => {
+    const ctx = _currentLoopbackAgentContext();
+    if (!ctx) return DEFAULT_OTHER_AGENT_URL;
+    if (ctx.currentPort === "7070") return ctx.unofficialOrigin;
+    if (ctx.currentPort === "7072") return ctx.officialOrigin;
+    return DEFAULT_OTHER_AGENT_URL;
+  };
+
+  const _sanitizeOtherAgentUrl = (value) => {
+    const candidate = _normalizeOriginUrl(value);
+    if (!candidate) return "";
+    const ctx = _currentLoopbackAgentContext();
+    if (!ctx) return candidate;
+    // Avoid pointing the "other company" route back to this same agent.
+    if (candidate !== ctx.currentOrigin) return candidate;
+    if (ctx.currentPort === "7070") return ctx.unofficialOrigin;
+    if (ctx.currentPort === "7072") return ctx.officialOrigin;
+    return candidate;
+  };
+
+  const _detectOriginCompanyKey = (companyId) => {
+    const ctx = _currentLoopbackAgentContext();
+    if (ctx?.currentPort === "7072") return "unofficial";
+    if (ctx?.currentPort === "7070") return "official";
+    return String(companyId || "").trim() === UNOFFICIAL_COMPANY_ID ? "unofficial" : "official";
+  };
+
   const _probeAgentHealth = async (base) => {
     const b = normalizeApiBase(base || DEFAULT_API_BASE);
     const url = `${b}/health`;
@@ -216,7 +269,9 @@
   let pendingCheckoutMethod = "";
   let checkoutIntentId = "";
   let bgSyncWarnAt = 0;
+  let bgPullWarnAt = 0;
   let bgSyncPushInFlight = { official: false, unofficial: false };
+  let bgSyncPullInFlight = { official: false, unofficial: false };
   let fetchDataPending = false;
   let fetchDataPendingBackground = true;
   let fetchDataDrainPromise = null;
@@ -392,9 +447,18 @@
     if (queued > 0) return `Syncing · queued ${queued}`;
     return "Synced";
   })();
-  $: hasConnection = status === "Ready";
-
-  $: originCompanyKey = (config.company_id === UNOFFICIAL_COMPANY_ID) ? "unofficial" : "official";
+  const _isReadyStatus = (value) => String(value || "").trim().toLowerCase() === "ready";
+  $: queuedEventsTotal = ((outbox || []).length + (unofficialOutbox || []).length);
+  $: allCompaniesConnected = _isReadyStatus(status) && _isReadyStatus(unofficialStatus);
+  $: syncNeedsAttention = (!allCompaniesConnected) || queuedEventsTotal > 0 || outboxOldestMinutes >= outboxWarnMinutes;
+  $: syncPullHint = "Auto refresh runs in background. Use this only when you need immediate updates after catalog/customer changes.";
+  $: syncPushHint = queuedEventsTotal > 0
+    ? `Send ${queuedEventsTotal} queued event${queuedEventsTotal === 1 ? "" : "s"} now. Auto retry is already running.`
+    : "Auto push is already running. Use this only if receipts are delayed in Admin.";
+  $: syncActionHelp = (!allCompaniesConnected)
+    ? "Auto sync is retrying. Use Send Queue after connection is back."
+    : "Auto sync is on. Use Send Queue only if queued events stay pending. Use Refresh Now after Admin updates.";
+  $: originCompanyKey = _detectOriginCompanyKey(config.company_id);
   $: otherCompanyKey = originCompanyKey === "official" ? "unofficial" : "official";
   
   $: currencyPrimary = (config.pricing_currency || "USD").toUpperCase();
@@ -609,12 +673,7 @@
   };
 
   // API Client
-  const _normalizeAgentOrigin = (value) => {
-    let v = String(value || "").trim();
-    if (!v) return "";
-    if (v.endsWith("/")) v = v.slice(0, -1);
-    return v;
-  };
+  const _normalizeAgentOrigin = (value) => _normalizeOriginUrl(value);
 
   const _hasOtherAgentOrigin = () => !!_normalizeAgentOrigin(otherAgentUrl);
 
@@ -1343,6 +1402,29 @@
       })
       .finally(() => {
         bgSyncPushInFlight = { ...bgSyncPushInFlight, [key]: false };
+      });
+  };
+
+  const queueSyncPull = (companyKey) => {
+    const key = companyKey === "unofficial" ? "unofficial" : "official";
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    if (!String(cfg?.device_id || "").trim()) return;
+    if (bgSyncPullInFlight[key]) return;
+    bgSyncPullInFlight = { ...bgSyncPullInFlight, [key]: true };
+    Promise.resolve()
+      .then(() => apiCallFor(companyKey, "/sync/pull", { method: "POST", body: {} }))
+      .catch(() => {
+        const now = Date.now();
+        if (now - bgPullWarnAt < 30000) return;
+        bgPullWarnAt = now;
+        const msg = "Cloud refresh is retrying in background.";
+        notice = msg;
+        setTimeout(() => {
+          if (notice === msg) notice = "";
+        }, 3500);
+      })
+      .finally(() => {
+        bgSyncPullInFlight = { ...bgSyncPullInFlight, [key]: false };
       });
   };
 
@@ -3102,6 +3184,7 @@
   onMount(() => {
     let fetchTimer = null;
     let pushTimer = null;
+    let pullTimer = null;
 
     const hasOutboxPressure = () => {
       const off = Array.isArray(outbox) ? outbox.length : 0;
@@ -3128,11 +3211,30 @@
       }, Math.max(1000, toNum(delayMs, 0)));
     };
 
+    const schedulePull = (delayMs = 0) => {
+      if (pullTimer) clearTimeout(pullTimer);
+      pullTimer = setTimeout(() => {
+        if (!document.hidden) {
+          if (config?.device_id) queueSyncPull(originCompanyKey);
+          if (unofficialConfig?.device_id) queueSyncPull(otherCompanyKey);
+        }
+        schedulePull(150000);
+      }, Math.max(1000, toNum(delayMs, 0)));
+    };
+
     const stored = localStorage.getItem(API_BASE_STORAGE_KEY);
     if (stored) apiBase = stored;
     sessionToken = localStorage.getItem(SESSION_STORAGE_KEY) || "";
     unofficialSessionToken = localStorage.getItem(UNOFFICIAL_SESSION_STORAGE_KEY) || "";
-    otherAgentUrl = localStorage.getItem(OTHER_AGENT_URL_STORAGE_KEY) || DEFAULT_OTHER_AGENT_URL;
+    const storedOtherAgentUrlRaw = localStorage.getItem(OTHER_AGENT_URL_STORAGE_KEY) || "";
+    const storedOtherAgentUrl = _normalizeOriginUrl(storedOtherAgentUrlRaw);
+    const fallbackOtherAgentUrl = _defaultOtherAgentUrlForCurrentHost();
+    const nextOtherAgentUrl = _sanitizeOtherAgentUrl(storedOtherAgentUrl || fallbackOtherAgentUrl);
+    otherAgentUrl = nextOtherAgentUrl;
+    otherAgentDraftUrl = nextOtherAgentUrl;
+    if (nextOtherAgentUrl !== storedOtherAgentUrl) {
+      try { localStorage.setItem(OTHER_AGENT_URL_STORAGE_KEY, nextOtherAgentUrl); } catch (_) {}
+    }
     invoiceCompanyMode = localStorage.getItem(INVOICE_MODE_STORAGE_KEY) || "auto";
     flagOfficial = localStorage.getItem(FLAG_OFFICIAL_STORAGE_KEY) === "1";
 
@@ -3168,6 +3270,7 @@
       fetchData();
       scheduleFetch(22000);
       schedulePush(7000);
+      schedulePull(45000);
     })();
 
     const onVisibilityChange = () => {
@@ -3175,6 +3278,7 @@
         fetchData({ background: true });
         scheduleFetch(12000);
         schedulePush(3000);
+        schedulePull(12000);
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -3292,6 +3396,7 @@
     return () => {
       if (fetchTimer) clearTimeout(fetchTimer);
       if (pushTimer) clearTimeout(pushTimer);
+      if (pullTimer) clearTimeout(pullTimer);
       if (_customerRemoteTimer) {
         clearTimeout(_customerRemoteTimer);
         _customerRemoteTimer = null;
@@ -3307,9 +3412,9 @@
 </script>
 
 <Shell 
-  status={status} 
   syncBadge={syncBadge}
-  hasConnection={hasConnection}
+  officialStatus={status}
+  unofficialStatus={unofficialStatus}
   cashierName={cashierName}
   shiftText={shiftText}
   showTabs={!webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
@@ -3349,22 +3454,30 @@
     {#if !webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
     {@const topBtnBase = "px-3.5 py-2.5 rounded-2xl text-xs font-bold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm disabled:opacity-60"}
     {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
-    <button
-      class={topBtnBase}
-      on:click={syncPull}
-      disabled={loading}
-      title="Pull latest catalog/master data"
-    >
-      Sync Pull
-    </button>
-    <button
-      class={topBtnBase}
-      on:click={syncPush}
-      disabled={loading}
-      title="Push outbox events to cloud"
-    >
-      Sync Push
-    </button>
+    {@const topBtnWarn = "border-amber-500/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25"}
+    {#if syncNeedsAttention}
+      <button
+        class={topBtnBase}
+        on:click={syncPull}
+        disabled={loading}
+        title={syncPullHint}
+      >
+        Refresh Now
+      </button>
+      <button
+        class={`${topBtnBase} ${queuedEventsTotal > 0 ? topBtnWarn : ""}`}
+        on:click={syncPush}
+        disabled={loading}
+        title={syncPushHint}
+      >
+        Send Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
+      </button>
+      <span class="hidden 2xl:inline text-[11px] text-muted whitespace-nowrap px-1">{syncActionHelp}</span>
+    {:else}
+      <span class="hidden xl:inline text-[11px] text-emerald-300/90 whitespace-nowrap px-2 py-1 rounded-full border border-emerald-500/25 bg-emerald-500/10">
+        Auto sync on
+      </span>
+    {/if}
     <button
       class={topBtnBase}
       on:click={openCashierModal}

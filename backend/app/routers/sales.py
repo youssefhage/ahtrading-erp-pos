@@ -125,7 +125,7 @@ def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) 
             usd = lbp / exchange_rate
         elif lbp == 0 and usd != 0:
             lbp = usd * exchange_rate
-    return usd, lbp
+    return q_usd(usd), q_lbp(lbp)
 
 def _compute_applied_from_tender(*, tender_usd: Decimal, tender_lbp: Decimal, exchange_rate: Decimal, settle: str) -> tuple[Decimal, Decimal]:
     settle = (settle or "USD").upper()
@@ -239,6 +239,7 @@ class SalesReturnLineIn(BaseModel):
 class SalesReturnIn(BaseModel):
     device_id: str
     invoice_id: Optional[str] = None
+    return_date: Optional[date] = None
     exchange_rate: Decimal
     warehouse_id: Optional[str] = None
     shift_id: Optional[str] = None
@@ -578,8 +579,8 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
                 (invoice_id,),
             )
             lines = cur.fetchall()
-            base_usd = sum([Decimal(str(l["line_total_usd"] or 0)) for l in lines])
-            base_lbp = sum([Decimal(str(l["line_total_lbp"] or 0)) for l in lines])
+            base_usd = sum([q_usd(Decimal(str(l["line_total_usd"] or 0)) for l in lines])
+            base_lbp = sum([q_lbp(Decimal(str(l["line_total_lbp"] or 0)) for l in lines])
 
             exchange_rate = Decimal(str(inv["exchange_rate"] or 0))
             tax_code_id = None  # default VAT code id (if any)
@@ -657,8 +658,8 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
                             }
                         )
 
-            total_usd = base_usd + tax_usd
-            total_lbp = base_lbp + tax_lbp
+            total_usd = q_usd(base_usd + tax_usd)
+            total_lbp = q_lbp(base_lbp + tax_lbp)
             return {
                 "base_usd": base_usd,
                 "base_lbp": base_lbp,
@@ -1148,8 +1149,8 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     raise HTTPException(status_code=400, detail="invoice has no lines")
 
                 exchange_rate = Decimal(str(inv["exchange_rate"] or 0))
-                base_usd = sum([Decimal(str(l["line_total_usd"] or 0)) for l in lines])
-                base_lbp = sum([Decimal(str(l["line_total_lbp"] or 0)) for l in lines])
+                base_usd = sum([q_usd(Decimal(str(l["line_total_usd"] or 0)) for l in lines])
+                base_lbp = sum([q_lbp(Decimal(str(l["line_total_lbp"] or 0)) for l in lines])
 
                 # VAT breakdown: group base/tax by the effective VAT tax_code_id.
                 # - Per-item items.tax_code_id overrides the default VAT code.
@@ -1231,8 +1232,8 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                                 }
                             )
 
-                total_usd = base_usd + tax_usd
-                total_lbp = base_lbp + tax_lbp
+                total_usd = q_usd(base_usd + tax_usd)
+                total_lbp = q_lbp(base_lbp + tax_lbp)
 
                 # Payments:
                 # - `tender_*` are what the cashier received.
@@ -1253,13 +1254,13 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                             "method": method,
                             "tender_usd": tender_usd,
                             "tender_lbp": tender_lbp,
-                            "amount_usd": applied_usd,
-                            "amount_lbp": applied_lbp,
+                            "amount_usd": q_usd(applied_usd),
+                            "amount_lbp": q_lbp(applied_lbp),
                         }
                     )
 
-                total_paid_usd = sum([Decimal(str(p["amount_usd"])) for p in payments])
-                total_paid_lbp = sum([Decimal(str(p["amount_lbp"])) for p in payments])
+                total_paid_usd = q_usd(sum([Decimal(str(p["amount_usd"])) for p in payments]))
+                total_paid_lbp = q_lbp(sum([Decimal(str(p["amount_lbp"])) for p in payments]))
                 eps_usd = Decimal("0.01")
                 eps_lbp = Decimal("100")
                 # Single settlement balance: only one currency is the "debt". The other is derived via exchange_rate.
@@ -1277,6 +1278,8 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     if abs(credit_lbp) <= eps_lbp:
                         credit_lbp = Decimal("0")
                     credit_usd, credit_lbp = _normalize_dual_amounts(Decimal("0"), credit_lbp, exchange_rate)
+                credit_usd = q_usd(credit_usd)
+                credit_lbp = q_lbp(credit_lbp)
 
                 credit_sale = credit_usd > eps_usd or credit_lbp > eps_lbp
                 customer_id = inv["customer_id"]
@@ -1397,6 +1400,9 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                                     f"Sales invoice {inv.get('invoice_no') or ''}".strip() or "Sales invoice",
                                 ),
                             )
+
+                total_cost_usd = q_usd(total_cost_usd)
+                total_cost_lbp = q_lbp(total_cost_lbp)
 
                 # Tax lines (VAT breakdown).
                 for tr in (tax_rows or []):
@@ -1925,15 +1931,20 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 assert_period_open(cur, company_id, pay_date)
                 cur.execute(
                     """
-                    SELECT customer_id, exchange_rate, settlement_currency, total_usd, total_lbp
+                    SELECT customer_id, exchange_rate, settlement_currency, total_usd, total_lbp, status
                     FROM sales_invoices
                     WHERE id = %s AND company_id = %s
+                    FOR UPDATE
                     """,
                     (data.invoice_id, company_id),
                 )
                 row = cur.fetchone()
                 if not row:
                     raise HTTPException(status_code=404, detail="invoice not found")
+                if str(row.get("status") or "").strip().lower() != "posted":
+                    raise HTTPException(status_code=409, detail="payment is allowed only for posted invoices")
+                if not row.get("customer_id"):
+                    raise HTTPException(status_code=400, detail="invoice is not receivable-backed and cannot accept customer payment")
 
                 exchange_rate = Decimal(str(row.get("exchange_rate") or 0))
                 inv_settlement = str(row.get("settlement_currency") or "USD")
@@ -1943,6 +1954,8 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 applied_usd, applied_lbp = _compute_applied_from_tender(
                     tender_usd=tender_usd, tender_lbp=tender_lbp, exchange_rate=exchange_rate, settle=settle
                 )
+                if applied_usd <= 0 and applied_lbp <= 0:
+                    raise HTTPException(status_code=400, detail="payment amount resolves to zero")
 
                 method = data.method  # already normalized by validator
                 # Always require a mapping so methods stay consistent identifiers across the system.
@@ -1956,6 +1969,27 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 )
                 if not cur.fetchone():
                     raise HTTPException(status_code=400, detail=f"Unknown payment method: {method}")
+
+                cur.execute(
+                    """
+                    SELECT
+                      COALESCE(SUM(amount_usd), 0) AS paid_usd,
+                      COALESCE(SUM(amount_lbp), 0) AS paid_lbp
+                    FROM sales_payments
+                    WHERE invoice_id = %s
+                      AND voided_at IS NULL
+                    """,
+                    (data.invoice_id,),
+                )
+                paid = cur.fetchone() or {}
+                paid_usd = Decimal(str(paid.get("paid_usd") or 0))
+                paid_lbp = Decimal(str(paid.get("paid_lbp") or 0))
+                total_usd = Decimal(str(row.get("total_usd") or 0))
+                total_lbp = Decimal(str(row.get("total_lbp") or 0))
+                eps_usd = USD_Q
+                eps_lbp = LBP_Q
+                if (paid_usd + applied_usd) > (total_usd + eps_usd) or (paid_lbp + applied_lbp) > (total_lbp + eps_lbp):
+                    raise HTTPException(status_code=409, detail="payment exceeds invoice outstanding balance")
 
                 cur.execute(
                     """
@@ -1979,109 +2013,108 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 )
                 payment_id = cur.fetchone()["id"]
 
-                if row["customer_id"]:
-                    cur.execute(
-                        """
-                        UPDATE customers
-                        SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
-                            credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0)
-                        WHERE company_id = %s AND id = %s
-                        """,
-                        (applied_usd, applied_lbp, company_id, row["customer_id"]),
-                    )
+                cur.execute(
+                    """
+                    UPDATE customers
+                    SET credit_balance_usd = GREATEST(credit_balance_usd - %s, 0),
+                        credit_balance_lbp = GREATEST(credit_balance_lbp - %s, 0)
+                    WHERE company_id = %s AND id = %s
+                    """,
+                    (applied_usd, applied_lbp, company_id, row["customer_id"]),
+                )
 
-                    # GL posting: Dr Cash/Bank, Cr AR
-                    cur.execute(
-                        """
-                        SELECT role_code, account_id
-                        FROM company_account_defaults
-                        WHERE company_id = %s
-                        """,
-                        (company_id,),
-                    )
-                    defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
-                    ar = defaults.get("AR")
-                    if not ar:
-                        raise HTTPException(status_code=400, detail="Missing AR default")
+                # GL posting: Dr Cash/Bank, Cr AR
+                cur.execute(
+                    """
+                    SELECT role_code, account_id
+                    FROM company_account_defaults
+                    WHERE company_id = %s
+                    """,
+                    (company_id,),
+                )
+                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
+                ar = defaults.get("AR")
+                if not ar:
+                    raise HTTPException(status_code=400, detail="Missing AR default")
 
-                    cur.execute(
-                        """
-                        SELECT m.method, d.account_id
-                        FROM payment_method_mappings m
-                        JOIN company_account_defaults d
-                          ON d.company_id = m.company_id AND d.role_code = m.role_code
-                        WHERE m.company_id = %s AND m.method = %s
-                        """,
-                        (company_id, method),
-                    )
-                    pay = cur.fetchone()
-                    if not pay:
-                        raise HTTPException(status_code=400, detail=f"Missing payment method mapping for {method}")
-                    pay_account = pay["account_id"]
+                cur.execute(
+                    """
+                    SELECT m.method, d.account_id
+                    FROM payment_method_mappings m
+                    JOIN company_account_defaults d
+                      ON d.company_id = m.company_id AND d.role_code = m.role_code
+                    WHERE m.company_id = %s AND m.method = %s
+                    """,
+                    (company_id, method),
+                )
+                pay = cur.fetchone()
+                if not pay:
+                    raise HTTPException(status_code=400, detail=f"Missing payment method mapping for {method}")
+                pay_account = pay["account_id"]
 
+                cur.execute(
+                    """
+                    INSERT INTO gl_journals
+                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, 'sales_payment', %s, %s, 'market', %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (company_id, f"CP-{str(payment_id)[:8]}", payment_id, pay_date, exchange_rate, "Customer payment", user["user_id"]),
+                )
+                journal_id = cur.fetchone()["id"]
+
+                cur.execute(
+                    """
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                    VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Customer payment')
+                    """,
+                    (journal_id, pay_account, applied_usd, applied_lbp),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                    VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'AR settlement')
+                    """,
+                    (journal_id, ar, applied_usd, applied_lbp),
+                )
+
+                # Optional banking: create a bank transaction matched to this journal (for reconciliation).
+                if data.bank_account_id:
                     cur.execute(
                         """
-                        INSERT INTO gl_journals
-                          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                        SELECT 1
+                        FROM bank_accounts
+                        WHERE company_id = %s AND id = %s AND is_active = true
+                        """,
+                        (company_id, data.bank_account_id),
+                    )
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=400, detail="invalid bank_account_id")
+                    cur.execute(
+                        """
+                        INSERT INTO bank_transactions
+                          (id, company_id, bank_account_id, txn_date, direction, amount_usd, amount_lbp,
+                           description, reference, counterparty, matched_journal_id, matched_at,
+                           source_type, source_id, imported_by_user_id, imported_at)
                         VALUES
-                          (gen_random_uuid(), %s, %s, 'sales_payment', %s, %s, 'market', %s, %s, %s)
-                        RETURNING id
+                          (gen_random_uuid(), %s, %s, %s, 'inflow', %s, %s, %s, %s, %s, %s, now(),
+                           'sales_payment', %s, %s, now())
                         """,
-                        (company_id, f"CP-{str(payment_id)[:8]}", payment_id, pay_date, exchange_rate, "Customer payment", user["user_id"]),
+                        (
+                            company_id,
+                            data.bank_account_id,
+                            pay_date,
+                            applied_usd,
+                            applied_lbp,
+                            f"Customer payment {str(payment_id)[:8]}",
+                            None,
+                            None,
+                            journal_id,
+                            payment_id,
+                            user["user_id"],
+                        ),
                     )
-                    journal_id = cur.fetchone()["id"]
-
-                    cur.execute(
-                        """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Customer payment')
-                        """,
-                        (journal_id, pay_account, applied_usd, applied_lbp),
-                    )
-                    cur.execute(
-                        """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'AR settlement')
-                        """,
-                        (journal_id, ar, applied_usd, applied_lbp),
-                    )
-
-                    # Optional banking: create a bank transaction matched to this journal (for reconciliation).
-                    if data.bank_account_id:
-                        cur.execute(
-                            """
-                            SELECT 1
-                            FROM bank_accounts
-                            WHERE company_id = %s AND id = %s AND is_active = true
-                            """,
-                            (company_id, data.bank_account_id),
-                        )
-                        if not cur.fetchone():
-                            raise HTTPException(status_code=400, detail="invalid bank_account_id")
-                        cur.execute(
-                            """
-                            INSERT INTO bank_transactions
-                              (id, company_id, bank_account_id, txn_date, direction, amount_usd, amount_lbp,
-                               description, reference, counterparty, matched_journal_id, matched_at,
-                               source_type, source_id, imported_by_user_id, imported_at)
-                            VALUES
-                              (gen_random_uuid(), %s, %s, %s, 'inflow', %s, %s, %s, %s, %s, %s, now(),
-                               'sales_payment', %s, %s, now())
-                            """,
-                            (
-                                company_id,
-                                data.bank_account_id,
-                                pay_date,
-                                applied_usd,
-                                applied_lbp,
-                                f"Customer payment {str(payment_id)[:8]}",
-                                None,
-                                None,
-                                journal_id,
-                                payment_id,
-                                user["user_id"],
-                            ),
-                        )
 
                 cur.execute(
                     """

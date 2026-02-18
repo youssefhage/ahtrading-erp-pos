@@ -520,6 +520,7 @@ class PaymentBlock(BaseModel):
 class GoodsReceiptIn(BaseModel):
     device_id: str
     supplier_id: str
+    receipt_date: Optional[date] = None
     supplier_ref: Optional[str] = None
     exchange_rate: Decimal
     warehouse_id: str
@@ -528,6 +529,7 @@ class GoodsReceiptIn(BaseModel):
 class GoodsReceiptDirectIn(BaseModel):
     supplier_id: str
     receipt_no: Optional[str] = None
+    receipt_date: Optional[date] = None
     supplier_ref: Optional[str] = None
     exchange_rate: Decimal
     warehouse_id: str
@@ -2475,11 +2477,13 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
         raise HTTPException(status_code=400, detail="lines is required")
     total_usd = sum([l.line_total_usd for l in data.lines])
     total_lbp = sum([l.line_total_lbp for l in data.lines])
+    receipt_date = data.receipt_date or date.today()
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                assert_period_open(cur, company_id, receipt_date)
                 receipt_no = data.receipt_no or _next_doc_no(cur, company_id, "GR")
                 cur.execute(
                     """
@@ -2488,7 +2492,7 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                        total_usd, total_lbp, exchange_rate, source_event_id,
                        received_by_user_id, received_at)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'posted', %s, %s, %s, %s, %s, now())
+                      (gen_random_uuid(), %s, %s, %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
                     (
@@ -2502,6 +2506,7 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                         data.exchange_rate,
                         None,
                         user["user_id"],
+                        receipt_date,
                     ),
                 )
                 receipt_id = cur.fetchone()["id"]
@@ -2560,7 +2565,7 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                            source_type, source_id,
                            created_by_user_id, reason, source_line_type, source_line_id)
                         VALUES
-                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s,
+                          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, 'goods_receipt', %s,
                            %s, %s, %s, %s)
                         """,
                         (
@@ -2572,6 +2577,7 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                             l.qty,
                             l.unit_cost_usd,
                             l.unit_cost_lbp,
+                            receipt_date,
                             receipt_id,
                             user["user_id"],
                             f"Goods receipt {receipt_no}",
@@ -2623,10 +2629,18 @@ def create_goods_receipt_direct(data: GoodsReceiptDirectIn, company_id: str = De
                     INSERT INTO gl_journals
                       (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
                     VALUES
-                      (gen_random_uuid(), %s, %s, 'goods_receipt', %s, CURRENT_DATE, 'market', %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, 'goods_receipt', %s, %s, 'market', %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, f"GR-{receipt_no}", receipt_id, data.exchange_rate, f"Goods receipt {receipt_no}", user["user_id"]),
+                    (
+                        company_id,
+                        f"GR-{receipt_no}",
+                        receipt_id,
+                        receipt_date,
+                        data.exchange_rate,
+                        f"Goods receipt {receipt_no}",
+                        user["user_id"],
+                    ),
                 )
                 journal_id = cur.fetchone()["id"]
                 cur.execute(

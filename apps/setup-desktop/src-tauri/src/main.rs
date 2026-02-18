@@ -802,17 +802,36 @@ fn run_onboarding_internal(app: &tauri::AppHandle, state: &Arc<Mutex<RunnerState
     fs::write(out_dir.join("summary.json"), serde_json::to_string_pretty(&summary).unwrap_or_default()).map_err(|e| e.to_string())?;
 
     // Tauri launcher prefill: choose official/unofficial by company name.
+    // Accept common misspellings (e.g. "Unnoficial") so mapping stays stable.
+    let normalize_company_name = |raw: &str| -> String {
+      raw
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect::<String>()
+    };
     let pick = |kind: &str| -> Option<&DeviceRec> {
-      let kind_l = kind.to_lowercase();
+      let kind_n = normalize_company_name(kind);
       for d in &devices {
-        let name = d.company_name.to_lowercase();
-        if kind_l == "official" {
-          if name.contains("official") && !name.contains("unofficial") {
+        let name_n = normalize_company_name(&d.company_name);
+        let is_unofficial_like = name_n.contains("unofficial")
+          || name_n.contains("unnoficial")
+          || name_n.contains("unoficial")
+          || name_n.contains("nonofficial")
+          || name_n.contains("unoff");
+        if kind_n == "official" {
+          if name_n.contains("official") && !is_unofficial_like {
             return Some(d);
           }
           continue;
         }
-        if name.contains(&kind_l) {
+        if kind_n == "unofficial" {
+          if is_unofficial_like {
+            return Some(d);
+          }
+          continue;
+        }
+        if name_n.contains(&kind_n) {
           return Some(d);
         }
       }

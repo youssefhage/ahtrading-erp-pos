@@ -18,6 +18,7 @@ class PosEvent(BaseModel):
     event_type: str
     payload: dict
     created_at: datetime
+    idempotency_key: Optional[str] = None
 
 class OutboxSubmit(BaseModel):
     company_id: Optional[uuid.UUID] = None
@@ -735,6 +736,92 @@ def outbox_summary(
             }
 
 
+@router.get("/outbox/device")
+def list_device_outbox(
+    status: Optional[str] = None,
+    limit: int = 200,
+    device=Depends(require_device),
+):
+    if status and status not in {"pending", "processed", "failed", "dead"}:
+        raise HTTPException(status_code=400, detail="invalid status")
+    if limit <= 0 or limit > 1000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            sql = """
+                SELECT id, device_id, event_type, created_at, status,
+                       attempt_count, error_message, processed_at, next_attempt_at
+                FROM pos_events_outbox
+                WHERE device_id = %s
+            """
+            params = [device["device_id"]]
+            if status:
+                sql += " AND status = %s"
+                params.append(status)
+            sql += " ORDER BY created_at DESC LIMIT %s"
+            params.append(limit)
+            cur.execute(sql, params)
+            return {"outbox": cur.fetchall()}
+
+
+@router.get("/outbox/device-summary")
+def outbox_device_summary(device=Depends(require_device)):
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT status, COUNT(*)::int AS count, MIN(created_at) AS oldest_created_at
+                FROM pos_events_outbox
+                WHERE device_id = %s
+                GROUP BY status
+                ORDER BY status
+                """,
+                (device["device_id"],),
+            )
+            by_status: dict[str, int] = {}
+            oldest_pending = None
+            for row in cur.fetchall():
+                st = str(row["status"])
+                by_status[st] = int(row["count"] or 0)
+                if st in {"pending", "failed"} and row.get("oldest_created_at") is not None:
+                    ts = row["oldest_created_at"]
+                    if oldest_pending is None or ts < oldest_pending:
+                        oldest_pending = ts
+
+            cur.execute(
+                """
+                SELECT MIN(next_attempt_at) AS next_retry_at
+                FROM pos_events_outbox
+                WHERE device_id = %s
+                  AND status = 'failed'
+                  AND next_attempt_at IS NOT NULL
+                """,
+                (device["device_id"],),
+            )
+            nrow = cur.fetchone() or {}
+            next_retry_at = nrow.get("next_retry_at")
+
+            oldest_pending_age_seconds = None
+            if oldest_pending is not None:
+                if oldest_pending.tzinfo is None:
+                    now_ts = datetime.utcnow()
+                else:
+                    now_ts = datetime.now(oldest_pending.tzinfo)
+                oldest_pending_age_seconds = max(0, int((now_ts - oldest_pending).total_seconds()))
+
+            return {
+                "device_id": device["device_id"],
+                "total": sum(by_status.values()),
+                "by_status": by_status,
+                "oldest_pending_created_at": (oldest_pending.isoformat() if oldest_pending else None),
+                "oldest_pending_age_seconds": oldest_pending_age_seconds,
+                "next_retry_at": (next_retry_at.isoformat() if next_retry_at else None),
+            }
+
+
 @router.post("/outbox/{event_id}/requeue", dependencies=[Depends(require_permission("pos:manage"))])
 def requeue_outbox_event(
     event_id: str,
@@ -751,7 +838,8 @@ def requeue_outbox_event(
                 SET status = 'pending',
                     attempt_count = 0,
                     error_message = NULL,
-                    processed_at = NULL
+                    processed_at = NULL,
+                    next_attempt_at = now()
                 FROM pos_devices d
                 WHERE o.id = %s
                   AND d.id = o.device_id
@@ -904,13 +992,14 @@ def delete_device(
 @router.post("/outbox/submit")
 def submit_outbox(data: OutboxSubmit, device=Depends(require_device)):
     if not data.events:
-        return {"accepted": [], "rejected": []}
+        return {"accepted": [], "accepted_meta": [], "rejected": []}
     if data.device_id != device["device_id"]:
         raise HTTPException(status_code=400, detail="device_id mismatch")
     if data.company_id and data.company_id != device["company_id"]:
         raise HTTPException(status_code=400, detail="company_id mismatch")
 
     accepted = []
+    accepted_meta = []
     rejected = []
 
     with get_conn() as conn:
@@ -918,18 +1007,63 @@ def submit_outbox(data: OutboxSubmit, device=Depends(require_device)):
         with conn.cursor() as cur:
             for e in data.events:
                 try:
+                    idempotency_key = str(e.idempotency_key or "").strip() or None
                     cur.execute(
                         """
-                        INSERT INTO pos_events_outbox (id, device_id, event_type, payload_json, created_at, status)
-                        VALUES (%s, %s, %s, %s::jsonb, %s, 'pending')
-                        ON CONFLICT (id) DO NOTHING
+                        INSERT INTO pos_events_outbox
+                          (id, device_id, event_type, payload_json, created_at, status, idempotency_key, next_attempt_at)
+                        VALUES
+                          (%s, %s, %s, %s::jsonb, %s, 'pending', %s, %s)
+                        ON CONFLICT DO NOTHING
+                        RETURNING id
                         """,
-                        (e.event_id, data.device_id, e.event_type, json.dumps(e.payload), e.created_at),
+                        (
+                            e.event_id,
+                            data.device_id,
+                            e.event_type,
+                            json.dumps(e.payload),
+                            e.created_at,
+                            idempotency_key,
+                            e.created_at,
+                        ),
                     )
+                    inserted = cur.fetchone()
+                    status = "inserted" if inserted else "duplicate"
+                    existing_event_id = None
+                    if not inserted:
+                        if idempotency_key:
+                            cur.execute(
+                                """
+                                SELECT id
+                                FROM pos_events_outbox
+                                WHERE device_id = %s
+                                  AND event_type = %s
+                                  AND idempotency_key = %s
+                                ORDER BY created_at ASC
+                                LIMIT 1
+                                """,
+                                (data.device_id, e.event_type, idempotency_key),
+                            )
+                        else:
+                            cur.execute(
+                                """
+                                SELECT id
+                                FROM pos_events_outbox
+                                WHERE id = %s
+                                """,
+                                (e.event_id,),
+                            )
+                        existing = cur.fetchone()
+                        if existing:
+                            existing_event_id = str(existing["id"])
                     accepted.append(str(e.event_id))
+                    meta = {"event_id": str(e.event_id), "status": status}
+                    if existing_event_id and existing_event_id != str(e.event_id):
+                        meta["existing_event_id"] = existing_event_id
+                    accepted_meta.append(meta)
                 except Exception as ex:
                     rejected.append({"event_id": str(e.event_id), "error": str(ex)})
-    return {"accepted": accepted, "rejected": rejected}
+    return {"accepted": accepted, "accepted_meta": accepted_meta, "rejected": rejected}
 
 
 class OutboxProcessOneIn(BaseModel):
@@ -1021,7 +1155,8 @@ def process_outbox_event_now(data: OutboxProcessOneIn, device=Depends(require_de
                         UPDATE pos_events_outbox
                         SET status = 'processed',
                             processed_at = now(),
-                            error_message = NULL
+                            error_message = NULL,
+                            next_attempt_at = NULL
                         WHERE id = %s
                         """,
                         (event_id,),
@@ -1031,15 +1166,24 @@ def process_outbox_event_now(data: OutboxProcessOneIn, device=Depends(require_de
                     next_attempt = attempt_count + 1
                     max_attempts = 5
                     next_status = "dead" if next_attempt >= max_attempts else "failed"
+                    backoff_seconds = min(300, 2 ** max(next_attempt - 1, 0))
+                    next_retry_at = datetime.utcnow() + timedelta(seconds=backoff_seconds)
                     cur.execute(
                         """
                         UPDATE pos_events_outbox
                         SET status = %s,
                             attempt_count = %s,
-                            error_message = %s
+                            error_message = %s,
+                            next_attempt_at = %s
                         WHERE id = %s
                         """,
-                        (next_status, next_attempt, str(ex), event_id),
+                        (
+                            next_status,
+                            next_attempt,
+                            str(ex),
+                            (next_retry_at if next_status == "failed" else None),
+                            event_id,
+                        ),
                     )
                     raise HTTPException(status_code=409, detail=str(ex))
 
@@ -1549,7 +1693,34 @@ def pos_config(device=Depends(require_device)):
                 (device["company_id"],),
             )
             vat_codes = cur.fetchall() or []
-            vat = vat_codes[0] if vat_codes else None
+            cur.execute(
+                """
+                SELECT value_json
+                FROM company_settings
+                WHERE company_id = %s
+                  AND key = 'default_vat_tax_code_id'
+                LIMIT 1
+                """,
+                (device["company_id"],),
+            )
+            vrow = cur.fetchone()
+            configured_default_vat_tax_code_id = None
+            if vrow and vrow.get("value_json") is not None:
+                raw = vrow.get("value_json")
+                if isinstance(raw, dict):
+                    configured_default_vat_tax_code_id = str(raw.get("id") or raw.get("tax_code_id") or "").strip() or None
+                else:
+                    configured_default_vat_tax_code_id = str(raw or "").strip() or None
+
+            vat = None
+            if configured_default_vat_tax_code_id:
+                for row in vat_codes:
+                    if str(row.get("id")) == configured_default_vat_tax_code_id:
+                        vat = row
+                        break
+            if not vat and vat_codes:
+                vat = vat_codes[0]
+            default_vat_tax_code_id = str(vat["id"]) if vat else None
 
             cur.execute(
                 """
@@ -1608,6 +1779,7 @@ def pos_config(device=Depends(require_device)):
         "company": company,
         "default_warehouse_id": (wh["id"] if wh else None),
         "vat": vat,
+        "default_vat_tax_code_id": default_vat_tax_code_id,
         "vat_codes": vat_codes,
         "payment_methods": pay_methods,
         "default_price_list_id": default_pl_id,
@@ -2417,6 +2589,34 @@ def customers_catalog(device=Depends(require_device)):
                 (device["company_id"],),
             )
             return {"customers": cur.fetchall(), "server_time": datetime.utcnow().isoformat()}
+
+
+@router.get("/customers/{customer_id}")
+def customer_by_id(customer_id: str, device=Depends(require_device)):
+    customer_id = _normalize_required_uuid_text(customer_id, "customer_id")
+    with get_conn() as conn:
+        set_company_context(conn, device["company_id"])
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, phone, email,
+                       membership_no, is_member, membership_expires_at,
+                       payment_terms_days,
+                       credit_limit_usd, credit_limit_lbp,
+                       credit_balance_usd, credit_balance_lbp,
+                       loyalty_points,
+                       price_list_id,
+                       is_active,
+                       updated_at
+                FROM customers
+                WHERE company_id = %s AND id = %s
+                """,
+                (device["company_id"], customer_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="customer not found")
+            return {"customer": row}
 
 
 @router.get("/customers/catalog/delta")

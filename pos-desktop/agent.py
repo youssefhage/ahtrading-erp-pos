@@ -897,7 +897,14 @@ def edge_auth_check(cfg: dict, timeout_s: float = 1.2) -> dict:
     return out
 
 
-def submit_single_event(cfg: dict, event_id: str, event_type: str, payload: dict, created_at: str) -> tuple[bool, dict]:
+def submit_single_event(
+    cfg: dict,
+    event_id: str,
+    event_type: str,
+    payload: dict,
+    created_at: str,
+    idempotency_key: str | None = None,
+) -> tuple[bool, dict]:
     """
     Submit a single outbox event immediately to the edge server.
     Used for higher-risk ops like credit sales and returns so we don't print a receipt
@@ -913,12 +920,14 @@ def submit_single_event(cfg: dict, event_id: str, event_type: str, payload: dict
         return False, {"error": "missing edge configuration"}
     if not (cfg.get("device_token") or "").strip():
         return False, {"error": "missing device token"}
+    idem = str(idempotency_key or "").strip() or None
+    event = {"event_id": event_id, "event_type": event_type, "payload": payload, "created_at": created_at}
+    if idem:
+        event["idempotency_key"] = idem
     bundle = {
         "company_id": company_id,
         "device_id": device_id,
-        "events": [
-            {"event_id": event_id, "event_type": event_type, "payload": payload, "created_at": created_at},
-        ],
+        "events": [event],
     }
     try:
         res = post_json(f"{base.rstrip('/')}/pos/outbox/submit", bundle, headers=device_headers(cfg))
@@ -3260,7 +3269,14 @@ class Handler(BaseHTTPRequestHandler):
                         status=503,
                     )
                     return
-                ok, res = submit_single_event(cfg, event_id, "sale.completed", payload, created_at)
+                ok, res = submit_single_event(
+                    cfg,
+                    event_id,
+                    "sale.completed",
+                    payload,
+                    created_at,
+                    idempotency_key=idempotency_key,
+                )
                 if not ok:
                     json_response(
                         self,
@@ -3401,7 +3417,14 @@ class Handler(BaseHTTPRequestHandler):
                     status=503,
                 )
                 return
-            ok, res = submit_single_event(cfg, event_id, "sale.returned", payload, created_at)
+            ok, res = submit_single_event(
+                cfg,
+                event_id,
+                "sale.returned",
+                payload,
+                created_at,
+                idempotency_key=idempotency_key,
+            )
             if not ok:
                 json_response(
                     self,

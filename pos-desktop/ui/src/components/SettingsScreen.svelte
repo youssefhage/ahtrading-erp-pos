@@ -233,6 +233,68 @@
     return out;
   };
 
+  const normalizeCompanyName = (value) => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+  const looksUnofficialCompany = (value) => {
+    const name = normalizeCompanyName(value);
+    if (!name) return false;
+    return (
+      name.includes("unofficial") ||
+      name.includes("unnoficial") ||
+      name.includes("unoficial") ||
+      name.includes("nonofficial") ||
+      name.includes("unoff")
+    );
+  };
+
+  const looksOfficialCompany = (value) => {
+    const name = normalizeCompanyName(value);
+    if (!name) return false;
+    return name.includes("official") && !looksUnofficialCompany(value);
+  };
+
+  const pickSetupCompanies = (rows, activeCompanyId = "") => {
+    const options = toCompanyOptions(rows);
+    if (!options.length) return { official: "", unofficial: "" };
+
+    const used = new Set();
+    const claim = (id) => {
+      const v = String(id || "").trim();
+      if (!v || used.has(v)) return "";
+      used.add(v);
+      return v;
+    };
+    const firstWhere = (pred) => {
+      for (const opt of options) {
+        if (used.has(opt.id)) continue;
+        if (pred(opt)) return opt.id;
+      }
+      return "";
+    };
+
+    const activeId = String(activeCompanyId || "").trim();
+    const active = options.find((c) => c.id === activeId) || null;
+
+    let official = "";
+    let unofficial = "";
+
+    if (active && looksOfficialCompany(active.label)) official = claim(active.id);
+    if (active && looksUnofficialCompany(active.label)) unofficial = claim(active.id);
+
+    if (!official) official = claim(firstWhere((c) => looksOfficialCompany(c.label)));
+    if (!unofficial) unofficial = claim(firstWhere((c) => looksUnofficialCompany(c.label)));
+
+    if (!official && activeId && !used.has(activeId)) official = claim(activeId);
+    if (!official) official = claim(options[0].id) || String(options[0]?.id || "").trim();
+
+    if (!unofficial) {
+      unofficial = claim(firstWhere(() => true));
+      if (!unofficial) unofficial = official;
+    }
+
+    return { official, unofficial };
+  };
+
   const toDeviceRows = (rows) => {
     const out = [];
     for (const row of rows || []) {
@@ -371,9 +433,9 @@
       setupToken = String(res?.token || "").trim();
       setupCompanies = Array.isArray(res?.companies) ? res.companies : [];
       const activeCompany = String(res?.active_company_id || "").trim();
-      const firstCompany = String((toCompanyOptions(setupCompanies)[0] || {}).id || "").trim();
-      setupCompanyOfficial = activeCompany || firstCompany;
-      setupCompanyUnofficial = activeCompany || firstCompany;
+      const picked = pickSetupCompanies(setupCompanies, activeCompany);
+      setupCompanyOfficial = picked.official;
+      setupCompanyUnofficial = picked.unofficial;
       await refreshSetupCompany("official");
       if (dualOnboardingEnabled) await refreshSetupCompany("unofficial");
       setupNotice = "Connected. Select company and POS, then Apply Express Setup.";
@@ -409,9 +471,9 @@
       setupToken = String(res?.token || "").trim();
       setupCompanies = Array.isArray(res?.companies) ? res.companies : [];
       const activeCompany = String(res?.active_company_id || "").trim();
-      const firstCompany = String((toCompanyOptions(setupCompanies)[0] || {}).id || "").trim();
-      setupCompanyOfficial = activeCompany || firstCompany;
-      setupCompanyUnofficial = activeCompany || firstCompany;
+      const picked = pickSetupCompanies(setupCompanies, activeCompany);
+      setupCompanyOfficial = picked.official;
+      setupCompanyUnofficial = picked.unofficial;
       await refreshSetupCompany("official");
       if (dualOnboardingEnabled) await refreshSetupCompany("unofficial");
       setupNotice = "MFA verified. Select company and POS, then Apply Express Setup.";

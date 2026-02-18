@@ -1,7 +1,7 @@
 <script>
-  export let status = "";
   export let syncBadge = "";
-  export let hasConnection = false;
+  export let officialStatus = "";
+  export let unofficialStatus = "";
   export let cashierName = "";
   export let shiftText = "";
   export let showTabs = false;
@@ -24,11 +24,13 @@
     return sum > 0 ? "warn" : "ok";
   };
 
-  $: systemKind = hasConnection ? "ok" : "bad";
   $: outboxKind = _outboxKind(syncBadge);
   $: cashierKind = _toText(cashierName).toLowerCase().includes("not signed") ? "warn" : "neutral";
   $: shiftKind = _toText(shiftText).toLowerCase().includes("open") ? "ok" : "neutral";
-  $: outboxCompactText = outboxKind === "ok" ? "READY" : (outboxKind === "warn" ? "SYNCING" : "OFFLINE");
+  $: outboxCompactText = outboxKind === "ok" ? "SYNCED" : (outboxKind === "warn" ? "SYNCING" : "OFFLINE");
+  const _isConnected = (value) => _toText(value).toLowerCase() === "ready";
+  $: officialConnected = _isConnected(officialStatus);
+  $: unofficialConnected = _isConnected(unofficialStatus);
 </script>
 
 <div class="min-h-screen bg-bg text-ink font-sans selection:bg-accent/20 selection:text-accent flex flex-col relative overflow-hidden">
@@ -41,19 +43,20 @@
     <div class="relative px-6 py-3">
       <div class="flex items-center justify-between gap-6">
         
-        <!-- Brand & Status -->
+        <!-- Company Connectivity -->
         <div class="flex items-center gap-4 shrink-0">
-          <div class="flex items-center gap-3">
-            <div class="brand-mark flex h-10 w-10 items-center justify-center rounded-xl font-bold text-sm tracking-wide shadow-lg shadow-accent/20">
-              WP
+          <div class="flex items-center gap-2">
+            <div class={`group flex items-center gap-2 rounded-full border px-3 py-1.5 ${tone(officialConnected ? "ok" : "bad")} backdrop-blur-md transition-all`}>
+              <span class={`h-1.5 w-1.5 rounded-full ${officialConnected ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`}></span>
+              <div class="text-[10px] font-bold uppercase tracking-widest opacity-80">Official</div>
+              <div class="w-px h-3 bg-current opacity-20"></div>
+              <div class="text-xs font-semibold whitespace-nowrap">{officialConnected ? "Connected" : "Disconnected"}</div>
             </div>
-            
-            <div class="hidden md:flex flex-col">
-              <span class="text-xs font-bold tracking-wider text-muted uppercase">System Status</span>
-              <span class="flex items-center gap-2 text-sm font-semibold text-ink">
-                <span class={`h-2 w-2 rounded-full ${hasConnection ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" : "bg-red-400"}`}></span>
-                {status || "Disconnected"}
-              </span>
+            <div class={`group flex items-center gap-2 rounded-full border px-3 py-1.5 ${tone(unofficialConnected ? "ok" : "bad")} backdrop-blur-md transition-all`}>
+              <span class={`h-1.5 w-1.5 rounded-full ${unofficialConnected ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`}></span>
+              <div class="text-[10px] font-bold uppercase tracking-widest opacity-80">Unofficial</div>
+              <div class="w-px h-3 bg-current opacity-20"></div>
+              <div class="text-xs font-semibold whitespace-nowrap">{unofficialConnected ? "Connected" : "Disconnected"}</div>
             </div>
           </div>
         </div>
@@ -111,12 +114,5 @@
   /* Optional: Fade mask for scrollable areas */
   .mask-fade-sides {
     mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
-  }
-
-  .brand-mark {
-    color: rgb(var(--color-accent-content));
-    background: linear-gradient(135deg, rgb(var(--color-accent)) 0%, rgb(var(--color-accent-hover)) 100%);
-    border: 1px solid rgb(var(--color-ink) / 0.12);
-    text-shadow: 0 1px 0 rgb(0 0 0 / 0.15);
   }
 </style>

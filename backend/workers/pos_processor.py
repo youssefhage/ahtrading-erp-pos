@@ -63,6 +63,26 @@ def assert_period_open(cur, company_id: str, posting_date: date):
         raise ValueError(f"accounting period is locked for date {posting_date.isoformat()}")
 
 
+def resolve_business_date(payload: dict, *keys: str) -> date:
+    if not isinstance(payload, dict):
+        return date.today()
+    candidates = list(keys) + ["created_at"]
+    for key in candidates:
+        raw = payload.get(key)
+        if not raw:
+            continue
+        try:
+            return date.fromisoformat(str(raw)[:10])
+        except Exception:
+            continue
+    return date.today()
+
+
+def next_retry_at_for_attempt(attempt_count: int) -> datetime:
+    delay_seconds = min(300, 2 ** max(attempt_count - 1, 0))
+    return datetime.utcnow() + timedelta(seconds=delay_seconds)
+
+
 def fetch_account_defaults(cur, company_id: str):
     set_company_context(cur, company_id)
     cur.execute(
@@ -495,6 +515,45 @@ def compute_vat_breakdown(
     return rows, tax_usd, tax_lbp
 
 
+def keep_valid_vat_rows(cur, company_id: str, rows: list[dict]) -> list[dict]:
+    if not rows:
+        return []
+    normalized_ids: list[str] = []
+    for r in rows:
+        tcid_raw = str((r or {}).get("tax_code_id") or "").strip()
+        if not tcid_raw:
+            continue
+        try:
+            normalized_ids.append(str(uuid.UUID(tcid_raw)))
+        except Exception:
+            continue
+    if not normalized_ids:
+        return []
+    cur.execute(
+        """
+        SELECT id
+        FROM tax_codes
+        WHERE company_id = %s
+          AND tax_type = 'vat'
+          AND id = ANY(%s::uuid[])
+        """,
+        (company_id, sorted(set(normalized_ids))),
+    )
+    valid_ids = {str(r["id"]) for r in (cur.fetchall() or [])}
+    out: list[dict] = []
+    for r in rows:
+        tcid_raw = str((r or {}).get("tax_code_id") or "").strip()
+        if not tcid_raw:
+            continue
+        try:
+            tcid = str(uuid.UUID(tcid_raw))
+        except Exception:
+            continue
+        if tcid in valid_ids:
+            out.append(r)
+    return out
+
+
 def get_or_create_batch(cur, company_id: str, item_id: str, batch_no, expiry_date_raw):
     batch_no_norm = batch_no.strip() if isinstance(batch_no, str) else None
     expiry_date = None
@@ -736,15 +795,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     exchange_rate = Decimal(str(payload.get("exchange_rate", 0)))
     pricing_currency = payload.get("pricing_currency", "USD")
     settlement_currency = payload.get("settlement_currency", "USD")
-    invoice_date = None
-    raw_invoice_date = payload.get("invoice_date") or payload.get("created_at") or None
-    if raw_invoice_date:
-        try:
-            invoice_date = date.fromisoformat(str(raw_invoice_date)[:10])
-        except Exception:
-            invoice_date = None
-    if not invoice_date:
-        invoice_date = date.today()
+    invoice_date = resolve_business_date(payload, "invoice_date")
     due_date = invoice_date
 
     assert_period_open(cur, company_id, invoice_date)
@@ -824,8 +875,12 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 tl = Decimal(str(r.get("tax_lbp", 0) or 0))
                 tu, tl = normalize_dual_amounts(tu, tl, exchange_rate)
                 tax_rows.append({"tax_code_id": tcid, "base_usd": bu, "base_lbp": bl, "tax_usd": tu, "tax_lbp": tl, "tax_date": r.get("tax_date")})
-                tax_usd += tu
-                tax_lbp += tl
+            tax_rows = keep_valid_vat_rows(cur, company_id, tax_rows)
+            tax_usd = sum([Decimal(str(r.get("tax_usd", 0) or 0)) for r in tax_rows], Decimal("0"))
+            tax_lbp = sum([Decimal(str(r.get("tax_lbp", 0) or 0)) for r in tax_rows], Decimal("0"))
+            if not tax_rows:
+                default_tax_code_id = tax.get("tax_code_id") or None
+                tax_rows, tax_usd, tax_lbp = compute_vat_breakdown(cur, company_id, lines, exchange_rate, default_tax_code_id)
         else:
             default_tax_code_id = tax.get("tax_code_id") or None
             tax_rows, tax_usd, tax_lbp = compute_vat_breakdown(cur, company_id, lines, exchange_rate, default_tax_code_id)
@@ -1113,25 +1168,30 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                     ),
                 )
         else:
-            cur.execute(
-                """
-                INSERT INTO tax_lines
-                  (id, company_id, source_type, source_id, tax_code_id,
-                   base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
-                VALUES
-                  (gen_random_uuid(), %s, 'sales_invoice', %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    company_id,
-                    invoice_id,
-                    tax.get("tax_code_id"),
-                    Decimal(str(tax.get("base_usd", base_usd))),
-                    Decimal(str(tax.get("base_lbp", base_lbp))),
-                    tax_usd,
-                    tax_lbp,
-                    tax_date,
-                ),
-            )
+            fallback_tax_code = None
+            if tax.get("tax_code_id"):
+                valid = keep_valid_vat_rows(cur, company_id, [{"tax_code_id": tax.get("tax_code_id")}])
+                fallback_tax_code = valid[0]["tax_code_id"] if valid else None
+            if fallback_tax_code:
+                cur.execute(
+                    """
+                    INSERT INTO tax_lines
+                      (id, company_id, source_type, source_id, tax_code_id,
+                       base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
+                    VALUES
+                      (gen_random_uuid(), %s, 'sales_invoice', %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        company_id,
+                        invoice_id,
+                        fallback_tax_code,
+                        Decimal(str(tax.get("base_usd", base_usd))),
+                        Decimal(str(tax.get("base_lbp", base_lbp))),
+                        tax_usd,
+                        tax_lbp,
+                        tax_date,
+                    ),
+                )
 
     # Persist payments.
     for p in raw_payments:
@@ -1432,7 +1492,8 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
     if not return_no:
         return_no = next_doc_no(cur, company_id, "SR")
 
-    assert_period_open(cur, company_id, date.today())
+    return_date = resolve_business_date(payload, "return_date")
+    assert_period_open(cur, company_id, return_date)
 
     base_usd = Decimal("0")
     base_lbp = Decimal("0")
@@ -1462,8 +1523,12 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                 tl = Decimal(str(r.get("tax_lbp", 0) or 0))
                 tu, tl = normalize_dual_amounts(tu, tl, exchange_rate)
                 tax_rows.append({"tax_code_id": tcid, "base_usd": bu, "base_lbp": bl, "tax_usd": tu, "tax_lbp": tl, "tax_date": r.get("tax_date")})
-                tax_usd += tu
-                tax_lbp += tl
+            tax_rows = keep_valid_vat_rows(cur, company_id, tax_rows)
+            tax_usd = sum([Decimal(str(r.get("tax_usd", 0) or 0)) for r in tax_rows], Decimal("0"))
+            tax_lbp = sum([Decimal(str(r.get("tax_lbp", 0) or 0)) for r in tax_rows], Decimal("0"))
+            if not tax_rows:
+                default_tax_code_id = tax.get("tax_code_id") or None
+                tax_rows, tax_usd, tax_lbp = compute_vat_breakdown(cur, company_id, lines, exchange_rate, default_tax_code_id)
         else:
             default_tax_code_id = tax.get("tax_code_id") or None
             tax_rows, tax_usd, tax_lbp = compute_vat_breakdown(cur, company_id, lines, exchange_rate, default_tax_code_id)
@@ -1633,7 +1698,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                 Decimal(str(l.get("qty", 0))),
                 unit_cost_usd,
                 unit_cost_lbp,
-                date.today(),
+                return_date,
                 return_id,
                 device_id,
                 payload.get("cashier_id") or None,
@@ -1744,25 +1809,30 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
                     ),
                 )
         else:
-            cur.execute(
-                """
-                INSERT INTO tax_lines
-                  (id, company_id, source_type, source_id, tax_code_id,
-                   base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
-                VALUES
-                  (gen_random_uuid(), %s, 'sales_return', %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    company_id,
-                    return_id,
-                    tax.get("tax_code_id"),
-                    -Decimal(str(tax.get("base_usd", base_usd))),
-                    -Decimal(str(tax.get("base_lbp", base_lbp))),
-                    -tax_usd,
-                    -tax_lbp,
-                    tax_date,
-                ),
-            )
+            fallback_tax_code = None
+            if tax.get("tax_code_id"):
+                valid = keep_valid_vat_rows(cur, company_id, [{"tax_code_id": tax.get("tax_code_id")}])
+                fallback_tax_code = valid[0]["tax_code_id"] if valid else None
+            if fallback_tax_code:
+                cur.execute(
+                    """
+                    INSERT INTO tax_lines
+                      (id, company_id, source_type, source_id, tax_code_id,
+                       base_usd, base_lbp, tax_usd, tax_lbp, tax_date)
+                    VALUES
+                      (gen_random_uuid(), %s, 'sales_return', %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        company_id,
+                        return_id,
+                        fallback_tax_code,
+                        -Decimal(str(tax.get("base_usd", base_usd))),
+                        -Decimal(str(tax.get("base_lbp", base_lbp))),
+                        -tax_usd,
+                        -tax_lbp,
+                        tax_date,
+                    ),
+                )
 
     # GL posting
     account_defaults = fetch_account_defaults(cur, company_id)
@@ -1777,15 +1847,6 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         raise ValueError("Missing account defaults for sales return posting")
 
     journal_no = f"SR-{str(return_id)[:8]}"
-    return_date = None
-    raw_return_date = payload.get("return_date") or payload.get("created_at") or None
-    if raw_return_date:
-        try:
-            return_date = date.fromisoformat(str(raw_return_date)[:10])
-        except Exception:
-            return_date = None
-    if not return_date:
-        return_date = date.today()
 
     cur.execute(
         """
@@ -2069,7 +2130,8 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
     if not receipt_no:
         receipt_no = next_doc_no(cur, company_id, "GR")
 
-    assert_period_open(cur, company_id, date.today())
+    receipt_date = resolve_business_date(payload, "receipt_date", "received_at")
+    assert_period_open(cur, company_id, receipt_date)
 
     supplier_ref = payload.get("supplier_ref") or None
     if isinstance(supplier_ref, str):
@@ -2089,7 +2151,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
            total_usd, total_lbp, exchange_rate, warehouse_id, source_event_id,
            received_at)
         VALUES
-          (gen_random_uuid(), %s, %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s, now())
+          (gen_random_uuid(), %s, %s, %s, %s, 'posted', %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
@@ -2102,6 +2164,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
             Decimal(str(payload.get("exchange_rate", 0))),
             payload.get("warehouse_id"),
             event_id,
+            receipt_date,
         ),
     )
     gr_id = cur.fetchone()["id"]
@@ -2180,7 +2243,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
                source_type, source_id,
                created_by_device_id, created_by_cashier_id, reason, source_line_type, source_line_id)
             VALUES
-              (gen_random_uuid(), %s, %s, %s, NULL, %s, %s, %s, %s, CURRENT_DATE, 'goods_receipt', %s,
+              (gen_random_uuid(), %s, %s, %s, NULL, %s, %s, %s, %s, %s, 'goods_receipt', %s,
                %s, %s, %s, %s, %s)
             """,
             (
@@ -2191,6 +2254,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
                 Decimal(str(l.get("qty", 0))),
                 Decimal(str(l.get("unit_cost_usd", 0))),
                 Decimal(str(l.get("unit_cost_lbp", 0))),
+                receipt_date,
                 gr_id,
                 device_id,
                 payload.get("cashier_id") or None,
@@ -2242,13 +2306,14 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
         INSERT INTO gl_journals
           (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
         VALUES
-          (gen_random_uuid(), %s, %s, 'goods_receipt', %s, CURRENT_DATE, 'market', %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, 'goods_receipt', %s, %s, 'market', %s, %s, %s, %s)
         RETURNING id
         """,
         (
             company_id,
             journal_no,
             gr_id,
+            receipt_date,
             Decimal(str(payload.get("exchange_rate", 0) or 0)),
             f"POS goods receipt {str(receipt_no)}",
             device_id,
@@ -2309,6 +2374,12 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
     tax_lbp = Decimal(str(tax.get("tax_lbp", 0))) if tax else Decimal("0")
     exchange_rate = Decimal(str(payload.get("exchange_rate", 0)))
     tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
+    purchase_tax_code_id = None
+    if tax and tax.get("tax_code_id"):
+        valid = keep_valid_vat_rows(cur, company_id, [{"tax_code_id": tax.get("tax_code_id")}])
+        purchase_tax_code_id = valid[0]["tax_code_id"] if valid else None
+        if not purchase_tax_code_id and (tax_usd != 0 or tax_lbp != 0):
+            raise ValueError("invalid VAT tax_code_id for purchase invoice")
 
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
@@ -2432,7 +2503,7 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
         )
 
     # Tax line (VAT recoverable)
-    if tax:
+    if tax and purchase_tax_code_id:
         cur.execute(
             """
             INSERT INTO tax_lines
@@ -2444,7 +2515,7 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
             (
                 company_id,
                 inv_id,
-                tax.get("tax_code_id"),
+                purchase_tax_code_id,
                 Decimal(str(tax.get("base_usd", base_usd))),
                 Decimal(str(tax.get("base_lbp", base_lbp))),
                 tax_usd,
@@ -2483,10 +2554,10 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
         INSERT INTO gl_journals
           (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
         VALUES
-          (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, CURRENT_DATE, 'market', %s, %s, %s, %s)
+          (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, %s, 'market', %s, %s, %s, %s)
         RETURNING id
         """,
-        (company_id, journal_no, inv_id, exchange_rate, f"POS supplier invoice {invoice_no}", device_id, payload.get("cashier_id")),
+        (company_id, journal_no, inv_id, invoice_date, exchange_rate, f"POS supplier invoice {invoice_no}", device_id, payload.get("cashier_id")),
     )
     journal_id = cur.fetchone()["id"]
 
@@ -2602,9 +2673,18 @@ def _fetch_next_event(cur, company_id: str, max_attempts: int):
         FROM pos_events_outbox o
         JOIN pos_devices d ON d.id = o.device_id
         WHERE d.company_id = %s
-          AND o.status IN ('pending', 'failed')
+          AND (
+              o.status = 'pending'
+              OR (
+                  o.status = 'failed'
+                  AND (o.next_attempt_at IS NULL OR o.next_attempt_at <= now())
+              )
+          )
           AND o.attempt_count < %s
-        ORDER BY o.created_at ASC
+        ORDER BY
+          CASE WHEN o.status = 'pending' THEN 0 ELSE 1 END,
+          COALESCE(o.next_attempt_at, o.created_at) ASC,
+          o.created_at ASC
         LIMIT 1
         FOR UPDATE OF o SKIP LOCKED
         """,
@@ -2647,21 +2727,31 @@ def _process_one(conn, company_id: str, max_attempts: int) -> bool:
                     UPDATE pos_events_outbox
                     SET status = 'processed',
                         processed_at = now(),
-                        error_message = NULL
+                        error_message = NULL,
+                        next_attempt_at = NULL
                     WHERE id = %s
                     """,
                     (e["id"],),
                 )
             except Exception as ex:
+                next_attempt = int(e.get("attempt_count") or 0) + 1
+                next_status = "dead" if next_attempt >= max_attempts else "failed"
                 cur.execute(
                     """
                     UPDATE pos_events_outbox
-                    SET status = CASE WHEN attempt_count + 1 >= %s THEN 'dead' ELSE 'failed' END,
-                        attempt_count = attempt_count + 1,
-                        error_message = %s
+                    SET status = %s,
+                        attempt_count = %s,
+                        error_message = %s,
+                        next_attempt_at = %s
                     WHERE id = %s
                     """,
-                    (max_attempts, str(ex), e["id"]),
+                    (
+                        next_status,
+                        next_attempt,
+                        str(ex),
+                        (next_retry_at_for_attempt(next_attempt) if next_status == "failed" else None),
+                        e["id"],
+                    ),
                 )
     return True
 
