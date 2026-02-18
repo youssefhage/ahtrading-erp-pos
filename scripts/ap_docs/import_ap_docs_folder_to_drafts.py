@@ -8,8 +8,8 @@ Why this exists:
 - Resume safely after interruptions using an output CSV ledger.
 
 Default behavior:
-- Calls /purchases/invoices/drafts/import-file with async_import=false and mock_extract=false
-  so no background AI queue is used and no external AI spend is required.
+- Calls /purchases/invoices/drafts/import-file with skip_extract=false, mock_extract=true,
+  async_import=true so drafts are queued for review (pending_review) without external AI spend.
 - Optionally patches header hints (supplier_ref, invoice_date, supplier match) from ap_docs_index.csv.
 """
 
@@ -334,6 +334,9 @@ def import_one(
     invoice_no_hint: str,
     supplier_map: dict[str, tuple[str, str]],
     supplier_raw: list[tuple[str, str, str]],
+    skip_extract: bool,
+    mock_extract: bool,
+    async_import: bool,
     dry_run: bool,
 ) -> dict[str, str]:
     guessed_ct = mimetypes.guess_type(str(src.name))[0] or "application/octet-stream"
@@ -357,9 +360,9 @@ def import_one(
             "auto_create_supplier": "false",
             "auto_create_items": "false",
             "auto_apply": "false",
-            "skip_extract": "true",
-            "mock_extract": "false",
-            "async_import": "false",
+            "skip_extract": "true" if skip_extract else "false",
+            "mock_extract": "true" if mock_extract else "false",
+            "async_import": "true" if async_import else "false",
         },
         file_name=src.name,
         file_bytes=raw,
@@ -409,6 +412,38 @@ def main() -> int:
     ap.add_argument("--index-csv", default="", help="Optional ap_docs_index.csv path (preferred for header hints)")
     ap.add_argument("--doc-types", default="invoice,receipt,credit_note,unknown")
     ap.add_argument("--exchange-rate", default=os.getenv("POS_IMPORT_EXCHANGE_RATE") or "90000")
+    ap.add_argument(
+        "--skip-extract",
+        action="store_true",
+        default=False,
+        help="Create draft+attachment only and set import_status=skipped (not recommended for review queue workflows).",
+    )
+    ap.add_argument(
+        "--mock-extract",
+        dest="mock_extract",
+        action="store_true",
+        default=True,
+        help="Use backend mock extraction (no external AI cost). Default: enabled.",
+    )
+    ap.add_argument(
+        "--real-extract",
+        dest="mock_extract",
+        action="store_false",
+        help="Use configured external AI extraction (may incur provider cost).",
+    )
+    ap.add_argument(
+        "--async-import",
+        dest="async_import",
+        action="store_true",
+        default=True,
+        help="Queue import for background processing and review-line generation. Default: enabled.",
+    )
+    ap.add_argument(
+        "--sync-import",
+        dest="async_import",
+        action="store_false",
+        help="Run extraction synchronously in request path (debug only).",
+    )
     ap.add_argument("--limit", type=int, default=0, help="Optional cap on number of files")
     ap.add_argument("--sleep-ms", type=int, default=0, help="Delay between files")
     ap.add_argument("--out", default=".cache/ap_docs_import")
@@ -477,6 +512,11 @@ def main() -> int:
         pending = pending[: args.limit]
 
     print(f"files total={len(rows)} pending={len(pending)} already_done={len(processed)} missing={missing}")
+    print(
+        f"mode skip_extract={str(bool(args.skip_extract)).lower()} "
+        f"mock_extract={str(bool(args.mock_extract)).lower()} "
+        f"async_import={str(bool(args.async_import)).lower()}"
+    )
     if not pending:
         print("nothing to do")
         return 0
@@ -509,6 +549,9 @@ def main() -> int:
                 invoice_no_hint=r.invoice_no_guess,
                 supplier_map=supplier_map,
                 supplier_raw=supplier_raw,
+                skip_extract=bool(args.skip_extract),
+                mock_extract=bool(args.mock_extract),
+                async_import=bool(args.async_import),
                 dry_run=bool(args.dry_run),
             )
             ok += 1

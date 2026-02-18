@@ -5,7 +5,8 @@ export type ProxyRouteContext = {
 const DEFAULT_PROXY_TIMEOUT_MS = 12000;
 
 function upstreamBase(): string {
-  const raw = (process.env.API_PROXY_TARGET || "http://api_melqard:8000").trim();
+  // Local dev default (backend exposed on host). Docker/CI should override via API_PROXY_TARGET.
+  const raw = (process.env.API_PROXY_TARGET || "http://127.0.0.1:8001").trim();
   return raw.replace(/\/+$/, "");
 }
 
@@ -111,4 +112,3 @@ export async function proxyRoute(req: Request, ctx: ProxyRouteContext): Promise<
     clearTimeout(timer);
   }
 }
-

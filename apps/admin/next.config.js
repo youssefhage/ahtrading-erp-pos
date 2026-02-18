@@ -2,7 +2,8 @@
 const nextConfig = {
   reactStrictMode: true,
   async rewrites() {
-    const rawTarget = process.env.API_PROXY_TARGET || "http://api_melqard:8000";
+    // Local dev default (backend exposed on host). Docker/CI should override via API_PROXY_TARGET.
+    const rawTarget = process.env.API_PROXY_TARGET || "http://127.0.0.1:8001";
     const target = rawTarget.replace(/\/$/, "");
     return [
       {

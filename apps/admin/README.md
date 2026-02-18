@@ -9,4 +9,5 @@ This is the Admin ERP web app.
    - `npm run dev`
 
 ## Environment
-- `NEXT_PUBLIC_API_BASE_URL` (default: `http://localhost:8000`)
+- `NEXT_PUBLIC_API_BASE_URL` (default: `/api`)
+- `API_PROXY_TARGET` (default: `http://127.0.0.1:8001` for local dev)
