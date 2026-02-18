@@ -252,11 +252,11 @@ function CopyIconButton(props: { text: string; label?: string; className?: strin
   );
 }
 
-function KeyField(props: { label: string; value: string; mono?: boolean; copyText?: string; hint?: string }) {
+function KeyField(props: { label: string; value: string; mono?: boolean; copyText?: string; hint?: string; className?: string }) {
   return (
-    <div className="rounded-lg border border-border-subtle bg-bg-elevated/45 p-3">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
+    <div className={cn("min-w-0", props.className)}>
+      <div className="flex items-start justify-between gap-1">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
         {props.copyText ? <CopyIconButton text={props.copyText} label={props.label} className="h-7 w-7" /> : null}
       </div>
       <p
@@ -273,11 +273,11 @@ function KeyField(props: { label: string; value: string; mono?: boolean; copyTex
   );
 }
 
-function SummaryField(props: { label: string; value: string; mono?: boolean; copyText?: string; hint?: string }) {
+function SummaryField(props: { label: string; value: string; mono?: boolean; copyText?: string; hint?: string; className?: string }) {
   return (
-    <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
+    <div className={cn("min-w-0 border-l-2 border-border-subtle pl-3", props.className)}>
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
+        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
         {props.copyText ? <CopyIconButton text={props.copyText} label={props.label} className="h-7 w-7" /> : null}
       </div>
       <p
@@ -901,11 +901,11 @@ export default function ItemViewPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-              <div className="space-y-3">
-                <section className="rounded-xl border border-border-subtle bg-bg-elevated/45 p-4">
-                  <p className="ui-panel-title">Core identity</p>
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <CardContent className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="space-y-5">
+                <section className="space-y-3">
+                  <p className="ui-panel-title border-b border-border-subtle pb-2">Core identity</p>
+                  <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-3">
                     <KeyField label="SKU" value={item.sku || "-"} copyText={item.sku || ""} />
                     <KeyField label="Name" value={item.name || "-"} />
                     <KeyField label="Type" value={itemTypeLabel(item.item_type)} />
@@ -933,7 +933,7 @@ export default function ItemViewPage() {
                   </div>
                 </section>
 
-                <details className="rounded-xl border border-border-subtle bg-bg-sunken/20 p-4">
+                <details className="rounded-lg border border-border-subtle bg-bg-sunken/10 p-4">
                   <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.14em] text-fg-subtle">Item notes and metadata</summary>
                   <div className="mt-3 space-y-3">
                     <div className="flex flex-wrap gap-2">
@@ -948,13 +948,13 @@ export default function ItemViewPage() {
                       value={item.short_name || "-"}
                       hint={item.short_name ? "Friendly label used on reports/receipts." : undefined}
                     />
-                    <div className="rounded-md border border-border-subtle bg-bg-elevated/45 p-3">
-                      <p className="text-xs font-medium uppercase tracking-wider text-fg-muted">Description</p>
+                    <div className="border-l-2 border-border-subtle pl-3">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">Description</p>
                       <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{item.description || "—"}</p>
                     </div>
                     {item.external_ids ? (
-                      <div className="rounded-md border border-border-subtle bg-bg-elevated/45 p-3">
-                        <p className="text-xs font-medium uppercase tracking-wider text-fg-muted">External IDs</p>
+                      <div className="border-l-2 border-border-subtle pl-3">
+                        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">External IDs</p>
                         <div className="mt-2">
                           <ViewRaw value={item.external_ids} label="View external IDs" defaultOpen={false} />
                         </div>
@@ -964,17 +964,17 @@ export default function ItemViewPage() {
                 </details>
               </div>
 
-              <div className="space-y-3">
-                <section className="rounded-xl border border-border-subtle bg-bg-elevated/45 p-4">
-                  <p className="ui-panel-title">Operations</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
+              <div className="space-y-5">
+                <section className="space-y-3 border-t border-border-subtle pt-4 xl:border-t-0 xl:pt-0">
+                  <p className="ui-panel-title border-b border-border-subtle pb-2">Operations</p>
+                  <div className="flex flex-wrap gap-2">
                     <Chip variant={item.track_batches ? "primary" : "default"}>{item.track_batches ? "batches: on" : "batches: off"}</Chip>
                     <Chip variant={item.track_expiry ? "primary" : "default"}>{item.track_expiry ? "expiry: on" : "expiry: off"}</Chip>
                     <Chip variant={negativeStockPolicy.variant}>{`negative stock: ${negativeStockPolicy.label}`}</Chip>
                     <Chip variant={item.is_excise ? "primary" : "default"}>{item.is_excise ? "excise: yes" : "excise: no"}</Chip>
                     <Chip variant={item.is_active === false ? "default" : "success"}>{item.is_active === false ? "inactive" : "active"}</Chip>
                   </div>
-                  <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <SummaryField label="Reorder Point" value={String(item.reorder_point ?? "-")} mono />
                     <SummaryField label="Reorder Qty" value={String(item.reorder_qty ?? "-")} mono />
                     <SummaryField label="Shelf Life" value={`${item.default_shelf_life_days ?? "-"}d`} />
@@ -984,12 +984,12 @@ export default function ItemViewPage() {
                   </div>
                 </section>
 
-                <section className="rounded-xl border border-border-subtle bg-bg-sunken/20 p-4">
-                  <p className="ui-panel-title">Primary image</p>
-                  <div className="mt-3">
+                <section className="space-y-3 border-t border-border-subtle pt-4">
+                  <p className="ui-panel-title border-b border-border-subtle pb-2">Primary image</p>
+                  <div>
                     {item.image_attachment_id ? (
                       <div className="space-y-3">
-                        <div className="rounded-md border border-border-subtle bg-bg-sunken/30 p-2">
+                        <div className="rounded-md bg-bg-sunken/20 p-2">
                           <Image
                             src={apiUrl(`/attachments/${encodeURIComponent(item.image_attachment_id)}/view`)}
                             alt={item.image_alt || item.name}

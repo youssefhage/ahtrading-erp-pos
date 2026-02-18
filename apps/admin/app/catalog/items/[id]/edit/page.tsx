@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
 import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm } from "@/lib/api";
 import { parseNumberInput } from "@/lib/numbers";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
+import { cn } from "@/lib/utils";
 import { ErrorBanner } from "@/components/error-banner";
 import { EmptyState } from "@/components/empty-state";
 import { DocumentUtilitiesDrawer } from "@/components/document-utilities-drawer";
@@ -127,6 +128,16 @@ function parseTags(input: string): string[] | null {
     .filter(Boolean);
   const uniq = Array.from(new Set(parts));
   return uniq.length ? uniq : null;
+}
+
+function InlineMetric(props: { label: string; value: ReactNode; hint?: ReactNode; mono?: boolean; className?: string }) {
+  return (
+    <div className={cn("min-w-0 border-l-2 border-border-subtle pl-3", props.className)}>
+      <div className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</div>
+      <div className={cn("mt-1 text-sm font-semibold text-foreground", props.mono && "data-mono")}>{props.value}</div>
+      {props.hint ? <div className="mt-2 text-xs text-fg-subtle">{props.hint}</div> : null}
+    </div>
+  );
 }
 
 export default function ItemEditPage() {
@@ -694,35 +705,34 @@ export default function ItemEditPage() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="grid gap-3 text-sm md:grid-cols-3">
-              <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
-                <div className="text-xs font-medium text-fg-muted">Current Price</div>
-                <div className="mt-1 data-mono font-medium">
-                  {priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.price_usd, priceSuggest.current.price_lbp, { sep: " · " }) : "-"}
-                </div>
-                <div className="mt-2 text-xs text-fg-subtle">
-                  Target margin: {priceSuggest ? `${(Number(priceSuggest.target_margin_pct) * 100).toFixed(0)}%` : "-"}
-                </div>
-              </div>
-              <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
-                <div className="text-xs font-medium text-fg-muted">Average Cost</div>
-                <div className="mt-1 data-mono font-medium">
-                  {priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.avg_cost_usd, priceSuggest.current.avg_cost_lbp, { sep: " · " }) : "-"}
-                </div>
-                <div className="mt-2 text-xs text-fg-subtle">
-                  Current margin (USD):{" "}
-                  {priceSuggest?.current?.margin_usd != null ? `${(Number(priceSuggest.current.margin_usd) * 100).toFixed(1)}%` : "-"}
-                </div>
-              </div>
-              <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-4">
-                <div className="text-xs font-medium text-fg-muted">Suggested Price</div>
-                <div className="mt-1 data-mono font-medium">
-                  {priceSuggest?.suggested ? fmtUsdLbp(priceSuggest.suggested.price_usd, priceSuggest.suggested.price_lbp, { sep: " · " }) : "-"}
-                </div>
-                <div className="mt-2 text-xs text-fg-subtle">
-                  Rounding: USD step {priceSuggest?.rounding?.usd_step || "-"} · LBP step {priceSuggest?.rounding?.lbp_step || "-"}
-                </div>
-              </div>
+            <CardContent className="grid gap-4 text-sm md:grid-cols-3">
+              <InlineMetric
+                label="Current Price"
+                value={priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.price_usd, priceSuggest.current.price_lbp, { sep: " · " }) : "-"}
+                hint={`Target margin: ${priceSuggest ? `${(Number(priceSuggest.target_margin_pct) * 100).toFixed(0)}%` : "-"}`}
+                mono
+              />
+              <InlineMetric
+                label="Average Cost"
+                value={priceSuggest?.current ? fmtUsdLbp(priceSuggest.current.avg_cost_usd, priceSuggest.current.avg_cost_lbp, { sep: " · " }) : "-"}
+                hint={
+                  <>
+                    Current margin (USD):{" "}
+                    {priceSuggest?.current?.margin_usd != null ? `${(Number(priceSuggest.current.margin_usd) * 100).toFixed(1)}%` : "-"}
+                  </>
+                }
+                mono
+              />
+              <InlineMetric
+                label="Suggested Price"
+                value={priceSuggest?.suggested ? fmtUsdLbp(priceSuggest.suggested.price_usd, priceSuggest.suggested.price_lbp, { sep: " · " }) : "-"}
+                hint={
+                  <>
+                    Rounding: USD step {priceSuggest?.rounding?.usd_step || "-"} · LBP step {priceSuggest?.rounding?.lbp_step || "-"}
+                  </>
+                }
+                mono
+              />
             </CardContent>
           </Card>
 
@@ -768,20 +778,21 @@ export default function ItemEditPage() {
                   ))}
                 </select>
 
-                <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-3 text-sm">
-                  <div className="text-xs font-medium text-fg-muted">Current Effective (This List)</div>
-                  <div className="mt-1 data-mono font-medium">
-                    {plEffective ? fmtUsdLbp(plEffective.price_usd, plEffective.price_lbp, { sep: " · " }) : "-"}
-                  </div>
-                  <div className="mt-1 text-xs text-fg-subtle">
-                    From: {plEffective?.effective_from ? String(plEffective.effective_from).slice(0, 10) : "-"}
-                    {plBusy ? " · loading..." : ""}
-                  </div>
-                </div>
+                <InlineMetric
+                  label="Current Effective (This List)"
+                  value={plEffective ? fmtUsdLbp(plEffective.price_usd, plEffective.price_lbp, { sep: " · " }) : "-"}
+                  hint={
+                    <>
+                      From: {plEffective?.effective_from ? String(plEffective.effective_from).slice(0, 10) : "-"}
+                      {plBusy ? " · loading..." : ""}
+                    </>
+                  }
+                  mono
+                />
               </div>
 
               <div className="md:col-span-2">
-                <form onSubmit={addPriceListOverride} className="grid gap-3 rounded-lg border border-border-subtle bg-bg-sunken/20 p-4">
+                <form onSubmit={addPriceListOverride} className="grid gap-3 border-t border-border-subtle pt-4">
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     <div className="space-y-1 md:col-span-1">
                       <label className="text-xs font-medium text-fg-muted">Effective From</label>
@@ -812,7 +823,7 @@ export default function ItemEditPage() {
                     </Button>
                   </div>
 
-                  <div className="pt-2 text-xs text-fg-subtle">
+                  <div className="text-xs text-fg-subtle">
                     Recent rows: {plItems.slice(0, 5).map((r) => `${String(r.effective_from).slice(0, 10)}=${Number(r.price_usd || 0).toFixed(2)}`).join(" · ") || "-"}
                   </div>
                 </form>
