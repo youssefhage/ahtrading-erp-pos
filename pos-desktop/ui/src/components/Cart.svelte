@@ -85,13 +85,13 @@
 <section class="glass-panel rounded-3xl flex flex-col h-full w-full overflow-hidden relative group/panel">
   <div class="absolute inset-0 bg-surface/40 pointer-events-none"></div>
   
-  <header class="relative p-5 border-b border-white/5 flex items-center justify-between shrink-0 z-10">
+  <header class="relative p-5 border-b border-ink/10 flex items-center justify-between shrink-0 z-10">
     <div class="flex items-center gap-3">
       <div class="h-8 w-1 rounded-full bg-accent shadow-[0_0_10px_rgba(45,212,191,0.5)]"></div>
       <h2 class="text-lg font-bold tracking-tight">Current Sale</h2>
     </div>
     <div class="flex items-center gap-3">
-      <span class="px-2.5 py-1 rounded-lg bg-surface-highlight border border-white/5 text-xs font-mono text-muted">{cart.length} items</span>
+      <span class="px-2.5 py-1 rounded-lg bg-surface-highlight border border-ink/10 text-xs font-mono text-muted">{cart.length} items</span>
       {#if cart.length > 0}
         <button 
           on:click={clearCart} 
@@ -106,7 +106,7 @@
   <div class="relative flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3 z-10">
     {#if cart.length === 0}
       <div class="h-full flex flex-col items-center justify-center text-muted/40 pb-10">
-        <div class="p-6 rounded-full bg-surface-highlight/30 mb-4 border border-white/5">
+        <div class="p-6 rounded-full bg-surface-highlight/30 mb-4 border border-ink/10">
           <svg class="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
           </svg>
@@ -118,7 +118,7 @@
       {#each cart as line, i (line.key || `${line.companyKey || "official"}|${line.id || ""}|${line.qty_factor || 1}|${line.uom || line.unit_of_measure || "pcs"}`)}
         {@const uomOpts = uomOptionsForLine(line) || []}
         {@const uomSel = findUomOpt(uomOpts, line)}
-        <div class="group relative grid grid-cols-[minmax(0,1fr)_120px_100px] gap-3 p-3.5 rounded-2xl bg-surface/40 hover:bg-surface/60 border border-white/5 hover:border-white/10 transition-all duration-200 shadow-sm hover:shadow-md">
+        <div class="group relative grid grid-cols-[minmax(0,1fr)_120px_100px] gap-3 p-3.5 rounded-2xl bg-surface/40 hover:bg-surface/60 border border-ink/10 hover:border-ink/15 transition-all duration-200 shadow-sm hover:shadow-md">
           
           <!-- Item Info -->
           <div class="min-w-0 pr-2">
@@ -135,7 +135,7 @@
                       ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
                       : companyToneForLine(line) === "unofficial"
                         ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
-                        : "bg-surface-highlight border-white/5 text-muted"
+                        : "bg-surface-highlight border-ink/10 text-muted"
                   }`}
                 >
                   {companyLabelForLine(line)}
@@ -148,7 +148,7 @@
                 {#if uomOpts.length > 1}
                   <div class="relative group/uom">
                     <select
-                      class="appearance-none pl-2 pr-6 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-surface-highlight/50 border border-white/5 hover:border-accent/30 text-ink/70 hover:text-accent cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-accent/50"
+                      class="appearance-none pl-2 pr-6 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-surface-highlight/50 border border-ink/10 hover:border-accent/30 text-ink/70 hover:text-accent cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-accent/50"
                       value={optValue(uomSel.opt || uomOpts[0])}
                       title={`Change UOM (${uomMetaText(uomOpts)})`}
                       on:change={(e) => {
@@ -166,7 +166,7 @@
                     </svg>
                   </div>
                 {:else}
-                   <span class="text-[10px] font-bold uppercase tracking-wider text-muted/60 px-2 py-0.5 rounded-md bg-surface-highlight/30 border border-white/5">
+                   <span class="text-[10px] font-bold uppercase tracking-wider text-muted/60 px-2 py-0.5 rounded-md bg-surface-highlight/30 border border-ink/10">
                       {lineUom(line)}
                    </span>
                 {/if}
@@ -182,10 +182,10 @@
           <!-- Controls & Price Column -->
           <div class="flex flex-col items-center justify-between gap-2 max-w-[120px]">
              <!-- Qty Control -->
-             <div class="flex items-center bg-surface-highlight/40 rounded-xl border border-white/5 p-0.5 w-full shadow-inner shadow-black/20">
+             <div class="flex items-center bg-surface-highlight/40 rounded-xl border border-ink/10 p-0.5 w-full shadow-inner shadow-black/20">
               <button
                 type="button"
-                class="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 transition-colors active:scale-90"
+                class="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-surface/40 transition-colors active:scale-90"
                 on:click={() => updateQty(i, toNum(line.qty_entered, 0) - 1)}
                 aria-label="Decrease quantity"
                 title="Decrease quantity"
@@ -205,7 +205,7 @@
 
               <button
                 type="button"
-                class="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 transition-colors active:scale-90"
+                class="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-surface/40 transition-colors active:scale-90"
                 on:click={() => updateQty(i, toNum(line.qty_entered, 0) + 1)}
                 aria-label="Increase quantity"
                 title="Increase quantity"

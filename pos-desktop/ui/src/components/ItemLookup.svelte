@@ -274,13 +274,13 @@
   <section class="glass-panel rounded-3xl flex flex-col overflow-hidden relative group/lookup-list">
     <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
     
-    <header class="relative z-10 p-5 shrink-0 border-b border-white/5">
+    <header class="relative z-10 p-5 shrink-0 border-b border-ink/10">
       <div class="flex items-center justify-between gap-3 mb-4">
         <div class="flex items-center gap-3">
           <div class="h-8 w-1 rounded-full bg-accent shadow-[0_0_10px_rgba(45,212,191,0.5)]"></div>
           <h2 class="text-lg font-bold tracking-tight">Item Lookup</h2>
         </div>
-        <div class="text-[10px] font-mono font-medium text-muted/60 bg-surface-highlight/50 px-2 py-1 rounded-lg border border-white/5">
+        <div class="text-[10px] font-mono font-medium text-muted/60 bg-surface-highlight/50 px-2 py-1 rounded-lg border border-ink/10">
           Type to search or scan
         </div>
       </div>
@@ -295,7 +295,7 @@
           bind:this={inputEl}
           bind:value={query}
           type="text"
-          class="block w-full pl-11 pr-4 py-3.5 rounded-xl bg-bg/50 border border-white/5 hover:border-white/10
+          class="block w-full pl-11 pr-4 py-3.5 rounded-xl bg-bg/50 border border-ink/10 hover:border-ink/15
                  text-ink placeholder-muted/60 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50
                  transition-all duration-200 shadow-inner shadow-black/20"
           placeholder="Search SKU, name, barcode..."
@@ -307,7 +307,7 @@
     <div class="relative z-10 flex-1 overflow-hidden">
       {#if !qn}
         <div class="h-full flex flex-col items-center justify-center text-muted/40 select-none pb-10">
-          <div class="p-6 rounded-full bg-surface-highlight/30 mb-4 border border-white/5">
+          <div class="p-6 rounded-full bg-surface-highlight/30 mb-4 border border-ink/10">
             <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
@@ -341,7 +341,7 @@
                   ? "border-accent/60 ring-1 ring-accent/30 bg-accent/10 shadow-[0_10px_30px_rgba(34,197,94,0.12)]"
                   : i === activeIndex
                     ? "border-accent/40 ring-1 ring-accent/20 bg-surface/55"
-                    : "border-transparent bg-surface/40 hover:bg-surface/60 hover:border-white/5"
+                    : "border-transparent bg-surface/40 hover:bg-surface/60 hover:border-ink/10"
               }`}
               on:mouseenter={() => activeIndex = i}
               on:focus={() => activeIndex = i}
@@ -361,10 +361,10 @@
                         </span>
                       {/if}
                       {#if it.barcode}
-                         <span class="font-mono text-xs opacity-70 bg-black/20 px-1.5 py-0.5 rounded">{it.barcode}</span>
+                         <span class="font-mono text-xs opacity-70 bg-surface/35 px-1.5 py-0.5 rounded">{it.barcode}</span>
                       {/if}
 	                    {#if it.track_batches || it.track_expiry}
-                        <span class="px-1.5 py-0.5 rounded border border-white/10 bg-surface-highlight/50 text-[9px] font-bold text-ink/70 uppercase tracking-wide">
+                        <span class="px-1.5 py-0.5 rounded border border-ink/15 bg-surface-highlight/50 text-[9px] font-bold text-ink/70 uppercase tracking-wide">
                           {it.track_batches ? "Batch" : ""}{it.track_batches && it.track_expiry ? "+" : ""}{it.track_expiry ? "Expiry" : ""}
                         </span>
                       {/if}
@@ -400,13 +400,13 @@
     
     {#if !selected}
       <div class="h-full flex flex-col items-center justify-center text-muted select-none opacity-60 z-10">
-        <div class="p-4 rounded-full bg-surface-highlight/30 mb-3 border border-white/5">
+        <div class="p-4 rounded-full bg-surface-highlight/30 mb-3 border border-ink/10">
            <svg class="w-8 h-8 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
         </div>
         <p class="text-sm font-medium">Select an item to view details</p>
       </div>
     {:else}
-      <header class="relative z-10 p-5 pb-4 border-b border-white/5">
+      <header class="relative z-10 p-5 pb-4 border-b border-ink/10">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <h3 class="text-xl font-extrabold tracking-tight leading-snug text-ink">{selected.name || "Unknown Item"}</h3>
@@ -414,7 +414,7 @@
               <span class={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${tonePill(selected)}`}>
                 {companyLabel(selected)}
               </span>
-              <div class="flex items-center gap-2 text-[11px] text-muted font-mono bg-black/20 px-2 py-0.5 rounded-md border border-white/5">
+              <div class="flex items-center gap-2 text-[11px] text-muted font-mono bg-surface/35 px-2 py-0.5 rounded-md border border-ink/10">
                 <span>{selected.sku || "NO SKU"}</span>
                 <span class="w-1 h-1 rounded-full bg-white/20"></span>
                 <span>{selected.id}</span>
@@ -426,7 +426,7 @@
         <div class="flex items-center gap-2 mt-4">
           <button
             type="button"
-            class="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-white/10 bg-surface-highlight/40 hover:bg-surface-highlight/60 text-ink transition-colors flex items-center justify-between group/uom-btn"
+            class="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-ink/15 bg-surface-highlight/40 hover:bg-surface-highlight/60 text-ink transition-colors flex items-center justify-between group/uom-btn"
             on:click={() => cycleUom(1)}
             title="Cycle UOM"
           >
@@ -451,7 +451,7 @@
 
       <div class="relative z-10 flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
         <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
+          <div class="rounded-2xl border border-ink/10 bg-surface-highlight/20 p-4">
             <div class="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-80">Pricing Structure</div>
             <div class="space-y-2.5 num-readable text-sm">
               <div class="flex items-center justify-between">
@@ -462,7 +462,7 @@
                 <span class="text-muted/60">Base Price</span>
                 <span class="font-medium text-ink/70">{fmtMoney(priceBase(selected), currencyPrimary)}</span>
               </div>
-              <div class="my-2 h-px bg-white/5 w-full"></div>
+              <div class="my-2 h-px bg-surface/40 w-full"></div>
               <div class="flex items-center justify-between text-xs">
                 <span class="text-muted/60">USD Equivalent</span>
                 <span class="font-medium text-emerald-400/80">{fmtMoney(withVat(selected.price_usd || 0), "USD")}</span>
@@ -470,20 +470,20 @@
             </div>
           </div>
 
-          <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
+          <div class="rounded-2xl border border-ink/10 bg-surface-highlight/20 p-4">
             <div class="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-80">Inventory Rules</div>
              <div class="space-y-3">
                 <div class="flex items-center justify-between">
                     <span class="text-xs text-muted/80">Base UOM</span>
-                    <span class="font-mono text-xs font-bold bg-white/5 px-2 py-0.5 rounded">{selected.unit_of_measure || "pcs"}</span>
+                    <span class="font-mono text-xs font-bold bg-surface/40 px-2 py-0.5 rounded">{selected.unit_of_measure || "pcs"}</span>
                 </div>
                 
                 <div class="grid grid-cols-2 gap-2">
-                   <div class={`px-2 py-1.5 rounded-lg border text-center ${selected.track_batches ? "border-emerald-500/20 bg-emerald-500/10" : "border-white/5 bg-white/5"}`}>
+                   <div class={`px-2 py-1.5 rounded-lg border text-center ${selected.track_batches ? "border-emerald-500/20 bg-emerald-500/10" : "border-ink/10 bg-surface/40"}`}>
                       <div class="text-[9px] font-bold uppercase tracking-wider text-muted">Batches</div>
                       <div class={`text-xs font-bold ${selected.track_batches ? "text-emerald-400" : "text-muted"}`}>{selected.track_batches ? "Active" : "Off"}</div>
                    </div>
-                   <div class={`px-2 py-1.5 rounded-lg border text-center ${selected.track_expiry ? "border-emerald-500/20 bg-emerald-500/10" : "border-white/5 bg-white/5"}`}>
+                   <div class={`px-2 py-1.5 rounded-lg border text-center ${selected.track_expiry ? "border-emerald-500/20 bg-emerald-500/10" : "border-ink/10 bg-surface/40"}`}>
                       <div class="text-[9px] font-bold uppercase tracking-wider text-muted">Expiry</div>
                       <div class={`text-xs font-bold ${selected.track_expiry ? "text-emerald-400" : "text-muted"}`}>{selected.track_expiry ? "Active" : "Off"}</div>
                    </div>
@@ -494,38 +494,38 @@
 
         <!-- Shelf Life Grid -->
         <div class="grid grid-cols-3 gap-2">
-             <div class="rounded-xl border border-white/5 bg-surface-highlight/10 p-3 text-center">
+             <div class="rounded-xl border border-ink/10 bg-surface-highlight/10 p-3 text-center">
                 <div class="text-[9px] font-bold uppercase tracking-wider text-muted/70 mb-1">Shelf Life</div>
                 <div class="font-mono text-sm font-bold">{toNum(selected.default_shelf_life_days, 0) || "—"}</div>
              </div>
-             <div class="rounded-xl border border-white/5 bg-surface-highlight/10 p-3 text-center">
+             <div class="rounded-xl border border-ink/10 bg-surface-highlight/10 p-3 text-center">
                 <div class="text-[9px] font-bold uppercase tracking-wider text-muted/70 mb-1">Min Days</div>
                 <div class="font-mono text-sm font-bold">{toNum(selected.min_shelf_life_days_for_sale, 0) || "—"}</div>
              </div>
-              <div class="rounded-xl border border-white/5 bg-surface-highlight/10 p-3 text-center">
+              <div class="rounded-xl border border-ink/10 bg-surface-highlight/10 p-3 text-center">
                 <div class="text-[9px] font-bold uppercase tracking-wider text-muted/70 mb-1">Warning</div>
                 <div class="font-mono text-sm font-bold text-amber-400">{toNum(selected.expiry_warning_days, 0) || "—"}</div>
              </div>
         </div>
 
-        <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
+        <div class="rounded-2xl border border-ink/10 bg-surface-highlight/20 p-4">
           <div class="flex items-center justify-between gap-3 mb-3">
             <div class="text-[10px] font-bold uppercase tracking-widest text-muted opacity-80">Barcodes</div>
-            <div class="text-[10px] text-muted font-mono bg-white/5 px-1.5 py-0.5 rounded">{(itemBarcodes(selected) || []).length} found</div>
+            <div class="text-[10px] text-muted font-mono bg-surface/40 px-1.5 py-0.5 rounded">{(itemBarcodes(selected) || []).length} found</div>
           </div>
           <div class="space-y-2">
             {#if (itemBarcodes(selected) || []).length === 0}
               <div class="text-xs text-muted italic p-2 text-center">No associated barcodes.</div>
             {:else}
               {#each itemBarcodes(selected) as b}
-                <div class="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-surface-highlight/30 px-3 py-2">
+                <div class="flex items-center justify-between gap-3 rounded-xl border border-ink/10 bg-surface-highlight/30 px-3 py-2">
                   <div class="min-w-0">
                     <div class="font-mono text-xs font-bold text-ink/90 truncate">{b.barcode}</div>
                     <div class="text-[10px] text-muted truncate mt-0.5">
                       {b.label || "Standard"}
                     </div>
                   </div>
-                  <div class="shrink-0 text-right text-[10px] text-muted font-mono bg-black/20 px-2 py-1 rounded">
+                  <div class="shrink-0 text-right text-[10px] text-muted font-mono bg-surface/35 px-2 py-1 rounded">
                     <div>{b.uom_code || selected.unit_of_measure || "pcs"}</div>
                     {#if toNum(b.qty_factor, 1) !== 1}<div class="text-accent">x{toNum(b.qty_factor, 1)}</div>{/if}
                   </div>
@@ -536,7 +536,7 @@
         </div>
 
         {#if selected.track_batches || selected.track_expiry}
-          <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
+          <div class="rounded-2xl border border-ink/10 bg-surface-highlight/20 p-4">
             <div class="flex items-center justify-between gap-3 mb-3">
               <div>
                 <div class="text-[10px] font-bold uppercase tracking-widest text-muted opacity-80">Batch Availability</div>
@@ -544,7 +544,7 @@
               </div>
               <button
                 type="button"
-                class="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-white/10 bg-surface-highlight/50 hover:bg-surface-highlight hover:text-white transition-colors disabled:opacity-50"
+                class="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-ink/15 bg-surface-highlight/50 hover:bg-surface-highlight hover:text-ink transition-colors disabled:opacity-50"
                 on:click={fetchBatches}
                 disabled={batchesLoading}
               >
@@ -555,9 +555,9 @@
             {#if batchesError}
               <div class="p-3 rounded-lg border border-red-500/20 bg-red-500/10 text-xs text-red-400 font-medium">{batchesError}</div>
             {:else if batches.length > 0}
-              <div class="overflow-x-auto rounded-xl border border-white/5">
+              <div class="overflow-x-auto rounded-xl border border-ink/10">
                 <table class="w-full text-xs text-left">
-                  <thead class="bg-white/5 text-muted uppercase tracking-wider font-bold text-[9px]">
+                  <thead class="bg-surface/40 text-muted uppercase tracking-wider font-bold text-[9px]">
                     <tr>
                       <th class="py-2 px-3">Batch</th>
                       <th class="py-2 px-3">Expiry</th>

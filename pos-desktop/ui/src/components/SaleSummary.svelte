@@ -52,7 +52,7 @@
       
       <div class="flex flex-col items-end gap-2">
          <select
-          class="bg-surface-highlight/50 border border-white/5 hover:border-accent/30 rounded-lg px-3 py-1.5 text-xs font-bold text-ink shadow-sm focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none text-right"
+          class="bg-surface-highlight/50 border border-ink/10 hover:border-accent/30 rounded-lg px-3 py-1.5 text-xs font-bold text-ink shadow-sm focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none text-right"
           value={invoiceCompanyMode}
           on:change={(e) => onInvoiceCompanyModeChange(e.target.value)}
           title="Invoice mode"
@@ -66,7 +66,7 @@
           <span class="text-muted group-hover/check:text-ink transition-colors text-[10px] uppercase font-bold tracking-wider">Flag Manual Review</span>
           <input
             type="checkbox"
-            class="accent-accent w-3.5 h-3.5 rounded border-white/10 bg-surface/50"
+            class="accent-accent w-3.5 h-3.5 rounded border-ink/15 bg-surface/50"
             checked={flagOfficial}
             on:change={(e) => onFlagOfficialChange(!!e.target.checked)}
           />
@@ -75,7 +75,7 @@
     </div>
 
     <!-- Route Info -->
-    <div class={`rounded-xl border px-4 py-3 text-xs transition-colors ${routeHint ? "border-amber-500/20 bg-amber-500/5" : "border-white/5 bg-surface-highlight/30"}`}>
+    <div class={`rounded-xl border px-4 py-3 text-xs transition-colors ${routeHint ? "border-amber-500/20 bg-amber-500/5" : "border-ink/10 bg-surface-highlight/30"}`}>
       <div class="flex items-center gap-2">
         <div class={`w-1.5 h-1.5 rounded-full ${routeHint ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`}></div>
         <div class="text-[10px] font-bold uppercase tracking-wider text-muted/80">Routing Strategy</div>
@@ -91,11 +91,11 @@
     <!-- Company Split Totals -->
     {#if totalsByCompany}
       <div class="grid grid-cols-2 gap-3">
-        <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-3 flex flex-col gap-1">
+        <div class="rounded-xl border border-ink/10 bg-surface-highlight/30 p-3 flex flex-col gap-1">
           <div class="text-[10px] font-bold uppercase tracking-wider text-muted">Official</div>
           <div class="num-readable font-bold text-ink text-lg">{fmtMoney(totalsByCompany.official?.totalUsd || 0, "USD")}</div>
         </div>
-        <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-3 flex flex-col gap-1">
+        <div class="rounded-xl border border-ink/10 bg-surface-highlight/30 p-3 flex flex-col gap-1">
           <div class="text-[10px] font-bold uppercase tracking-wider text-muted">Unofficial</div>
           <div class="num-readable font-bold text-ink text-lg">{fmtMoney(totalsByCompany.unofficial?.totalUsd || 0, "USD")}</div>
         </div>
