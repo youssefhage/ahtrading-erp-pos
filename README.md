@@ -6,6 +6,18 @@ This repo is an offline-first POS + ERP foundation for AH Trading (Lebanon), bui
 - A Next.js (App Router) admin ERP UI using shadcn/ui-style components
 - A lightweight POS desktop agent (Python + SQLite + static UI) for early pilots
 
+## Start Here
+- Team workspace guide: `docs/workspace-guide.md`
+- Documentation index: `docs/README.md`
+- System architecture: `docs/architecture.md`
+- API surface: `docs/specs/api-map.md`
+
+### Most edited paths
+- `pos-desktop/ui/src` shared POS UI (used by both web host and desktop wrapper)
+- `apps/pos-desktop` Tauri desktop wrapper and desktop release metadata
+- `backend/app` API + domain logic
+- `apps/admin` ERP web app (Next.js)
+
 ## Quickstart (Local Dev)
 Prereqs (recommended for non-Docker tooling):
 - Python 3.11 (see `.python-version`)
@@ -68,4 +80,3 @@ Details: `docs/deploy/onprem-onboarding.md`
 - Migrations + seeds are applied via `backend/scripts/init_db.sh`.
 - Master data is bootstrapped for usability (default warehouse, VAT code, account defaults).
 - For real deployments, review account defaults, exchange rate sources, and auth/session hardening.
-# ahtrading-erp-pos

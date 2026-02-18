@@ -3002,26 +3002,57 @@
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     // Global barcode scan capture (keyboard-wedge scanners often type fast chars + Enter).
-    // Captures scans even if focus isn't in the scan box, but avoids stealing normal typing.
+    // This intentionally works without requiring focus on the dedicated scan field.
     let buf = "";
     let lastAt = 0;
+    let startedAt = 0;
+    let maxGap = 0;
+    let charCount = 0;
     let clearTimer = null;
     const SCAN_INTER_KEY_RESET_MS = 180;
     const SCAN_BUFFER_TTL_MS = 450;
+    const SCAN_MAX_GAP_MS = 95;
+    const SCAN_MAX_DURATION_MS = 1200;
 
     const reset = () => {
       buf = "";
       lastAt = 0;
+      startedAt = 0;
+      maxGap = 0;
+      charCount = 0;
       if (clearTimer) {
         clearTimeout(clearTimer);
         clearTimer = null;
       }
     };
 
-    const isTextInput = (el) => {
+    const shouldAutoSelectInput = (el) => {
       const tag = (el?.tagName || "").toUpperCase();
-      if (tag === "INPUT" || tag === "TEXTAREA") return true;
-      return !!el?.isContentEditable;
+      if (tag !== "INPUT") return false;
+      if (!!el?.disabled || !!el?.readOnly) return false;
+      if (el?.getAttribute?.("data-no-autoselect") === "1") return false;
+      const t = String(el?.type || "text").toLowerCase();
+      return t === "text" || t === "search" || t === "tel" || t === "url" || t === "email" || t === "number" || t === "password";
+    };
+
+    const selectAll = (el) => {
+      if (!el || typeof el.select !== "function") return;
+      try { el.select(); } catch (_) {}
+    };
+
+    const onFocusIn = (e) => {
+      if (activeScreen !== "pos" && activeScreen !== "items") return;
+      const target = e?.target;
+      if (!shouldAutoSelectInput(target)) return;
+      requestAnimationFrame(() => selectAll(target));
+    };
+
+    const onClickCapture = (e) => {
+      if (activeScreen !== "pos" && activeScreen !== "items") return;
+      const target = e?.target;
+      if (!shouldAutoSelectInput(target)) return;
+      if (document.activeElement !== target) return;
+      requestAnimationFrame(() => selectAll(target));
     };
 
     const onKeyDown = (e) => {
@@ -3029,11 +3060,7 @@
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       const active = document.activeElement;
-      const focusedInText = isTextInput(active);
       const isScanField = !!active?.getAttribute?.("data-scan-input");
-
-      // Don't hijack normal typing in other fields (customer search, etc.).
-      if (focusedInText && !isScanField) return;
 
       if (e.key === "Enter" || e.key === "NumpadEnter") {
         // If the dedicated scan input is focused, let ProductGrid handle Enter.
@@ -3042,7 +3069,10 @@
           return;
         }
         const term = _normalizeScanCode(buf);
-        if (term && term.length >= 3) {
+        const duration = startedAt ? (Date.now() - startedAt) : 0;
+        const looksLikeScan = !!term && term.length >= 3 && charCount >= 3 && duration <= SCAN_MAX_DURATION_MS && maxGap <= SCAN_MAX_GAP_MS;
+        if (looksLikeScan) {
+          e.preventDefault();
           if (activeScreen === "items") {
             itemLookupQuery = term;
             itemLookupAutoPick++;
@@ -3062,13 +3092,23 @@
         const dt = lastAt ? (now - lastAt) : 0;
         // Allow occasional UI/render jitter without discarding a valid scan.
         if (dt && dt > SCAN_INTER_KEY_RESET_MS) buf = "";
+        if (!buf) {
+          startedAt = now;
+          maxGap = 0;
+          charCount = 0;
+        } else if (dt > 0) {
+          maxGap = Math.max(maxGap, dt);
+        }
         buf += e.key;
+        charCount += 1;
         lastAt = now;
         if (clearTimer) clearTimeout(clearTimer);
         clearTimer = setTimeout(reset, SCAN_BUFFER_TTL_MS);
       }
     };
 
+    document.addEventListener("focusin", onFocusIn, true);
+    document.addEventListener("click", onClickCapture, true);
     document.addEventListener("keydown", onKeyDown, true);
 
     return () => {
@@ -3079,6 +3119,8 @@
         _customerRemoteTimer = null;
       }
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      document.removeEventListener("focusin", onFocusIn, true);
+      document.removeEventListener("click", onClickCapture, true);
       document.removeEventListener("keydown", onKeyDown, true);
       reset();
     };

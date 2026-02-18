@@ -234,13 +234,14 @@
         {#each visible as item, i}
           {@const sel = getUomSelected(item)}
           {@const opts = getUomOptions(item)}
+          {@const isActive = i === activeIndex}
           <div
             role="button"
             tabindex="0"
             class={`group w-full flex items-center gap-3 rounded-xl border bg-surface/40 px-3 py-3 text-left cursor-pointer
                    hover:bg-surface/55 hover:border-accent/30 hover:shadow-lg hover:shadow-accent/5 transition-all duration-150
                    focus:outline-none focus:ring-2 focus:ring-accent/25
-                   ${i === activeIndex ? "border-accent/40 ring-1 ring-accent/25" : "border-ink/10"}`}
+                   ${isActive ? "border-accent/60 bg-accent/10 ring-2 ring-accent/30 shadow-[0_10px_30px_rgba(34,197,94,0.12)]" : "border-ink/10"}`}
             on:mouseenter={() => activeIndex = i}
             on:focus={() => activeIndex = i}
             on:click={() => addItem(item)}
@@ -250,11 +251,16 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-3 min-w-0">
                 <div class="min-w-0 flex-1">
-                  <div class={`clamp-2 text-ink ${nameSizeClass(item.name)}`}>{item.name || "Unknown Item"}</div>
-                  <div class="mt-1 text-[10px] font-mono text-muted group-hover:text-accent/80 transition-colors truncate">
+                  <div class={`clamp-2 ${nameSizeClass(item.name)} ${isActive ? "text-accent" : "text-ink"}`}>{item.name || "Unknown Item"}</div>
+                  <div class={`mt-1 text-[10px] font-mono transition-colors truncate ${isActive ? "text-accent/85" : "text-muted group-hover:text-accent/80"}`}>
                     {item.sku || "NO SKU"}
                   </div>
                 </div>
+                {#if isActive}
+                  <span class="px-2 py-1 rounded-full border border-accent/40 bg-accent/15 text-[10px] font-extrabold tracking-wide text-accent">
+                    Selected
+                  </span>
+                {/if}
               </div>
               {#if item.barcode}
                 <div class="mt-1 text-[11px] text-muted truncate">

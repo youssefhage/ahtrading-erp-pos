@@ -22,6 +22,8 @@
   let inputEl = null;
   let activeIndex = 0;
   let selected = null;
+  let autoPickHandled = 0;
+  let lastQuerySnapshot = "";
 
   let batchesLoading = false;
   let batchesError = "";
@@ -139,7 +141,32 @@
   })();
 
   $: if (results && results.length > 0 && activeIndex >= results.length) activeIndex = 0;
-  $: if (!qn) { activeIndex = 0; selected = null; batches = []; batchesError = ""; batchesKey = ""; uomIdx = 0; }
+  
+  const sameItem = (a, b) => {
+    if (!a || !b) return false;
+    return String(a?.id || "") === String(b?.id || "") && String(a?.companyKey || "") === String(b?.companyKey || "");
+  };
+
+  const isSelectedItem = (it) => sameItem(it, selected);
+
+  const clearSelection = ({ resetIndex = false } = {}) => {
+    selected = null;
+    batches = [];
+    batchesError = "";
+    batchesKey = "";
+    uomIdx = 0;
+    if (resetIndex) activeIndex = 0;
+  };
+
+  $: if (!qn) {
+    activeIndex = 0;
+    clearSelection({ resetIndex: false });
+  }
+
+  $: if (String(query || "") !== lastQuerySnapshot) {
+    lastQuerySnapshot = String(query || "");
+    clearSelection({ resetIndex: false });
+  }
 
   const ensureFocus = async () => {
     await tick();
@@ -149,14 +176,13 @@
   $: if (isActive) ensureFocus();
 
   const pick = (it) => {
-    selected = it;
-    batches = [];
-    batchesError = "";
-    batchesKey = "";
-    uomIdx = 0;
+    clearSelection({ resetIndex: false });
+    selected = it || null;
   };
 
-  $: if (autoPick) {
+  $: if (autoPick && autoPick !== autoPickHandled) {
+    autoPickHandled = autoPick;
+    clearSelection({ resetIndex: true });
     // autoPick increments; when it changes we attempt best-effort selection.
     if (qn) {
       let resolved = null;
@@ -289,12 +315,17 @@
           on:keydown={onListKeyDown}
         >
           {#each results as it, i}
+            {@const selectedInList = isSelectedItem(it)}
             <button
               type="button"
               role="option"
-              aria-selected={i === activeIndex}
+              aria-selected={selectedInList}
               class={`w-full text-left rounded-xl border px-3 py-3 transition-all duration-150 ${
-                i === activeIndex ? "border-accent/40 ring-1 ring-accent/25 bg-surface/55" : "border-ink/10 bg-surface/40 hover:bg-surface/55 hover:border-accent/20"
+                selectedInList
+                  ? "border-accent/65 ring-2 ring-accent/35 bg-accent/10 shadow-[0_10px_30px_rgba(34,197,94,0.12)]"
+                  : i === activeIndex
+                    ? "border-accent/40 ring-1 ring-accent/25 bg-surface/55"
+                    : "border-ink/10 bg-surface/40 hover:bg-surface/55 hover:border-accent/20"
               }`}
               on:mouseenter={() => activeIndex = i}
               on:focus={() => activeIndex = i}
@@ -303,11 +334,16 @@
               <div class="flex items-start gap-3">
 	                <div class="min-w-0 flex-1">
 	                  <div class="min-w-0">
-	                    <div class={`clamp-2 text-ink ${nameSizeClass(it.name)}`}>{it.name || "Unknown Item"}</div>
-	                    <div class="mt-1 text-[10px] font-mono text-muted truncate">{it.sku || "NO SKU"}</div>
+	                    <div class={`clamp-2 ${nameSizeClass(it.name)} ${selectedInList ? "text-accent" : "text-ink"}`}>{it.name || "Unknown Item"}</div>
+	                    <div class={`mt-1 text-[10px] font-mono truncate ${selectedInList ? "text-accent/85" : "text-muted"}`}>{it.sku || "NO SKU"}</div>
 	                  </div>
 	                  <div class="mt-1 flex items-center gap-2 text-[11px] text-muted">
 	                    {#if it.barcode}<span class="font-mono">{it.barcode}</span>{/if}
+                      {#if selectedInList}
+                        <span class="px-2 py-0.5 rounded-full border border-accent/45 bg-accent/15 text-[10px] font-extrabold text-accent">
+                          Selected
+                        </span>
+                      {/if}
 	                    {#if it.track_batches || it.track_expiry}
                       <span class="px-2 py-0.5 rounded-full border border-ink/10 bg-ink/5 text-[10px] font-bold">
                         {it.track_batches ? "Batch" : ""}{it.track_batches && it.track_expiry ? "+" : ""}{it.track_expiry ? "Expiry" : ""}

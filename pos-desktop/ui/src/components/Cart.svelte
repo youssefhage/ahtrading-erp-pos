@@ -74,6 +74,12 @@
     if (n <= 1) return "Single UOM";
     return `${n} options`;
   };
+
+  const selectField = (e) => {
+    const el = e?.currentTarget;
+    if (!el || typeof el.select !== "function") return;
+    try { el.select(); } catch (_) {}
+  };
 </script>
 
 <section class="glass-panel rounded-2xl p-0 flex flex-col h-full w-full overflow-hidden">
@@ -104,7 +110,7 @@
       {#each cart as line, i (line.key || `${line.companyKey || "official"}|${line.id || ""}|${line.qty_factor || 1}|${line.uom || line.unit_of_measure || "pcs"}`)}
         {@const uomOpts = uomOptionsForLine(line) || []}
         {@const uomSel = findUomOpt(uomOpts, line)}
-        <div class="group relative grid grid-cols-[minmax(0,1fr)_140px_150px_160px] items-center gap-3 p-3 rounded-2xl bg-surface/40 border border-ink/10 hover:bg-surface/60 transition-colors">
+        <div class="group relative grid grid-cols-[minmax(0,1fr)_140px_150px_160px] items-center gap-3 p-3 rounded-2xl bg-surface/40 border border-ink/10 hover:bg-surface/60 focus-within:bg-surface/70 focus-within:border-accent/45 focus-within:ring-2 focus-within:ring-accent/30 transition-colors">
           <!-- Item -->
           <div class="min-w-0">
             <h4 class={`leading-tight clamp-2 ${nameSizeClass(line.name)}`}>{line.name || "Unknown Item"}</h4>
@@ -145,6 +151,8 @@
                 value={line.qty_entered}
                 on:change={(e) => updateQty(i, e.target.value)}
                 on:keydown={(e) => e.key === "Enter" && e.currentTarget?.blur?.()}
+                on:focus={selectField}
+                on:click={selectField}
                 aria-label="Quantity"
               />
               <button

@@ -15,7 +15,7 @@ Important note:
 
 1. Install Rust toolchain (once): https://rustup.rs
 2. Install deps:
-   - `cd /Users/Youssef/oDocuments/Business/Codex POS/apps/setup-desktop`
+   - `cd apps/setup-desktop`
    - `npm i`
 3. Run:
    - `npm run dev`

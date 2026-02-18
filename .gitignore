@@ -1,6 +1,8 @@
 .DS_Store
+.cache/
 .codex/
 .worktrees/
+COMPLETE DATA PURCHASE MIGRATION/
 
 # Python
 __pycache__/
