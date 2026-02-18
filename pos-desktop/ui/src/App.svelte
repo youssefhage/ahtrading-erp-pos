@@ -181,6 +181,24 @@
     return v.trim();
   };
 
+  const _scanKeyVariants = (value) => {
+    const out = [];
+    const seen = new Set();
+    const push = (v) => {
+      const s = String(v || "").trim();
+      if (!s || seen.has(s)) return;
+      seen.add(s);
+      out.push(s);
+    };
+    const raw = String(value || "");
+    const norm = _normalizeScanCode(raw);
+    push(raw);
+    push(norm);
+    push(raw.toLowerCase());
+    push(norm.toLowerCase());
+    return out;
+  };
+
   // State
   let apiBase = normalizeApiBase(DEFAULT_API_BASE);
   let sessionToken = "";
@@ -434,11 +452,21 @@
   const _buildBarcodeIndex = (list) => {
     const m = new Map();
     for (const b of list || []) {
-      const key = (b?.barcode || "").trim();
-      if (!key) continue;
-      if (!m.has(key)) m.set(key, b);
+      const keys = _scanKeyVariants(b?.barcode || "");
+      if (!keys.length) continue;
+      for (const key of keys) {
+        if (!m.has(key)) m.set(key, b);
+      }
     }
     return m;
+  };
+
+  const _findBarcodeInIndex = (idx, code) => {
+    for (const key of _scanKeyVariants(code)) {
+      const hit = idx?.get(key);
+      if (hit) return hit;
+    }
+    return null;
   };
 
   const _buildItemsById = (list) => {
@@ -1677,7 +1705,7 @@
 
     const pick = (companyKey) => {
       const idx = companyKey === otherCompanyKey ? barcodeIndexOther : barcodeIndexOrigin;
-      const b = idx?.get(code);
+      const b = _findBarcodeInIndex(idx, code);
       if (!b) return null;
       const itemsById = companyKey === otherCompanyKey ? itemsByIdOther : itemsByIdOrigin;
       const item = itemsById?.get(String(b.item_id));
@@ -1731,6 +1759,29 @@
     return true;
   };
 
+  const addByExactSearchMatch = (term) => {
+    const key = _normalizeScanCode(term).toLowerCase();
+    if (!key) return false;
+    const exact = [];
+    for (const it of allItemsTagged || []) {
+      if (!it) continue;
+      const sku = String(it?.sku || "").trim().toLowerCase();
+      const barcode = String(it?.barcode || "").trim().toLowerCase();
+      if (sku === key || barcode === key) exact.push(it);
+    }
+    if (!exact.length) return false;
+    const available = Array.from(new Set(exact.map((it) => it?.companyKey).filter(Boolean)));
+    const companyKey = pickCompanyForAmbiguousMatch({
+      invoiceCompanyMode,
+      originCompanyKey,
+      cart,
+      availableCompanies: available,
+    });
+    const picked = exact.find((it) => it.companyKey === companyKey) || exact[0];
+    if (!picked) return false;
+    return addToCart(picked, { companyKey: picked.companyKey, qty_entered: 1 });
+  };
+
   const findMissingCompanyItems = (companyKey, lines) => findMissingCompanyItemsForCompany({
     companyKey,
     lines,
@@ -1740,15 +1791,11 @@
   });
 
   const handleScanKeyDown = (e) => {
-    if (e.key !== "Enter" && e.key !== "NumpadEnter") return false;
+    if (e.key !== "Enter" && e.key !== "NumpadEnter" && e.key !== "Tab") return false;
     e.preventDefault();
     const term = _normalizeScanCode(scanTerm);
     if (!term) return false;
-    if (addByBarcode(term)) {
-      scanTerm = "";
-      return true;
-    }
-    if (addBySkuExact(term)) {
+    if (addByBarcode(term) || addBySkuExact(term) || addByExactSearchMatch(term)) {
       scanTerm = "";
       return true;
     }
@@ -2054,12 +2101,12 @@
   };
 
   const resolveByTerm = (term) => {
-    const code = String(term || "").trim();
+    const code = _normalizeScanCode(term);
     if (!code) return null;
 
     const pick = (companyKey) => {
       const idx = companyKey === otherCompanyKey ? barcodeIndexOther : barcodeIndexOrigin;
-      const b = idx?.get(code);
+      const b = _findBarcodeInIndex(idx, code);
       if (!b) return null;
       const itemsById = companyKey === otherCompanyKey ? itemsByIdOther : itemsByIdOrigin;
       const item = itemsById?.get(String(b.item_id));
@@ -2100,6 +2147,25 @@
         availableCompanies: [a?.item?.companyKey, b?.item?.companyKey],
       });
       return companyKey === b.item.companyKey ? b : a;
+    }
+
+    // Final fallback: exact match against tagged items (primary barcode/SKU).
+    const exact = [];
+    for (const it of allItemsTagged || []) {
+      const sku = String(it?.sku || "").trim().toLowerCase();
+      const barcode = String(it?.barcode || "").trim().toLowerCase();
+      if (sku === key || barcode === key) exact.push(it);
+    }
+    if (exact.length) {
+      const available = Array.from(new Set(exact.map((it) => it?.companyKey).filter(Boolean)));
+      const companyKey = pickCompanyForAmbiguousMatch({
+        invoiceCompanyMode,
+        originCompanyKey,
+        cart,
+        availableCompanies: available,
+      });
+      const picked = exact.find((it) => it.companyKey === companyKey) || exact[0];
+      if (picked) return { b: null, item: { ...picked, companyKey: picked.companyKey } };
     }
     return null;
   };
@@ -3062,7 +3128,7 @@
       const active = document.activeElement;
       const isScanField = !!active?.getAttribute?.("data-scan-input");
 
-      if (e.key === "Enter" || e.key === "NumpadEnter") {
+      if (e.key === "Enter" || e.key === "NumpadEnter" || e.key === "Tab") {
         // If the dedicated scan input is focused, let ProductGrid handle Enter.
         if (isScanField) {
           reset();
@@ -3079,7 +3145,7 @@
           } else if (activeScreen === "pos") {
             // Attempt immediate add by barcode/SKU. Keep scanTerm for visibility.
             scanTerm = term;
-            const ok = addByBarcode(term) || addBySkuExact(term);
+            const ok = addByBarcode(term) || addBySkuExact(term) || addByExactSearchMatch(term);
             if (ok) scanTerm = "";
           }
         }

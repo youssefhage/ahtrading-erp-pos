@@ -153,7 +153,7 @@
       setUomIndex(it, idx);
       return;
     }
-    if (e.key === "Enter" || e.key === "NumpadEnter") {
+    if (e.key === "Enter" || e.key === "NumpadEnter" || e.key === "Tab") {
       // First allow the parent to treat this as barcode / exact SKU.
       const handled = (onScanKeyDown && onScanKeyDown(e) === true);
       if (handled) return;
