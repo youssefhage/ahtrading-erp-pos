@@ -171,21 +171,26 @@
   $: if (!scanTerm.trim()) activeIndex = 0;
 </script>
 
-<section class="glass-panel rounded-2xl p-4 flex flex-col h-full overflow-hidden">
-  <header class="mb-4">
-    <div class="flex items-center justify-between mb-2">
-      <h2 class="text-lg font-extrabold tracking-tight">Catalog</h2>
+<section class="glass-panel rounded-3xl flex flex-col h-full overflow-hidden relative group/catalog">
+  <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
+
+  <header class="relative z-10 p-5 shrink-0 border-b border-white/5">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-3">
+         <div class="h-8 w-1 rounded-full bg-accent shadow-[0_0_10px_rgba(45,212,191,0.5)]"></div>
+         <h2 class="text-lg font-bold tracking-tight">Catalog</h2>
+      </div>
       <div class="flex items-center gap-2">
-        <span class="text-xs font-medium text-muted bg-ink/5 px-2 py-1 rounded-lg border border-ink/10">
+        <span class="text-xs font-mono font-medium text-muted bg-surface-highlight/50 px-2.5 py-1 rounded-lg border border-white/5">
           {items.length} items
         </span>
         <button
-          class="h-9 w-9 rounded-xl border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors flex items-center justify-center"
+          class="h-8 w-8 rounded-lg border border-white/5 bg-surface-highlight/50 hover:bg-surface-highlight hover:border-white/10 transition-colors flex items-center justify-center text-muted hover:text-ink"
           on:click={collapseCatalog}
           title="Hide Catalog"
           aria-label="Hide Catalog"
         >
-          <svg class="w-4 h-4 text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
         </button>
@@ -193,44 +198,44 @@
     </div>
     
     <!-- Search -->
-    <div class="grid grid-cols-1 gap-2">
-      <div class="relative group">
-        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-          <svg class="h-5 w-5 text-muted group-focus-within:text-accent transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-        </div>
-        <input
-          bind:value={scanTerm}
-          type="text"
-          class="block w-full pl-10 pr-3 py-3 rounded-xl bg-bg/50 border border-ink/10 
-                 text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent
-                 transition-all duration-200"
-          placeholder="Scan barcode or type to search..."
-          data-scan-input="1"
-          on:keydown={onSearchKeyDown}
-        />
+    <div class="relative group">
+      <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
+        <svg class="h-5 w-5 text-muted group-focus-within:text-accent transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
       </div>
+      <input
+        bind:value={scanTerm}
+        type="text"
+        class="block w-full pl-11 pr-4 py-3.5 rounded-xl bg-bg/50 border border-white/5 hover:border-white/10
+               text-ink placeholder-muted/60 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50
+               transition-all duration-200 shadow-inner shadow-black/20"
+        placeholder="Scan barcode or type to search..."
+        data-scan-input="1"
+        on:keydown={onSearchKeyDown}
+      />
     </div>
   </header>
 
-  <div class="flex-1 overflow-hidden pr-1">
+  <div class="relative z-10 flex-1 overflow-hidden pr-1">
     {#if !scanTerm.trim()}
-      <div class="h-full flex flex-col items-center justify-center text-muted select-none">
-        <svg class="w-16 h-16 opacity-20 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-        <p>Start typing or scan to search</p>
+      <div class="h-full flex flex-col items-center justify-center text-muted/40 select-none pb-10">
+        <div class="p-6 rounded-full bg-surface-highlight/30 mb-4 border border-white/5">
+          <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+        <p class="font-medium tracking-wide">Start typing or scan to search</p>
       </div>
     {:else if suggestions.length === 0}
-      <div class="h-full flex flex-col items-center justify-center text-muted select-none">
-        <p>No matches found</p>
-        <button class="mt-4 text-accent hover:text-accent-hover text-sm font-medium" on:click={() => scanTerm = ""}>
+      <div class="h-full flex flex-col items-center justify-center text-muted select-none pb-10">
+        <p class="font-medium">No matches found</p>
+        <button class="mt-4 text-accent hover:text-accent-hover text-sm font-bold tracking-wide" on:click={() => scanTerm = ""}>
           Clear search
         </button>
       </div>
     {:else}
-      <div class="space-y-2">
+      <div class="p-3 space-y-2 overflow-y-auto h-full custom-scrollbar">
         {#each visible as item, i}
           {@const sel = getUomSelected(item)}
           {@const opts = getUomOptions(item)}
@@ -238,10 +243,13 @@
           <div
             role="button"
             tabindex="0"
-            class={`group w-full flex items-center gap-3 rounded-xl border bg-surface/40 px-3 py-3 text-left cursor-pointer
-                   hover:bg-surface/55 hover:border-accent/30 hover:shadow-lg hover:shadow-accent/5 transition-all duration-150
-                   focus:outline-none focus:ring-2 focus:ring-accent/25
-                   ${isActive ? "border-accent/60 bg-accent/10 ring-2 ring-accent/30 shadow-[0_10px_30px_rgba(34,197,94,0.12)]" : "border-ink/10"}`}
+            class={`group w-full flex items-center gap-3.5 rounded-2xl border px-3.5 py-3 text-left cursor-pointer
+                   transition-all duration-150
+                   focus:outline-none focus:ring-2 focus:ring-accent/40
+                   ${isActive 
+                      ? "border-accent/40 bg-accent/5 ring-1 ring-accent/20 shadow-lg shadow-accent/5" 
+                      : "border-transparent bg-surface/40 hover:bg-surface/60 hover:border-white/5 hover:shadow-md"
+                   }`}
             on:mouseenter={() => activeIndex = i}
             on:focus={() => activeIndex = i}
             on:click={() => addItem(item)}
@@ -251,30 +259,37 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-3 min-w-0">
                 <div class="min-w-0 flex-1">
-                  <div class={`clamp-2 ${nameSizeClass(item.name)} ${isActive ? "text-accent" : "text-ink"}`}>{item.name || "Unknown Item"}</div>
-                  <div class={`mt-1 text-[10px] font-mono transition-colors truncate ${isActive ? "text-accent/85" : "text-muted group-hover:text-accent/80"}`}>
-                    {item.sku || "NO SKU"}
+                  <div class={`clamp-2 leading-tight transition-colors duration-200 ${nameSizeClass(item.name)} ${isActive ? "text-accent" : "text-ink"}`}>{item.name || "Unknown Item"}</div>
+                  <div class="mt-1 flex items-center gap-2">
+                     <span class={`text-[10px] font-mono tracking-wider transition-colors truncate ${isActive ? "text-accent/85" : "text-muted group-hover:text-ink/60"}`}>
+                      {item.sku || "NO SKU"}
+                    </span>
+                    {#if companyLabel(item)}
+                      <span class={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${tonePill(item)}`}>
+                        {companyLabel(item)}
+                      </span>
+                    {/if}
                   </div>
                 </div>
                 {#if isActive}
-                  <span class="px-2 py-1 rounded-full border border-accent/40 bg-accent/15 text-[10px] font-extrabold tracking-wide text-accent">
+                  <span class="shrink-0 px-2 py-1 rounded-lg border border-accent/30 bg-accent/10 text-[10px] font-extrabold tracking-wide text-accent shadow-[0_0_10px_rgba(45,212,191,0.2)]">
                     Selected
                   </span>
                 {/if}
               </div>
               {#if item.barcode}
-                <div class="mt-1 text-[11px] text-muted truncate">
-                  Barcode: {item.barcode}
+                <div class="mt-1.5 text-[10px] text-muted/60 truncate font-mono">
+                  {item.barcode}
                 </div>
               {/if}
             </div>
 
-            <div class="flex items-center gap-2 shrink-0">
+            <div class="flex items-center gap-3 shrink-0">
               {#if sel}
                 {#if opts.length > 2}
-                  <div class="relative">
+                  <div class="relative group/uom">
                     <select
-                      class="appearance-none pl-2 pr-7 py-1 rounded-full text-[10px] font-extrabold tracking-wide border bg-ink/5 border-ink/10 hover:bg-ink/10 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/25"
+                      class="appearance-none pl-2.5 pr-7 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-white/5 hover:border-accent/30 hover:text-accent transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/25"
                       title="UOM (dropdown)"
                       value={optValue(sel)}
                       on:change|stopPropagation={(e) => {
@@ -289,7 +304,7 @@
                       {/each}
                     </select>
                     <svg
-                      class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted"
+                      class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted group-hover/uom:text-accent"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -301,7 +316,7 @@
                 {:else}
                   <button
                     type="button"
-                    class="px-2 py-1 rounded-full text-[10px] font-extrabold tracking-wide border bg-ink/5 border-ink/10 hover:bg-ink/10 transition-colors"
+                    class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-white/5 hover:border-accent/30 hover:text-accent transition-colors"
                     title={opts.length > 1 ? "UOM (tap to toggle, U to cycle, 1-9 to select)" : "UOM"}
                     on:click|stopPropagation={() => cycleUom(item, 1)}
                   >
@@ -309,24 +324,27 @@
                   </button>
                 {/if}
               {/if}
-              {#if companyLabel(item)}
-                <span class={`px-2 py-1 rounded-full text-[10px] font-bold tracking-wide border ${tonePill(item)}`}>
-                  {companyLabel(item)}
-                </span>
-              {/if}
-              <div class="text-right leading-tight">
-                <div class="font-extrabold text-sm text-ink num-readable">
+
+              <div class="text-right leading-none">
+                <div class="font-bold text-sm text-ink num-readable tracking-tight">
                   {fmtMoney(afterVatPrice(item), currencyPrimary)}
                 </div>
-                <div class="text-[10px] text-emerald-300">After VAT</div>
-                <div class="text-[10px] text-muted num-readable">
-                  {fmtMoney(basePrice(item), currencyPrimary)} before
+                <!-- <div class="text-[9px] text-emerald-400 mt-0.5 font-medium">Net</div> -->
+                <div class="text-[9px] text-muted num-readable mt-0.5 opacity-70">
+                  {fmtMoney(basePrice(item), currencyPrimary)} <span class="text-[8px] uppercase">pre-vat</span>
                 </div>
               </div>
-              <span class="w-8 h-8 rounded-xl bg-ink/5 border border-ink/10 flex items-center justify-center text-accent
-                           group-hover:bg-accent/15 group-hover:border-accent/30 transition-colors">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              
+              <span
+                class={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
+                  isActive 
+                    ? "bg-accent text-white shadow-lg shadow-accent/40 scale-105" 
+                    : "bg-surface-highlight/50 text-muted hover:bg-white/10 hover:text-ink"
+                }`}
+                aria-hidden="true"
+              >
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
                 </svg>
               </span>
             </div>
@@ -334,13 +352,13 @@
         {/each}
 
         {#if suggestions.length > MAX_RESULTS}
-          <div class="mt-2 text-xs text-muted bg-ink/5 border border-ink/10 rounded-xl px-3 py-2">
-            Showing top {MAX_RESULTS} results. Refine your search or scan the barcode.
+          <div class="mt-2 text-xs text-center text-muted py-2 opacity-70">
+            Showing top {MAX_RESULTS} results. Keep typing...
           </div>
         {/if}
 
-        <div class="mt-1 text-[11px] text-muted flex items-center justify-between select-none">
-          <span>Arrows: select</span>
+        <div class="mt-2 pt-2 border-t border-white/5 text-[10px] text-muted/50 flex items-center justify-between select-none font-mono">
+          <span>Arrows: navigate</span>
           <span>Enter: add</span>
           <span>U: cycle UOM</span>
         </div>

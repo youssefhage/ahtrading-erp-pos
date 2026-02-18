@@ -1,38 +1,68 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Space+Grotesk:wght@500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap");
 @import "tailwindcss";
 
 @layer theme {
   :root {
     color-scheme: dark;
     /* Tokens are RGB triplets (space-separated) for Tailwind alpha support. */
-    --color-bg: 15 23 42;          /* #0f172a */
-    --color-surface: 30 41 59;     /* #1e293b */
-    --color-muted: 100 116 139;    /* #64748b */
-    --color-accent: 6 182 212;     /* #06b6d4 */
-    --color-accent-hover: 8 145 178; /* #0891b2 */
-    --color-ink: 248 250 252;      /* #f8fafc */
-    --font-sans: "Manrope", "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+    --color-bg: 10 10 12;
+    /* #0a0a0c - Deeper, richer black */
+    --color-surface: 24 24 27;
+    /* #18181b - Zinc 900 */
+    --color-surface-highlight: 39 39 42;
+    /* #27272a - Zinc 800 */
+    --color-muted: 113 113 122;
+    /* #71717a - Zinc 500 */
+    --color-border: 63 63 70;
+    /* #3f3f46 - Zinc 700 */
 
-    --glass-surface-pct: 72%;
-    --glass-panel-pct: 48%;
-    --glass-popover-pct: 90%;
-    --glass-border-pct: 12%;
+    --color-accent: 45 212 191;
+    /* #2dd4bf - Teal 400 */
+    --color-accent-hover: 20 184 166;
+    /* #14b8a6 - Teal 500 */
+    --color-accent-content: 0 0 0;
+    /* Text on accent */
+
+    --color-ink: 250 250 250;
+    /* #fafafa - Zinc 50 */
+    --color-ink-muted: 161 161 170;
+    /* #a1a1aa - Zinc 400 */
+
+    --font-sans: "Manrope", "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", "IBM Plex Mono", "SF Mono", "Consolas", monospace;
+
+    /* Glassmorphism Variables */
+    --glass-blur: 16px;
+    --glass-surface-opacity: 0.7;
+    --glass-border-opacity: 0.1;
   }
 
   :root[data-theme="light"] {
     color-scheme: light;
-    /* Warm, readable light theme (not pure white everywhere). */
-    --color-bg: 241 245 251;
-    --color-surface: 251 253 255;
-    --color-muted: 78 92 114;
-    --color-accent: 12 148 136;
-    --color-accent-hover: 10 122 113;
-    --color-ink: 23 36 54;
+    --color-bg: 248 250 252;
+    /* #f8fafc - Slate 50 */
+    --color-surface: 255 255 255;
+    /* White */
+    --color-surface-highlight: 241 245 249;
+    /* #f1f5f9 - Slate 100 */
+    --color-muted: 100 116 139;
+    /* #64748b - Slate 500 */
+    --color-border: 226 232 240;
+    /* #e2e8f0 - Slate 200 */
 
-    --glass-surface-pct: 93%;
-    --glass-panel-pct: 97%;
-    --glass-popover-pct: 99%;       /* prioritize legibility in dropdowns */
-    --glass-border-pct: 11%;
+    --color-accent: 15 118 110;
+    /* #0f766e - Teal 700 */
+    --color-accent-hover: 17 94 89;
+    /* #115e59 - Teal 800 */
+    --color-accent-content: 255 255 255;
+
+    --color-ink: 15 23 42;
+    /* #0f172a - Slate 900 */
+    --color-ink-muted: 71 85 105;
+    /* #475569 - Slate 600 */
+
+    --glass-surface-opacity: 0.85;
+    --glass-border-opacity: 0.08;
   }
 }
 
@@ -41,41 +71,77 @@
     @apply antialiased;
     font-family: var(--font-sans);
     background-color: rgb(var(--color-bg));
-    /* Subtle "atmosphere" so the UI doesn't feel flat (esp. light theme). */
-    background-image:
-      radial-gradient(1200px 700px at 10% -20%, rgb(var(--color-accent) / 0.16), transparent 60%),
-      radial-gradient(900px 600px at 110% 10%, rgb(var(--color-ink) / 0.08), transparent 55%);
-    background-attachment: fixed;
     color: rgb(var(--color-ink));
+
+    /* Subtle unified background pattern */
+    background-image:
+      radial-gradient(circle at 50% 0%, rgb(var(--color-accent) / 0.03), transparent 40%),
+      radial-gradient(circle at 100% 100%, rgb(var(--color-surface-highlight) / 0.05), transparent 40%);
+    background-attachment: fixed;
+
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
-  :root[data-theme="light"] body {
-    background-image:
-      radial-gradient(1100px 650px at 8% -18%, rgb(var(--color-accent) / 0.12), transparent 62%),
-      radial-gradient(900px 600px at 110% 10%, rgb(var(--color-ink) / 0.04), transparent 58%),
-      linear-gradient(to bottom, rgb(var(--color-surface) / 0.6), transparent 25%);
+  /* Tailwind v4 doesn't reliably support `selection:*` inside `@apply`. */
+  ::selection {
+    background: rgb(var(--color-accent) / 0.20);
+    color: rgb(var(--color-ink));
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: "Space Grotesk", var(--font-sans);
+    letter-spacing: -0.02em;
   }
 }
 
 @layer utilities {
+
+  /* Premium Glass Effect */
   .glass {
-    @apply backdrop-blur-xl border;
-    background-color: color-mix(in oklab, rgb(var(--color-surface)) var(--glass-surface-pct), transparent);
-    border-color: color-mix(in oklab, rgb(var(--color-ink)) var(--glass-border-pct), transparent);
+    @apply backdrop-blur-xl border border-white/10 shadow-sm transition-colors duration-200;
+    background-color: rgb(var(--color-surface) / var(--glass-surface-opacity));
+    border-color: rgb(var(--color-ink) / var(--glass-border-opacity));
+  }
+
+  .glass:hover {
+    border-color: rgb(var(--color-ink) / calc(var(--glass-border-opacity) * 1.5));
   }
 
   .glass-panel {
-    @apply backdrop-blur-2xl border shadow-2xl;
-    background-color: color-mix(in oklab, rgb(var(--color-surface)) var(--glass-panel-pct), transparent);
-    border-color: color-mix(in oklab, rgb(var(--color-ink)) calc(var(--glass-border-pct) - 2%), transparent);
+    @apply backdrop-blur-2xl border border-white/5 shadow-2xl;
+    background-color: rgb(var(--color-surface) / 0.6);
+    border-color: rgb(var(--color-ink) / 0.08);
   }
 
-  /* For popovers/dropdowns: keep the glass vibe but prioritize legibility. */
+  /* Popovers need higher contrast and less transparency */
   .glass-popover {
-    @apply backdrop-blur-2xl border shadow-2xl;
-    background-color: color-mix(in oklab, rgb(var(--color-surface)) var(--glass-popover-pct), transparent);
-    border-color: color-mix(in oklab, rgb(var(--color-ink)) calc(var(--glass-border-pct) + 2%), transparent);
+    @apply backdrop-blur-2xl border shadow-xl rounded-xl;
+    background-color: rgb(var(--color-surface) / 0.95);
+    border-color: rgb(var(--color-border) / 0.5);
+  }
+
+  /* Scrollbar Styling */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
   }
 
   .no-scrollbar::-webkit-scrollbar {
@@ -87,18 +153,31 @@
     scrollbar-width: none;
   }
 
-  /* Simple 2-line clamp utility (avoid relying on optional tailwind plugins). */
-  .clamp-2 {
+  /* Typography Utilities */
+  .clamp-1 {
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
 
-  /* Numeric readability: clearer zeros + aligned columns for POS totals/qty. */
+  .clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
   .num-readable {
-    font-family: "JetBrains Mono", "IBM Plex Mono", "SF Mono", "Cascadia Mono", "Menlo", "Consolas", monospace;
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
-    font-feature-settings: "zero" 1, "tnum" 1;
+    letter-spacing: -0.01em;
+  }
+
+  /* Animation Utilities */
+  .interactive-hover {
+    @apply transition-all duration-200 active:scale-[0.98];
   }
 }

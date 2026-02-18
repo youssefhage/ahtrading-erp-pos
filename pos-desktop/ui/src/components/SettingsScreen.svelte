@@ -100,10 +100,10 @@
   }
 
   const pillTone = (kind) => {
-    if (kind === "ok") return "bg-emerald-500/10 border-emerald-500/25 text-ink/80";
-    if (kind === "warn") return "bg-amber-500/10 border-amber-500/25 text-ink/80";
-    if (kind === "bad") return "bg-red-500/10 border-red-500/25 text-ink/80";
-    return "bg-ink/5 border-ink/10 text-muted";
+    if (kind === "ok") return "bg-emerald-500/10 border-emerald-500/25 text-emerald-400";
+    if (kind === "warn") return "bg-amber-500/10 border-amber-500/25 text-amber-400";
+    if (kind === "bad") return "bg-red-500/10 border-red-500/25 text-red-400";
+    return "bg-white/5 border-white/10 text-muted";
   };
 
   const summarizeEdge = (st) => {
@@ -526,117 +526,117 @@
   };
 </script>
 
-<div class="h-full w-full overflow-hidden grid grid-cols-1 xl:grid-cols-[minmax(520px,720px)_1fr] gap-6">
+<div class="h-full w-full overflow-hidden grid grid-cols-1 xl:grid-cols-[minmax(520px,720px)_1fr] gap-6 p-1">
   <!-- Left column: how it works + other agent -->
-  <section class="glass-panel rounded-2xl p-4 overflow-hidden flex flex-col">
-    <header class="pb-3 border-b border-ink/10">
-      <h2 class="text-lg font-extrabold tracking-tight">Settings</h2>
-      <p class="text-sm text-muted mt-1">
-        The POS UI talks to local agents. Each agent syncs to either On-Prem Edge or Cloud via <span class="font-mono">api_base_url</span>.
+  <section class="glass-panel rounded-[2rem] p-6 overflow-hidden flex flex-col gap-6 relative group/settings">
+    <div class="absolute inset-0 bg-surface/30 pointer-events-none rounded-[2rem]"></div>
+    
+    <header class="relative z-10 shrink-0 border-b border-white/5 pb-4">
+      <h2 class="text-2xl font-bold tracking-tight text-white mb-2">Settings</h2>
+      <p class="text-sm text-muted/80 leading-relaxed max-w-lg">
+        The POS UI talks to local agents. Each agent syncs to either On-Prem Edge or Cloud via <span class="font-mono text-accent bg-accent/10 px-1 py-0.5 rounded text-xs">api_base_url</span>.
       </p>
     </header>
 
-    <div class="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-4 pt-4">
+    <div class="relative z-10 flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-6">
       {#if err}
-        <div class="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-red-400 text-sm">{err}</div>
+        <div class="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-300 text-sm font-medium animate-pulse">Error: {err}</div>
       {/if}
       {#if notice}
-        <div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-ink/80 text-sm">{notice}</div>
+        <div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-300 text-sm font-medium">{notice}</div>
       {/if}
 
-      <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-        <div class="flex items-center justify-between gap-4">
+      <div class="glass-panel rounded-xl p-5 border border-white/5 bg-surface/20">
+        <div class="flex items-center justify-between gap-4 mb-4">
           <div>
-            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Unified Mode</div>
-            <div class="text-sm mt-1">
+            <div class="text-[10px] font-bold uppercase tracking-[0.2em] text-muted mb-1">Unified Mode</div>
+            <div class="text-sm text-ink/90 leading-snug max-w-md">
               {#if isWebSetupMode}
-                Browser setup uses cloud connections for both companies. Other Agent URL is not required here.
+                Browser setup uses cloud connections for both companies. Other Agent URL is not required.
               {:else}
-                Desktop uses cloud setup by default. Other Agent URL is optional and only needed if you run a second local agent.
+                Desktop uses cloud setup by default. Other Agent URL is optional.
               {/if}
             </div>
           </div>
-          <div class={`px-3 py-2 rounded-full border text-xs font-extrabold ${pillTone(dualOnboardingEnabled ? "ok" : "warn")}`}>
+          <div class={`px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider ${pillTone(dualOnboardingEnabled ? "ok" : "warn")}`}>
             {dualOnboardingEnabled ? (unofficialStatus || "Enabled") : "Disabled"}
           </div>
         </div>
 
         {#if !isWebSetupMode}
-          <div class="mt-4">
-            <label class="text-xs text-muted" for="other-agent-url-settings">Other Agent URL (optional, advanced)</label>
-            <input
-              id="other-agent-url-settings"
-              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-              placeholder="http://127.0.0.1:7072"
-              bind:value={otherAgentDraftUrl}
-            />
-            <div class="mt-2 text-[11px] text-muted">
-              Leave blank to keep secondary company on cloud mode.
-            </div>
-            <div class="mt-3 flex items-center justify-between gap-3">
-              <div class="text-[11px] text-muted">
-                Current: <span class="font-mono">{normalizeUrl(otherAgentUrl) || "—"}</span>
-              </div>
+          <div class="pt-4 border-t border-white/5">
+            <label class="text-xs font-bold text-muted uppercase tracking-wide mb-2 block" for="other-agent-url-settings">Other Agent URL</label>
+            <div class="flex gap-2">
+              <input
+                id="other-agent-url-settings"
+                class="flex-1 bg-black/20 border border-white/10 rounded-xl px-4 py-3 font-mono text-xs focus:ring-2 focus:ring-accent/50 focus:border-accent/50 focus:outline-none transition-all placeholder-muted/30 text-ink"
+                placeholder="http://127.0.0.1:7072"
+                bind:value={otherAgentDraftUrl}
+              />
               <button
                 type="button"
-                class="px-4 py-2 rounded-xl bg-accent/20 text-accent border border-accent/30 text-xs font-extrabold hover:bg-accent/30 transition-colors disabled:opacity-60"
+                class="px-4 py-2 rounded-xl bg-accent/20 text-accent border border-accent/30 text-xs font-bold hover:bg-accent/30 hover:border-accent/40 transition-colors disabled:opacity-60 whitespace-nowrap"
                 on:click={saveOtherAgent}
                 disabled={busy}
               >
-                Save Other Agent
+                Save
               </button>
+            </div>
+            <div class="mt-2 flex items-center justify-between text-[10px] text-muted/60">
+              <span>Current: <span class="font-mono text-ink/70">{normalizeUrl(otherAgentUrl) || "—"}</span></span>
+              <span>Leave blank to keep secondary company on cloud mode.</span>
             </div>
           </div>
         {/if}
       </div>
 
-      <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-        <div class="flex items-start justify-between gap-3">
+      <div class="glass-panel rounded-xl p-5 border border-white/5 bg-surface/20">
+        <div class="flex items-start justify-between gap-3 mb-4">
           <div>
-            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Express Onboarding</div>
-            <div class="mt-1 text-sm text-ink/90">
-              Log in once, pick company and POS from dropdowns, and auto-connect both agents.
+            <div class="text-[10px] font-bold uppercase tracking-[0.2em] text-muted mb-1">Express Onboarding</div>
+            <div class="text-sm text-ink/90 leading-snug">
+              Log in once, pick company and POS, and auto-connect both agents.
             </div>
           </div>
-          <div class={`px-3 py-1 rounded-full border text-[11px] font-extrabold ${pillTone(setupToken ? "ok" : (setupMfaToken ? "warn" : "neutral"))}`}>
-            {setupToken ? "Connected" : (setupMfaToken ? "MFA" : "Not connected")}
+          <div class={`px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider ${pillTone(setupToken ? "ok" : (setupMfaToken ? "warn" : "neutral"))}`}>
+            {setupToken ? "Connected" : (setupMfaToken ? "MFA Required" : "Not Connected")}
           </div>
         </div>
 
         {#if setupErr}
-          <div class="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">{setupErr}</div>
+          <div class="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300 font-mono">{setupErr}</div>
         {/if}
         {#if setupNotice}
-          <div class="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-ink/80">{setupNotice}</div>
+          <div class="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-300 font-mono">{setupNotice}</div>
         {/if}
 
-        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="md:col-span-2">
-            <label class="text-xs text-muted" for="setup_api_base_url">Cloud API URL</label>
+            <label class="text-[10px] font-bold text-muted uppercase tracking-wide mb-1.5 block" for="setup_api_base_url">Cloud API URL</label>
             <input
               id="setup_api_base_url"
-              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
+              class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-2.5 font-mono text-xs focus:ring-2 focus:ring-accent/50 focus:border-accent/50 focus:outline-none transition-all placeholder-muted/30 text-ink"
               placeholder="https://app.melqard.com/api"
               bind:value={setupApiBase}
               disabled={setupBusy}
             />
           </div>
           <div>
-            <label class="text-xs text-muted" for="setup_email">Email</label>
+            <label class="text-[10px] font-bold text-muted uppercase tracking-wide mb-1.5 block" for="setup_email">Email</label>
             <input
               id="setup_email"
-              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
+              class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-accent/50 focus:border-accent/50 focus:outline-none transition-all placeholder-muted/30 text-ink"
               placeholder="name@company.com"
               bind:value={setupEmail}
               disabled={setupBusy || !!setupToken}
             />
           </div>
           <div>
-            <label class="text-xs text-muted" for="setup_password">Password</label>
+            <label class="text-[10px] font-bold text-muted uppercase tracking-wide mb-1.5 block" for="setup_password">Password</label>
             <input
               id="setup_password"
               type="password"
-              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
+              class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-accent/50 focus:border-accent/50 focus:outline-none transition-all placeholder-muted/30 text-ink"
               placeholder="••••••••"
               bind:value={setupPassword}
               disabled={setupBusy || !!setupToken}
@@ -644,10 +644,10 @@
           </div>
         </div>
 
-        <div class="mt-3 flex flex-wrap gap-2">
+        <div class="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            class="px-4 py-2 rounded-xl text-xs font-semibold border border-accent/30 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
+            class="px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide border border-accent/30 bg-accent/20 text-accent hover:bg-accent/30 hover:border-accent/50 hover:shadow-lg hover:shadow-accent/10 transition-all disabled:opacity-50 disabled:pointer-events-none"
             on:click={runSetupLogin}
             disabled={setupBusy || !!setupToken}
           >
@@ -655,7 +655,7 @@
           </button>
           <button
             type="button"
-            class="px-4 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
+            class="px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide border border-white/10 bg-white/5 text-muted hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
             on:click={() => { resetSetupSession(); setupErr = ""; setupNotice = ""; }}
             disabled={setupBusy}
           >
@@ -664,16 +664,16 @@
         </div>
 
         {#if setupMfaToken}
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+          <div class="mt-4 pt-4 border-t border-white/5 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
             <input
-              class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-              placeholder="MFA code"
+              class="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-2.5 font-mono text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none placeholder-muted/30 text-ink"
+              placeholder="Enter MFA code"
               bind:value={setupMfaCode}
               disabled={setupBusy}
             />
             <button
               type="button"
-              class="px-4 py-3 rounded-xl text-xs font-semibold border border-accent/30 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
+              class="px-6 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wide border border-accent/30 bg-accent/20 text-accent hover:bg-accent/30 transition-all disabled:opacity-50"
               on:click={runSetupVerifyMfa}
               disabled={setupBusy}
             >
@@ -683,76 +683,21 @@
         {/if}
 
         {#if setupToken}
-          <div class="mt-4 rounded-xl border border-ink/10 bg-bg/35 p-3 space-y-3">
-            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Official</div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label class="text-xs text-muted" for="setup_off_company">Company</label>
-                <select
-                  id="setup_off_company"
-                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                  bind:value={setupCompanyOfficial}
-                  on:change={() => refreshSetupCompany("official")}
-                  disabled={setupBusy}
-                >
-                  <option value="">Select company...</option>
-                  {#each setupCompanyOptions as c}
-                    <option value={c.id}>{c.label}</option>
-                  {/each}
-                </select>
+          <div class="mt-6 space-y-4 pt-2">
+            <!-- Official Config Section -->
+            <div class="rounded-xl border border-white/5 bg-black/20 p-4 space-y-4">
+              <div class="flex items-center gap-2">
+                <div class="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]"></div>
+                <div class="text-xs font-bold uppercase tracking-wider text-muted">Official Configuration</div>
               </div>
-              <div>
-                <label class="text-xs text-muted" for="setup_off_branch">Branch (optional)</label>
-                <select
-                  id="setup_off_branch"
-                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                  bind:value={setupBranchOfficial}
-                  disabled={setupBusy}
-                >
-                  <option value="">No branch</option>
-                  {#each setupBranchesOfficial as b}
-                    <option value={b.id}>{b.name}</option>
-                  {/each}
-                </select>
-              </div>
-              <div>
-                <label class="text-xs text-muted" for="setup_off_device_pick">POS from company (optional)</label>
-                <select
-                  id="setup_off_device_pick"
-                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                  bind:value={setupDevicePickOfficial}
-                  on:change={() => applyPickedDevice("official")}
-                  disabled={setupBusy}
-                >
-                  <option value="">Create/use manual code...</option>
-                  {#each setupDevicesOfficial as d}
-                    <option value={d.device_code}>{d.device_code}{d.branch_name ? ` (${d.branch_name})` : ""}</option>
-                  {/each}
-                </select>
-              </div>
-              <div>
-                <label class="text-xs text-muted" for="setup_off_device_code">POS code</label>
-                <input
-                  id="setup_off_device_code"
-                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                  bind:value={setupDeviceCodeOfficial}
-                  disabled={setupBusy}
-                />
-              </div>
-            </div>
-          </div>
-
-          {#if dualOnboardingEnabled}
-            <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3 space-y-3">
-              <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Unofficial</div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label class="text-xs text-muted" for="setup_un_company">Company</label>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="md:col-span-2">
+                  <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="setup_off_company">Company</label>
                   <select
-                    id="setup_un_company"
-                    class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                    bind:value={setupCompanyUnofficial}
-                    on:change={() => refreshSetupCompany("unofficial")}
+                    id="setup_off_company"
+                    class="w-full bg-surface/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none text-ink"
+                    bind:value={setupCompanyOfficial}
+                    on:change={() => refreshSetupCompany("official")}
                     disabled={setupBusy}
                   >
                     <option value="">Select company...</option>
@@ -762,451 +707,330 @@
                   </select>
                 </div>
                 <div>
-                  <label class="text-xs text-muted" for="setup_un_branch">Branch (optional)</label>
+                  <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="setup_off_branch">Branch (optional)</label>
                   <select
-                    id="setup_un_branch"
-                    class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                    bind:value={setupBranchUnofficial}
+                    id="setup_off_branch"
+                    class="w-full bg-surface/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none text-ink"
+                    bind:value={setupBranchOfficial}
                     disabled={setupBusy}
                   >
                     <option value="">No branch</option>
-                    {#each setupBranchesUnofficial as b}
+                    {#each setupBranchesOfficial as b}
                       <option value={b.id}>{b.name}</option>
                     {/each}
                   </select>
                 </div>
                 <div>
-                  <label class="text-xs text-muted" for="setup_un_device_pick">POS from company (optional)</label>
+                  <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="setup_off_device_pick">POS Source</label>
                   <select
-                    id="setup_un_device_pick"
-                    class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                    bind:value={setupDevicePickUnofficial}
-                    on:change={() => applyPickedDevice("unofficial")}
+                    id="setup_off_device_pick"
+                    class="w-full bg-surface/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none text-ink"
+                    bind:value={setupDevicePickOfficial}
+                    on:change={() => applyPickedDevice("official")}
                     disabled={setupBusy}
                   >
                     <option value="">Create/use manual code...</option>
-                    {#each setupDevicesUnofficial as d}
+                    {#each setupDevicesOfficial as d}
                       <option value={d.device_code}>{d.device_code}{d.branch_name ? ` (${d.branch_name})` : ""}</option>
                     {/each}
                   </select>
                 </div>
                 <div>
-                  <label class="text-xs text-muted" for="setup_un_device_code">POS code</label>
+                  <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="setup_off_device_code">POS Code</label>
                   <input
-                    id="setup_un_device_code"
-                    class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                    bind:value={setupDeviceCodeUnofficial}
+                    id="setup_off_device_code"
+                    class="w-full bg-surface/50 border border-white/10 rounded-xl px-3 py-2.5 font-mono text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none text-ink"
+                    bind:value={setupDeviceCodeOfficial}
                     disabled={setupBusy}
                   />
                 </div>
               </div>
             </div>
-          {:else}
-            <div class="mt-3 text-xs text-muted">
-              Secondary agent is disabled. Set Other Agent URL in the Unified Mode card above to enable dual-company onboarding.
-            </div>
-          {/if}
 
-          <div class="mt-3">
-            <button
-              type="button"
-              class="px-5 py-3 rounded-xl bg-accent text-white font-extrabold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
-              on:click={applyExpressSetup}
-              disabled={setupBusy}
-            >
-              {setupBusy ? "Applying..." : "Apply Express Setup"}
-            </button>
-          </div>
-        {/if}
-      </div>
-
-      <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-        <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Quick Guide</div>
-        <div class="mt-3 text-sm text-ink/90 space-y-2">
-          <div>
-            1. Set your <span class="font-mono">Cloud API URL</span>, then use <span class="font-mono">Apply to Both Agents</span>.
-          </div>
-          <div>
-            2. Paste <span class="font-mono">Company ID</span>, <span class="font-mono">POS Device ID</span>, and <span class="font-mono">Device Token</span> from Admin device registration.
-          </div>
-          <div>
-            3. Save each agent, then press <span class="font-mono">Pull</span> to cache items/customers/cashiers for offline operation.
-          </div>
-        </div>
-      </div>
-
-      <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Stress Benchmark</div>
-            <div class="mt-1 text-sm text-ink/90">
-              Runs a repeatable synthetic cart benchmark and restores your current cart after completion.
-            </div>
-          </div>
-          <div class={`px-3 py-1 rounded-full border text-[11px] font-extrabold ${pillTone(benchBusy ? "warn" : "ok")}`}>
-            {benchBusy ? "Running" : "Ready"}
-          </div>
-        </div>
-
-        {#if benchErr}
-          <div class="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-            {benchErr}
-          </div>
-        {/if}
-
-        <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <button
-            type="button"
-            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
-            on:click={() => runBench(200)}
-            disabled={benchBusy}
-          >
-            Run 200
-          </button>
-          <button
-            type="button"
-            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
-            on:click={() => runBench(500)}
-            disabled={benchBusy}
-          >
-            Run 500
-          </button>
-          <button
-            type="button"
-            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
-            on:click={() => runBench(1000)}
-            disabled={benchBusy}
-          >
-            Run 1000
-          </button>
-          <button
-            type="button"
-            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
-            on:click={() => { benchRuns = []; benchErr = ""; }}
-            disabled={benchBusy || !(benchRuns || []).length}
-          >
-            Clear
-          </button>
-        </div>
-
-        <div class="mt-3 flex items-center gap-2">
-          <label for="bench_custom_count" class="text-xs text-muted whitespace-nowrap">Custom lines</label>
-          <input
-            id="bench_custom_count"
-            type="number"
-            min="50"
-            max="2000"
-            step="50"
-            bind:value={benchCount}
-            class="w-28 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-          />
-          <button
-            type="button"
-            class="px-3 py-2 rounded-xl text-xs font-semibold border border-accent/30 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
-            on:click={() => runBench(benchCount)}
-            disabled={benchBusy}
-          >
-            Run Custom
-          </button>
-        </div>
-
-        {#if (benchRuns || []).length > 0}
-          <div class="mt-4 space-y-2 max-h-72 overflow-y-auto custom-scrollbar pr-1">
-            {#each benchRuns as run}
-              <div class="rounded-xl border border-ink/10 bg-bg/35 p-3">
-                <div class="flex items-center justify-between gap-2">
-                  <div class="text-xs font-extrabold text-ink/90">
-                    {run.line_count} lines
+            <!-- Unofficial Config Section -->
+            {#if dualOnboardingEnabled}
+              <div class="rounded-xl border border-white/5 bg-black/20 p-4 space-y-4">
+                 <div class="flex items-center gap-2">
+                   <div class="h-2 w-2 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]"></div>
+                   <div class="text-xs font-bold uppercase tracking-wider text-muted">Unofficial Configuration</div>
+                 </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="md:col-span-2">
+                    <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="setup_un_company">Company</label>
+                    <select
+                      id="setup_un_company"
+                      class="w-full bg-surface/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none text-ink"
+                      bind:value={setupCompanyUnofficial}
+                      on:change={() => refreshSetupCompany("unofficial")}
+                      disabled={setupBusy}
+                    >
+                      <option value="">Select company...</option>
+                      {#each setupCompanyOptions as c}
+                        <option value={c.id}>{c.label}</option>
+                      {/each}
+                    </select>
                   </div>
-                  <div class="text-[11px] text-muted">
-                    {fmtTime(run.started_at)}
+                  <div>
+                    <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="setup_un_branch">Branch (optional)</label>
+                    <select
+                      id="setup_un_branch"
+                      class="w-full bg-surface/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none text-ink"
+                      bind:value={setupBranchUnofficial}
+                      disabled={setupBusy}
+                    >
+                      <option value="">No branch</option>
+                      {#each setupBranchesUnofficial as b}
+                        <option value={b.id}>{b.name}</option>
+                      {/each}
+                    </select>
                   </div>
-                </div>
-                <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
-                  <div class="text-muted">Build cart</div><div class="text-right font-mono">{fmtMs(run.build_cart_ms)}</div>
-                  <div class="text-muted">First render</div><div class="text-right font-mono">{fmtMs(run.first_render_ms)}</div>
-                  <div class="text-muted">Partial reprice</div><div class="text-right font-mono">{fmtMs(run.partial_reprice_ms)}</div>
-                  <div class="text-muted">Full reprice</div><div class="text-right font-mono">{fmtMs(run.full_reprice_ms)}</div>
-                  <div class="text-muted">Qty update</div><div class="text-right font-mono">{fmtMs(run.single_qty_update_ms)}</div>
-                  <div class="text-muted">UOM update</div><div class="text-right font-mono">{fmtMs(run.single_uom_update_ms)}</div>
-                  <div class="text-muted">Total run</div><div class="text-right font-mono font-extrabold">{fmtMs(run.total_benchmark_ms)}</div>
+                  <div>
+                    <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="setup_un_device_pick">POS Source</label>
+                    <select
+                      id="setup_un_device_pick"
+                      class="w-full bg-surface/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none text-ink"
+                      bind:value={setupDevicePickUnofficial}
+                      on:change={() => applyPickedDevice("unofficial")}
+                      disabled={setupBusy}
+                    >
+                      <option value="">Create/use manual code...</option>
+                      {#each setupDevicesUnofficial as d}
+                        <option value={d.device_code}>{d.device_code}{d.branch_name ? ` (${d.branch_name})` : ""}</option>
+                      {/each}
+                    </select>
+                  </div>
+                  <div>
+                    <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="setup_un_device_code">POS Code</label>
+                    <input
+                      id="setup_un_device_code"
+                      class="w-full bg-surface/50 border border-white/10 rounded-xl px-3 py-2.5 font-mono text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none text-ink"
+                      bind:value={setupDeviceCodeUnofficial}
+                      disabled={setupBusy}
+                    />
+                  </div>
                 </div>
               </div>
-            {/each}
+            {/if}
+
+            <div class="pt-2">
+              <button
+                type="button"
+                class="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-lg tracking-wide shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50 disabled:grayscale"
+                on:click={applyExpressSetup}
+                disabled={setupBusy}
+              >
+                {setupBusy ? "Applying Setup..." : "Apply Express Setup"}
+              </button>
+            </div>
           </div>
         {/if}
       </div>
     </div>
   </section>
 
-  <!-- Right column: agent config forms -->
-  <section class="glass-panel rounded-2xl p-4 overflow-hidden flex flex-col">
-    <header class="pb-3 border-b border-ink/10 flex items-center justify-between gap-4">
-      <div>
-        <h3 class="text-lg font-extrabold tracking-tight">Agents</h3>
-        <p class="text-sm text-muted mt-1">Cloud-first setup with simple fields. Open Advanced only when needed.</p>
+  <!-- Right column: manual config -->
+  <section class="glass-panel rounded-[2rem] p-6 overflow-hidden flex flex-col gap-6 relative group/manual">
+    <div class="absolute inset-0 bg-surface/30 pointer-events-none rounded-[2rem]"></div>
+    
+    <header class="relative z-10 shrink-0 border-b border-white/5 pb-4 flex items-center justify-between">
+      <h2 class="text-2xl font-bold tracking-tight text-white">Manual Config</h2>
+      <div class="flex gap-2">
+        <button
+          class="px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-muted hover:text-white hover:bg-white/10 transition-colors"
+          on:click={() => runBench(benchCount)}
+          disabled={benchBusy}
+          title="Run local database stress test"
+        >
+          {benchBusy ? "Running..." : "Run Benchmark"}
+        </button>
       </div>
     </header>
 
-    <div class="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-4 pt-4">
-      <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-        <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Cloud URL Quick Apply</div>
-        <div class="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
-          <input
-            class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-            placeholder="https://app.melqard.com/api"
-            bind:value={sharedCloudUrl}
-          />
-          <button
-            type="button"
-            class="px-4 py-3 rounded-xl text-xs font-semibold border border-accent/30 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
-            on:click={applyCloudUrlToBoth}
-            disabled={busy}
-          >
-            Apply to Both Agents
-          </button>
+    <div class="relative z-10 flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-8">
+      <!-- Benchmark Results -->
+      {#if benchErr}
+        <div class="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-300 text-sm">{benchErr}</div>
+      {/if}
+      {#if benchRuns.length > 0}
+        <div class="glass-panel rounded-xl p-4 border border-white/5 bg-surface/20">
+          <h3 class="text-[10px] font-bold uppercase tracking-[0.2em] text-muted mb-3">Benchmark Results (Last {benchRuns.length})</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead>
+                <tr class="border-b border-white/5 text-muted/60">
+                  <th class="py-2 pl-2">Time</th>
+                  <th class="py-2">Write (ms)</th>
+                  <th class="py-2">Read (ms)</th>
+                  <th class="py-2">Items</th>
+                </tr>
+              </thead>
+              <tbody class="font-mono">
+                {#each benchRuns as run}
+                  <tr class="border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors">
+                    <td class="py-2 pl-2 text-ink">{fmtTime(run.timestamp)}</td>
+                    <td class="py-2 text-accent/80">{fmtMs(run.write_ms)}</td>
+                    <td class="py-2 text-sky-400/80">{fmtMs(run.read_ms)}</td>
+                    <td class="py-2 text-muted">{run.item_count}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div class="mt-2 text-[11px] text-muted">
-          This fills <span class="font-mono">cloud_api_base_url</span> for Official and Unofficial. You still save each agent separately.
+      {/if}
+
+      <!-- Official Manual -->
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]"></div>
+            <h3 class="text-sm font-bold uppercase tracking-widest text-emerald-400">Official</h3>
+          </div>
+          <div class="flex gap-2">
+            <span class={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border ${pillTone(edgeOff.kind)}`}>{edgeOff.text}</span>
+            <button class="text-xs text-muted hover:text-white underline underline-offset-2 transition-colors" on:click={() => runTest('official')} disabled={busy}>Check Connectivity</button>
+          </div>
+        </div>
+
+        <div class="glass-panel rounded-xl p-5 border border-white/5 bg-surface/20 space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="md:col-span-2">
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_api">API Base URL</label>
+              <input id="off_api" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.api_base_url} />
+            </div>
+            <div>
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_co">Company ID</label>
+              <input id="off_co" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.company_id} />
+            </div>
+            <div>
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_code">Device Code</label>
+              <input id="off_code" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.device_code} />
+            </div>
+            <div>
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_br">Branch ID</label>
+              <input id="off_br" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.branch_id} />
+            </div>
+            <div>
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_curr">Currency</label>
+              <input id="off_curr" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.pricing_currency} />
+            </div>
+            <div>
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_rate">Exchange Rate</label>
+              <input id="off_rate" type="number" step="100" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.exchange_rate} />
+            </div>
+            <div>
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_vat">VAT Rate (0-100)</label>
+              <input id="off_vat" type="number" step="0.1" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.vat_rate} />
+            </div>
+          </div>
+          
+          <div class="pt-2 border-t border-white/5">
+             <div class="flex items-center justify-between mb-2">
+               <label class="text-[10px] text-muted font-bold uppercase tracking-wide" for="off_token">Device Token</label>
+               <span class="text-[10px] text-muted/60 uppercase font-mono">{hasTokenText(officialConfig)}</span>
+             </div>
+             <div class="flex gap-2">
+                <input id="off_token" class="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink placeholder-muted/20" placeholder="(Hidden) Enter new to overwrite" bind:value={offTokenDraft} />
+                 <label class="flex items-center gap-2 text-xs text-muted cursor-pointer hover:text-red-300 transition-colors">
+                  <input type="checkbox" bind:checked={offClearToken} class="accent-red-500 w-3.5 h-3.5" />
+                  Clear
+                </label>
+             </div>
+          </div>
+
+          <div class="flex flex-wrap gap-2 pt-2">
+             <button class="px-4 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-500/30 transition-all disabled:opacity-50" on:click={() => saveOne('official')} disabled={busy}>Save Official</button>
+             <button class="px-4 py-2 rounded-xl bg-white/5 text-muted hover:text-ink hover:bg-white/10 border border-white/5 text-xs font-bold transition-all disabled:opacity-50" on:click={() => runPull('official')} disabled={busy}>Pull Sync</button>
+             <button class="px-4 py-2 rounded-xl bg-white/5 text-muted hover:text-ink hover:bg-white/10 border border-white/5 text-xs font-bold transition-all disabled:opacity-50" on:click={() => runPush('official')} disabled={busy}>Push Sync</button>
+          </div>
         </div>
       </div>
 
-      <!-- Official -->
-      <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-        <div class="flex items-center justify-between gap-3">
+      <!-- Unofficial Manual -->
+      <div class="space-y-4">
+        <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <div class="text-sm font-extrabold">Official</div>
-            <span class={`px-3 py-1 rounded-full border text-[11px] font-extrabold ${pillTone(edgeOff.kind)}`}>{edgeOff.text}</span>
+            <div class="h-2.5 w-2.5 rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.5)]"></div>
+            <h3 class="text-sm font-bold uppercase tracking-widest text-amber-400">Unofficial</h3>
           </div>
-          <div class="flex items-center gap-2">
-            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors" on:click={() => runTest("official")} disabled={busy}>Test</button>
-            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors" on:click={() => runPull("official")} disabled={busy}>Pull</button>
-            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors" on:click={() => runPush("official")} disabled={busy}>Push</button>
+          <div class="flex gap-2">
+            <span class={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border ${pillTone(edgeUn.kind)}`}>{edgeUn.text}</span>
+            <button class="text-xs text-muted hover:text-white underline underline-offset-2 transition-colors" on:click={() => runTest('unofficial')} disabled={busy}>Check Connectivity</button>
           </div>
         </div>
 
-        <div class="mt-4 rounded-xl border border-ink/10 bg-bg/35 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Cloud Setup (Recommended)</div>
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label for="off_cloud_api_base_url" class="text-xs text-muted">Cloud API URL</label>
-              <input id="off_cloud_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="https://app.melqard.com/api" bind:value={off.cloud_api_base_url} />
+        <div class="glass-panel rounded-xl p-5 border border-white/5 bg-surface/20 space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="md:col-span-2">
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_api">API Base URL</label>
+              <input id="un_api" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.api_base_url} />
             </div>
             <div>
-              <label for="off_company_id" class="text-xs text-muted">Company ID</label>
-              <input id="off_company_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="UUID" bind:value={off.company_id} />
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_co">Company ID</label>
+              <input id="un_co" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.company_id} />
             </div>
             <div>
-              <label for="off_device_id" class="text-xs text-muted">POS Device ID</label>
-              <input id="off_device_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="UUID" bind:value={off.device_id} />
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_code">Device Code</label>
+              <input id="un_code" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.device_code} />
             </div>
             <div>
-              <div class="flex items-center justify-between">
-                <label for="off_device_token" class="text-xs text-muted">Device Token</label>
-                <span class="text-[11px] text-muted">Current: {hasTokenText(officialConfig)}</span>
-              </div>
-              <input
-                id="off_device_token"
-                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                type="password"
-                placeholder="Paste token from POS Devices"
-                bind:value={offTokenDraft}
-              />
-              <label class="mt-2 flex items-center gap-2 text-xs text-muted">
-                <input type="checkbox" bind:checked={offClearToken} />
-                Clear token on save
-              </label>
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_br">Branch ID</label>
+              <input id="un_br" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.branch_id} />
+            </div>
+            <div>
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_curr">Currency</label>
+              <input id="un_curr" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.pricing_currency} />
+            </div>
+            <div>
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_rate">Exchange Rate</label>
+              <input id="un_rate" type="number" step="100" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.exchange_rate} />
+            </div>
+            <div>
+              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_warn">Warn Stale Minutes</label>
+              <input id="un_warn" type="number" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.outbox_stale_warn_minutes} />
             </div>
           </div>
-          <div class="mt-2 text-[11px] text-muted">
-            Tip: generate these values from Admin → System → POS Devices (Reset Token & Setup).
+          
+          <div class="pt-2 border-t border-white/5">
+             <div class="flex items-center justify-between mb-2">
+               <label class="text-[10px] text-muted font-bold uppercase tracking-wide" for="un_token">Device Token</label>
+               <span class="text-[10px] text-muted/60 uppercase font-mono">{hasTokenText(unofficialConfig)}</span>
+             </div>
+             <div class="flex gap-2">
+                <input id="un_token" class="flex-1 bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink placeholder-muted/20" placeholder="(Hidden) Enter new to overwrite" bind:value={unTokenDraft} />
+                <label class="flex items-center gap-2 text-xs text-muted cursor-pointer hover:text-red-300 transition-colors">
+                  <input type="checkbox" bind:checked={unClearToken} class="accent-red-500 w-3.5 h-3.5" />
+                  Clear
+                </label>
+             </div>
+          </div>
+
+          <div class="flex flex-wrap gap-2 pt-2">
+             <button class="px-4 py-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-bold hover:bg-amber-500/30 transition-all disabled:opacity-50" on:click={() => saveOne('unofficial')} disabled={busy}>Save Unofficial</button>
+             <button class="px-4 py-2 rounded-xl bg-white/5 text-muted hover:text-ink hover:bg-white/10 border border-white/5 text-xs font-bold transition-all disabled:opacity-50" on:click={() => runPull('unofficial')} disabled={busy}>Pull Sync</button>
+             <button class="px-4 py-2 rounded-xl bg-white/5 text-muted hover:text-ink hover:bg-white/10 border border-white/5 text-xs font-bold transition-all disabled:opacity-50" on:click={() => runPush('unofficial')} disabled={busy}>Push Sync</button>
           </div>
         </div>
-
-        <details class="settings-advanced mt-3">
-          <summary>Advanced official settings</summary>
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label for="off_edge_api_base_url" class="text-xs text-muted">Edge API URL (LAN fallback, optional)</label>
-              <input id="off_edge_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="http://192.168.1.10:8001" bind:value={off.edge_api_base_url} />
-            </div>
-            <div>
-              <label for="off_api_base_url" class="text-xs text-muted">Active API URL (auto)</label>
-              <input id="off_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={off.api_base_url} readonly />
-            </div>
-            <div>
-              <label for="off_warehouse_id" class="text-xs text-muted">warehouse_id</label>
-              <input id="off_warehouse_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={off.warehouse_id} />
-            </div>
-            <div>
-              <label for="off_outbox_stale_warn_minutes" class="text-xs text-muted">outbox_stale_warn_minutes</label>
-              <input
-                id="off_outbox_stale_warn_minutes"
-                type="number"
-                min="1"
-                max="1440"
-                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                bind:value={off.outbox_stale_warn_minutes}
-              />
-            </div>
-          </div>
-          <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3">
-            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Risk Controls</div>
-            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-              <label class="flex items-center gap-2 text-xs text-ink/90">
-                <input type="checkbox" bind:checked={off.require_manager_approval_credit} />
-                Require manager approval for credit
-              </label>
-              <label class="flex items-center gap-2 text-xs text-ink/90">
-                <input type="checkbox" bind:checked={off.require_manager_approval_returns} />
-                Require manager approval for returns
-              </label>
-              <label class="flex items-center gap-2 text-xs text-ink/90 md:col-span-2">
-                <input type="checkbox" bind:checked={off.require_manager_approval_cross_company} />
-                Require manager approval for cross-company/flagged invoices
-              </label>
-            </div>
-          </div>
-        </details>
-
-        <div class="mt-3 flex justify-end">
-          <button
-            type="button"
-            class="px-5 py-3 rounded-xl bg-accent text-white font-extrabold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
-            on:click={() => saveOne("official")}
-            disabled={busy}
-          >
-            Save Official
-          </button>
-        </div>
-      </div>
-
-      <!-- Unofficial -->
-      <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-        <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <div class="text-sm font-extrabold">Unofficial</div>
-            <span class={`px-3 py-1 rounded-full border text-[11px] font-extrabold ${pillTone(edgeUn.kind)}`}>{edgeUn.text}</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60" on:click={() => runTest("unofficial")} disabled={busy || !dualOnboardingEnabled}>Test</button>
-            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60" on:click={() => runPull("unofficial")} disabled={busy || !dualOnboardingEnabled}>Pull</button>
-            <button type="button" class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60" on:click={() => runPush("unofficial")} disabled={busy || !dualOnboardingEnabled}>Push</button>
-          </div>
-        </div>
-
-        {#if !dualOnboardingEnabled}
-          <div class="mt-3 text-sm text-muted">Unofficial agent is disabled. Set Other Agent URL to enable.</div>
-        {:else}
-          <div class="mt-4 rounded-xl border border-ink/10 bg-bg/35 p-3">
-            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Cloud Setup (Recommended)</div>
-            <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label for="un_cloud_api_base_url" class="text-xs text-muted">Cloud API URL</label>
-                <input id="un_cloud_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="https://app.melqard.com/api" bind:value={un.cloud_api_base_url} />
-              </div>
-              <div>
-                <label for="un_company_id" class="text-xs text-muted">Company ID</label>
-                <input id="un_company_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="UUID" bind:value={un.company_id} />
-              </div>
-              <div>
-                <label for="un_device_id" class="text-xs text-muted">POS Device ID</label>
-                <input id="un_device_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="UUID" bind:value={un.device_id} />
-              </div>
-              <div>
-                <div class="flex items-center justify-between">
-                  <label for="un_device_token" class="text-xs text-muted">Device Token</label>
-                  <span class="text-[11px] text-muted">Current: {hasTokenText(unofficialConfig)}</span>
-                </div>
-                <input
-                  id="un_device_token"
-                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                  type="password"
-                  placeholder="Paste token from POS Devices"
-                  bind:value={unTokenDraft}
-                />
-                <label class="mt-2 flex items-center gap-2 text-xs text-muted">
-                  <input type="checkbox" bind:checked={unClearToken} />
-                  Clear token on save
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <details class="settings-advanced mt-3">
-            <summary>Advanced unofficial settings</summary>
-            <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label for="un_edge_api_base_url" class="text-xs text-muted">Edge API URL (LAN fallback, optional)</label>
-                <input id="un_edge_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" placeholder="http://192.168.1.10:8001" bind:value={un.edge_api_base_url} />
-              </div>
-              <div>
-                <label for="un_api_base_url" class="text-xs text-muted">Active API URL (auto)</label>
-                <input id="un_api_base_url" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono opacity-70" bind:value={un.api_base_url} readonly />
-              </div>
-              <div>
-                <label for="un_warehouse_id" class="text-xs text-muted">warehouse_id</label>
-                <input id="un_warehouse_id" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none" bind:value={un.warehouse_id} />
-              </div>
-              <div>
-                <label for="un_outbox_stale_warn_minutes" class="text-xs text-muted">outbox_stale_warn_minutes</label>
-                <input
-                  id="un_outbox_stale_warn_minutes"
-                  type="number"
-                  min="1"
-                  max="1440"
-                  class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono focus:ring-2 focus:ring-accent/50 focus:outline-none"
-                  bind:value={un.outbox_stale_warn_minutes}
-                />
-              </div>
-            </div>
-            <div class="mt-3 rounded-xl border border-ink/10 bg-bg/35 p-3">
-              <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Risk Controls</div>
-              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                <label class="flex items-center gap-2 text-xs text-ink/90">
-                  <input type="checkbox" bind:checked={un.require_manager_approval_credit} />
-                  Require manager approval for credit
-                </label>
-                <label class="flex items-center gap-2 text-xs text-ink/90">
-                  <input type="checkbox" bind:checked={un.require_manager_approval_returns} />
-                  Require manager approval for returns
-                </label>
-                <label class="flex items-center gap-2 text-xs text-ink/90 md:col-span-2">
-                  <input type="checkbox" bind:checked={un.require_manager_approval_cross_company} />
-                  Require manager approval for cross-company/flagged invoices
-                </label>
-              </div>
-            </div>
-          </details>
-
-          <div class="mt-3 flex justify-end">
-            <button
-              type="button"
-              class="px-5 py-3 rounded-xl bg-accent text-white font-extrabold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
-              on:click={() => saveOne("unofficial")}
-              disabled={busy}
-            >
-              Save Unofficial
-            </button>
-          </div>
-        {/if}
       </div>
     </div>
   </section>
 </div>
 
 <style>
-  .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-  .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.35); border-radius: 10px; }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.55); }
-  .settings-advanced > summary {
-    cursor: pointer;
-    font-size: 0.75rem;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--muted, #94a3b8);
-    user-select: none;
+  /* Custom Scrollbar for Settings */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 9999px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 9999px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
   }
 </style>

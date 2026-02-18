@@ -271,16 +271,22 @@
 
 <div class="h-full w-full overflow-hidden grid grid-cols-1 lg:grid-cols-[minmax(420px,560px)_1fr] gap-6">
   <!-- Left: Search + Results -->
-  <section class="glass-panel rounded-2xl p-4 flex flex-col overflow-hidden">
-    <header class="mb-3">
-      <div class="flex items-center justify-between gap-3">
-        <h2 class="text-lg font-extrabold tracking-tight">Item Lookup</h2>
-        <div class="text-[11px] text-muted whitespace-nowrap">
-          ↑↓ select · Enter view · Esc clear
+  <section class="glass-panel rounded-3xl flex flex-col overflow-hidden relative group/lookup-list">
+    <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
+    
+    <header class="relative z-10 p-5 shrink-0 border-b border-white/5">
+      <div class="flex items-center justify-between gap-3 mb-4">
+        <div class="flex items-center gap-3">
+          <div class="h-8 w-1 rounded-full bg-accent shadow-[0_0_10px_rgba(45,212,191,0.5)]"></div>
+          <h2 class="text-lg font-bold tracking-tight">Item Lookup</h2>
+        </div>
+        <div class="text-[10px] font-mono font-medium text-muted/60 bg-surface-highlight/50 px-2 py-1 rounded-lg border border-white/5">
+          Type to search or scan
         </div>
       </div>
-      <div class="mt-3 relative group">
-        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+      
+      <div class="relative group">
+        <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
           <svg class="h-5 w-5 text-muted group-focus-within:text-accent transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
@@ -289,26 +295,36 @@
           bind:this={inputEl}
           bind:value={query}
           type="text"
-          class="block w-full pl-10 pr-3 py-3 rounded-xl bg-bg/50 border border-ink/10 text-ink placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-all duration-200"
+          class="block w-full pl-11 pr-4 py-3.5 rounded-xl bg-bg/50 border border-white/5 hover:border-white/10
+                 text-ink placeholder-muted/60 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50
+                 transition-all duration-200 shadow-inner shadow-black/20"
           placeholder="Search SKU, name, barcode..."
           on:keydown={onListKeyDown}
         />
       </div>
     </header>
 
-    <div class="flex-1 overflow-hidden">
+    <div class="relative z-10 flex-1 overflow-hidden">
       {#if !qn}
-        <div class="h-full flex flex-col items-center justify-center text-muted select-none opacity-70">
-          <p class="text-sm">Scan or type to search</p>
-          <p class="text-[11px] mt-2">Tip: barcode scans land here automatically</p>
+        <div class="h-full flex flex-col items-center justify-center text-muted/40 select-none pb-10">
+          <div class="p-6 rounded-full bg-surface-highlight/30 mb-4 border border-white/5">
+            <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+          <p class="font-medium tracking-wide">Start typing or scan to search</p>
+          <p class="text-xs opacity-60 mt-2 font-mono">Barcodes auto-select</p>
         </div>
       {:else if (results || []).length === 0}
-        <div class="h-full flex items-center justify-center text-muted select-none">
-          <p class="text-sm">No matches</p>
-        </div>
+         <div class="h-full flex flex-col items-center justify-center text-muted select-none pb-10">
+            <p class="font-medium">No matches found</p>
+            <button class="mt-4 text-accent hover:text-accent-hover text-sm font-bold tracking-wide" on:click={() => query = ""}>
+              Clear search
+            </button>
+          </div>
       {:else}
         <div
-          class="h-full overflow-y-auto pr-1 space-y-2 custom-scrollbar"
+          class="h-full overflow-y-auto p-3 space-y-2 custom-scrollbar"
           role="listbox"
           tabindex="0"
           aria-label="Item search results"
@@ -320,46 +336,56 @@
               type="button"
               role="option"
               aria-selected={selectedInList}
-              class={`w-full text-left rounded-xl border px-3 py-3 transition-all duration-150 ${
+              class={`w-full text-left rounded-2xl border px-3.5 py-3 transition-all duration-150 ${
                 selectedInList
-                  ? "border-accent/65 ring-2 ring-accent/35 bg-accent/10 shadow-[0_10px_30px_rgba(34,197,94,0.12)]"
+                  ? "border-accent/60 ring-1 ring-accent/30 bg-accent/10 shadow-[0_10px_30px_rgba(34,197,94,0.12)]"
                   : i === activeIndex
-                    ? "border-accent/40 ring-1 ring-accent/25 bg-surface/55"
-                    : "border-ink/10 bg-surface/40 hover:bg-surface/55 hover:border-accent/20"
+                    ? "border-accent/40 ring-1 ring-accent/20 bg-surface/55"
+                    : "border-transparent bg-surface/40 hover:bg-surface/60 hover:border-white/5"
               }`}
               on:mouseenter={() => activeIndex = i}
               on:focus={() => activeIndex = i}
               on:click={() => pick(it)}
             >
-              <div class="flex items-start gap-3">
+              <div class="flex items-start gap-3.5">
 	                <div class="min-w-0 flex-1">
 	                  <div class="min-w-0">
-	                    <div class={`clamp-2 ${nameSizeClass(it.name)} ${selectedInList ? "text-accent" : "text-ink"}`}>{it.name || "Unknown Item"}</div>
-	                    <div class={`mt-1 text-[10px] font-mono truncate ${selectedInList ? "text-accent/85" : "text-muted"}`}>{it.sku || "NO SKU"}</div>
+	                    <div class={`clamp-2 leading-tight ${nameSizeClass(it.name)} ${selectedInList ? "text-accent" : "text-ink"}`}>{it.name || "Unknown Item"}</div>
+	                    <div class={`mt-1 text-[10px] font-mono tracking-wider truncate ${selectedInList ? "text-accent/85" : "text-muted"}`}>{it.sku || "NO SKU"}</div>
 	                  </div>
-	                  <div class="mt-1 flex items-center gap-2 text-[11px] text-muted">
-	                    {#if it.barcode}<span class="font-mono">{it.barcode}</span>{/if}
+	                  
+                    <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
                       {#if selectedInList}
-                        <span class="px-2 py-0.5 rounded-full border border-accent/45 bg-accent/15 text-[10px] font-extrabold text-accent">
+                        <span class="px-2 py-0.5 rounded-md border border-accent/40 bg-accent/15 text-[9px] font-extrabold text-accent uppercase tracking-wide">
                           Selected
                         </span>
                       {/if}
+                      {#if it.barcode}
+                         <span class="font-mono text-xs opacity-70 bg-black/20 px-1.5 py-0.5 rounded">{it.barcode}</span>
+                      {/if}
 	                    {#if it.track_batches || it.track_expiry}
-                      <span class="px-2 py-0.5 rounded-full border border-ink/10 bg-ink/5 text-[10px] font-bold">
-                        {it.track_batches ? "Batch" : ""}{it.track_batches && it.track_expiry ? "+" : ""}{it.track_expiry ? "Expiry" : ""}
+                        <span class="px-1.5 py-0.5 rounded border border-white/10 bg-surface-highlight/50 text-[9px] font-bold text-ink/70 uppercase tracking-wide">
+                          {it.track_batches ? "Batch" : ""}{it.track_batches && it.track_expiry ? "+" : ""}{it.track_expiry ? "Expiry" : ""}
+                        </span>
+                      {/if}
+                    </div>
+                  </div>
+
+                  <div class="shrink-0 flex flex-col items-end gap-1">
+                    {#if companyLabel(it)}
+                      <span class={`px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${tonePill(it)}`}>
+                        {companyLabel(it)}
                       </span>
                     {/if}
+                    <div class="text-right leading-none mt-1">
+                      <div class="font-bold text-sm text-ink num-readable tracking-tight">
+                        {fmtMoney(withVat(priceBase(it)), currencyPrimary)}
+                      </div>
+                      <div class="text-[9px] text-muted num-readable mt-0.5 opacity-70">
+                        {fmtMoney(priceBase(it), currencyPrimary)} <span class="text-[8px] uppercase">pre-vat</span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-
-                <div class="shrink-0 flex flex-col items-end gap-1">
-                  <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border ${tonePill(it)}`}>
-                    {companyLabel(it)}
-                  </span>
-                  <span class="text-[11px] num-readable text-ink/90">{fmtMoney(withVat(priceBase(it)), currencyPrimary)}</span>
-                  <span class="text-[10px] text-emerald-300">After VAT</span>
-                  <span class="text-[10px] num-readable text-muted">{fmtMoney(priceBase(it), currencyPrimary)} before</span>
-                </div>
               </div>
             </button>
           {/each}
@@ -369,134 +395,139 @@
   </section>
 
   <!-- Right: Details -->
-  <section class="glass-panel rounded-2xl p-4 flex flex-col overflow-hidden">
+  <section class="glass-panel rounded-3xl flex flex-col overflow-hidden relative group/lookup-details">
+    <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
+    
     {#if !selected}
-      <div class="h-full flex flex-col items-center justify-center text-muted select-none opacity-70">
-        <p class="text-sm">Select an item to view details</p>
+      <div class="h-full flex flex-col items-center justify-center text-muted select-none opacity-60 z-10">
+        <div class="p-4 rounded-full bg-surface-highlight/30 mb-3 border border-white/5">
+           <svg class="w-8 h-8 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        </div>
+        <p class="text-sm font-medium">Select an item to view details</p>
       </div>
     {:else}
-      <header class="pb-3 border-b border-ink/10">
+      <header class="relative z-10 p-5 pb-4 border-b border-white/5">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
-            <div class="flex items-center gap-2 min-w-0">
-              <h3 class="text-lg font-extrabold tracking-tight truncate">{selected.name || "Unknown Item"}</h3>
-              <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border ${tonePill(selected)}`}>
+            <h3 class="text-xl font-extrabold tracking-tight leading-snug text-ink">{selected.name || "Unknown Item"}</h3>
+            <div class="mt-2 flex flex-wrap items-center gap-3">
+              <span class={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${tonePill(selected)}`}>
                 {companyLabel(selected)}
               </span>
-            </div>
-            <div class="mt-1 flex items-center gap-2 text-[11px] text-muted">
-              <span class="font-mono">{selected.sku || "NO SKU"}</span>
-              <span class="w-1 h-1 rounded-full bg-ink/15"></span>
-              <span class="font-mono">{selected.id}</span>
+              <div class="flex items-center gap-2 text-[11px] text-muted font-mono bg-black/20 px-2 py-0.5 rounded-md border border-white/5">
+                <span>{selected.sku || "NO SKU"}</span>
+                <span class="w-1 h-1 rounded-full bg-white/20"></span>
+                <span>{selected.id}</span>
+              </div>
             </div>
           </div>
+        </div>
 
-          <div class="shrink-0 flex items-center gap-2">
-            <button
-              type="button"
-              class="px-3 py-2 rounded-full text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
-              on:click={() => cycleUom(1)}
-              title="Cycle UOM"
-            >
-              {#if selectedUomOpt()}
-                {@const opt = selectedUomOpt()}
-                {opt.uom}{toNum(opt.qty_factor, 1) !== 1 ? ` x${toNum(opt.qty_factor, 1)}` : ""}
-              {:else}
-                UOM
-              {/if}
-            </button>
-            <button
-              type="button"
-              class="px-4 py-2 rounded-full text-xs font-extrabold border border-accent/30 bg-accent/20 text-accent hover:bg-accent/30 transition-colors"
-              on:click={addSelectedToCart}
-              title="Add to cart"
-            >
-              Add
-            </button>
-          </div>
+        <div class="flex items-center gap-2 mt-4">
+          <button
+            type="button"
+            class="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-white/10 bg-surface-highlight/40 hover:bg-surface-highlight/60 text-ink transition-colors flex items-center justify-between group/uom-btn"
+            on:click={() => cycleUom(1)}
+            title="Cycle UOM"
+          >
+            <span class="text-muted group-hover/uom-btn:text-ink transition-colors">Unit</span>
+            {#if selectedUomOpt()}
+              {@const opt = selectedUomOpt()}
+              <span class="text-accent">{opt.uom}{toNum(opt.qty_factor, 1) !== 1 ? ` x${toNum(opt.qty_factor, 1)}` : ""}</span>
+            {:else}
+              <span>Default</span>
+            {/if}
+          </button>
+          
+          <button
+            type="button"
+            class="flex-1 px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-widest border border-accent/40 bg-accent hover:bg-accent-hover text-white shadow-lg shadow-accent/20 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            on:click={addSelectedToCart}
+          >
+            Add to Cart
+          </button>
         </div>
       </header>
 
-      <div class="flex-1 overflow-y-auto pr-1 space-y-4 custom-scrollbar">
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-3 pt-4">
-          <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Pricing</div>
-            <div class="mt-3 space-y-2 num-readable">
+      <div class="relative z-10 flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+          <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
+            <div class="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-80">Pricing Structure</div>
+            <div class="space-y-2.5 num-readable text-sm">
               <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">After VAT ({currencyPrimary})</span>
-                <span class="text-sm font-bold text-emerald-300">{fmtMoney(withVat(priceBase(selected)), currencyPrimary)}</span>
+                <span class="text-muted/80">Net Price ({currencyPrimary})</span>
+                <span class="font-bold text-emerald-400">{fmtMoney(withVat(priceBase(selected)), currencyPrimary)}</span>
               </div>
-              <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">Before VAT ({currencyPrimary})</span>
-                <span class="text-sm font-bold">{fmtMoney(priceBase(selected), currencyPrimary)}</span>
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-muted/60">Base Price</span>
+                <span class="font-medium text-ink/70">{fmtMoney(priceBase(selected), currencyPrimary)}</span>
               </div>
-              <div class="h-px bg-ink/10"></div>
-              <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">After VAT (USD)</span>
-                <span class="text-sm font-bold text-emerald-300">{fmtMoney(withVat(selected.price_usd || 0), "USD")}</span>
-              </div>
-              <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">After VAT (LBP)</span>
-                <span class="text-sm font-bold text-emerald-300">{fmtMoney(withVat(selected.price_lbp || 0), "LBP")}</span>
+              <div class="my-2 h-px bg-white/5 w-full"></div>
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-muted/60">USD Equivalent</span>
+                <span class="font-medium text-emerald-400/80">{fmtMoney(withVat(selected.price_usd || 0), "USD")}</span>
               </div>
             </div>
           </div>
 
-          <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Inventory Policy</div>
-            <div class="mt-3 text-sm">
-              <div class="flex items-center justify-between">
-                <span class="text-xs text-muted">UOM</span>
-                <span class="font-mono font-semibold">{selected.unit_of_measure || "pcs"}</span>
-              </div>
-              <div class="mt-2 grid grid-cols-2 gap-2 text-[12px]">
-                <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
-                  <div class="text-[10px] font-bold text-muted uppercase tracking-wider">Batches</div>
-                  <div class="font-semibold text-ink/90">{selected.track_batches ? "Yes" : "No"}</div>
+          <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
+            <div class="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-80">Inventory Rules</div>
+             <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs text-muted/80">Base UOM</span>
+                    <span class="font-mono text-xs font-bold bg-white/5 px-2 py-0.5 rounded">{selected.unit_of_measure || "pcs"}</span>
                 </div>
-                <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
-                  <div class="text-[10px] font-bold text-muted uppercase tracking-wider">Expiry</div>
-                  <div class="font-semibold text-ink/90">{selected.track_expiry ? "Yes" : "No"}</div>
+                
+                <div class="grid grid-cols-2 gap-2">
+                   <div class={`px-2 py-1.5 rounded-lg border text-center ${selected.track_batches ? "border-emerald-500/20 bg-emerald-500/10" : "border-white/5 bg-white/5"}`}>
+                      <div class="text-[9px] font-bold uppercase tracking-wider text-muted">Batches</div>
+                      <div class={`text-xs font-bold ${selected.track_batches ? "text-emerald-400" : "text-muted"}`}>{selected.track_batches ? "Active" : "Off"}</div>
+                   </div>
+                   <div class={`px-2 py-1.5 rounded-lg border text-center ${selected.track_expiry ? "border-emerald-500/20 bg-emerald-500/10" : "border-white/5 bg-white/5"}`}>
+                      <div class="text-[9px] font-bold uppercase tracking-wider text-muted">Expiry</div>
+                      <div class={`text-xs font-bold ${selected.track_expiry ? "text-emerald-400" : "text-muted"}`}>{selected.track_expiry ? "Active" : "Off"}</div>
+                   </div>
                 </div>
-              </div>
-              <div class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[12px]">
-                <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
-                  <div class="text-[10px] font-bold text-muted uppercase tracking-wider">Shelf Life</div>
-                  <div class="font-mono font-semibold text-ink/90">{toNum(selected.default_shelf_life_days, 0) || "—"}</div>
-                </div>
-                <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
-                  <div class="text-[10px] font-bold text-muted uppercase tracking-wider">Min Days</div>
-                  <div class="font-mono font-semibold text-ink/90">{toNum(selected.min_shelf_life_days_for_sale, 0) || "—"}</div>
-                </div>
-                <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
-                  <div class="text-[10px] font-bold text-muted uppercase tracking-wider">Warn Days</div>
-                  <div class="font-mono font-semibold text-ink/90">{toNum(selected.expiry_warning_days, 0) || "—"}</div>
-                </div>
-              </div>
-            </div>
+             </div>
           </div>
         </div>
 
-        <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-          <div class="flex items-center justify-between gap-3">
-            <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Barcodes</div>
-            <div class="text-[11px] text-muted">{(itemBarcodes(selected) || []).length} known</div>
+        <!-- Shelf Life Grid -->
+        <div class="grid grid-cols-3 gap-2">
+             <div class="rounded-xl border border-white/5 bg-surface-highlight/10 p-3 text-center">
+                <div class="text-[9px] font-bold uppercase tracking-wider text-muted/70 mb-1">Shelf Life</div>
+                <div class="font-mono text-sm font-bold">{toNum(selected.default_shelf_life_days, 0) || "—"}</div>
+             </div>
+             <div class="rounded-xl border border-white/5 bg-surface-highlight/10 p-3 text-center">
+                <div class="text-[9px] font-bold uppercase tracking-wider text-muted/70 mb-1">Min Days</div>
+                <div class="font-mono text-sm font-bold">{toNum(selected.min_shelf_life_days_for_sale, 0) || "—"}</div>
+             </div>
+              <div class="rounded-xl border border-white/5 bg-surface-highlight/10 p-3 text-center">
+                <div class="text-[9px] font-bold uppercase tracking-wider text-muted/70 mb-1">Warning</div>
+                <div class="font-mono text-sm font-bold text-amber-400">{toNum(selected.expiry_warning_days, 0) || "—"}</div>
+             </div>
+        </div>
+
+        <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div class="text-[10px] font-bold uppercase tracking-widest text-muted opacity-80">Barcodes</div>
+            <div class="text-[10px] text-muted font-mono bg-white/5 px-1.5 py-0.5 rounded">{(itemBarcodes(selected) || []).length} found</div>
           </div>
-          <div class="mt-3 space-y-2">
+          <div class="space-y-2">
             {#if (itemBarcodes(selected) || []).length === 0}
-              <div class="text-sm text-muted">No cached barcodes.</div>
+              <div class="text-xs text-muted italic p-2 text-center">No associated barcodes.</div>
             {:else}
               {#each itemBarcodes(selected) as b}
-                <div class="flex items-center justify-between gap-3 rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
+                <div class="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-surface-highlight/30 px-3 py-2">
                   <div class="min-w-0">
-                    <div class="font-mono text-sm font-semibold truncate">{b.barcode}</div>
-                    <div class="text-[11px] text-muted truncate">
-                      {b.label || "—"}
+                    <div class="font-mono text-xs font-bold text-ink/90 truncate">{b.barcode}</div>
+                    <div class="text-[10px] text-muted truncate mt-0.5">
+                      {b.label || "Standard"}
                     </div>
                   </div>
-                  <div class="shrink-0 text-right text-[11px] text-muted font-mono">
+                  <div class="shrink-0 text-right text-[10px] text-muted font-mono bg-black/20 px-2 py-1 rounded">
                     <div>{b.uom_code || selected.unit_of_measure || "pcs"}</div>
-                    <div>x{toNum(b.qty_factor, 1) || 1}{b.is_primary ? " · primary" : ""}</div>
+                    {#if toNum(b.qty_factor, 1) !== 1}<div class="text-accent">x{toNum(b.qty_factor, 1)}</div>{/if}
                   </div>
                 </div>
               {/each}
@@ -505,49 +536,47 @@
         </div>
 
         {#if selected.track_batches || selected.track_expiry}
-          <div class="rounded-2xl border border-ink/10 bg-surface/35 p-4">
-            <div class="flex items-center justify-between gap-3">
+          <div class="rounded-2xl border border-white/5 bg-surface-highlight/20 p-4">
+            <div class="flex items-center justify-between gap-3 mb-3">
               <div>
-                <div class="text-xs font-extrabold uppercase tracking-wider text-muted">Eligible Batches</div>
-                <div class="text-[11px] text-muted mt-1">Online-only; uses warehouse stock on hand.</div>
+                <div class="text-[10px] font-bold uppercase tracking-widest text-muted opacity-80">Batch Availability</div>
+                <div class="text-[10px] text-muted mt-0.5">Live from warehouse</div>
               </div>
               <button
                 type="button"
-                class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
+                class="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border border-white/10 bg-surface-highlight/50 hover:bg-surface-highlight hover:text-white transition-colors disabled:opacity-50"
                 on:click={fetchBatches}
                 disabled={batchesLoading}
               >
-                {batchesLoading ? "Loading..." : "Load"}
+                {batchesLoading ? "Loading..." : "Check Stock"}
               </button>
             </div>
 
             {#if batchesError}
-              <div class="mt-3 text-sm text-red-400">{batchesError}</div>
+              <div class="p-3 rounded-lg border border-red-500/20 bg-red-500/10 text-xs text-red-400 font-medium">{batchesError}</div>
             {:else if batches.length > 0}
-              <div class="mt-3 overflow-x-auto">
-                <table class="w-full text-sm">
-                  <thead class="text-[11px] text-muted uppercase tracking-wider">
+              <div class="overflow-x-auto rounded-xl border border-white/5">
+                <table class="w-full text-xs text-left">
+                  <thead class="bg-white/5 text-muted uppercase tracking-wider font-bold text-[9px]">
                     <tr>
-                      <th class="text-left py-2 pr-2">Batch</th>
-                      <th class="text-left py-2 pr-2">Expiry</th>
-                      <th class="text-right py-2 pr-2">On hand</th>
-                      <th class="text-right py-2 pr-2">Days</th>
+                      <th class="py-2 px-3">Batch</th>
+                      <th class="py-2 px-3">Expiry</th>
+                      <th class="py-2 px-3 text-right">Qty</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody class="divide-y divide-white/5">
                     {#each batches as r}
-                      <tr class="border-t border-ink/10">
-                        <td class="py-2 pr-2 font-mono">{r.batch_no || r.batch_id}</td>
-                        <td class="py-2 pr-2 font-mono">{r.expiry_date || "—"}</td>
-                        <td class="py-2 pr-2 text-right font-mono font-semibold">{toNum(r.on_hand, 0)}</td>
-                        <td class="py-2 pr-2 text-right font-mono text-muted">{r.days_to_expiry ?? "—"}</td>
+                      <tr class="bg-surface-highlight/10 hover:bg-surface-highlight/30 transition-colors">
+                        <td class="py-2 px-3 font-mono font-medium text-ink">{r.batch_no || r.batch_id}</td>
+                        <td class="py-2 px-3 font-mono text-muted">{r.expiry_date || "—"}</td>
+                        <td class="py-2 px-3 text-right font-mono font-bold text-emerald-400">{toNum(r.on_hand, 0)}</td>
                       </tr>
                     {/each}
                   </tbody>
                 </table>
               </div>
             {:else if batchesKey}
-              <div class="mt-3 text-sm text-muted">No eligible batches found.</div>
+              <div class="text-xs text-muted italic text-center py-2">No active batches available.</div>
             {/if}
           </div>
         {/if}
@@ -557,8 +586,8 @@
 </div>
 
 <style>
-  .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+  .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
   .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-  .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.35); border-radius: 10px; }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.55); }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
 </style>

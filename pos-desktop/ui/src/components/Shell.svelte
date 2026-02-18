@@ -8,10 +8,10 @@
   export let showTabs = false;
 
   const tone = (kind) => {
-    if (kind === "ok") return "bg-emerald-500/10 border-emerald-500/25 text-ink/80";
-    if (kind === "warn") return "bg-amber-500/10 border-amber-500/25 text-ink/80";
-    if (kind === "bad") return "bg-red-500/10 border-red-500/25 text-ink/80";
-    return "bg-ink/5 border-ink/10 text-muted";
+    if (kind === "ok") return "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-medium";
+    if (kind === "warn") return "bg-amber-500/10 border-amber-500/20 text-amber-400 font-medium";
+    if (kind === "bad") return "bg-red-500/10 border-red-500/20 text-red-400 font-medium";
+    return "bg-surface-highlight border-white/5 text-muted hover:text-ink transition-colors";
   };
 
   const _toText = (v) => String(v || "").trim();
@@ -20,7 +20,7 @@
     const t = _toText(badge);
     if (!t || t === "—") return "neutral";
     if (t.toLowerCase() === "synced") return "ok";
-    const nums = Array.from(t.matchAll(/(\\d+)/g)).map((m) => Number(m[1] || 0));
+    const nums = Array.from(t.matchAll(/(\d+)/g)).map((m) => Number(m[1] || 0));
     const sum = nums.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
     return sum > 0 ? "warn" : "ok";
   };
@@ -42,58 +42,76 @@
   $: outboxCompactText = outboxKind === "ok" ? "READY" : (outboxKind === "warn" ? "SYNCING" : "OFFLINE");
 </script>
 
-<div class="min-h-screen bg-bg text-ink font-sans selection:bg-accent/20 selection:text-accent flex flex-col">
+<div class="min-h-screen bg-bg text-ink font-sans selection:bg-accent/20 selection:text-accent flex flex-col relative overflow-hidden">
+  <!-- Background Glows -->
+  <div class="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-accent/5 rounded-full blur-[120px] pointer-events-none"></div>
+  <div class="absolute bottom-[-20%] right-[-10%] w-[40%] h-[40%] bg-purple-500/5 rounded-full blur-[100px] pointer-events-none"></div>
+
   <!-- Topbar -->
-  <header class="sticky top-0 z-40 w-full glass border-b border-ink/10 shadow-[0_12px_36px_rgba(2,8,23,0.10)]">
-    <div class="relative px-6 py-3 lg:px-8">
-      <div class="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-ink/15 to-transparent"></div>
-
-      <div class="flex items-center gap-4 min-w-0">
-        <!-- Status (keep simple, always visible) -->
-        <div class="flex items-center gap-2 rounded-3xl border border-ink/10 bg-gradient-to-br from-surface/95 to-surface/70 px-3 py-2 shadow-sm shrink-0">
-          <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-accent font-extrabold text-white shadow-lg shadow-accent/25 ring-1 ring-accent/25">
-            WP
-          </div>
-          <span class={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-extrabold uppercase tracking-wider shadow-sm ${tone(systemKind)}`}>
-            <span class={`h-2 w-2 rounded-full ${hasConnection ? "bg-emerald-300" : "bg-red-300"}`}></span>
-            {status || "—"}
-          </span>
-        </div>
-
-        <!-- Status strip (scrolls horizontally if needed, never adds height) -->
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-            <div class={`inline-flex items-center gap-2 rounded-2xl border bg-surface/45 px-3 py-2 ${tone(edgeKind)} shadow-sm shrink-0`}>
-              <div class="text-[10px] font-extrabold uppercase tracking-wider opacity-80">Edge</div>
-              <div class="text-xs font-semibold text-ink/90 whitespace-nowrap">{edgeStateText || "—"}</div>
+  <header class="sticky top-0 z-50 w-full glass shadow-lg shadow-black/5">
+    <div class="relative px-6 py-3">
+      <div class="flex items-center justify-between gap-6">
+        
+        <!-- Brand & Status -->
+        <div class="flex items-center gap-4 shrink-0">
+          <div class="flex items-center gap-3">
+            <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-accent-hover text-white shadow-lg shadow-accent/20 font-bold text-sm tracking-wide">
+              WP
             </div>
-
-            <div class={`inline-flex items-center gap-2 rounded-2xl border bg-surface/45 px-3 py-2 ${tone(outboxKind)} shadow-sm shrink-0`}>
-              <span class={`h-2 w-2 rounded-full ${outboxKind === "ok" ? "bg-emerald-300" : outboxKind === "warn" ? "bg-amber-300" : "bg-red-300"}`}></span>
-              <div class="text-xs font-extrabold uppercase tracking-wider text-ink/90 whitespace-nowrap">{outboxCompactText}</div>
-            </div>
-
-            <div class={`inline-flex items-center gap-2 rounded-2xl border bg-surface/45 px-3 py-2 ${tone(cashierKind)} shadow-sm shrink-0`}>
-              <div class="text-[10px] font-extrabold uppercase tracking-wider opacity-80">Cashier</div>
-              <div class="text-xs font-semibold text-ink/90 whitespace-nowrap">{cashierName || "—"}</div>
-            </div>
-
-            <div class={`inline-flex items-center gap-2 rounded-2xl border bg-surface/45 px-3 py-2 ${tone(shiftKind)} shadow-sm shrink-0`}>
-              <div class="text-[10px] font-extrabold uppercase tracking-wider opacity-80">Shift</div>
-              <div class="text-xs font-semibold text-ink/90 whitespace-nowrap">{shiftText || "—"}</div>
+            
+            <div class="hidden md:flex flex-col">
+              <span class="text-xs font-bold tracking-wider text-muted uppercase">System Status</span>
+              <span class="flex items-center gap-2 text-sm font-semibold text-ink">
+                <span class={`h-2 w-2 rounded-full ${hasConnection ? "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" : "bg-red-400"}`}></span>
+                {status || "Disconnected"}
+              </span>
             </div>
           </div>
         </div>
 
-        <!-- Actions (scrolls horizontally, stays one-line) -->
-        <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 shrink-0">
+        <!-- Status Indicators (Scrollable on mobile) -->
+        <div class="flex-1 min-w-0 flex justify-center">
+          <div class="flex items-center gap-3 overflow-x-auto no-scrollbar py-1 px-4 mask-fade-sides">
+            
+            <!-- Edge -->
+            <div class={`group flex items-center gap-3 rounded-full border px-4 py-1.5 ${tone(edgeKind)} backdrop-blur-md transition-all`}>
+              <div class="text-[10px] font-bold uppercase tracking-widest opacity-70">Edge</div>
+              <div class="w-px h-3 bg-current opacity-20"></div>
+              <div class="text-xs font-semibold whitespace-nowrap">{edgeStateText || "—"}</div>
+            </div>
+
+            <!-- Sync -->
+            <div class={`group flex items-center gap-3 rounded-full border px-4 py-1.5 ${tone(outboxKind)} backdrop-blur-md transition-all`}>
+               <span class={`h-1.5 w-1.5 rounded-full ${outboxKind === "ok" ? "bg-emerald-400 animate-pulse" : outboxKind === "warn" ? "bg-amber-400" : "bg-red-400"}`}></span>
+              <div class="text-xs font-bold uppercase tracking-widest whitespace-nowrap">{outboxCompactText}</div>
+            </div>
+
+            <!-- Cashier -->
+            <div class={`group flex items-center gap-3 rounded-full border px-4 py-1.5 ${tone(cashierKind)} backdrop-blur-md transition-all`}>
+              <div class="text-[10px] font-bold uppercase tracking-widest opacity-70">Cashier</div>
+              <div class="w-px h-3 bg-current opacity-20"></div>
+              <div class="text-xs font-semibold whitespace-nowrap clamp-1 max-w-[120px]">{cashierName || "—"}</div>
+            </div>
+
+             <!-- Shift -->
+             <div class={`group flex items-center gap-3 rounded-full border px-4 py-1.5 ${tone(shiftKind)} backdrop-blur-md transition-all`}>
+              <div class="text-[10px] font-bold uppercase tracking-widest opacity-70">Shift</div>
+              <div class="w-px h-3 bg-current opacity-20"></div>
+              <div class="text-xs font-semibold whitespace-nowrap">{shiftText || "—"}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Actions -->
+        <div class="flex items-center gap-3 shrink-0">
           <slot name="top-actions" />
         </div>
       </div>
 
+      <!-- Navigation Tabs -->
       {#if showTabs}
-        <div class="mt-3 pt-3 border-t border-ink/10">
-          <nav class="flex items-center gap-2 overflow-x-auto no-scrollbar rounded-2xl bg-surface/45 border border-ink/10 px-2 py-2" aria-label="Screens">
+        <div class="mt-4 pt-4 border-t border-white/5">
+          <nav class="flex items-center gap-2 overflow-x-auto no-scrollbar" aria-label="Screens">
             <slot name="tabs" />
           </nav>
         </div>
@@ -102,7 +120,14 @@
   </header>
 
   <!-- Main Content -->
-  <main class="p-6 max-w-[1920px] mx-auto flex-1 overflow-hidden w-full">
+  <main class="flex-1 w-full max-w-[1920px] mx-auto p-4 lg:p-6 overflow-hidden flex flex-col">
     <slot />
   </main>
 </div>
+
+<style>
+  /* Optional: Fade mask for scrollable areas */
+  .mask-fade-sides {
+    mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+  }
+</style>
