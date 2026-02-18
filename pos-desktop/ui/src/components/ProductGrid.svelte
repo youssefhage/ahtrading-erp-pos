@@ -174,18 +174,18 @@
 <section class="glass-panel rounded-3xl flex flex-col h-full overflow-hidden relative group/catalog">
   <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
 
-  <header class="relative z-10 p-5 shrink-0 border-b border-ink/10">
+  <header class="relative z-10 p-5 shrink-0 border-b border-white/5">
     <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-3">
          <div class="h-8 w-1 rounded-full bg-accent shadow-[0_0_10px_rgba(45,212,191,0.5)]"></div>
          <h2 class="text-lg font-bold tracking-tight">Catalog</h2>
       </div>
       <div class="flex items-center gap-2">
-        <span class="text-xs font-mono font-medium text-muted bg-surface-highlight/50 px-2.5 py-1 rounded-lg border border-ink/10">
+        <span class="text-xs font-mono font-medium text-muted bg-surface-highlight/50 px-2.5 py-1 rounded-lg border border-white/5">
           {items.length} items
         </span>
         <button
-          class="h-8 w-8 rounded-lg border border-ink/10 bg-surface-highlight/50 hover:bg-surface-highlight hover:border-ink/15 transition-colors flex items-center justify-center text-muted hover:text-ink"
+          class="h-8 w-8 rounded-lg border border-white/5 bg-surface-highlight/50 hover:bg-surface-highlight hover:border-white/10 transition-colors flex items-center justify-center text-muted hover:text-ink"
           on:click={collapseCatalog}
           title="Hide Catalog"
           aria-label="Hide Catalog"
@@ -207,7 +207,7 @@
       <input
         bind:value={scanTerm}
         type="text"
-        class="block w-full pl-11 pr-4 py-3.5 rounded-xl bg-bg/50 border border-ink/10 hover:border-ink/15
+        class="block w-full pl-11 pr-4 py-3.5 rounded-xl bg-bg/50 border border-white/5 hover:border-white/10
                text-ink placeholder-muted/60 focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent/50
                transition-all duration-200 shadow-inner shadow-black/20"
         placeholder="Scan barcode or type to search..."
@@ -220,7 +220,7 @@
   <div class="relative z-10 flex-1 overflow-hidden pr-1">
     {#if !scanTerm.trim()}
       <div class="h-full flex flex-col items-center justify-center text-muted/40 select-none pb-10">
-        <div class="p-6 rounded-full bg-surface-highlight/30 mb-4 border border-ink/10">
+        <div class="p-6 rounded-full bg-surface-highlight/30 mb-4 border border-white/5">
           <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
@@ -248,7 +248,7 @@
                    focus:outline-none focus:ring-2 focus:ring-accent/40
                    ${isActive 
                       ? "border-accent/40 bg-accent/5 ring-1 ring-accent/20 shadow-lg shadow-accent/5" 
-                      : "border-transparent bg-surface/40 hover:bg-surface/60 hover:border-ink/10 hover:shadow-md"
+                      : "border-transparent bg-surface/40 hover:bg-surface/60 hover:border-white/5 hover:shadow-md"
                    }`}
             on:mouseenter={() => activeIndex = i}
             on:focus={() => activeIndex = i}
@@ -289,7 +289,7 @@
                 {#if opts.length > 2}
                   <div class="relative group/uom">
                     <select
-                      class="appearance-none pl-2.5 pr-7 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-ink/10 hover:border-accent/30 hover:text-accent transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/25"
+                      class="appearance-none pl-2.5 pr-7 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-white/5 hover:border-accent/30 hover:text-accent transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-accent/25"
                       title="UOM (dropdown)"
                       value={optValue(sel)}
                       on:change|stopPropagation={(e) => {
@@ -316,7 +316,7 @@
                 {:else}
                   <button
                     type="button"
-                    class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-ink/10 hover:border-accent/30 hover:text-accent transition-colors"
+                    class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-white/5 hover:border-accent/30 hover:text-accent transition-colors"
                     title={opts.length > 1 ? "UOM (tap to toggle, U to cycle, 1-9 to select)" : "UOM"}
                     on:click|stopPropagation={() => cycleUom(item, 1)}
                   >
@@ -339,7 +339,7 @@
                 class={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
                   isActive 
                     ? "bg-accent text-white shadow-lg shadow-accent/40 scale-105" 
-                    : "bg-surface-highlight/50 text-muted hover:bg-surface/55 hover:text-ink"
+                    : "bg-surface-highlight/50 text-muted hover:bg-white/10 hover:text-ink"
                 }`}
                 aria-hidden="true"
               >
@@ -357,7 +357,7 @@
           </div>
         {/if}
 
-        <div class="mt-2 pt-2 border-t border-ink/10 text-[10px] text-muted/50 flex items-center justify-between select-none font-mono">
+        <div class="mt-2 pt-2 border-t border-white/5 text-[10px] text-muted/50 flex items-center justify-between select-none font-mono">
           <span>Arrows: navigate</span>
           <span>Enter: add</span>
           <span>U: cycle UOM</span>

@@ -11,7 +11,7 @@
     if (kind === "ok") return "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-medium";
     if (kind === "warn") return "bg-amber-500/10 border-amber-500/20 text-amber-400 font-medium";
     if (kind === "bad") return "bg-red-500/10 border-red-500/20 text-red-400 font-medium";
-    return "bg-surface-highlight border-ink/10 text-muted hover:text-ink transition-colors";
+    return "bg-surface-highlight border-white/5 text-muted hover:text-ink transition-colors";
   };
 
   const _toText = (v) => String(v || "").trim();
@@ -42,10 +42,13 @@
   $: outboxCompactText = outboxKind === "ok" ? "READY" : (outboxKind === "warn" ? "SYNCING" : "OFFLINE");
 </script>
 
-<div class="min-h-screen bg-bg text-ink font-sans selection:bg-accent/20 selection:text-accent flex flex-col">
+<div class="min-h-screen bg-bg text-ink font-sans selection:bg-accent/20 selection:text-accent flex flex-col relative overflow-hidden">
+  <!-- Background Glows -->
+  <div class="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-accent/5 rounded-full blur-[120px] pointer-events-none"></div>
+  <div class="absolute bottom-[-20%] right-[-10%] w-[40%] h-[40%] bg-purple-500/5 rounded-full blur-[100px] pointer-events-none"></div>
 
   <!-- Topbar -->
-  <header class="sticky top-0 z-50 w-full glass shadow-sm">
+  <header class="sticky top-0 z-50 w-full glass shadow-lg shadow-black/5">
     <div class="relative px-6 py-3">
       <div class="flex items-center justify-between gap-6">
         
@@ -68,7 +71,7 @@
 
         <!-- Status Indicators (Scrollable on mobile) -->
         <div class="flex-1 min-w-0 flex justify-center">
-          <div class="flex items-center gap-3 overflow-x-auto no-scrollbar py-1 px-4">
+          <div class="flex items-center gap-3 overflow-x-auto no-scrollbar py-1 px-4 mask-fade-sides">
             
             <!-- Edge -->
             <div class={`group flex items-center gap-3 rounded-full border px-4 py-1.5 ${tone(edgeKind)} backdrop-blur-md transition-all`}>
@@ -107,7 +110,7 @@
 
       <!-- Navigation Tabs -->
       {#if showTabs}
-        <div class="mt-4 pt-4 border-t border-ink/10">
+        <div class="mt-4 pt-4 border-t border-white/5">
           <nav class="flex items-center gap-2 overflow-x-auto no-scrollbar" aria-label="Screens">
             <slot name="tabs" />
           </nav>
@@ -121,3 +124,10 @@
     <slot />
   </main>
 </div>
+
+<style>
+  /* Optional: Fade mask for scrollable areas */
+  .mask-fade-sides {
+    mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+  }
+</style>
