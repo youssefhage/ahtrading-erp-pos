@@ -39,14 +39,14 @@
   })();
 </script>
 
-<section class="glass-panel rounded-2xl p-4 flex flex-col gap-4 overflow-hidden">
+<section class="glass-panel rounded-2xl p-5 flex flex-col gap-4 overflow-hidden">
   <div class="flex items-center justify-between gap-3">
     <div>
-      <h3 class="text-sm font-bold text-muted uppercase tracking-wider">Current Sale</h3>
+      <h3 class="text-sm font-extrabold text-muted uppercase tracking-[0.15em]">Current Sale</h3>
       <p class="text-xs text-muted mt-1">{cart.length} line(s)</p>
     </div>
     <select
-      class="bg-surface/40 border border-ink/10 rounded-lg px-3 py-2 text-xs font-semibold text-ink focus:ring-2 focus:ring-accent/40 focus:outline-none"
+      class="bg-surface/50 border border-ink/10 rounded-xl px-3 py-2.5 text-xs font-bold text-ink shadow-sm focus:ring-2 focus:ring-accent/40 focus:outline-none"
       value={invoiceCompanyMode}
       on:change={(e) => onInvoiceCompanyModeChange(e.target.value)}
       title="Invoice mode"
@@ -67,7 +67,7 @@
     />
   </label>
 
-  <div class={`rounded-lg border p-3 text-xs ${routeHint ? "border-amber-500/30 bg-amber-500/10" : "border-ink/10 bg-ink/5"}`}>
+  <div class={`rounded-xl border p-3 text-xs ${routeHint ? "border-amber-500/30 bg-amber-500/10" : "border-ink/10 bg-surface/45"}`}>
     <div class="text-muted font-semibold">Invoice Route</div>
     <div class="mt-1 font-bold text-ink">{routePreview}</div>
     {#if routeHint}
@@ -77,11 +77,11 @@
 
   {#if totalsByCompany}
     <div class="grid grid-cols-2 gap-2 text-xs">
-      <div class="rounded-lg border border-ink/10 bg-ink/5 p-2">
+      <div class="rounded-xl border border-ink/10 bg-surface/45 p-2.5">
         <div class="text-[10px] font-bold text-ink/70">Official</div>
         <div class="num-readable font-bold text-ink">{fmtMoney(totalsByCompany.official?.totalUsd || 0, "USD")}</div>
       </div>
-      <div class="rounded-lg border border-ink/10 bg-ink/5 p-2">
+      <div class="rounded-xl border border-ink/10 bg-surface/45 p-2.5">
         <div class="text-[10px] font-bold text-ink/70">Unofficial</div>
         <div class="num-readable font-bold text-ink">{fmtMoney(totalsByCompany.unofficial?.totalUsd || 0, "USD")}</div>
       </div>

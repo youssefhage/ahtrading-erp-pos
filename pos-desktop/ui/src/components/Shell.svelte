@@ -44,17 +44,17 @@
 
 <div class="min-h-screen bg-bg text-ink font-sans selection:bg-accent/20 selection:text-accent flex flex-col">
   <!-- Topbar -->
-  <header class="sticky top-0 z-40 w-full glass border-b border-ink/10">
-    <div class="relative px-6 py-3">
+  <header class="sticky top-0 z-40 w-full glass border-b border-ink/10 shadow-[0_12px_36px_rgba(2,8,23,0.10)]">
+    <div class="relative px-6 py-3 lg:px-8">
       <div class="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-ink/15 to-transparent"></div>
 
       <div class="flex items-center gap-4 min-w-0">
         <!-- Status (keep simple, always visible) -->
-        <div class="flex items-center gap-2 rounded-2xl border border-ink/10 bg-ink/5 px-3 py-2 shrink-0">
-          <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-accent font-extrabold text-white shadow-lg shadow-accent/20">
+        <div class="flex items-center gap-2 rounded-3xl border border-ink/10 bg-gradient-to-br from-surface/95 to-surface/70 px-3 py-2 shadow-sm shrink-0">
+          <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-accent font-extrabold text-white shadow-lg shadow-accent/25 ring-1 ring-accent/25">
             WP
           </div>
-          <span class={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-extrabold uppercase tracking-wider ${tone(systemKind)}`}>
+          <span class={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-extrabold uppercase tracking-wider shadow-sm ${tone(systemKind)}`}>
             <span class={`h-2 w-2 rounded-full ${hasConnection ? "bg-emerald-300" : "bg-red-300"}`}></span>
             {status || "—"}
           </span>
@@ -63,22 +63,22 @@
         <!-- Status strip (scrolls horizontally if needed, never adds height) -->
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-            <div class={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 ${tone(edgeKind)} shrink-0`}>
+            <div class={`inline-flex items-center gap-2 rounded-2xl border bg-surface/45 px-3 py-2 ${tone(edgeKind)} shadow-sm shrink-0`}>
               <div class="text-[10px] font-extrabold uppercase tracking-wider opacity-80">Edge</div>
               <div class="text-xs font-semibold text-ink/90 whitespace-nowrap">{edgeStateText || "—"}</div>
             </div>
 
-            <div class={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 ${tone(outboxKind)} shrink-0`}>
+            <div class={`inline-flex items-center gap-2 rounded-2xl border bg-surface/45 px-3 py-2 ${tone(outboxKind)} shadow-sm shrink-0`}>
               <span class={`h-2 w-2 rounded-full ${outboxKind === "ok" ? "bg-emerald-300" : outboxKind === "warn" ? "bg-amber-300" : "bg-red-300"}`}></span>
               <div class="text-xs font-extrabold uppercase tracking-wider text-ink/90 whitespace-nowrap">{outboxCompactText}</div>
             </div>
 
-            <div class={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 ${tone(cashierKind)} shrink-0`}>
+            <div class={`inline-flex items-center gap-2 rounded-2xl border bg-surface/45 px-3 py-2 ${tone(cashierKind)} shadow-sm shrink-0`}>
               <div class="text-[10px] font-extrabold uppercase tracking-wider opacity-80">Cashier</div>
               <div class="text-xs font-semibold text-ink/90 whitespace-nowrap">{cashierName || "—"}</div>
             </div>
 
-            <div class={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 ${tone(shiftKind)} shrink-0`}>
+            <div class={`inline-flex items-center gap-2 rounded-2xl border bg-surface/45 px-3 py-2 ${tone(shiftKind)} shadow-sm shrink-0`}>
               <div class="text-[10px] font-extrabold uppercase tracking-wider opacity-80">Shift</div>
               <div class="text-xs font-semibold text-ink/90 whitespace-nowrap">{shiftText || "—"}</div>
             </div>
@@ -93,7 +93,7 @@
 
       {#if showTabs}
         <div class="mt-3 pt-3 border-t border-ink/10">
-          <nav class="flex items-center gap-2 overflow-x-auto no-scrollbar" aria-label="Screens">
+          <nav class="flex items-center gap-2 overflow-x-auto no-scrollbar rounded-2xl bg-surface/45 border border-ink/10 px-2 py-2" aria-label="Screens">
             <slot name="tabs" />
           </nav>
         </div>

@@ -95,9 +95,9 @@
   onDestroy(() => clearTimer());
 </script>
 
-<div class="glass-panel p-4 rounded-xl space-y-3 relative z-30">
+<div class="glass-panel p-5 rounded-2xl space-y-4 relative z-30">
   <div class="flex items-center justify-between">
-    <h3 class="text-sm font-bold text-muted uppercase tracking-wider">Customer</h3>
+    <h3 class="text-sm font-extrabold text-muted uppercase tracking-[0.15em]">Customer</h3>
     {#if activeCustomer}
       <button 
         class="text-xs text-red-400 hover:text-red-300 transition-colors"
@@ -109,7 +109,7 @@
   </div>
 
   {#if activeCustomer}
-    <div class="flex items-center gap-3 p-3 rounded-lg bg-surface/50 border border-emerald-500/30">
+    <div class="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/25">
       <div class="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-sm">
         {activeCustomer.name.charAt(0).toUpperCase()}
       </div>
@@ -155,7 +155,7 @@
     <div class="relative">
       <div class="flex gap-2">
         <input 
-          class="flex-1 bg-bg/50 border border-ink/10 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none"
+          class="flex-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2.5 text-sm shadow-inner focus:ring-2 focus:ring-accent/50 focus:outline-none"
           placeholder="Search customer..." 
           bind:value={customerSearch}
           on:keydown={onInputKeyDown}
@@ -164,7 +164,7 @@
           aria-activedescendant={activeIndex >= 0 ? `custopt-${activeIndex}` : undefined}
         />
         <button 
-          class="p-2 bg-surface hover:bg-ink/5 rounded-lg border border-ink/10 transition-colors"
+          class="p-2.5 bg-accent/15 hover:bg-accent/25 text-accent rounded-xl border border-accent/25 transition-colors"
           on:click={() => scheduleSearch(true)}
           title="Search"
           aria-label="Search"
@@ -225,7 +225,7 @@
 
       <div class="mt-2 text-center">
         <button 
-          class="text-xs text-accent hover:text-accent-hover transition-colors"
+          class="text-xs font-semibold text-accent hover:text-accent-hover transition-colors"
           on:click={() => addCustomerMode = true}
         >
           + Create new customer
