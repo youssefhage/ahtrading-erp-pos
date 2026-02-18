@@ -532,7 +532,7 @@
     <div class="absolute inset-0 bg-surface/30 pointer-events-none rounded-[2rem]"></div>
     
     <header class="relative z-10 shrink-0 border-b border-white/5 pb-4">
-      <h2 class="text-2xl font-bold tracking-tight text-white mb-2">Settings</h2>
+      <h2 class="text-2xl font-bold tracking-tight text-ink mb-2">Settings</h2>
       <p class="text-sm text-muted/80 leading-relaxed max-w-lg">
         The POS UI talks to local agents. Each agent syncs to either On-Prem Edge or Cloud via <span class="font-mono text-accent bg-accent/10 px-1 py-0.5 rounded text-xs">api_base_url</span>.
       </p>
@@ -833,7 +833,7 @@
     <div class="absolute inset-0 bg-surface/30 pointer-events-none rounded-[2rem]"></div>
     
     <header class="relative z-10 shrink-0 border-b border-white/5 pb-4 flex items-center justify-between">
-      <h2 class="text-2xl font-bold tracking-tight text-white">Manual Config</h2>
+      <h2 class="text-2xl font-bold tracking-tight text-ink">Manual Config</h2>
       <div class="flex gap-2">
         <button
           class="px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-xs font-bold text-muted hover:text-white hover:bg-white/10 transition-colors"

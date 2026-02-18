@@ -61,8 +61,8 @@
     --color-ink-muted: 71 85 105;
     /* #475569 - Slate 600 */
 
-    --glass-surface-opacity: 0.85;
-    --glass-border-opacity: 0.08;
+    --glass-surface-opacity: 0.92;
+    --glass-border-opacity: 0.11;
   }
 }
 
@@ -96,6 +96,14 @@
   h6 {
     font-family: "Space Grotesk", var(--font-sans);
     letter-spacing: -0.02em;
+  }
+
+  /* Light theme: keep the previous layout but improve legibility and contrast. */
+  :root[data-theme="light"] body {
+    background-image:
+      radial-gradient(900px 520px at 8% -12%, rgb(var(--color-accent) / 0.08), transparent 58%),
+      radial-gradient(900px 520px at 108% -8%, rgb(var(--color-ink) / 0.05), transparent 60%),
+      linear-gradient(to bottom, rgb(var(--color-bg)), rgb(var(--color-bg)));
   }
 }
 
@@ -179,5 +187,40 @@
   /* Animation Utilities */
   .interactive-hover {
     @apply transition-all duration-200 active:scale-[0.98];
+  }
+
+  /* Light theme overrides for hardcoded dark/white utility classes in components. */
+  :root[data-theme="light"] .bg-black\/20 {
+    background-color: rgb(var(--color-surface-highlight) / 0.72) !important;
+  }
+
+  :root[data-theme="light"] .bg-white\/5 {
+    background-color: rgb(var(--color-surface-highlight) / 0.72) !important;
+  }
+
+  :root[data-theme="light"] .hover\:bg-white\/10:hover {
+    background-color: rgb(var(--color-surface-highlight) / 0.90) !important;
+  }
+
+  :root[data-theme="light"] .hover\:bg-white\/5:hover {
+    background-color: rgb(var(--color-surface-highlight) / 0.85) !important;
+  }
+
+  :root[data-theme="light"] .border-white\/10,
+  :root[data-theme="light"] .border-white\/5 {
+    border-color: rgb(var(--color-border) / 0.55) !important;
+  }
+
+  :root[data-theme="light"] .hover\:border-white\/10:hover,
+  :root[data-theme="light"] .hover\:border-white\/5:hover {
+    border-color: rgb(var(--color-border) / 0.75) !important;
+  }
+
+  :root[data-theme="light"] .text-gray-400 {
+    color: rgb(var(--color-muted) / 0.95) !important;
+  }
+
+  :root[data-theme="light"] .ring-black\/5 {
+    --tw-ring-color: rgb(var(--color-border) / 0.35) !important;
   }
 }

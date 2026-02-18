@@ -37,7 +37,7 @@
       
       <div class="relative z-10">
         <div class="p-6 text-center border-b border-white/5">
-          <h2 class="text-2xl font-bold text-white tracking-tight">{mode === "return" ? "Confirm Refund" : "Confirm Payment"}</h2>
+          <h2 class="text-2xl font-bold text-ink tracking-tight">{mode === "return" ? "Confirm Refund" : "Confirm Payment"}</h2>
           <p class="text-sm text-gray-400 mt-1">Select your preferred payment method</p>
         </div>
 
@@ -45,7 +45,7 @@
           <div class="text-center relative">
             <div class="absolute inset-0 bg-accent/20 blur-3xl rounded-full"></div>
             <div class="relative">
-              <span class="text-6xl num-readable font-extrabold text-white tracking-tighter drop-shadow-lg">
+              <span class="text-6xl num-readable font-extrabold text-ink tracking-tighter drop-shadow-lg">
                 {fmtTotal(total)}
               </span>
               <span class="text-xl text-accent font-bold ml-2">{currency}</span>
