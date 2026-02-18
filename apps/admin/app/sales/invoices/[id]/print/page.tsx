@@ -17,6 +17,8 @@ const UNOFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000002";
 type InvoiceRow = {
   id: string;
   invoice_no: string | null;
+  receipt_no?: string | null;
+  receipt_meta?: unknown;
   customer_id: string | null;
   customer_name?: string | null;
   status: string;
@@ -48,6 +50,11 @@ type InvoiceLine = {
   qty_entered?: string | number | null;
   unit_price_usd: string | number;
   unit_price_lbp: string | number;
+  unit_price_entered_usd?: string | number | null;
+  unit_price_entered_lbp?: string | number | null;
+  discount_pct?: string | number | null;
+  discount_amount_usd?: string | number | null;
+  discount_amount_lbp?: string | number | null;
   line_total_usd: string | number;
   line_total_lbp: string | number;
 };
@@ -93,6 +100,7 @@ type Customer = {
   legal_name?: string | null;
   tax_id?: string | null;
   vat_no?: string | null;
+  phone?: string | null;
 };
 
 type PartyAddress = {
@@ -127,6 +135,137 @@ function sum<T>(arr: T[], f: (v: T) => number): number {
   let out = 0;
   for (const v of arr) out += f(v);
   return out;
+}
+
+function toNum(v: unknown) {
+  const n = Number(v || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function fmtPlainMoney(v: unknown) {
+  return toNum(v).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function fmtPlainQty(v: unknown) {
+  return toNum(v).toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3,
+  });
+}
+
+function fmtUsDate(iso?: string | null) {
+  const raw = String(iso || "").trim();
+  if (!raw) return "-";
+  const d = new Date(raw);
+  if (!Number.isNaN(d.getTime())) {
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    const yyyy = String(d.getFullYear());
+    return `${mm}/${dd}/${yyyy}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return `${raw.slice(5, 7)}/${raw.slice(8, 10)}/${raw.slice(0, 4)}`;
+  }
+  return raw;
+}
+
+function parseMeta(raw: unknown): Record<string, unknown> {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw as Record<string, unknown>;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function metaString(meta: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const v = meta[key];
+    if (v === null || v === undefined) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return "";
+}
+
+function paymentTerms(invoiceDate?: string, dueDate?: string | null) {
+  const invDate = String(invoiceDate || "").slice(0, 10);
+  const due = String(dueDate || "").slice(0, 10);
+  if (!due || !invDate) return "Pay immediately";
+  const invTs = Date.parse(`${invDate}T00:00:00Z`);
+  const dueTs = Date.parse(`${due}T00:00:00Z`);
+  if (Number.isNaN(invTs) || Number.isNaN(dueTs)) return "Pay immediately";
+  const diff = Math.round((dueTs - invTs) / 86400000);
+  if (diff <= 0) return "Pay immediately";
+  return `Net ${diff} day${diff === 1 ? "" : "s"}`;
+}
+
+const SMALL = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+  "thirteen",
+  "fourteen",
+  "fifteen",
+  "sixteen",
+  "seventeen",
+  "eighteen",
+  "nineteen",
+];
+
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+
+function intToWords(n: number): string {
+  if (n < 20) return SMALL[n] || "zero";
+  if (n < 100) {
+    const t = Math.floor(n / 10);
+    const r = n % 10;
+    return r ? `${TENS[t]} ${SMALL[r]}` : TENS[t];
+  }
+  if (n < 1000) {
+    const h = Math.floor(n / 100);
+    const r = n % 100;
+    return r ? `${SMALL[h]} hundred ${intToWords(r)}` : `${SMALL[h]} hundred`;
+  }
+  const units: Array<[number, string]> = [
+    [1_000_000_000, "billion"],
+    [1_000_000, "million"],
+    [1_000, "thousand"],
+  ];
+  for (const [unit, label] of units) {
+    if (n >= unit) {
+      const head = Math.floor(n / unit);
+      const rest = n % unit;
+      return rest ? `${intToWords(head)} ${label} ${intToWords(rest)}` : `${intToWords(head)} ${label}`;
+    }
+  }
+  return "zero";
+}
+
+function amountInWordsUsd(amount: unknown) {
+  const n = Math.max(0, toNum(amount));
+  const dollars = Math.floor(n);
+  const cents = Math.round((n - dollars) * 100);
+  const words = intToWords(dollars);
+  return `Only ${words.charAt(0).toUpperCase() + words.slice(1)} and ${String(cents).padStart(2, "0")}/100 USD`;
 }
 
 export default function SalesInvoicePrintPage() {
@@ -229,6 +368,10 @@ export default function SalesInvoicePrintPage() {
   }, [company, isUnofficial, queryPrint.hasExplicitPaper, queryPrint.landscape]);
 
   const paper = queryPrint.hasExplicitPaper ? queryPrint.paper : isUnofficial ? "receipt" : "a4";
+  const docTitle = "Sales Invoice";
+  const primaryDocNo = detail?.invoice?.invoice_no || "(draft)";
+  const printerPreferenceKeyPrefix = "sales_invoice";
+  const pdfInlineRoute = `/exports/sales-invoices/${encodeURIComponent(id)}/pdf?inline=1`;
 
   useEffect(() => {
     // Best-effort: load printers when running inside Admin Desktop (Tauri).
@@ -255,13 +398,13 @@ export default function SalesInvoicePrintPage() {
     if (typeof window === "undefined") return;
     try {
       const paperKey = paper === "receipt" ? "receipt" : "a4";
-      const k = `admin.print.sales_invoice.${paperKey}.printer`;
+      const k = `admin.print.${printerPreferenceKeyPrefix}.${paperKey}.printer`;
       const saved = window.localStorage.getItem(k) || "";
       if (saved) setSelectedPrinter((cur) => cur || saved);
     } catch {
       // ignore
     }
-  }, [directPrintOk, paper]);
+  }, [directPrintOk, paper, printerPreferenceKeyPrefix]);
 
   async function directPrint() {
     if (!directPrintOk) {
@@ -287,12 +430,12 @@ export default function SalesInvoicePrintPage() {
           })
           .join("\n");
         const txt =
-          `Sales Invoice\n${inv?.invoice_no || "(draft)"}\nDate ${fmtIso(inv?.invoice_date)}\n` +
+          `${docTitle}\n${inv?.invoice_no || "(draft)"}\nDate ${fmtIso(inv?.invoice_date)}\n` +
           `------------------------------\n${lines}\n` +
           `------------------------------\nTotal USD: ${fmtUsd(inv?.total_usd || 0)}\nTotal LBP: ${fmtLbp(inv?.total_lbp || 0)}\n`;
         await tauriInvoke("print_text", { text: txt, printer, copies: c });
       } else {
-        const res = await fetch(`/exports/sales-invoices/${encodeURIComponent(id)}/pdf?inline=1`, { credentials: "include" });
+        const res = await fetch(pdfInlineRoute, { credentials: "include" });
         if (!res.ok) throw new Error(`PDF fetch failed (${res.status})`);
         const buf = new Uint8Array(await res.arrayBuffer());
         // Chunked base64 encoding to avoid call stack limits.
@@ -305,7 +448,7 @@ export default function SalesInvoicePrintPage() {
       }
 
       try {
-        const k = `admin.print.sales_invoice.${paperKey}.printer`;
+        const k = `admin.print.${printerPreferenceKeyPrefix}.${paperKey}.printer`;
         window.localStorage.setItem(k, (selectedPrinter || "").trim());
       } catch {
         // ignore
@@ -355,6 +498,47 @@ export default function SalesInvoicePrintPage() {
     if (country) lines.push(country);
     return lines;
   }
+
+  const officialMeta = useMemo(() => parseMeta(detail?.invoice?.receipt_meta), [detail?.invoice?.receipt_meta]);
+  const officialPrimaryLines = useMemo(() => addressLines(defaultAddress), [defaultAddress]);
+  const officialDeliveryLines = useMemo(() => {
+    const candidate = officialMeta.delivery_address || officialMeta.deliveryAddress || officialMeta.ship_to || null;
+    if (typeof candidate === "string") {
+      return candidate
+        .split(/\r?\n/)
+        .map((v) => v.trim())
+        .filter(Boolean);
+    }
+    if (candidate && typeof candidate === "object") {
+      const obj = candidate as Record<string, unknown>;
+      const line1 = String(obj.line1 || obj.address1 || "").trim();
+      const line2 = String(obj.line2 || obj.address2 || "").trim();
+      const city = String(obj.city || "").trim();
+      const region = String(obj.region || obj.state || "").trim();
+      const country = String(obj.country || "").trim();
+      const postal = String(obj.postal_code || obj.postal || "").trim();
+      const out: string[] = [];
+      if (line1) out.push(line1);
+      if (line2) out.push(line2);
+      const place = [city, region, postal].filter(Boolean).join(", ");
+      if (place) out.push(place);
+      if (country) out.push(country);
+      if (out.length) return out;
+    }
+    return officialPrimaryLines;
+  }, [officialMeta, officialPrimaryLines]);
+  const officialCustomerNo = String(customer?.code || detail?.invoice?.customer_id || "-");
+  const officialCustomerName = detail?.invoice?.customer_id
+    ? String(customer?.legal_name || customer?.name || detail?.invoice?.customer_name || detail?.invoice?.customer_id)
+    : "Walk-in";
+  const officialCustomerPhone = String(customer?.phone || "").trim() || "-";
+  const officialTotalQty = sum(detail?.lines || [], (l) => Number((l.qty_entered ?? l.qty) || 0));
+  const officialTaxUsd = sum(detail?.tax_lines || [], (t) => Number(t.tax_usd || 0));
+  const officialTotalUsd = toNum(detail?.invoice?.total_usd || 0);
+  const officialBeforeVatComputed = toNum(detail?.invoice?.subtotal_usd || 0) - toNum(detail?.invoice?.discount_total_usd || 0);
+  const officialBeforeVat = Math.abs(officialTotalUsd - officialTaxUsd) > 0.009 ? officialTotalUsd - officialTaxUsd : officialBeforeVatComputed;
+  const officialVatPct = officialBeforeVat > 0 ? (officialTaxUsd / officialBeforeVat) * 100 : 0;
+  const officialVatPctLabel = officialVatPct > 0 ? `${officialVatPct.toFixed(officialVatPct % 1 === 0 ? 0 : 2)}%` : "";
 
   return (
     <div className="print-paper min-h-screen">
@@ -409,8 +593,8 @@ export default function SalesInvoicePrintPage() {
           paper === "receipt" ? (
             <div className="space-y-3 text-[11px]">
               <header className="text-center">
-                <h1 className="text-base font-semibold tracking-tight">Sales Invoice</h1>
-                <div className="mt-1 font-mono text-[10px] text-black/70">{detail.invoice.invoice_no || "(draft)"}</div>
+                <h1 className="text-base font-semibold tracking-tight">{docTitle}</h1>
+                <div className="mt-1 font-mono text-[10px] text-black/70">{primaryDocNo}</div>
                 <div className="mt-1 text-[10px] text-black/60">
                   {fmtIso(detail.invoice.invoice_date)} · {detail.invoice.status}
                 </div>
@@ -501,23 +685,191 @@ export default function SalesInvoicePrintPage() {
               </section>
 
               <footer className="pt-2 text-[10px] text-black/50">
-                <div className="border-t border-black/10 pt-2 font-mono">Invoice ID: {detail.invoice.id}</div>
+                <div className="border-t border-black/10 pt-2 font-mono">Document ID: {detail.invoice.id}</div>
+              </footer>
+            </div>
+          ) : company?.id === OFFICIAL_COMPANY_ID ? (
+            <div className="space-y-5 text-[11px] leading-tight text-black">
+              <section className="flex items-start justify-between gap-8">
+                <div className="w-[56%] space-y-1">
+                  <h1 className="text-[28px] font-bold tracking-tight">{company.legal_name || company.name}</h1>
+                  <div className="grid grid-cols-[120px_1fr] gap-x-2">
+                    <span>P.O. Box</span>
+                    <span className="font-mono">-</span>
+                  </div>
+                  <div className="grid grid-cols-[120px_1fr] gap-x-2">
+                    <span>Tel</span>
+                    <span className="font-mono">-</span>
+                  </div>
+                  <div className="grid grid-cols-[120px_1fr] gap-x-2">
+                    <span>Fax</span>
+                    <span className="font-mono">-</span>
+                  </div>
+                  <div className="grid grid-cols-[120px_1fr] gap-x-2">
+                    <span>R.C</span>
+                    <span className="font-mono">{company.registration_no || "-"}</span>
+                  </div>
+                  <div className="grid grid-cols-[120px_1fr] gap-x-2">
+                    <span>VAT Registration No.</span>
+                    <span className="font-mono">{company.vat_no || "-"}</span>
+                  </div>
+                </div>
+
+                <div className="w-[38%] pt-1 text-center">
+                  <div className="text-[24px] font-bold">Invoice</div>
+                  <div className="mt-2 font-mono text-[20px] font-bold">{primaryDocNo}</div>
+                </div>
+              </section>
+
+              <section className="grid grid-cols-2 gap-8">
+                <div className="space-y-1">
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Sales order No.</span>
+                    <span className="font-mono">{detail.invoice.receipt_no || primaryDocNo}</span>
+                  </div>
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Sales Person</span>
+                    <span className="font-mono">{metaString(parseMeta(detail.invoice.receipt_meta), "sales_person", "salesperson") || "-"}</span>
+                  </div>
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Route</span>
+                    <span className="font-mono">{metaString(parseMeta(detail.invoice.receipt_meta), "route", "route_name") || "-"}</span>
+                  </div>
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Reference</span>
+                    <span className="font-mono">{metaString(parseMeta(detail.invoice.receipt_meta), "reference", "po_no") || detail.invoice.id.slice(0, 12)}</span>
+                  </div>
+
+                  <div className="pt-2 text-[12px] font-bold underline">Primary Address</div>
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Customer No.</span>
+                    <span className="font-mono">{officialCustomerNo}</span>
+                  </div>
+                  <div>{officialCustomerName}</div>
+                  {officialPrimaryLines.map((ln, idx) => (
+                    <div key={`official-primary-${idx}`}>{ln}</div>
+                  ))}
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Tel</span>
+                    <span className="font-mono">{officialCustomerPhone}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Document Date</span>
+                    <span className="font-mono">{fmtUsDate(detail.invoice.invoice_date)}</span>
+                  </div>
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Due Date</span>
+                    <span className="font-mono">{fmtUsDate(detail.invoice.due_date)}</span>
+                  </div>
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Payment Terms</span>
+                    <span className="font-mono">{paymentTerms(detail.invoice.invoice_date, detail.invoice.due_date)}</span>
+                  </div>
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Currency</span>
+                    <span className="font-mono">{detail.invoice.settlement_currency || detail.invoice.pricing_currency || "USD"}</span>
+                  </div>
+
+                  <div className="pt-2 text-[12px] font-bold underline">Delivery Address</div>
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Customer No.</span>
+                    <span className="font-mono">{officialCustomerNo}</span>
+                  </div>
+                  <div>{officialCustomerName}</div>
+                  {officialDeliveryLines.map((ln, idx) => (
+                    <div key={`official-delivery-${idx}`}>{ln}</div>
+                  ))}
+                  <div className="grid grid-cols-[102px_1fr] gap-x-2">
+                    <span className="font-semibold">Tel</span>
+                    <span className="font-mono">{officialCustomerPhone}</span>
+                  </div>
+                </div>
+              </section>
+
+              <section className="border border-black/45">
+                <table className="w-full border-collapse text-[10px]">
+                  <thead className="bg-black/[0.06]">
+                    <tr className="border-b border-black/45 text-[10px] font-bold">
+                      <th className="border-r border-black/30 px-1 py-1 text-left">Item</th>
+                      <th className="border-r border-black/30 px-1 py-1 text-left">Description</th>
+                      <th className="border-r border-black/30 px-1 py-1 text-right">Quantity</th>
+                      <th className="border-r border-black/30 px-1 py-1 text-center">UOM</th>
+                      <th className="border-r border-black/30 px-1 py-1 text-right">Unit price</th>
+                      <th className="border-r border-black/30 px-1 py-1 text-center">Discount %</th>
+                      <th className="border-r border-black/30 px-1 py-1 text-right">Discount Amount</th>
+                      <th className="px-1 py-1 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(detail.lines || []).map((l) => {
+                      const rawPct = Number(l.discount_pct || 0);
+                      const pct = rawPct <= 1 ? rawPct * 100 : rawPct;
+                      const pctText = pct === 0 ? "0%" : `${pct.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%`;
+                      return (
+                        <tr key={l.id} className="border-t border-black/20 align-top">
+                          <td className="border-r border-black/20 px-1 py-1 font-mono text-[9px]">{l.item_sku || String(l.item_id).slice(0, 12)}</td>
+                          <td className="border-r border-black/20 px-1 py-1">{l.item_name || "-"}</td>
+                          <td className="border-r border-black/20 px-1 py-1 text-right font-mono">{fmtPlainQty(l.qty_entered ?? l.qty)}</td>
+                          <td className="border-r border-black/20 px-1 py-1 text-center">{String(l.uom || "").trim() || "-"}</td>
+                          <td className="border-r border-black/20 px-1 py-1 text-right font-mono">{fmtPlainMoney(l.unit_price_entered_usd ?? l.unit_price_usd)}</td>
+                          <td className="border-r border-black/20 px-1 py-1 text-center font-mono">{pctText}</td>
+                          <td className="border-r border-black/20 px-1 py-1 text-right font-mono">{fmtPlainMoney(l.discount_amount_usd || 0)}</td>
+                          <td className="px-1 py-1 text-right font-mono">{fmtPlainMoney(l.line_total_usd)}</td>
+                        </tr>
+                      );
+                    })}
+                    {(detail.lines || []).length === 0 ? (
+                      <tr>
+                        <td className="py-4 text-center text-black/60" colSpan={8}>
+                          No lines.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </section>
+
+              <section className="grid grid-cols-[1fr_360px] gap-4">
+                <div className="space-y-2">
+                  <div className="font-semibold">Total Qty HL   {fmtPlainQty(officialTotalQty)}</div>
+                  <div className="italic">{amountInWordsUsd(officialTotalUsd)}</div>
+                  <div className="pt-3 text-[10px]">Amount to be Cashed in USD Notes and VAT to be paid in LBP at Sayrafa rate.</div>
+                </div>
+
+                <div className="border border-black/45">
+                  <div className="flex items-center justify-between border-b border-black/25 px-2 py-1.5">
+                    <span className="font-semibold">Total Amount Before VAT</span>
+                    <span className="font-mono font-semibold">{fmtPlainMoney(officialBeforeVat)}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-black/25 px-2 py-1.5">
+                    <span className="font-semibold">{`VAT ${officialVatPctLabel}`.trim()}</span>
+                    <span className="font-mono font-semibold">{fmtPlainMoney(officialTaxUsd)}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-black/[0.06] px-2 py-1.5">
+                    <span className="text-[12px] font-bold">Total Amount Incl. VAT</span>
+                    <span className="font-mono text-[12px] font-bold">{fmtPlainMoney(officialTotalUsd)}</span>
+                  </div>
+                </div>
+              </section>
+
+              <section className="grid grid-cols-2 gap-16 pt-10 text-center text-[11px] font-semibold">
+                <div className="border-t border-black/30 pt-3">Receiver&apos;s Name & Signature</div>
+                <div className="border-t border-black/30 pt-3">Stamp Duty Paid</div>
+              </section>
+
+              <footer className="text-right font-mono text-[10px] text-black/50">
+                Document ID: {detail.invoice.id} · Generated: {formatDateTime(new Date())}
               </footer>
             </div>
           ) : (
             <div className="space-y-6">
-              {company?.id === OFFICIAL_COMPANY_ID ? (
-                <div className="space-y-1 text-xs text-black/70">
-                  <div className="text-sm font-semibold text-black">{company.legal_name || company.name}</div>
-                  {company.vat_no ? <div>VAT No: <span className="font-mono">{company.vat_no}</span></div> : null}
-                  {company.registration_no ? <div>Reg No: <span className="font-mono">{company.registration_no}</span></div> : null}
-                </div>
-              ) : null}
-
               <header className="space-y-2 border-b border-black/15 pb-4">
-                <h1 className="text-2xl font-semibold tracking-tight">Sales Invoice</h1>
+                <h1 className="text-2xl font-semibold tracking-tight">{docTitle}</h1>
                 <div className="flex flex-wrap items-start justify-between gap-4 text-xs text-black/70">
-                  <div className="font-mono">{detail.invoice.invoice_no || "(draft)"}</div>
+                  <div className="font-mono">{primaryDocNo}</div>
                   <div className="text-right">
                     <div className="font-mono">Date {fmtIso(detail.invoice.invoice_date)}</div>
                     <div className="font-mono">Due {fmtIso(detail.invoice.due_date)}</div>
@@ -651,7 +1003,7 @@ export default function SalesInvoicePrintPage() {
 
               <footer className="pt-2 text-[11px] text-black/60">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-black/15 pt-3">
-                  <span className="font-mono">Invoice ID: {detail.invoice.id}</span>
+                  <span className="font-mono">Document ID: {detail.invoice.id}</span>
                   <span className="font-mono">Generated: {formatDateTime(new Date())}</span>
                 </div>
               </footer>
