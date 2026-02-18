@@ -2268,7 +2268,7 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
     vat_rate = float(config.get('vat_rate') or 0)
     vat_codes = config.get('vat_codes') if isinstance(config.get('vat_codes'), dict) else {}
     has_vat_codes = isinstance(vat_codes, dict) and len(vat_codes) > 0
-    if default_tax_code_id and (vat_rate or has_vat_codes):
+    if vat_rate or has_vat_codes:
         base_by = {}
         for ln in lines:
             tcid = (ln.get("tax_code_id") or default_tax_code_id or None)
@@ -2301,14 +2301,16 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
             tax_usd += t_usd
             tax_lbp += t_lbp
 
-        tax_block = {
-            'tax_code_id': default_tax_code_id,
-            'base_usd': base_usd,
-            'base_lbp': base_lbp,
-            'tax_usd': tax_usd,
-            'tax_lbp': tax_lbp,
-            'tax_date': datetime.utcnow().date().isoformat()
-        }
+        if base_by:
+            tax_code_for_block = default_tax_code_id or (next(iter(base_by.keys()), None))
+            tax_block = {
+                'tax_code_id': tax_code_for_block,
+                'base_usd': base_usd,
+                'base_lbp': base_lbp,
+                'tax_usd': tax_usd,
+                'tax_lbp': tax_lbp,
+                'tax_date': datetime.utcnow().date().isoformat()
+            }
 
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
@@ -2405,7 +2407,7 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
     vat_rate = float(config.get('vat_rate') or 0)
     vat_codes = config.get('vat_codes') if isinstance(config.get('vat_codes'), dict) else {}
     has_vat_codes = isinstance(vat_codes, dict) and len(vat_codes) > 0
-    if default_tax_code_id and (vat_rate or has_vat_codes):
+    if vat_rate or has_vat_codes:
         base_by = {}
         for ln in lines:
             tcid = (ln.get("tax_code_id") or default_tax_code_id or None)
@@ -2437,14 +2439,16 @@ def build_return_payload(cart, config, pricing_currency, exchange_rate, invoice_
             tax_usd += t_usd
             tax_lbp += t_lbp
 
-        tax_block = {
-            'tax_code_id': default_tax_code_id,
-            'base_usd': base_usd,
-            'base_lbp': base_lbp,
-            'tax_usd': tax_usd,
-            'tax_lbp': tax_lbp,
-            'tax_date': datetime.utcnow().date().isoformat()
-        }
+        if base_by:
+            tax_code_for_block = default_tax_code_id or (next(iter(base_by.keys()), None))
+            tax_block = {
+                'tax_code_id': tax_code_for_block,
+                'base_usd': base_usd,
+                'base_lbp': base_lbp,
+                'tax_usd': tax_usd,
+                'tax_lbp': tax_lbp,
+                'tax_date': datetime.utcnow().date().isoformat()
+            }
 
     return {
         'return_no': None,
@@ -3040,6 +3044,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == '/api/config':
             data = self.read_json()
+            # VAT must be derived from cloud /pos/config during sync pull.
+            # Never allow manual overrides through local /api/config writes.
+            data.pop("vat_rate", None)
+            data.pop("vat_codes", None)
             for k in (
                 "require_manager_approval_credit",
                 "require_manager_approval_returns",
@@ -3731,7 +3739,7 @@ class Handler(BaseHTTPRequestHandler):
                 cur = conn.cursor()
                 cur.execute(
                     """
-                    SELECT event_id, event_type, payload_json, created_at
+                    SELECT event_id, event_type, payload_json, created_at, idempotency_key
                     FROM pos_outbox_events
                     WHERE status = 'pending'
                     ORDER BY created_at
@@ -3743,7 +3751,8 @@ class Handler(BaseHTTPRequestHandler):
                         'event_id': r['event_id'],
                         'event_type': r['event_type'],
                         'payload': json.loads(r['payload_json']),
-                        'created_at': r['created_at']
+                        'created_at': r['created_at'],
+                        'idempotency_key': (r['idempotency_key'] if r['idempotency_key'] else None),
                     })
             if not events:
                 json_response(self, {'ok': True, 'sent': 0})

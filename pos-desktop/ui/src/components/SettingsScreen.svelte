@@ -71,7 +71,6 @@
 
   const copyFrom = (cfg) => ({
     api_base_url: String(cfg?.api_base_url || "").trim(),
-    edge_api_base_url: String(cfg?.edge_api_base_url || "").trim(),
     cloud_api_base_url: String(cfg?.cloud_api_base_url || "").trim(),
     company_id: String(cfg?.company_id || "").trim(),
     device_id: String(cfg?.device_id || "").trim(),
@@ -80,7 +79,6 @@
     device_code: String(cfg?.device_code || "").trim(),
     pricing_currency: String(cfg?.pricing_currency || "").trim(),
     exchange_rate: cfg?.exchange_rate ?? "",
-    vat_rate: cfg?.vat_rate ?? "",
     outbox_stale_warn_minutes: cfg?.outbox_stale_warn_minutes ?? 5,
     require_manager_approval_credit: !!cfg?.require_manager_approval_credit,
     require_manager_approval_returns: !!cfg?.require_manager_approval_returns,
@@ -88,6 +86,7 @@
   });
 
   const hasTokenText = (cfg) => (cfg?.has_device_token ? "Set" : "Not set");
+  const vatPercentText = (cfg) => `${(Number(cfg?.vat_rate || 0) * 100).toFixed(2)}%`;
 
   $: off = copyFrom(officialConfig);
   $: un = copyFrom(unofficialConfig);
@@ -123,12 +122,12 @@
     try {
       const payload = companyKey === "official" ? { ...off } : { ...un };
 
-      // Hybrid URL logic: if cloud/edge urls are set, keep api_base_url as the active target.
-      const edge = String(payload.edge_api_base_url || "").trim();
+      // Cloud-first URL logic: keep api_base_url aligned with cloud target when set.
       const cloud = String(payload.cloud_api_base_url || "").trim();
-      if (edge || cloud) {
-        payload.api_base_url = edge || cloud || String(payload.api_base_url || "").trim();
+      if (cloud) {
+        payload.api_base_url = cloud;
       }
+      delete payload.edge_api_base_url;
 
       // Only write token if user explicitly supplies one or clears it.
       if (companyKey === "official") {
@@ -534,7 +533,7 @@
     <header class="relative z-10 shrink-0 border-b border-white/5 pb-4">
       <h2 class="text-2xl font-bold tracking-tight text-ink mb-2">Settings</h2>
       <p class="text-sm text-muted/80 leading-relaxed max-w-lg">
-        The POS UI talks to local agents. Each agent syncs to either On-Prem Edge or Cloud via <span class="font-mono text-accent bg-accent/10 px-1 py-0.5 rounded text-xs">api_base_url</span>.
+        The POS UI talks to local agents. Each agent syncs to Cloud via <span class="font-mono text-accent bg-accent/10 px-1 py-0.5 rounded text-xs">api_base_url</span>.
       </p>
     </header>
 
@@ -918,10 +917,10 @@
               <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_rate">Exchange Rate</label>
               <input id="off_rate" type="number" step="100" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.exchange_rate} />
             </div>
-            <div>
-              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_vat">VAT Rate (0-100)</label>
-              <input id="off_vat" type="number" step="0.1" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.vat_rate} />
-            </div>
+          </div>
+          <div class="text-[11px] text-muted/80 bg-surface-highlight/30 border border-white/5 rounded-lg px-3 py-2">
+            VAT is derived from company settings and cannot be edited here. Run Pull Sync to refresh after company/device changes.
+            Current: <span class="font-mono text-ink">{vatPercentText(officialConfig)}</span>
           </div>
           
           <div class="pt-2 border-t border-white/5">
@@ -989,6 +988,10 @@
               <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_warn">Warn Stale Minutes</label>
               <input id="un_warn" type="number" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.outbox_stale_warn_minutes} />
             </div>
+          </div>
+          <div class="text-[11px] text-muted/80 bg-surface-highlight/30 border border-white/5 rounded-lg px-3 py-2">
+            VAT is derived from company settings and cannot be edited here. Run Pull Sync to refresh after company/device changes.
+            Current: <span class="font-mono text-ink">{vatPercentText(unofficialConfig)}</span>
           </div>
           
           <div class="pt-2 border-t border-white/5">

@@ -97,7 +97,7 @@
   const _cloudSetupCall = async (
     apiBaseUrl,
     path,
-    { method = "GET", token = "", companyId = "", body = null, timeoutMs = 12000 } = {},
+    { method = "GET", token = "", companyId = "", body = null, timeoutMs = 20000 } = {},
   ) => {
     const base = _normalizeCloudApiBase(apiBaseUrl);
     if (!base) throw new Error("Cloud API URL is required.");
@@ -110,7 +110,7 @@
     if (cid) headers["X-Company-Id"] = cid;
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), Math.max(1000, toNum(timeoutMs, 12000)));
+    const timeoutId = setTimeout(() => controller.abort(), Math.max(1000, toNum(timeoutMs, 20000)));
     try {
       const res = await fetch(url, {
         method: String(method || "GET").toUpperCase(),
@@ -223,15 +223,21 @@
   let webHostUnsupported = false;
   let webHostHint = "";
   let webEventInvoiceMap = new Map();
-  let webIdempotencyMap = new Map();
+  let webCatalogCache = new Map();
+  const WEB_CATALOG_CACHE_TTL_MS = 15000;
 
   const activateWebHostUnsupported = (hint = "") => {
     webHostUnsupported = true;
     webHostHint = String(hint || "").trim();
-    status = "Web Setup Mode";
+    const hasSavedCloudConfig =
+      (!!String(config?.device_id || "").trim() && !!String(config?.device_token || "").trim()) ||
+      (!!String(unofficialConfig?.device_id || "").trim() && !!String(unofficialConfig?.device_token || "").trim());
+    status = hasSavedCloudConfig ? "Ready" : "Web Setup Mode";
     error = "";
-    activeScreen = "settings";
-    try { localStorage.setItem(SCREEN_STORAGE_KEY, "settings"); } catch (_) {}
+    if (!hasSavedCloudConfig) {
+      activeScreen = "settings";
+      try { localStorage.setItem(SCREEN_STORAGE_KEY, "settings"); } catch (_) {}
+    }
   };
 
   // Unified: map "official/unofficial" keys onto (origin agent) + (other agent).
@@ -258,8 +264,6 @@
     require_manager_approval_cross_company: false,
     outbox_stale_warn_minutes: 5,
   };
-  let edge = null;
-  let unofficialEdge = null;
   
   let items = [];
   let barcodes = [];
@@ -656,8 +660,19 @@
     }
     if (companyKey === otherCompanyKey) unofficialConfig = nextCfg;
     else config = nextCfg;
+    if (Object.prototype.hasOwnProperty.call(patch || {}, "company_id")) {
+      _invalidateWebCatalogCache(companyKey);
+    }
     try { localStorage.setItem(_webConfigStorageKey(companyKey), JSON.stringify(nextCfg)); } catch (_) {}
     return nextCfg;
+  };
+
+  const _sanitizeConfigPatch = (patch = {}) => {
+    const body = { ...(patch || {}) };
+    // VAT is derived from company master config (/pos/config), never user-edited.
+    delete body.vat_rate;
+    delete body.vat_codes;
+    return body;
   };
 
   const requestHeaders = (companyKey = "official") => {
@@ -681,7 +696,7 @@
     return normalized || "/api";
   };
 
-  const _webPosCall = async (companyKey, path, { method = "GET", body = null, timeoutMs = 12000 } = {}) => {
+  const _webPosCall = async (companyKey, path, { method = "GET", body = null, timeoutMs = 18000 } = {}) => {
     const cfg = cfgForCompanyKey(companyKey) || {};
     const deviceId = String(cfg.device_id || "").trim();
     const deviceToken = String(cfg.device_token || "").trim();
@@ -701,7 +716,7 @@
     };
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), Math.max(1000, toNum(timeoutMs, 12000)));
+    const timeoutId = setTimeout(() => controller.abort(), Math.max(1000, toNum(timeoutMs, 18000)));
     try {
       const res = await fetch(url, {
         method: String(method || "GET").toUpperCase(),
@@ -729,6 +744,41 @@
       throw e;
     } finally {
       clearTimeout(timeoutId);
+    }
+  };
+
+  const _invalidateWebCatalogCache = (companyKey = null) => {
+    if (companyKey == null) {
+      webCatalogCache = new Map();
+      return;
+    }
+    const next = new Map(webCatalogCache);
+    next.delete(String(companyKey || ""));
+    webCatalogCache = next;
+  };
+
+  const _getWebCatalog = async (companyKey, cfg, { force = false } = {}) => {
+    const key = String(companyKey || "");
+    const now = Date.now();
+    const cached = webCatalogCache.get(key);
+    if (!force && cached?.data && (now - toNum(cached.at, 0)) <= WEB_CATALOG_CACHE_TTL_MS) {
+      return cached.data;
+    }
+    if (!force && cached?.promise) {
+      return await cached.promise;
+    }
+    const companyId = String(cfg?.company_id || "").trim();
+    const q = companyId ? `?company_id=${encodeURIComponent(companyId)}` : "";
+    const promise = _webPosCall(companyKey, `/pos/catalog${q}`, { method: "GET" })
+      .then((res) => ({ items: Array.isArray(res?.items) ? res.items : [] }));
+    webCatalogCache.set(key, { ...cached, promise });
+    try {
+      const data = await promise;
+      webCatalogCache.set(key, { at: Date.now(), data, promise: null });
+      return data;
+    } catch (e) {
+      webCatalogCache.delete(key);
+      throw e;
     }
   };
 
@@ -800,12 +850,13 @@
     let taxUsd = 0;
     let taxLbp = 0;
     const taxBreakdown = [];
-    if (defaultTaxCodeId && (vatRate || Object.keys(vatCodes).length > 0)) {
+    const hasVatCodes = Object.keys(vatCodes).length > 0;
+    if (vatRate || hasVatCodes) {
       const baseByTax = new Map();
       for (const ln of lines) {
         const taxCodeId = String(ln.tax_code_id || defaultTaxCodeId || "").trim();
         if (!taxCodeId) continue;
-        if (Object.keys(vatCodes).length > 0 && !Object.prototype.hasOwnProperty.call(vatCodes, taxCodeId) && String(defaultTaxCodeId) !== taxCodeId) {
+        if (hasVatCodes && !Object.prototype.hasOwnProperty.call(vatCodes, taxCodeId) && String(defaultTaxCodeId || "") !== taxCodeId) {
           continue;
         }
         if (!baseByTax.has(taxCodeId)) baseByTax.set(taxCodeId, { usd: 0, lbp: 0 });
@@ -830,6 +881,8 @@
         });
       }
     }
+    const taxCodeForBlock = defaultTaxCodeId || (taxBreakdown[0]?.tax_code_id || null);
+    const hasTax = taxBreakdown.length > 0 || taxUsd !== 0 || taxLbp !== 0;
 
     const totalUsd = baseUsd + taxUsd;
     const totalLbp = baseLbp + taxLbp;
@@ -848,8 +901,8 @@
       shift_id: payload.shift_id || cfg.shift_id || null,
       cashier_id: payload.cashier_id || cfg.cashier_id || null,
       lines,
-      tax: defaultTaxCodeId ? {
-        tax_code_id: defaultTaxCodeId,
+      tax: hasTax ? {
+        tax_code_id: taxCodeForBlock,
         base_usd: baseUsd,
         base_lbp: baseLbp,
         tax_usd: taxUsd,
@@ -890,34 +943,40 @@
 
   const _submitAndProcessPosEventWeb = async (companyKey, eventType, payload, idempotencyKey = "") => {
     const key = String(idempotencyKey || "").trim();
-    if (key && webIdempotencyMap.has(key)) {
-      const prev = webIdempotencyMap.get(key);
-      return { ...prev, idempotent_replay: true };
-    }
     const cfg = cfgForCompanyKey(companyKey) || {};
     const eventId = makeUuid();
     const createdAt = new Date().toISOString();
-    await _webPosCall(companyKey, "/pos/outbox/submit", {
+    const submitRes = await _webPosCall(companyKey, "/pos/outbox/submit", {
       method: "POST",
       body: {
         company_id: cfg.company_id || null,
         device_id: cfg.device_id,
-        events: [{ event_id: eventId, event_type: eventType, payload, created_at: createdAt }],
+        events: [{ event_id: eventId, event_type: eventType, payload, created_at: createdAt, idempotency_key: key || null }],
       },
     });
+    const rejected = Array.isArray(submitRes?.rejected) ? submitRes.rejected : [];
+    const rejectedCurrent = rejected.find((r) => String(r?.event_id || "") === eventId);
+    if (rejectedCurrent) {
+      const msg = String(rejectedCurrent?.error || "outbox submit rejected");
+      throw new Error(msg);
+    }
+    const acceptedMeta = Array.isArray(submitRes?.accepted_meta) ? submitRes.accepted_meta : [];
+    const meta = acceptedMeta.find((m) => String(m?.event_id || "") === eventId) || acceptedMeta[0] || null;
+    const duplicateReplay = String(meta?.status || "") === "duplicate";
+    const processEventId = String(meta?.existing_event_id || meta?.event_id || eventId).trim() || eventId;
+
     const processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
       method: "POST",
-      body: { event_id: eventId },
+      body: { event_id: processEventId },
     });
     const out = {
-      event_id: eventId,
+      event_id: processEventId,
       edge_accepted: true,
-      idempotent_replay: false,
+      idempotent_replay: duplicateReplay,
       invoice_id: processed?.invoice_id || null,
       invoice_no: processed?.invoice_no || null,
     };
-    if (out.invoice_id) webEventInvoiceMap.set(eventId, out.invoice_id);
-    if (key) webIdempotencyMap.set(key, out);
+    if (out.invoice_id) webEventInvoiceMap.set(processEventId, out.invoice_id);
     return out;
   };
 
@@ -930,8 +989,15 @@
     const params = new URLSearchParams(searchRaw || "");
     const cfg = cfgForCompanyKey(companyKey) || {};
 
+    if (method === "GET" && pathname === "/health") {
+      return { ok: true, mode: "cloud-setup" };
+    }
+    if (method === "GET" && pathname === "/edge/status") {
+      return { ok: true, edge_ok: true, edge_auth_ok: true, mode: "cloud-setup" };
+    }
+
     if (method === "POST" && pathname === "/config") {
-      const next = _setCfgForCompanyKey(companyKey, body || {});
+      const next = _setCfgForCompanyKey(companyKey, _sanitizeConfigPatch(body || {}));
       return { ok: true, config: next };
     }
     if (method === "GET" && pathname === "/config") {
@@ -945,7 +1011,7 @@
         device_code: String(posCfg?.device?.device_code || cfg.device_code || "").trim(),
         branch_id: String(posCfg?.device?.branch_id || cfg.branch_id || "").trim(),
         warehouse_id: posCfg?.default_warehouse_id || cfg.warehouse_id || "",
-        tax_code_id: posCfg?.vat?.id || cfg.tax_code_id || null,
+        tax_code_id: posCfg?.default_vat_tax_code_id || posCfg?.vat?.id || cfg.tax_code_id || null,
         vat_rate: toNum(posCfg?.vat?.rate, toNum(cfg.vat_rate, 0)),
         vat_codes: _toVatCodeMap(vatCodes),
         exchange_rate: toNum(rateRes?.rate?.usd_to_lbp, toNum(cfg.exchange_rate, 0)),
@@ -956,17 +1022,13 @@
     }
 
     if (method === "GET" && pathname === "/items") {
-      const companyId = String(cfg.company_id || "").trim();
-      const q = companyId ? `?company_id=${encodeURIComponent(companyId)}` : "";
-      const res = await _webPosCall(companyKey, `/pos/catalog${q}`, { method: "GET" });
-      return { items: Array.isArray(res?.items) ? res.items : [] };
+      const catalog = await _getWebCatalog(companyKey, cfg);
+      return { items: catalog?.items || [] };
     }
     if (method === "GET" && pathname === "/barcodes") {
-      const companyId = String(cfg.company_id || "").trim();
-      const q = companyId ? `?company_id=${encodeURIComponent(companyId)}` : "";
-      const res = await _webPosCall(companyKey, `/pos/catalog${q}`, { method: "GET" });
+      const catalog = await _getWebCatalog(companyKey, cfg);
       const barcodes = [];
-      for (const it of (res?.items || [])) {
+      for (const it of (catalog?.items || [])) {
         const itemId = String(it?.id || "").trim();
         for (const b of (it?.barcodes || [])) {
           barcodes.push({
@@ -992,9 +1054,12 @@
     if (method === "GET" && pathname === "/customers/by-id") {
       const customerId = String(params.get("customer_id") || "").trim();
       if (!customerId) return { customer: null };
-      const res = await _webPosCall(companyKey, "/pos/customers/catalog", { method: "GET" });
-      const found = (res?.customers || []).find((c) => String(c?.id || "") === customerId) || null;
-      return { customer: found };
+      try {
+        return await _webPosCall(companyKey, `/pos/customers/${encodeURIComponent(customerId)}`, { method: "GET" });
+      } catch (e) {
+        if (toNum(e?.status, 0) === 404) return { customer: null };
+        throw e;
+      }
     }
     if (method === "POST" && pathname === "/customers/create") {
       return await _webPosCall(companyKey, "/pos/customers", {
@@ -1027,7 +1092,17 @@
     if (method === "GET" && pathname === "/promotions") {
       return await _webPosCall(companyKey, "/pos/promotions/catalog", { method: "GET" });
     }
-    if (method === "GET" && pathname === "/outbox") return { outbox: [] };
+    if (method === "GET" && pathname === "/outbox") {
+      const [rowsRes, summaryRes] = await Promise.all([
+        _webPosCall(companyKey, "/pos/outbox/device?limit=200", { method: "GET" }).catch(() => ({ outbox: [] })),
+        _webPosCall(companyKey, "/pos/outbox/device-summary", { method: "GET" }).catch(() => null),
+      ]);
+      const rows = Array.isArray(rowsRes?.outbox) ? rowsRes.outbox : [];
+      return {
+        outbox: rows.filter((r) => String(r?.status || "") !== "processed"),
+        summary: summaryRes || null,
+      };
+    }
     if (method === "GET" && pathname === "/edge/status") {
       return { edge_ok: true, edge_auth_ok: true, mode: "cloud" };
     }
@@ -1072,9 +1147,7 @@
     if (method === "POST" && pathname === "/sync/pull") {
       const sync = {};
       try {
-        const companyId = String(cfg.company_id || "").trim();
-        const q = companyId ? `?company_id=${encodeURIComponent(companyId)}` : "";
-        const catalog = await _webPosCall(companyKey, `/pos/catalog${q}`, { method: "GET" });
+        const catalog = await _getWebCatalog(companyKey, cfg, { force: true });
         const customersRes = await _webPosCall(companyKey, "/pos/customers/catalog", { method: "GET" });
         const cashiersRes = await _webPosCall(companyKey, "/pos/cashiers/catalog", { method: "GET" });
         const promotionsRes = await _webPosCall(companyKey, "/pos/promotions/catalog", { method: "GET" });
@@ -1085,7 +1158,32 @@
       } catch (_) {}
       return { ok: true, sync };
     }
-    if (method === "POST" && pathname === "/sync/push") return { ok: true, sent: 0 };
+    if (method === "POST" && pathname === "/sync/push") {
+      const listRes = await _webPosCall(companyKey, "/pos/outbox/device?limit=150", { method: "GET" }).catch(() => ({ outbox: [] }));
+      const rows = Array.isArray(listRes?.outbox) ? listRes.outbox : [];
+      const queue = rows
+        .filter((r) => ["pending", "failed"].includes(String(r?.status || "")))
+        .sort((a, b) => {
+          const at = Date.parse(String(a?.created_at || "")) || 0;
+          const bt = Date.parse(String(b?.created_at || "")) || 0;
+          return at - bt;
+        })
+        .slice(0, 30);
+      let sent = 0;
+      const failed = [];
+      for (const ev of queue) {
+        const eventId = String(ev?.id || "").trim();
+        if (!eventId) continue;
+        try {
+          await _webPosCall(companyKey, "/pos/outbox/process-one", { method: "POST", body: { event_id: eventId } });
+          sent += 1;
+        } catch (e) {
+          failed.push({ event_id: eventId, error: e?.message || String(e) });
+        }
+      }
+      const summary = await _webPosCall(companyKey, "/pos/outbox/device-summary", { method: "GET" }).catch(() => null);
+      return { ok: true, sent, failed, summary };
+    }
 
     if (method === "POST" && pathname === "/sale") {
       const payloadSale = _buildSalePayloadWeb(body?.cart || [], cfg, body || {});
@@ -1303,7 +1401,6 @@
         apiCall("/customers"),
         apiCall("/cashiers"),
         apiCall("/outbox"),
-        apiCall("/edge/status"),
         apiCall("/receipts/last"),
         apiCall("/promotions"),
       ]);
@@ -1339,9 +1436,8 @@
       setIfOk(3, (v) => (customers = v.customers || []), []);
       setIfOk(4, (v) => (cashiers = v.cashiers || []), []);
       setIfOk(5, (v) => (outbox = v.outbox || []), []);
-      setIfOk(6, (v) => (edge = v), null);
-      setIfOk(7, (v) => (lastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
-      setIfOk(8, (v) => (promotions = v.promotions || []), []);
+      setIfOk(6, (v) => (lastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
+      setIfOk(7, (v) => (promotions = v.promotions || []), []);
 
       status = "Ready";
 
@@ -1357,7 +1453,6 @@
           unofficialCustomers = [];
           unofficialCashiers = [];
           unofficialOutbox = [];
-          unofficialEdge = null;
           unofficialLastReceipt = null;
         } else {
           const uResults = await Promise.allSettled([
@@ -1367,7 +1462,6 @@
             apiCallFor(otherCompanyKey, "/customers"),
             apiCallFor(otherCompanyKey, "/cashiers"),
             apiCallFor(otherCompanyKey, "/outbox"),
-            apiCallFor(otherCompanyKey, "/edge/status"),
             apiCallFor(otherCompanyKey, "/receipts/last"),
             apiCallFor(otherCompanyKey, "/promotions"),
           ]);
@@ -1386,9 +1480,8 @@
             setIfOkU(3, (v) => (unofficialCustomers = v.customers || []), []);
             setIfOkU(4, (v) => (unofficialCashiers = v.cashiers || []), []);
             setIfOkU(5, (v) => (unofficialOutbox = v.outbox || []), []);
-            setIfOkU(6, (v) => (unofficialEdge = v), null);
-            setIfOkU(7, (v) => (unofficialLastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
-            setIfOkU(8, (v) => (unofficialPromotions = v.promotions || []), []);
+            setIfOkU(6, (v) => (unofficialLastReceipt = v?.receipt?.receipt || v?.receipt || null), null);
+            setIfOkU(7, (v) => (unofficialPromotions = v.promotions || []), []);
             unofficialStatus = "Ready";
           } else {
             const p = uCfgRes.reason?.payload;
@@ -1936,7 +2029,7 @@
   };
 
   const saveConfigFor = async (companyKey, payload) => {
-    const body = { ...(payload || {}) };
+    const body = _sanitizeConfigPatch(payload || {});
     if (_companyUsesCloudTransport(companyKey)) {
       const nextCfg = _setCfgForCompanyKey(companyKey, body);
       await fetchData();
@@ -2085,7 +2178,8 @@
 
   const testEdgeFor = async (companyKey) => {
     if (_companyUsesCloudTransport(companyKey)) return { edge_ok: true, edge_auth_ok: true, mode: "cloud-setup" };
-    return await apiCallFor(companyKey, "/edge/status", { method: "GET" });
+    const health = await apiCallFor(companyKey, "/health", { method: "GET" });
+    return { edge_ok: !!health?.ok, edge_auth_ok: !!health?.ok, mode: "local-agent" };
   };
 
   const syncPullFor = async (companyKey) => {
@@ -3006,8 +3100,33 @@
 
   // Lifecycle
   onMount(() => {
-    let poll = null;
-    let pushPoll = null;
+    let fetchTimer = null;
+    let pushTimer = null;
+
+    const hasOutboxPressure = () => {
+      const off = Array.isArray(outbox) ? outbox.length : 0;
+      const un = Array.isArray(unofficialOutbox) ? unofficialOutbox.length : 0;
+      return (off + un) > 0;
+    };
+
+    const scheduleFetch = (delayMs = 0) => {
+      if (fetchTimer) clearTimeout(fetchTimer);
+      fetchTimer = setTimeout(async () => {
+        if (!document.hidden) await fetchData({ background: true });
+        scheduleFetch(hasOutboxPressure() ? 15000 : 45000);
+      }, Math.max(1000, toNum(delayMs, 0)));
+    };
+
+    const schedulePush = (delayMs = 0) => {
+      if (pushTimer) clearTimeout(pushTimer);
+      pushTimer = setTimeout(() => {
+        if (!document.hidden) {
+          if (config?.device_id) queueSyncPush(originCompanyKey);
+          if (unofficialConfig?.device_id) queueSyncPush(otherCompanyKey);
+        }
+        schedulePush(hasOutboxPressure() ? 7000 : 18000);
+      }, Math.max(1000, toNum(delayMs, 0)));
+    };
 
     const stored = localStorage.getItem(API_BASE_STORAGE_KEY);
     if (stored) apiBase = stored;
@@ -3034,8 +3153,7 @@
     } catch (_) {}
 
     (async () => {
-      // Guard: the unified POS UI expects local desktop agents (/api/*).
-      // On remote web hosts this usually returns 404/401 and floods the console.
+      // On remote web hosts, force cloud/web setup transport to avoid local /api/* calls.
       const host = String(window?.location?.hostname || "").trim();
       const remoteHost = !_isLoopbackHost(host);
       if (remoteHost) {
@@ -3043,27 +3161,21 @@
         otherAgentDraftUrl = "";
         try { localStorage.setItem(OTHER_AGENT_URL_STORAGE_KEY, ""); } catch (_) {}
         const probe = await _probeAgentHealth(apiBase);
-        if (!probe.localAgentLike) {
-          activateWebHostUnsupported("This host responds with backend health, not local POS agent health.");
-        }
+        if (!probe.localAgentLike) activateWebHostUnsupported("This host responds with backend health, not local POS agent health.");
+        else activateWebHostUnsupported("Remote web host detected. Using cloud setup mode.");
       }
 
       fetchData();
-
-      poll = setInterval(() => {
-        if (document.hidden) return;
-        fetchData({ background: true });
-      }, 30000); // Polling legacy style
-      pushPoll = setInterval(() => {
-        if (document.hidden) return;
-        if (config?.device_id) queueSyncPush(originCompanyKey);
-        if (unofficialConfig?.device_id) queueSyncPush(otherCompanyKey);
-      }, 12000);
+      scheduleFetch(22000);
+      schedulePush(7000);
     })();
 
     const onVisibilityChange = () => {
-      if (webHostUnsupported) return;
-      if (!document.hidden) fetchData({ background: true });
+      if (!document.hidden) {
+        fetchData({ background: true });
+        scheduleFetch(12000);
+        schedulePush(3000);
+      }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
@@ -3178,8 +3290,8 @@
     document.addEventListener("keydown", onKeyDown, true);
 
     return () => {
-      if (poll) clearInterval(poll);
-      if (pushPoll) clearInterval(pushPoll);
+      if (fetchTimer) clearTimeout(fetchTimer);
+      if (pushTimer) clearTimeout(pushTimer);
       if (_customerRemoteTimer) {
         clearTimeout(_customerRemoteTimer);
         _customerRemoteTimer = null;
@@ -3192,22 +3304,10 @@
     };
   });
 
-  const _edgeState = (st) => {
-    if (!st) return "Pending";
-    if (st.edge_ok === false) return "Offline";
-    if (st.edge_ok === true && st.edge_auth_ok === true) return "Online";
-    if (st.edge_ok === true && st.edge_auth_ok === false) return "Auth";
-    return "Unknown";
-  };
-
-  const getEdgeStateText = () => {
-    return `Off ${_edgeState(edge)} · Un ${_edgeState(unofficialEdge)}`;
-  };
 </script>
 
 <Shell 
   status={status} 
-  edgeStateText={getEdgeStateText()} 
   syncBadge={syncBadge}
   hasConnection={hasConnection}
   cashierName={cashierName}
@@ -3261,7 +3361,7 @@
       class={topBtnBase}
       on:click={syncPush}
       disabled={loading}
-      title="Push outbox events to edge"
+      title="Push outbox events to cloud"
     >
       Sync Push
     </button>

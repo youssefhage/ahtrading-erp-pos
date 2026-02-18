@@ -1,6 +1,5 @@
 <script>
   export let status = "";
-  export let edgeStateText = "";
   export let syncBadge = "";
   export let hasConnection = false;
   export let cashierName = "";
@@ -25,18 +24,8 @@
     return sum > 0 ? "warn" : "ok";
   };
 
-  const _edgeKind = (text) => {
-    const t = _toText(text).toLowerCase();
-    if (!t) return "neutral";
-    if (t.includes("offline")) return "bad";
-    if (t.includes("auth")) return "warn";
-    if (t.includes("online")) return "ok";
-    return "neutral";
-  };
-
   $: systemKind = hasConnection ? "ok" : "bad";
   $: outboxKind = _outboxKind(syncBadge);
-  $: edgeKind = _edgeKind(edgeStateText);
   $: cashierKind = _toText(cashierName).toLowerCase().includes("not signed") ? "warn" : "neutral";
   $: shiftKind = _toText(shiftText).toLowerCase().includes("open") ? "ok" : "neutral";
   $: outboxCompactText = outboxKind === "ok" ? "READY" : (outboxKind === "warn" ? "SYNCING" : "OFFLINE");
@@ -73,13 +62,6 @@
         <div class="flex-1 min-w-0 flex justify-center">
           <div class="flex items-center gap-3 overflow-x-auto no-scrollbar py-1 px-4 mask-fade-sides">
             
-            <!-- Edge -->
-            <div class={`group flex items-center gap-3 rounded-full border px-4 py-1.5 ${tone(edgeKind)} backdrop-blur-md transition-all`}>
-              <div class="text-[10px] font-bold uppercase tracking-widest opacity-70">Edge</div>
-              <div class="w-px h-3 bg-current opacity-20"></div>
-              <div class="text-xs font-semibold whitespace-nowrap">{edgeStateText || "—"}</div>
-            </div>
-
             <!-- Sync -->
             <div class={`group flex items-center gap-3 rounded-full border px-4 py-1.5 ${tone(outboxKind)} backdrop-blur-md transition-all`}>
                <span class={`h-1.5 w-1.5 rounded-full ${outboxKind === "ok" ? "bg-emerald-400 animate-pulse" : outboxKind === "warn" ? "bg-amber-400" : "bg-red-400"}`}></span>
