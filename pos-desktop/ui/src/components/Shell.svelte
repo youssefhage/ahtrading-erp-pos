@@ -41,7 +41,7 @@
   <!-- Topbar -->
   <header class="sticky top-0 z-50 w-full glass shadow-lg shadow-black/5">
     <div class="relative px-6 py-3">
-      <div class="flex items-center justify-between gap-6">
+      <div class="flex flex-wrap items-center justify-between gap-4">
         
         <!-- Company Connectivity -->
         <div class="flex items-center gap-4 shrink-0">
@@ -62,7 +62,7 @@
         </div>
 
         <!-- Status Indicators (Scrollable on mobile) -->
-        <div class="flex-1 min-w-0 flex justify-center">
+        <div class="order-3 w-full md:order-none md:flex-1 min-w-0 flex justify-center">
           <div class="flex items-center gap-3 overflow-x-auto no-scrollbar py-1 px-4 mask-fade-sides">
             
             <!-- Sync -->
@@ -88,7 +88,7 @@
         </div>
 
         <!-- Right Actions -->
-        <div class="flex items-center gap-3 shrink-0">
+        <div class="flex items-center gap-2 md:gap-3 shrink min-w-0 flex-wrap justify-end">
           <slot name="top-actions" />
         </div>
       </div>

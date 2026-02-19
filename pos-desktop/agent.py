@@ -1906,7 +1906,7 @@ def _get_outbox_event(event_id: str) -> Optional[dict]:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT event_id, event_type, payload_json, created_at, status
+            SELECT event_id, event_type, payload_json, created_at, status, idempotency_key
             FROM pos_outbox_events
             WHERE event_id = ?
             LIMIT 1
@@ -1926,6 +1926,7 @@ def _get_outbox_event(event_id: str) -> Optional[dict]:
             "payload": payload,
             "created_at": r["created_at"],
             "status": r["status"],
+            "idempotency_key": (r["idempotency_key"] if r["idempotency_key"] else None),
         }
 
 
@@ -2822,6 +2823,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == '/api/outbox':
             json_response(self, {'outbox': list_outbox()})
+            return
+        if parsed.path == "/api/outbox/event":
+            event_id = (parse_qs(parsed.query).get("event_id") or [""])[0].strip()
+            if not event_id:
+                json_response(self, {"error": "event_id is required"}, status=400)
+                return
+            ev = _get_outbox_event(event_id)
+            if not ev:
+                json_response(self, {"error": "event not found", "event_id": event_id}, status=404)
+                return
+            json_response(self, {"event": ev})
             return
         json_response(self, {'error': 'not found'}, status=404)
 
@@ -3794,6 +3806,102 @@ class Handler(BaseHTTPRequestHandler):
             }
             event_id = add_outbox_event('pos.cash_movement', payload)
             json_response(self, {'event_id': event_id})
+            return
+
+        if parsed.path == "/api/outbox/retry-one":
+            data = self.read_json()
+            event_id = str(data.get("event_id") or "").strip()
+            if not event_id:
+                json_response(self, {"error": "event_id is required"}, status=400)
+                return
+
+            cfg = load_config()
+            try:
+                base = _require_api_base(cfg)
+            except Exception:
+                json_response(self, {"error": "missing api_base_url"}, status=400)
+                return
+            company_id = (cfg.get("company_id") or "").strip()
+            if not company_id:
+                json_response(self, {"error": "missing company_id"}, status=400)
+                return
+            device_id = (cfg.get("device_id") or "").strip()
+            if not device_id or not (cfg.get("device_token") or "").strip():
+                json_response(self, {"error": "missing device_id or device_token"}, status=400)
+                return
+
+            ev = _get_outbox_event(event_id)
+            if not ev:
+                json_response(self, {"error": "event not found", "event_id": event_id}, status=404)
+                return
+            if str(ev.get("status") or "").strip().lower() == "acked":
+                json_response(self, {"ok": True, "event_id": event_id, "already_acked": True})
+                return
+
+            accepted, submit_res = submit_single_event(
+                cfg,
+                str(ev.get("event_id") or event_id),
+                str(ev.get("event_type") or ""),
+                ev.get("payload") or {},
+                str(ev.get("created_at") or ""),
+                ev.get("idempotency_key"),
+            )
+            if not accepted:
+                rejected = None
+                for row in (submit_res.get("rejected") or []):
+                    if str((row or {}).get("event_id") or "").strip() == event_id:
+                        rejected = row
+                        break
+                err = str((rejected or {}).get("error") or submit_res.get("error") or "outbox submit rejected")
+                detail = str((rejected or {}).get("detail") or submit_res.get("detail") or "").strip()
+                payload = {
+                    "error": err,
+                    "detail": detail or None,
+                    "event_id": event_id,
+                    "submit": submit_res,
+                    "rejected": rejected,
+                }
+                status = 409 if "missing" not in err.lower() else 400
+                json_response(self, payload, status=status)
+                return
+
+            process_res, process_status, process_err = _setup_req_json_safe(
+                f"{base.rstrip('/')}/pos/outbox/process-one",
+                method="POST",
+                payload={"event_id": event_id},
+                headers=device_headers(cfg),
+                timeout_s=12.0,
+            )
+            if process_status:
+                json_response(
+                    self,
+                    {
+                        "error": "process_failed",
+                        "detail": process_err or f"process failed ({process_status})",
+                        "status": process_status,
+                        "event_id": event_id,
+                        "submit": submit_res,
+                    },
+                    status=502,
+                )
+                return
+
+            if isinstance(process_res, dict) and str(process_res.get("error") or "").strip():
+                json_response(
+                    self,
+                    {
+                        "error": "process_failed",
+                        "detail": str(process_res.get("error")).strip(),
+                        "event_id": event_id,
+                        "submit": submit_res,
+                        "process": process_res,
+                    },
+                    status=502,
+                )
+                return
+
+            mark_outbox_sent([event_id])
+            json_response(self, {"ok": True, "event_id": event_id, "submit": submit_res, "process": process_res, "acked": True})
             return
 
         if parsed.path == '/api/sync/pull':

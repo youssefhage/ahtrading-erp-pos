@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:unified": "node --test tests/unified-sale-flow.test.mjs"
+    "test:unified": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "svelte": "^5.25.0"

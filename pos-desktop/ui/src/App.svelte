@@ -15,6 +15,10 @@
     pickCompanyForAmbiguousMatch,
     primaryCompanyFromCart as primaryCompanyFromLines,
   } from "./lib/unified-sale-flow.js";
+  import {
+    buildSalePaymentsForSettlement,
+    saleIdempotencyKeyForCompany,
+  } from "./lib/unified-checkout.js";
 
   const API_BASE_STORAGE_KEY = "pos_ui_api_base";
   const SESSION_STORAGE_KEY = "pos_ui_session_token";
@@ -447,6 +451,13 @@
 
   // Printing settings
   let showPrintingModal = false;
+  let showQueueDrawer = false;
+  let queueRetryingKeys = new Set();
+  let showQueuePayloadModal = false;
+  let queuePayloadLoading = false;
+  let queuePayloadError = "";
+  let queuePayloadEvent = null;
+  let queuePayloadText = "";
   let printersOfficial = [];
   let printersUnofficial = [];
   let printingStatus = "";
@@ -476,6 +487,51 @@
     if (!Number.isFinite(t)) return 0;
     return Math.max(0, (Date.now() - t) / 60000);
   };
+  const _queueAgeText = (iso) => {
+    const mins = Math.round(_isoAgeMinutes(iso));
+    if (!Number.isFinite(mins) || mins <= 0) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return rem > 0 ? `${hrs}h ${rem}m ago` : `${hrs}h ago`;
+  };
+  const _shortQueueEventId = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "—";
+    if (raw.length <= 12) return raw;
+    return `${raw.slice(0, 8)}…${raw.slice(-4)}`;
+  };
+  const _queueEventId = (ev) => String(ev?.event_id || ev?.id || "").trim();
+  const _queueCompanyKey = (ev) => (
+    String(ev?.companyKey || "").trim().toLowerCase() === "unofficial" ? "unofficial" : "official"
+  );
+  const _queueRetryKey = (ev) => {
+    const eventId = _queueEventId(ev);
+    if (!eventId) return "";
+    return `${_queueCompanyKey(ev)}:${eventId}`;
+  };
+  const _isQueueRetrying = (ev) => {
+    const key = _queueRetryKey(ev);
+    return !!key && queueRetryingKeys.has(key);
+  };
+  const _copyText = async (value) => {
+    const text = String(value || "");
+    if (!text) throw new Error("Nothing to copy.");
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(ta);
+    if (!copied) throw new Error("Clipboard is not available.");
+  };
   $: outboxOldestMinutes = (() => {
     let maxMin = 0;
     for (const ev of ([]).concat(outbox || [], unofficialOutbox || [])) {
@@ -497,6 +553,15 @@
   })();
   const _isReadyStatus = (value) => String(value || "").trim().toLowerCase() === "ready";
   $: queuedEventsTotal = ((outbox || []).length + (unofficialOutbox || []).length);
+  $: queueEvents = (() => {
+    const withCompany = [];
+    for (const ev of (outbox || [])) withCompany.push({ ...(ev || {}), companyKey: "official" });
+    for (const ev of (unofficialOutbox || [])) withCompany.push({ ...(ev || {}), companyKey: "unofficial" });
+    withCompany.sort((a, b) => (Date.parse(String(b?.created_at || "")) || 0) - (Date.parse(String(a?.created_at || "")) || 0));
+    return withCompany;
+  })();
+  $: queueOfficialCount = (outbox || []).length;
+  $: queueUnofficialCount = (unofficialOutbox || []).length;
   $: allCompaniesConnected = _isReadyStatus(status) && _isReadyStatus(unofficialStatus);
   $: syncNeedsAttention = (!allCompaniesConnected) || queuedEventsTotal > 0 || outboxOldestMinutes >= outboxWarnMinutes;
   $: syncPullHint = "Auto refresh runs in background. Use this only when you need immediate updates after catalog/customer changes.";
@@ -1053,14 +1118,12 @@
     const totalUsd = baseUsd + taxUsd;
     const totalLbp = baseLbp + taxLbp;
     const paymentMethod = String(payload.payment_method || "cash").trim().toLowerCase();
-    const settledInLbp = settlementCurrency === "LBP";
-    const payments = paymentMethod === "credit"
-      ? [{ method: "credit", amount_usd: 0, amount_lbp: 0 }]
-      : [{
-          method: paymentMethod || "cash",
-          amount_usd: settledInLbp ? 0 : totalUsd,
-          amount_lbp: settledInLbp ? totalLbp : 0,
-        }];
+    const payments = buildSalePaymentsForSettlement({
+      paymentMethod,
+      totalUsd,
+      totalLbp,
+      settlementCurrency,
+    });
 
     return {
       invoice_no: null,
@@ -1487,18 +1550,52 @@
     const params = new URLSearchParams(searchRaw || "");
     const cfg = cfgForCompanyKey(companyKey) || {};
 
+    const cloudSyncStatus = async () => {
+      const hasDeviceCreds = !!String(cfg?.device_id || "").trim() && !!String(cfg?.device_token || "").trim();
+      if (!hasDeviceCreds) {
+        return {
+          ok: false,
+          sync_ok: false,
+          sync_auth_ok: false,
+          edge_ok: false,
+          edge_auth_ok: false,
+          mode: "cloud-setup",
+          error: "Device is not connected. Run Express Setup first.",
+        };
+      }
+      try {
+        const summary = await _webPosCall(companyKey, "/pos/outbox/device-summary", { method: "GET", timeoutMs: 8000 });
+        return {
+          ok: true,
+          sync_ok: true,
+          sync_auth_ok: true,
+          edge_ok: true,
+          edge_auth_ok: true,
+          mode: "cloud-setup",
+          summary: summary || null,
+        };
+      } catch (e) {
+        const statusCode = toNum(e?.status, 0);
+        const authFailed = statusCode === 401 || statusCode === 403;
+        return {
+          ok: false,
+          sync_ok: false,
+          sync_auth_ok: !authFailed,
+          edge_ok: false,
+          edge_auth_ok: !authFailed,
+          mode: "cloud-setup",
+          error: e?.message || String(e),
+          status: statusCode || null,
+        };
+      }
+    };
+
     if (method === "GET" && pathname === "/health") {
-      return { ok: true, mode: "cloud-setup" };
+      const st = await cloudSyncStatus();
+      return { ok: !!st.ok, mode: "cloud-setup", error: st.error || null };
     }
     if (method === "GET" && (pathname === "/sync/status" || pathname === "/edge/status")) {
-      return {
-        ok: true,
-        sync_ok: true,
-        sync_auth_ok: true,
-        edge_ok: true,
-        edge_auth_ok: true,
-        mode: "cloud-setup",
-      };
+      return await cloudSyncStatus();
     }
 
     if (method === "POST" && pathname === "/config") {
@@ -1632,6 +1729,38 @@
         summary: summaryRes || null,
       };
     }
+    if (method === "GET" && pathname === "/outbox/event") {
+      const eventId = String(params.get("event_id") || "").trim();
+      if (!eventId) throw new Error("event_id is required");
+      const listRes = await _webPosCall(companyKey, "/pos/outbox/device?limit=500", { method: "GET" });
+      const rows = Array.isArray(listRes?.outbox) ? listRes.outbox : [];
+      const row = rows.find((r) => String(r?.id || r?.event_id || "").trim() === eventId);
+      if (!row) {
+        const err = new Error("event not found");
+        err.status = 404;
+        throw err;
+      }
+      let payload = row?.payload ?? row?.payload_json ?? null;
+      if (typeof payload === "string") {
+        try { payload = JSON.parse(payload); } catch (_) {}
+      }
+      return {
+        event: {
+          ...row,
+          event_id: String(row?.id || row?.event_id || eventId).trim() || eventId,
+          payload,
+        },
+      };
+    }
+    if (method === "POST" && pathname === "/outbox/retry-one") {
+      const eventId = String(body?.event_id || "").trim();
+      if (!eventId) throw new Error("event_id is required");
+      const process = await _webPosCall(companyKey, "/pos/outbox/process-one", {
+        method: "POST",
+        body: { event_id: eventId },
+      });
+      return { ok: true, event_id: eventId, process };
+    }
     if (method === "GET" && pathname === "/receipts/last") {
       return await _fetchLastReceiptDetailWeb(companyKey);
     }
@@ -1691,21 +1820,42 @@
     }
 
     if (method === "POST" && pathname === "/sync/pull") {
+      if (!String(cfg?.device_id || "").trim() || !String(cfg?.device_token || "").trim()) {
+        throw new Error("Device is not connected. Run Express Setup first.");
+      }
       const sync = {};
-      try {
-        const catalog = await _getWebCatalog(companyKey, cfg, { force: true });
-        const customersRes = await _webPosCall(companyKey, "/pos/customers/catalog", { method: "GET" });
-        const cashiersRes = await _webPosCall(companyKey, "/pos/cashiers/catalog", { method: "GET" });
-        const promotionsRes = await _webPosCall(companyKey, "/pos/promotions/catalog", { method: "GET" });
-        sync.catalog = { mode: "snapshot", count: (catalog?.items || []).length };
-        sync.customers = { mode: "snapshot", count: (customersRes?.customers || []).length };
-        sync.cashiers = { mode: "snapshot", count: (cashiersRes?.cashiers || []).length };
-        sync.promotions = { mode: "snapshot", count: (promotionsRes?.promotions || []).length };
-      } catch (_) {}
-      return { ok: true, sync };
+      const failures = [];
+      const pullSteps = await Promise.allSettled([
+        _getWebCatalog(companyKey, cfg, { force: true }),
+        _webPosCall(companyKey, "/pos/customers/catalog", { method: "GET" }),
+        _webPosCall(companyKey, "/pos/cashiers/catalog", { method: "GET" }),
+        _webPosCall(companyKey, "/pos/promotions/catalog", { method: "GET" }),
+      ]);
+
+      if (pullSteps[0].status === "fulfilled") sync.catalog = { mode: "snapshot", count: (pullSteps[0].value?.items || []).length };
+      else failures.push(`catalog: ${pullSteps[0].reason?.message || "failed"}`);
+
+      if (pullSteps[1].status === "fulfilled") sync.customers = { mode: "snapshot", count: (pullSteps[1].value?.customers || []).length };
+      else failures.push(`customers: ${pullSteps[1].reason?.message || "failed"}`);
+
+      if (pullSteps[2].status === "fulfilled") sync.cashiers = { mode: "snapshot", count: (pullSteps[2].value?.cashiers || []).length };
+      else failures.push(`cashiers: ${pullSteps[2].reason?.message || "failed"}`);
+
+      if (pullSteps[3].status === "fulfilled") sync.promotions = { mode: "snapshot", count: (pullSteps[3].value?.promotions || []).length };
+      else failures.push(`promotions: ${pullSteps[3].reason?.message || "failed"}`);
+
+      if (failures.length) {
+        const err = new Error(`Cloud refresh failed: ${failures.join(" | ")}`);
+        err.payload = { sync, failures, mode: "cloud-setup" };
+        throw err;
+      }
+      return { ok: true, sync, mode: "cloud-setup" };
     }
     if (method === "POST" && pathname === "/sync/push") {
-      const listRes = await _webPosCall(companyKey, "/pos/outbox/device?limit=150", { method: "GET" }).catch(() => ({ outbox: [] }));
+      if (!String(cfg?.device_id || "").trim() || !String(cfg?.device_token || "").trim()) {
+        throw new Error("Device is not connected. Run Express Setup first.");
+      }
+      const listRes = await _webPosCall(companyKey, "/pos/outbox/device?limit=150", { method: "GET" });
       const rows = Array.isArray(listRes?.outbox) ? listRes.outbox : [];
       const nowMs = Date.now();
       const queue = rows
@@ -1744,8 +1894,13 @@
         }
       })());
       await Promise.all(workers);
-      const summary = await _webPosCall(companyKey, "/pos/outbox/device-summary", { method: "GET" }).catch(() => null);
-      return { ok: true, sent, failed, summary };
+      const summary = await _webPosCall(companyKey, "/pos/outbox/device-summary", { method: "GET" });
+      if (failed.length) {
+        const err = new Error(`Cloud queue push failed for ${failed.length} event(s).`);
+        err.payload = { sent, failed, summary: summary || null, mode: "cloud-setup" };
+        throw err;
+      }
+      return { ok: true, sent, failed, summary, mode: "cloud-setup" };
     }
 
     if (method === "POST" && pathname === "/sale") {
@@ -1907,6 +2062,96 @@
   // Actions
   const reportNotice = (msg) => { notice = msg; setTimeout(() => notice = "", 3000); };
   const reportError = (msg) => { alert(msg); error = msg; }; // Simple alert for now, can be improved
+  const closeQueuePayloadModal = () => {
+    showQueuePayloadModal = false;
+    queuePayloadLoading = false;
+    queuePayloadError = "";
+    queuePayloadEvent = null;
+    queuePayloadText = "";
+  };
+  const copyQueueEventId = async (ev) => {
+    const eventId = _queueEventId(ev);
+    if (!eventId) {
+      reportError("Event ID is missing.");
+      return;
+    }
+    try {
+      await _copyText(eventId);
+      reportNotice(`Copied event ID ${_shortQueueEventId(eventId)}.`);
+    } catch (e) {
+      reportError(e?.message || "Unable to copy event ID.");
+    }
+  };
+  const openQueuePayload = async (ev) => {
+    const companyKey = _queueCompanyKey(ev);
+    const eventId = _queueEventId(ev);
+    if (!eventId) {
+      reportError("Event ID is missing.");
+      return;
+    }
+    showQueuePayloadModal = true;
+    queuePayloadLoading = true;
+    queuePayloadError = "";
+    queuePayloadText = "";
+    queuePayloadEvent = { ...(ev || {}), companyKey, event_id: eventId };
+    try {
+      const res = await apiCallFor(
+        companyKey,
+        `/outbox/event?event_id=${encodeURIComponent(eventId)}`,
+        { method: "GET" },
+      );
+      const fullEvent = res?.event || {};
+      const payloadRaw = fullEvent?.payload ?? fullEvent?.payload_json ?? ev?.payload ?? ev?.payload_json ?? null;
+      let payload = payloadRaw;
+      if (typeof payload === "string") {
+        try { payload = JSON.parse(payload); } catch (_) {}
+      }
+      queuePayloadEvent = {
+        ...(ev || {}),
+        ...(fullEvent || {}),
+        companyKey,
+        event_id: String(fullEvent?.event_id || fullEvent?.id || eventId).trim() || eventId,
+      };
+      queuePayloadText = (
+        payload == null
+          ? "No payload available for this event."
+          : (typeof payload === "string" ? payload : JSON.stringify(payload, null, 2))
+      );
+    } catch (e) {
+      queuePayloadError = e?.message || "Unable to load event payload.";
+    } finally {
+      queuePayloadLoading = false;
+    }
+  };
+  const retryQueueEvent = async (ev) => {
+    const retryKey = _queueRetryKey(ev);
+    const eventId = _queueEventId(ev);
+    const companyKey = _queueCompanyKey(ev);
+    if (!retryKey || !eventId) {
+      reportError("Event ID is missing.");
+      return;
+    }
+    if (queueRetryingKeys.has(retryKey)) return;
+    const next = new Set(queueRetryingKeys);
+    next.add(retryKey);
+    queueRetryingKeys = next;
+    try {
+      const res = await apiCallFor(companyKey, "/outbox/retry-one", {
+        method: "POST",
+        body: { event_id: eventId },
+      });
+      const processMsg = String(res?.process?.error || res?.detail || "").trim();
+      if (processMsg) reportNotice(`Retry sent for ${_shortQueueEventId(eventId)}. ${processMsg}`);
+      else reportNotice(`Retried ${_shortQueueEventId(eventId)} successfully.`);
+      await fetchData();
+    } catch (e) {
+      reportError(e?.message || "Unable to retry this queued event.");
+    } finally {
+      const clear = new Set(queueRetryingKeys);
+      clear.delete(retryKey);
+      queueRetryingKeys = clear;
+    }
+  };
 
   const queueSyncPush = (companyKey) => {
     const key = companyKey === "unofficial" ? "unofficial" : "official";
@@ -2798,7 +3043,7 @@
 
   const testSyncFor = async (companyKey) => {
     if (_companyUsesCloudTransport(companyKey)) {
-      return { sync_ok: true, sync_auth_ok: true, edge_ok: true, edge_auth_ok: true, mode: "cloud-setup" };
+      return await apiCallFor(companyKey, "/sync/status", { method: "GET" });
     }
     const health = await apiCallFor(companyKey, "/health", { method: "GET" });
     return {
@@ -2811,13 +3056,11 @@
   };
 
   const syncPullFor = async (companyKey) => {
-    if (_companyUsesCloudTransport(companyKey)) return { ok: true, mode: "cloud-setup" };
     await apiCallFor(companyKey, "/sync/pull", { method: "POST", body: {} });
     await fetchData();
   };
 
   const syncPushFor = async (companyKey) => {
-    if (_companyUsesCloudTransport(companyKey)) return { ok: true, mode: "cloud-setup" };
     await apiCallFor(companyKey, "/sync/push", { method: "POST", body: {} });
     await fetchData();
   };
@@ -3405,7 +3648,7 @@
         const res = await apiCallFor(invoiceCompany, "/sale", {
           method: "POST",
           body: {
-            idempotency_key: `${checkoutIntent}:sale:${invoiceCompany}:flag`,
+            idempotency_key: saleIdempotencyKeyForCompany(checkoutIntent, invoiceCompany),
             cart: mapCartLines(cart),
             customer_id,
             payment_method,
@@ -3474,7 +3717,7 @@
             const res = await apiCallFor(companyKey, "/sale", {
               method: "POST",
               body: {
-                idempotency_key: `${checkoutIntent}:sale:${companyKey}:split`,
+                idempotency_key: saleIdempotencyKeyForCompany(checkoutIntent, companyKey),
                 cart: mapCartLines(lines),
                 customer_id,
                 payment_method,
@@ -3550,7 +3793,7 @@
       const res = await apiCallFor(invoiceCompany, "/sale", {
         method: "POST",
         body: {
-          idempotency_key: `${checkoutIntent}:sale:${invoiceCompany}:single`,
+          idempotency_key: saleIdempotencyKeyForCompany(checkoutIntent, invoiceCompany),
           cart: mapCartLines(cart),
           customer_id,
           payment_method,
@@ -3599,6 +3842,14 @@
         apiCallFor("official", "/sync/pull", { method: "POST", body: {} }),
         apiCallFor("unofficial", "/sync/pull", { method: "POST", body: {} }),
       ]);
+      const failures = [];
+      if (results[0].status === "rejected") failures.push(`official: ${results[0].reason?.message || "failed"}`);
+      if (results[1].status === "rejected") failures.push(`unofficial: ${results[1].reason?.message || "failed"}`);
+      if (failures.length) {
+        reportError(`Refresh failed. ${failures.join(" | ")}`);
+        await fetchData();
+        return;
+      }
       const o = results[0].status === "fulfilled" ? results[0].value : null;
       const u = results[1].status === "fulfilled" ? results[1].value : null;
       reportNotice(
@@ -3619,6 +3870,14 @@
         apiCallFor("official", "/sync/push", { method: "POST", body: {} }),
         apiCallFor("unofficial", "/sync/push", { method: "POST", body: {} }),
       ]);
+      const failures = [];
+      if (results[0].status === "rejected") failures.push(`official: ${results[0].reason?.message || "failed"}`);
+      if (results[1].status === "rejected") failures.push(`unofficial: ${results[1].reason?.message || "failed"}`);
+      if (failures.length) {
+        reportError(`Queue push failed. ${failures.join(" | ")}`);
+        await fetchData();
+        return;
+      }
       const o = results[0].status === "fulfilled" ? results[0].value : null;
       const u = results[1].status === "fulfilled" ? results[1].value : null;
       reportNotice(
@@ -4040,7 +4299,7 @@
     {#if !webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
     {@const topBtnBase = "px-3.5 py-2.5 rounded-2xl text-xs font-bold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm disabled:opacity-60"}
     {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
-    {@const topBtnWarn = "border-amber-500/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25"}
+    {@const topBtnWarn = "border-amber-500/40 bg-amber-500/15 text-ink hover:bg-amber-500/25"}
     {#if syncNeedsAttention}
       <button
         class={topBtnBase}
@@ -4057,6 +4316,14 @@
         title={syncPushHint}
       >
         Send Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
+      </button>
+      <button
+        class={topBtnBase}
+        on:click={() => showQueueDrawer = true}
+        disabled={loading}
+        title="Inspect pending queue events"
+      >
+        Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
       </button>
       <span class="hidden 2xl:inline text-[11px] text-muted whitespace-nowrap px-1">{syncActionHelp}</span>
     {:else}
@@ -4348,6 +4615,163 @@
   onConfirm={handleProcessSale}
   onCancel={() => showPaymentModal = false}
 />
+
+{#if showQueueDrawer}
+  <div class="fixed inset-0 z-[70]">
+    <button
+      class="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      type="button"
+      aria-label="Close queue drawer"
+      on:click={() => showQueueDrawer = false}
+    ></button>
+    <aside class="absolute right-0 top-0 h-full w-full max-w-2xl bg-surface border-l border-ink/10 shadow-2xl overflow-hidden flex flex-col">
+      <header class="p-5 border-b border-ink/10 flex items-center justify-between gap-3">
+        <div>
+          <h2 class="text-xl font-bold text-ink">Queue Inspector</h2>
+          <p class="text-sm text-muted mt-1">Pending/failed events waiting to sync.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+            on:click={syncPull}
+            disabled={loading}
+            type="button"
+          >
+            Refresh
+          </button>
+          <button
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-amber-500/35 bg-amber-500/15 text-ink hover:bg-amber-500/25 transition-colors disabled:opacity-60"
+            on:click={syncPush}
+            disabled={loading}
+            type="button"
+          >
+            Send Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
+          </button>
+          <button
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+            on:click={() => showQueueDrawer = false}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+      </header>
+
+      <div class="px-5 py-4 border-b border-ink/10 grid grid-cols-3 gap-3 text-xs">
+        <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
+          <div class="text-muted uppercase tracking-wide">Total</div>
+          <div class="text-ink font-bold mt-0.5">{queuedEventsTotal}</div>
+        </div>
+        <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
+          <div class="text-muted uppercase tracking-wide">Official</div>
+          <div class="text-ink font-bold mt-0.5">{queueOfficialCount}</div>
+        </div>
+        <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
+          <div class="text-muted uppercase tracking-wide">Unofficial</div>
+          <div class="text-ink font-bold mt-0.5">{queueUnofficialCount}</div>
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-5 space-y-3">
+        {#if queueEvents.length === 0}
+          <div class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-5 text-sm text-muted">
+            Queue is empty. New events will appear here if sync is delayed.
+          </div>
+        {:else}
+          {#each queueEvents as ev}
+            {@const statusText = String(ev?.status || "pending").trim().toLowerCase()}
+            {@const eventType = String(ev?.event_type || "event").trim() || "event"}
+            {@const eventId = String(ev?.event_id || ev?.id || "").trim()}
+            {@const errorText = String(ev?.error_message || "").trim()}
+            <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2">
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                  <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${ev?.companyKey === "unofficial" ? "border-amber-500/35 bg-amber-500/12 text-amber-300" : "border-emerald-500/35 bg-emerald-500/12 text-emerald-300"}`}>
+                    {ev?.companyKey === "unofficial" ? "Unofficial" : "Official"}
+                  </span>
+                  <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${statusText === "failed" || statusText === "dead" ? "border-red-500/35 bg-red-500/12 text-red-300" : "border-amber-500/35 bg-amber-500/12 text-amber-300"}`}>
+                    {statusText || "pending"}
+                  </span>
+                </div>
+                <div class="text-[11px] text-muted whitespace-nowrap">{_queueAgeText(ev?.created_at)}</div>
+              </div>
+              <div class="text-xs font-mono text-ink/90">{_shortQueueEventId(eventId)}</div>
+              <div class="text-xs text-muted">{eventType}</div>
+              {#if errorText}
+                <div class="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[11px] text-red-200 break-words">
+                  {errorText}
+                </div>
+              {/if}
+              <div class="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-accent/40 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
+                  type="button"
+                  on:click={() => retryQueueEvent(ev)}
+                  disabled={loading || _isQueueRetrying(ev)}
+                >
+                  {_isQueueRetrying(ev) ? "Retrying..." : "Retry"}
+                </button>
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-ink/15 bg-ink/5 text-ink hover:bg-ink/10 transition-colors"
+                  type="button"
+                  on:click={() => copyQueueEventId(ev)}
+                >
+                  Copy ID
+                </button>
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-ink/15 bg-ink/5 text-ink hover:bg-ink/10 transition-colors"
+                  type="button"
+                  on:click={() => openQueuePayload(ev)}
+                >
+                  View Payload
+                </button>
+              </div>
+            </article>
+          {/each}
+        {/if}
+      </div>
+    </aside>
+  </div>
+{/if}
+
+{#if showQueuePayloadModal}
+  <div class="fixed inset-0 z-[80] flex items-center justify-center p-4">
+    <button
+      class="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      type="button"
+      aria-label="Close queue payload"
+      on:click={closeQueuePayloadModal}
+    ></button>
+    <div class="relative z-10 w-full max-w-3xl max-h-[85vh] bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <header class="px-5 py-4 border-b border-ink/10 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <h3 class="text-base font-bold text-ink">Queue Event Payload</h3>
+          <p class="text-xs text-muted font-mono mt-1 truncate">{_shortQueueEventId(queuePayloadEvent?.event_id || queuePayloadEvent?.id || "")}</p>
+        </div>
+        <button
+          class="px-3 py-1.5 rounded-lg text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+          type="button"
+          on:click={closeQueuePayloadModal}
+        >
+          Close
+        </button>
+      </header>
+      <div class="p-5 overflow-auto flex-1">
+        {#if queuePayloadLoading}
+          <div class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-5 text-sm text-muted">
+            Loading payload...
+          </div>
+        {:else if queuePayloadError}
+          <div class="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-5 text-sm text-red-200 break-words">
+            {queuePayloadError}
+          </div>
+        {:else}
+          <pre class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-4 text-[12px] text-ink whitespace-pre-wrap break-words font-mono leading-5">{queuePayloadText}</pre>
+        {/if}
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if showCashierModal}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4">

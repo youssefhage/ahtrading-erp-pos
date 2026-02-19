@@ -207,7 +207,7 @@
               </button>
               <input
                 type="number"
-                class="flex-1 w-0 bg-transparent text-center font-bold num-readable text-sm text-ink focus:outline-none focus:text-accent selection:bg-accent/20"
+                class="qty-input flex-1 w-0 bg-transparent text-center font-bold num-readable text-sm text-ink focus:outline-none focus:text-accent selection:bg-accent/20"
                 value={line.qty_entered}
                 on:change={(e) => updateQty(i, e.target.value)}
                 on:keydown={(e) => e.key === "Enter" && e.currentTarget?.blur?.()}
@@ -301,5 +301,16 @@
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Keep custom +/- controls and hide native number steppers in qty input. */
+  .qty-input::-webkit-outer-spin-button,
+  .qty-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .qty-input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
   }
 </style>

@@ -64,9 +64,18 @@
     return Math.max(0, n);
   };
 
-  $: vatFactor = 1 + normalizeVatRate(vatRate);
+  const fmtVatPct = (rate) => {
+    const pct = Math.max(0, normalizeVatRate(rate) * 100);
+    return Number.isInteger(pct) ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
+  };
+
+  $: vatRateNorm = normalizeVatRate(vatRate);
+  $: vatFactor = 1 + vatRateNorm;
   const withVat = (v) => Math.max(0, toNum(v, 0)) * vatFactor;
+  const vatAmount = (v) => Math.max(0, toNum(v, 0)) * vatRateNorm;
   const priceBase = (it) => (currencyPrimary === "LBP" ? toNum(it?.price_lbp, 0) : toNum(it?.price_usd, 0));
+  const priceVat = (it) => vatAmount(priceBase(it));
+  const priceTotal = (it) => withVat(priceBase(it));
 
   const normalize = (v) => String(v || "").trim().toLowerCase();
 
@@ -421,6 +430,17 @@
               </div>
             </div>
           </div>
+          <button
+            type="button"
+            class="shrink-0 h-10 w-10 rounded-xl border border-accent/40 bg-accent text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/20 hover:bg-accent-hover hover:shadow-accent/35 hover:scale-[1.03] active:scale-[0.98] transition-all flex items-center justify-center"
+            on:click={addSelectedToCart}
+            title="Add to cart"
+            aria-label="Add selected item to cart"
+          >
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
         </div>
 
         <div class="flex items-center gap-2 mt-4">
@@ -455,17 +475,21 @@
             <div class="text-[10px] font-bold uppercase tracking-widest text-muted mb-3 opacity-80">Pricing Structure</div>
             <div class="space-y-2.5 num-readable text-sm">
               <div class="flex items-center justify-between">
-                <span class="text-muted/80">Net Price ({currencyPrimary})</span>
-                <span class="font-bold text-emerald-400">{fmtMoney(withVat(priceBase(selected)), currencyPrimary)}</span>
+                <span class="text-muted/80">Base Price (ex VAT)</span>
+                <span class="font-medium text-ink/80">{fmtMoney(priceBase(selected), currencyPrimary)}</span>
               </div>
               <div class="flex items-center justify-between text-xs">
-                <span class="text-muted/60">Base Price</span>
-                <span class="font-medium text-ink/70">{fmtMoney(priceBase(selected), currencyPrimary)}</span>
+                <span class="text-muted/60">VAT ({fmtVatPct(vatRateNorm)})</span>
+                <span class="font-medium text-amber-400">{fmtMoney(priceVat(selected), currencyPrimary)}</span>
+              </div>
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-muted/60">Total Price (inc VAT)</span>
+                <span class="font-bold text-emerald-400">{fmtMoney(priceTotal(selected), currencyPrimary)}</span>
               </div>
               <div class="my-2 h-px bg-white/5 w-full"></div>
               <div class="flex items-center justify-between text-xs">
-                <span class="text-muted/60">USD Equivalent</span>
-                <span class="font-medium text-emerald-400/80">{fmtMoney(withVat(selected.price_usd || 0), "USD")}</span>
+                <span class="text-muted/60">{currencyPrimary === "USD" ? "USD Total (inc VAT)" : "USD Equivalent (inc VAT)"}</span>
+                <span class="font-medium text-emerald-400/80">{fmtMoney(withVat(selected?.price_usd || 0), "USD")}</span>
               </div>
             </div>
           </div>
