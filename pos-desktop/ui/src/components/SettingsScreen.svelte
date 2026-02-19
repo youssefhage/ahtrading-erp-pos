@@ -2,6 +2,7 @@
   export let officialConfig = {};
   export let unofficialConfig = {};
   export let isWebSetupMode = false;
+  export let isCloudOnlyMode = false;
   export let unofficialEnabled = true;
   export let unofficialStatus = "Pending";
 
@@ -645,7 +646,9 @@
             <div class="text-[10px] font-bold uppercase tracking-[0.2em] text-muted mb-1">Unified Mode</div>
             <div class="text-sm text-ink/90 leading-snug max-w-md">
               {#if isWebSetupMode}
-                Browser setup uses cloud connections for both companies. Other Agent URL is not required.
+                First-time cloud onboarding mode is active.
+              {:else if isCloudOnlyMode}
+                Cloud mode is active for both companies.
               {:else}
                 Desktop uses cloud setup by default. Other Agent URL is optional.
               {/if}
@@ -656,7 +659,7 @@
           </div>
         </div>
 
-        {#if !isWebSetupMode}
+        {#if !isCloudOnlyMode}
           <div class="pt-4 border-t border-white/5">
             <label class="text-xs font-bold text-muted uppercase tracking-wide mb-2 block" for="other-agent-url-settings">Other Agent URL</label>
             <div class="flex gap-2">

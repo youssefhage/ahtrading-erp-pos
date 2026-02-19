@@ -321,6 +321,7 @@
   let fetchDataPendingBackground = true;
   let fetchDataDrainPromise = null;
   let webHostUnsupported = false;
+  let webSetupFirstTime = false;
   let webHostHint = "";
   let webEventInvoiceMap = new Map();
   let webCatalogCache = new Map();
@@ -456,6 +457,7 @@
   let showPrintingModal = false;
   let showQueueDrawer = false;
   let showAuditDrawer = false;
+  let showTopMoreActions = false;
   let auditLoading = false;
   let auditEvents = [];
   let queueRetryingKeys = new Set();
@@ -591,6 +593,7 @@
     : "Auto sync is on. Use Send Queue only if queued events stay pending. Use Refresh Now after Admin updates.";
   $: originCompanyKey = _detectOriginCompanyKey(config.company_id);
   $: otherCompanyKey = originCompanyKey === "official" ? "unofficial" : "official";
+  $: webSetupFirstTime = webHostUnsupported && !_hasCloudDeviceConfig(originCompanyKey);
   
   $: currencyPrimary = (config.pricing_currency || "USD").toUpperCase();
   $: shiftText = config.shift_id ? "Shift: Open" : "Shift: Closed";
@@ -1318,11 +1321,23 @@
     return await _webPosCall(companyKey, "/pos/receipts/last", { method: "GET" });
   };
 
+  const _openManagedPrintWindow = () => {
+    try {
+      const w = window.open("", "_blank");
+      if (w) return w;
+    } catch (_) {}
+    try {
+      const w = window.open("about:blank", "_blank");
+      if (w) return w;
+    } catch (_) {}
+    return null;
+  };
+
   const _openPrintWindowWithHtml = (html, receiptWin = null) => {
     let win = receiptWin;
     try {
       if (!win || win.closed) {
-        win = window.open("about:blank", "_blank", "noopener,noreferrer");
+        win = _openManagedPrintWindow();
       }
     } catch (_) {
       win = null;
@@ -2105,7 +2120,7 @@
     const companyKey = effectiveInvoiceCompany();
     if (_companyUsesCloudTransport(companyKey)) {
       let receiptWin = null;
-      try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
+      try { receiptWin = _openManagedPrintWindow(); } catch (_) {}
       try {
         await _printLastReceiptWeb(companyKey, receiptWin, { thermal: companyKey !== "official" });
       } catch (e) {
@@ -3756,7 +3771,7 @@
         fetchData();
         reportNotice(`Sale queued (official): ${res.event_id || "ok"}`);
         let receiptWin = null;
-        try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
+        try { receiptWin = _openManagedPrintWindow(); } catch (_) {}
         await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
         return;
       }
@@ -3826,7 +3841,7 @@
             // Remove only the successfully invoiced lines.
             cart = cart.filter((c) => c.companyKey !== companyKey);
             let receiptWin = null;
-            try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
+            try { receiptWin = _openManagedPrintWindow(); } catch (_) {}
             await printAfterSale(companyKey, res?.event_id || "", receiptWin);
           } catch (e) {
             failed.push({ companyKey, error: e?.message || String(e) });
@@ -3904,7 +3919,7 @@
       checkoutIntentId = "";
       fetchData();
       let receiptWin = null;
-      try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
+      try { receiptWin = _openManagedPrintWindow(); } catch (_) {}
       await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
     } catch(e) {
       const p = e?.payload;
@@ -4359,7 +4374,7 @@
   unofficialStatus={unofficialStatus}
   cashierName={cashierName}
   shiftText={shiftText}
-  showTabs={!webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
+  showTabs={!webSetupFirstTime}
 >
   <svelte:fragment slot="tabs">
     {@const tabBase = "h-10 px-3.5 rounded-xl text-xs font-bold border transition-all whitespace-nowrap shadow-sm"}
@@ -4393,54 +4408,34 @@
   </svelte:fragment>
 
   <svelte:fragment slot="top-actions">
-    {#if !webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
+    {#if !webSetupFirstTime}
     {@const topBtnBase = "h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm disabled:opacity-60"}
     {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
     {@const topBtnWarn = "border-amber-500/40 bg-amber-500/15 text-ink hover:bg-amber-500/25"}
-    {#if syncNeedsAttention}
-      <button
-        class={topBtnBase}
-        on:click={syncPull}
-        disabled={loading}
-        title={syncPullHint}
-      >
-        Refresh Now
-      </button>
-      <button
-        class={`${topBtnBase} ${queuedEventsTotal > 0 ? topBtnWarn : ""}`}
-        on:click={syncPush}
-        disabled={loading}
-        title={syncPushHint}
-      >
-        Send Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
-      </button>
-      <span class="hidden 2xl:inline text-[11px] text-muted whitespace-nowrap px-1">{syncActionHelp}</span>
-    {:else}
-      <span class="hidden xl:inline text-[11px] text-emerald-300/90 whitespace-nowrap px-2 py-1 rounded-full border border-emerald-500/25 bg-emerald-500/10">
-        Auto sync on
-      </span>
-    {/if}
     <button
       class={topBtnBase}
+      on:click={syncPull}
+      disabled={loading}
+      title={syncPullHint}
+      type="button"
+    >
+      Refresh
+    </button>
+    <button
+      class={`${topBtnBase} ${queuedEventsTotal > 0 ? topBtnWarn : ""}`}
       on:click={() => showQueueDrawer = true}
       disabled={loading}
       title="Inspect pending queue events"
+      type="button"
     >
       Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
-    </button>
-    <button
-      class={topBtnBase}
-      on:click={openAuditDrawer}
-      disabled={loading}
-      title="Recent sale/return/retry audit entries"
-    >
-      Audit
     </button>
     <button
       class={topBtnBase}
       on:click={openCashierModal}
       disabled={loading}
       title="Cashier login"
+      type="button"
     >
       Cashier
     </button>
@@ -4449,82 +4444,116 @@
       on:click={() => { showShiftModal = true; shiftRefresh(); }}
       disabled={loading}
       title="Shift open/close"
+      type="button"
     >
       Shift
-    </button>
-    {#if !webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
-      <button
-        class={topBtnBase}
-        on:click={openReceiptPreview}
-        title="Open printable last receipt"
-      >
-        Receipt
-      </button>
-      <button
-        class={topBtnBase}
-        on:click={configurePrinting}
-        disabled={loading}
-        title="Detect printers and map each company to a printer"
-      >
-        Printing
-      </button>
-    {/if}
-    <button
-      class={topBtnBase}
-      on:click={configureOtherAgent}
-      disabled={loading}
-      title="Open config/settings"
-    >
-      Config
     </button>
     {#if activeScreen === "pos"}
       <button
         class={`${topBtnBase} ${saleMode === "return" ? topBtnActive : "text-muted"}`}
         on:click={() => { saleMode = (saleMode === "sale" ? "return" : "sale"); }}
         title="Toggle return mode"
+        type="button"
       >
         {saleMode === "sale" ? "Sale" : "Return"}
       </button>
     {/if}
-    {#if config.cashier_id}
-      <button
-        class={topBtnBase}
-        on:click={cashierLogout}
-        disabled={loading}
-        title="Cashier logout"
-      >
-        Logout
-      </button>
-    {/if}
 
-    <button
-      class="h-8 w-8 rounded-xl border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors shadow-sm flex items-center justify-center"
-      on:click={toggleTheme}
-      title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
-      aria-label="Toggle theme"
-    >
-      {#if theme === "light"}
-        <!-- Sun -->
-        <svg class="w-4 h-4 text-ink/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m0-11.314L7.05 7.05m9.9 9.9 1.414 1.414M12 8a4 4 0 100 8 4 4 0 000-8z" />
-        </svg>
-      {:else}
-        <!-- Moon -->
-        <svg class="w-4 h-4 text-ink/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z" />
-        </svg>
-      {/if}
-    </button>
-    {#if webHostUnsupported}
-      <a
-        class="h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm inline-flex items-center"
-        href="https://download.melqard.com"
-        target="_blank"
-        rel="noopener noreferrer"
+    <div class="relative">
+      <button
+        class={`${topBtnBase} ${showTopMoreActions ? topBtnActive : ""}`}
+        on:click={() => { showTopMoreActions = !showTopMoreActions; }}
+        title="More actions"
+        type="button"
       >
-        Download POS Desktop
-      </a>
-    {/if}
+        More
+      </button>
+      {#if showTopMoreActions}
+        <button
+          class="fixed inset-0 z-[80] bg-transparent"
+          type="button"
+          aria-label="Close more actions menu"
+          on:click={() => { showTopMoreActions = false; }}
+        ></button>
+        <div class="absolute right-0 top-full mt-2 z-[81] w-56 rounded-2xl border border-ink/10 bg-surface shadow-2xl p-2 space-y-1">
+          <button
+            class={`w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors ${queuedEventsTotal > 0 ? "border-amber-500/40 bg-amber-500/10" : ""}`}
+            on:click={() => { showTopMoreActions = false; syncPush(); }}
+            disabled={loading}
+            title={syncPushHint}
+            type="button"
+          >
+            Send Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
+          </button>
+          <button
+            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            on:click={() => { showTopMoreActions = false; openAuditDrawer(); }}
+            disabled={loading}
+            title="Recent sale/return/retry audit entries"
+            type="button"
+          >
+            Audit
+          </button>
+          <button
+            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            on:click={() => { showTopMoreActions = false; openReceiptPreview(); }}
+            title="Open printable last receipt"
+            type="button"
+          >
+            Receipt
+          </button>
+          <button
+            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            on:click={() => { showTopMoreActions = false; configurePrinting(); }}
+            disabled={loading}
+            title="Detect printers and map each company to a printer"
+            type="button"
+          >
+            Printing
+          </button>
+          <button
+            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            on:click={() => { showTopMoreActions = false; configureOtherAgent(); }}
+            disabled={loading}
+            title="Open config/settings"
+            type="button"
+          >
+            Config
+          </button>
+          <button
+            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            on:click={() => { showTopMoreActions = false; toggleTheme(); }}
+            title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+            type="button"
+          >
+            Theme: {theme === "light" ? "Light" : "Dark"}
+          </button>
+          {#if config.cashier_id}
+            <button
+              class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+              on:click={() => { showTopMoreActions = false; cashierLogout(); }}
+              disabled={loading}
+              title="Cashier logout"
+              type="button"
+            >
+              Logout
+            </button>
+          {/if}
+          {#if webHostUnsupported}
+            <a
+              class="w-full h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors inline-flex items-center"
+              href="https://download.melqard.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              on:click={() => { showTopMoreActions = false; }}
+            >
+              Download POS Desktop
+            </a>
+          {/if}
+          <div class="px-1 pt-1 text-[10px] text-muted">{syncActionHelp}</div>
+        </div>
+      {/if}
+    </div>
     {:else}
       <a
         class="h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm inline-flex items-center"
@@ -4534,14 +4563,13 @@
       >
         Download POS Desktop
       </a>
-      <a
-        class="h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm inline-flex items-center"
-        href="http://127.0.0.1:7070"
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        class={topBtnBase}
+        on:click={() => { try { window.open("http://127.0.0.1:7070", "_blank", "noopener,noreferrer"); } catch (_) {} }}
+        type="button"
       >
         Open Local POS
-      </a>
+      </button>
     {/if}
   </svelte:fragment>
 
@@ -4661,11 +4689,11 @@
       resolveByTerm={resolveByTerm}
     />
   {:else}
-    {#if webHostUnsupported}
+    {#if webSetupFirstTime}
       <section class="glass-panel rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 mb-4">
-        <h2 class="text-lg font-extrabold text-ink">Web Setup Mode</h2>
+        <h2 class="text-lg font-extrabold text-ink">First-Time Setup</h2>
         <p class="mt-1 text-sm text-muted">
-          Cloud onboarding is available here. For cashier operations and offline-safe selling, use POS Desktop.
+          Complete cloud onboarding once, then POS and Items will remain available without Web Setup mode.
         </p>
         {#if _hasCloudDeviceConfig(originCompanyKey)}
           <div class="mt-3 flex flex-wrap gap-2">
@@ -4693,7 +4721,8 @@
     <SettingsScreen
       officialConfig={config}
       unofficialConfig={unofficialConfig}
-      isWebSetupMode={webHostUnsupported}
+      isWebSetupMode={webSetupFirstTime}
+      isCloudOnlyMode={webHostUnsupported}
       unofficialEnabled={true}
       unofficialStatus={unofficialStatus}
       otherAgentUrl={otherAgentUrl}
