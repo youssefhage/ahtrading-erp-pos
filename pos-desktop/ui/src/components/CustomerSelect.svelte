@@ -122,13 +122,13 @@
   onDestroy(() => clearTimer());
 </script>
 
-<div class="glass-panel p-5 rounded-[2rem] space-y-5 relative z-30 group/customer transition-all duration-300 hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-white/5 bg-surface/30 backdrop-blur-md">
+<div class="glass-panel p-3.5 rounded-2xl space-y-3 relative z-30 group/customer transition-all duration-300 hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-white/5 bg-surface/30 backdrop-blur-md">
   <div class="absolute inset-0 bg-gradient-to-br from-white/5 via-transparent to-transparent opacity-50 rounded-[2rem] pointer-events-none"></div>
 
   <div class="relative z-10 flex items-center justify-between">
     <div class="flex items-center gap-3">
-       <div class="h-6 w-1 rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)]"></div>
-       <h3 class="text-xs font-bold text-muted uppercase tracking-[0.2em]">Customer</h3>
+       <div class="h-5 w-1 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.45)]"></div>
+       <h3 class="text-[11px] font-bold text-muted uppercase tracking-[0.2em]">Customer</h3>
     </div>
     {#if activeCustomer}
       <button 
@@ -136,6 +136,13 @@
         on:click={() => selectCustomer(null)}
       >
         Remove
+      </button>
+    {:else if !addCustomerMode}
+      <button
+        class="text-[10px] font-bold uppercase tracking-wide text-indigo-400 hover:text-indigo-300 transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded-lg border border-indigo-500/20"
+        on:click={() => addCustomerMode = true}
+      >
+        + New
       </button>
     {/if}
   </div>
@@ -290,7 +297,7 @@
             </svg>
            </div>
           <input 
-            class="w-full bg-bg/50 border border-white/10 rounded-xl pl-9 pr-3 py-3 text-sm shadow-inner focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all placeholder-muted/50"
+            class="w-full bg-bg/50 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-sm shadow-inner focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all placeholder-muted/50"
             placeholder="Search customer by name or phone..." 
             bind:value={customerSearch}
             on:keydown={onInputKeyDown}
@@ -300,7 +307,7 @@
           />
         </div>
         <button 
-          class="p-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/20 transition-all hover:shadow-[0_0_15px_rgba(99,102,241,0.15)] active:scale-[0.95]"
+          class="p-2.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/20 transition-all hover:shadow-[0_0_15px_rgba(99,102,241,0.15)] active:scale-[0.95]"
           on:click={() => scheduleSearch(true)}
           title="Search"
           aria-label="Search"
@@ -361,17 +368,6 @@
         </div>
       {/if}
 
-      <div class="mt-4 text-center">
-        <button 
-          class="text-xs font-bold uppercase tracking-wide text-indigo-400 hover:text-indigo-300 transition-colors flex items-center justify-center gap-1 mx-auto group/create"
-          on:click={() => addCustomerMode = true}
-        >
-          <span class="bg-indigo-500/10 rounded-full p-1 group-hover/create:bg-indigo-500/20 transition-colors">
-            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
-          </span>
-          Create new customer
-        </button>
-      </div>
     </div>
   {/if}
 </div>

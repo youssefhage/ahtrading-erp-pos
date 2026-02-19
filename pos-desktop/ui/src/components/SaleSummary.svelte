@@ -71,24 +71,25 @@
   $: unofficialSubtotalUsd = toNum(totalsByCompany?.unofficial?.subtotalUsd, 0);
   $: unofficialTotalUsd = toNum(totalsByCompany?.unofficial?.totalUsd, 0);
   $: lineCount = Array.isArray(cart) ? cart.length : 0;
+  $: emptyCart = lineCount === 0;
   // Keep checkout enabled when we have either cart lines or a computed total.
   $: canCheckout = lineCount > 0 || totalIncUsd > 0;
 </script>
 
-<section class="glass-panel rounded-3xl p-6 flex flex-col gap-6 relative group/summary">
+<section class="glass-panel rounded-3xl p-4 h-full min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-3 relative group/summary">
   <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
   
-  <div class="relative z-10 flex flex-col gap-6">
+  <div class="relative z-10 flex flex-col gap-3">
     <!-- Header Controls -->
-    <div class="flex items-start justify-between gap-4">
+    <div class="flex items-start justify-between gap-2">
       <div>
-        <h3 class="text-xs font-bold text-muted uppercase tracking-widest mb-1">Invoice Settings</h3>
-        <p class="text-[10px] text-ink/50 max-w-[120px] leading-tight">Configure how this sale is routed.</p>
+        <h3 class="text-[11px] font-bold text-muted uppercase tracking-widest mb-0.5">Invoice Settings</h3>
+        <p class="text-[10px] text-ink/50 leading-tight">Route & display.</p>
       </div>
       
-      <div class="flex flex-col items-end gap-2">
+      <div class="flex flex-col items-end gap-1.5">
          <select
-          class="bg-surface-highlight/50 border border-white/5 hover:border-accent/30 rounded-lg px-3 py-1.5 text-xs font-bold text-ink shadow-sm focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none text-right"
+          class="bg-surface-highlight/50 border border-white/5 hover:border-accent/30 rounded-lg px-2.5 py-1 text-[11px] font-bold text-ink shadow-sm focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none text-right"
           value={invoiceCompanyMode}
           on:change={(e) => onInvoiceCompanyModeChange(e.target.value)}
           title="Invoice mode"
@@ -98,11 +99,11 @@
           <option value="unofficial">Force Unofficial</option>
         </select>
         
-        <label class="flex items-center gap-2 text-xs cursor-pointer group/check">
+        <label class="flex items-center gap-2 text-[11px] cursor-pointer group/check">
           <span class="text-muted group-hover/check:text-ink transition-colors text-[10px] uppercase font-bold tracking-wider">Flag Manual Review</span>
           <input
             type="checkbox"
-            class="accent-accent w-3.5 h-3.5 rounded border-white/10 bg-surface/50"
+            class="accent-accent w-3 h-3 rounded border-white/10 bg-surface/50"
             checked={flagOfficial}
             on:change={(e) => onFlagOfficialChange(!!e.target.checked)}
           />
@@ -111,25 +112,25 @@
     </div>
 
     <!-- Route Info -->
-    <div class={`rounded-xl border px-4 py-3 text-xs transition-colors ${routeHint ? "border-amber-500/20 bg-amber-500/5" : "border-white/5 bg-surface-highlight/30"}`}>
+    <div class={`rounded-xl border px-3 py-2 text-xs transition-colors ${routeHint ? "border-amber-500/20 bg-amber-500/5" : "border-white/5 bg-surface-highlight/30"}`}>
       <div class="flex items-center gap-2">
         <div class={`w-1.5 h-1.5 rounded-full ${routeHint ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`}></div>
         <div class="text-[10px] font-bold uppercase tracking-wider text-muted/80">Routing Strategy</div>
       </div>
-      <div class="mt-1 font-bold text-ink text-sm">{routePreview}</div>
+      <div class="mt-1 font-bold text-ink text-[13px]">{routePreview}</div>
       {#if routeHint}
-        <div class="mt-2 text-amber-300/90 leading-relaxed font-medium bg-amber-500/10 p-2 rounded-lg border border-amber-500/10">
+        <div class="mt-1.5 text-[10px] text-amber-300/90 leading-snug font-medium bg-amber-500/10 p-1.5 rounded-lg border border-amber-500/10">
           {routeHint}
         </div>
       {/if}
     </div>
 
-    <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-3">
-      <div class="text-[10px] font-bold uppercase tracking-wider text-muted mb-2">Price Display</div>
-      <div class="grid grid-cols-3 gap-1.5">
+    <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-2.5">
+      <div class="text-[10px] font-bold uppercase tracking-wider text-muted mb-1.5">Price Display</div>
+      <div class="grid grid-cols-3 gap-1">
         <button
           type="button"
-          class={`px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+          class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
             mode === "ex"
               ? "bg-accent/20 border-accent/40 text-accent"
               : "bg-surface/40 border-white/5 text-muted hover:text-ink"
@@ -140,7 +141,7 @@
         </button>
         <button
           type="button"
-          class={`px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+          class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
             mode === "inc"
               ? "bg-accent/20 border-accent/40 text-accent"
               : "bg-surface/40 border-white/5 text-muted hover:text-ink"
@@ -151,7 +152,7 @@
         </button>
         <button
           type="button"
-          class={`px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+          class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
             mode === "both"
               ? "bg-accent/20 border-accent/40 text-accent"
               : "bg-surface/40 border-white/5 text-muted hover:text-ink"
@@ -161,24 +162,22 @@
           Both
         </button>
       </div>
-      <div class="mt-2 text-[10px] text-muted">
-        Showing prices: <span class="font-bold text-ink">{modeLabel}</span>
-      </div>
+      <div class="mt-1 text-[10px] text-muted">Mode: <span class="font-bold text-ink">{modeLabel}</span></div>
     </div>
 
     <!-- Company Split Totals -->
-    {#if totalsByCompany}
-      <div class="grid grid-cols-2 gap-3">
-        <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-3 flex flex-col gap-1">
+    {#if totalsByCompany && !emptyCart}
+      <div class="grid grid-cols-2 gap-2">
+        <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-2.5 flex flex-col gap-1">
           <div class="text-[10px] font-bold uppercase tracking-wider text-muted">Official</div>
-          <div class="num-readable font-bold text-ink text-lg">{fmtMoney(mode === "ex" ? officialSubtotalUsd : officialTotalUsd, "USD")}</div>
+          <div class="num-readable font-bold text-ink text-lg leading-tight">{fmtMoney(mode === "ex" ? officialSubtotalUsd : officialTotalUsd, "USD")}</div>
           {#if mode === "both"}
             <div class="text-[10px] text-muted num-readable">ex {fmtMoney(officialSubtotalUsd, "USD")}</div>
           {/if}
         </div>
-        <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-3 flex flex-col gap-1">
+        <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-2.5 flex flex-col gap-1">
           <div class="text-[10px] font-bold uppercase tracking-wider text-muted">Unofficial</div>
-          <div class="num-readable font-bold text-ink text-lg">{fmtMoney(mode === "ex" ? unofficialSubtotalUsd : unofficialTotalUsd, "USD")}</div>
+          <div class="num-readable font-bold text-ink text-lg leading-tight">{fmtMoney(mode === "ex" ? unofficialSubtotalUsd : unofficialTotalUsd, "USD")}</div>
           {#if mode === "both"}
             <div class="text-[10px] text-muted num-readable">ex {fmtMoney(unofficialSubtotalUsd, "USD")}</div>
           {/if}
@@ -187,29 +186,31 @@
     {/if}
 
     <!-- Final Totals -->
-    <div class="space-y-3 pt-2">
-      <div class="flex justify-between text-muted text-sm px-1">
-        <span>Subtotal (ex VAT)</span>
-        <span class="num-readable font-medium">{fmtMoney(subtotalUsd, "USD")}</span>
-      </div>
-      {#if taxUsd > 0}
-        <div class="flex justify-between text-muted text-sm px-1">
-          <span>VAT</span>
-          <span class="num-readable font-medium">{fmtMoney(taxUsd, "USD")}</span>
+    <div class="space-y-1.5 pt-1">
+      {#if !emptyCart}
+        <div class="flex justify-between text-muted text-xs px-1">
+          <span>Subtotal (ex VAT)</span>
+          <span class="num-readable font-medium">{fmtMoney(subtotalUsd, "USD")}</span>
+        </div>
+        {#if taxUsd > 0}
+          <div class="flex justify-between text-muted text-xs px-1">
+            <span>VAT</span>
+            <span class="num-readable font-medium">{fmtMoney(taxUsd, "USD")}</span>
+          </div>
+        {/if}
+        <div class="flex justify-between text-muted text-xs px-1">
+          <span>Total (inc VAT)</span>
+          <span class="num-readable font-medium">{fmtMoney(totalIncUsd, "USD")}</span>
         </div>
       {/if}
-      <div class="flex justify-between text-muted text-sm px-1">
-        <span>Total (inc VAT)</span>
-        <span class="num-readable font-medium">{fmtMoney(totalIncUsd, "USD")}</span>
-      </div>
-      
-      <div class="relative py-6 mt-2">
+
+      <div class="relative py-3 mt-1">
          <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
          <div class="flex justify-between items-end">
-           <span class="text-xl font-bold text-ink">{mode === "ex" ? "Total (ex VAT)" : "Total (inc VAT)"}</span>
-           <span class="num-readable text-3xl font-extrabold text-accent tracking-tight">{fmtMoney(primaryTotalUsd, "USD")}</span>
+           <span class="text-lg font-bold text-ink">{mode === "ex" ? "Total (ex VAT)" : "Total (inc VAT)"}</span>
+           <span class="num-readable text-2xl font-extrabold text-accent tracking-tight">{fmtMoney(primaryTotalUsd, "USD")}</span>
          </div>
-         {#if mode === "both"}
+         {#if mode === "both" && !emptyCart}
            <div class="mt-1 text-right text-[10px] text-muted num-readable">
              ex {fmtMoney(subtotalUsd, "USD")}
            </div>
@@ -219,7 +220,7 @@
 
     <!-- Checkout Action -->
     <button
-      class={`w-full py-4 rounded-2xl font-bold text-lg tracking-wide transition-all relative overflow-hidden border ${
+      class={`w-full py-3 rounded-2xl font-bold text-base tracking-wide transition-all relative overflow-hidden border ${
         canCheckout
           ? "border-accent/40 bg-accent bg-gradient-to-br from-accent to-accent-hover text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] group/btn"
           : "border-border/60 bg-surface-highlight/90 text-ink/70 shadow-sm cursor-not-allowed"

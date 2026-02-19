@@ -5,6 +5,7 @@
   export let cashierName = "";
   export let shiftText = "";
   export let showTabs = false;
+  export let plainBackground = false;
 
   const tone = (kind) => {
     if (kind === "ok") return "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-medium";
@@ -15,28 +16,36 @@
 
   const _toText = (v) => String(v || "").trim();
 
-  const _outboxKind = (badge) => {
+  const _outboxKind = (badge, officialConnected, unofficialConnected) => {
+    if (!officialConnected || !unofficialConnected) return "bad";
     const t = _toText(badge);
+    const lower = t.toLowerCase();
     if (!t || t === "—") return "neutral";
-    if (t.toLowerCase() === "synced") return "ok";
+    if (lower.includes("offline") || lower.includes("disconnected") || lower.includes("locked") || lower.includes("error") || lower.includes("failed")) {
+      return "bad";
+    }
+    if (lower === "synced") return "ok";
+    if (lower.includes("stale") || lower.includes("syncing")) return "warn";
     const nums = Array.from(t.matchAll(/(\d+)/g)).map((m) => Number(m[1] || 0));
     const sum = nums.reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0);
     return sum > 0 ? "warn" : "ok";
   };
 
-  $: outboxKind = _outboxKind(syncBadge);
-  $: cashierKind = _toText(cashierName).toLowerCase().includes("not signed") ? "warn" : "neutral";
-  $: shiftKind = _toText(shiftText).toLowerCase().includes("open") ? "ok" : "neutral";
-  $: outboxCompactText = outboxKind === "ok" ? "SYNCED" : (outboxKind === "warn" ? "SYNCING" : "OFFLINE");
   const _isConnected = (value) => _toText(value).toLowerCase() === "ready";
   $: officialConnected = _isConnected(officialStatus);
   $: unofficialConnected = _isConnected(unofficialStatus);
+  $: outboxKind = _outboxKind(syncBadge, officialConnected, unofficialConnected);
+  $: cashierKind = _toText(cashierName).toLowerCase().includes("not signed") ? "warn" : "neutral";
+  $: shiftKind = _toText(shiftText).toLowerCase().includes("open") ? "ok" : "neutral";
+  $: outboxCompactText = outboxKind === "ok" ? "SYNCED" : (outboxKind === "warn" ? "SYNCING" : "OFFLINE");
 </script>
 
 <div class="h-screen bg-bg text-ink font-sans selection:bg-accent/20 selection:text-accent flex flex-col relative overflow-hidden">
   <!-- Background Glows -->
-  <div class="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-accent/5 rounded-full blur-[120px] pointer-events-none"></div>
-  <div class="absolute bottom-[-20%] right-[-10%] w-[40%] h-[40%] bg-purple-500/5 rounded-full blur-[100px] pointer-events-none"></div>
+  {#if !plainBackground}
+    <div class="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-accent/5 rounded-full blur-[120px] pointer-events-none"></div>
+    <div class="absolute bottom-[-20%] right-[-10%] w-[40%] h-[40%] bg-purple-500/5 rounded-full blur-[100px] pointer-events-none"></div>
+  {/if}
 
   <!-- Topbar -->
   <header class="sticky top-0 z-50 w-full glass shadow-lg shadow-black/5">

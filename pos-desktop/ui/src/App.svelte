@@ -560,18 +560,18 @@
     return maxMin;
   })();
   $: outboxWarnMinutes = Math.max(1, toNum(config?.outbox_stale_warn_minutes, 5) || 5);
+  const _isReadyStatus = (value) => String(value || "").trim().toLowerCase() === "ready";
   $: syncBadge = (() => {
     const o = (outbox || []).length;
     const u = (unofficialOutbox || []).length;
     const queued = o + u;
-    if (status !== "Ready") return `Offline · queued ${queued}`;
+    if (!_isReadyStatus(status) || !_isReadyStatus(unofficialStatus)) return `Offline · queued ${queued}`;
     if (queued > 0 && outboxOldestMinutes >= outboxWarnMinutes) {
       return `Stale · queued ${queued} · oldest ${Math.round(outboxOldestMinutes)}m`;
     }
     if (queued > 0) return `Syncing · queued ${queued}`;
     return "Synced";
   })();
-  const _isReadyStatus = (value) => String(value || "").trim().toLowerCase() === "ready";
   $: queuedEventsTotal = ((outbox || []).length + (unofficialOutbox || []).length);
   $: queueEvents = (() => {
     const withCompany = [];
@@ -4375,6 +4375,7 @@
   cashierName={cashierName}
   shiftText={shiftText}
   showTabs={!webSetupFirstTime}
+  plainBackground={activeScreen === "pos"}
 >
   <svelte:fragment slot="tabs">
     {@const tabBase = "h-10 px-3.5 rounded-xl text-xs font-bold border transition-all whitespace-nowrap shadow-sm"}
@@ -4575,7 +4576,7 @@
 
   {#if activeScreen === "pos"}
     <div
-      class={`grid h-full gap-6 ${
+      class={`pos-screen grid h-full gap-6 ${
         catalogCollapsed
           ? "grid-cols-1 lg:grid-cols-[72px_1fr_420px]"
           : "grid-cols-1 lg:grid-cols-[minmax(420px,1fr)_520px_420px]"
@@ -4639,7 +4640,7 @@
       </div>
 
       <!-- Right Column: Customer + Current Sale -->
-      <div class="h-full min-h-0 flex flex-col gap-4 overflow-visible relative z-0">
+      <div class="h-full min-h-0 flex flex-col gap-2 overflow-visible relative z-0">
         <CustomerSelect
           bind:customerSearch={customerSearch}
           bind:activeCustomer={activeCustomer}
@@ -4740,6 +4741,15 @@
     />
   {/if}
 </Shell>
+
+<style>
+  :global(.pos-screen .glass-panel) {
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background-color: rgb(var(--color-surface) / 0.96) !important;
+  }
+</style>
 
 <PaymentModal
   isOpen={showPaymentModal}
