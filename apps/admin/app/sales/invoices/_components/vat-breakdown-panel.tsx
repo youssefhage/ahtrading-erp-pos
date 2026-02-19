@@ -169,126 +169,150 @@ export function VatBreakdownPanel({
         </div>
       </div>
 
-      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="text-xs font-medium uppercase tracking-wider text-fg-subtle">VAT by rate</span>
-          <span className="text-xs text-fg-subtle">{rateRows.length} rate group(s)</span>
+      {rateRows.length === 1 ? (
+        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3 text-sm">
+          <div className="ui-kv">
+            <span className="ui-kv-label">Applied VAT rate</span>
+            <span className="ui-kv-value">
+              {rateRows[0].label}
+              {rateRows[0].ratePct !== null ? <span className="text-fg-subtle"> · {fmtPct(rateRows[0].ratePct)}</span> : null}
+            </span>
+          </div>
         </div>
-        <div className="ui-table-wrap">
-          <table className="ui-table">
-            <thead className="ui-thead">
-              <tr>
-                <th>VAT Rate</th>
-                <th className="text-right">Taxable Base</th>
-                <th className="text-right">VAT Amount</th>
-                <th className="text-right">% of Total VAT</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rateRows.map((r) => (
-                <tr key={r.id} className="ui-tr">
-                  <td>
-                    <div className="data-mono text-sm text-foreground">
-                      {r.label}
-                      {r.ratePct !== null ? <span className="text-fg-subtle"> · {fmtPct(r.ratePct)}</span> : null}
-                      {r.effectiveRatePct !== null ? <span className="text-fg-subtle"> · eff {fmtPct(r.effectiveRatePct)}</span> : null}
-                    </div>
-                  </td>
-                  <td className="text-right data-mono">{fmtUsdLbp(r.taxableBase.usd, r.taxableBase.lbp)}</td>
-                  <td className="text-right data-mono">{fmtUsdLbp(r.tax.usd, r.tax.lbp)}</td>
-                  <td className="text-right data-mono">{fmtPct(r.shareOfTotalTaxPct)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      ) : (
+        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3 text-sm text-fg-subtle">
+          VAT is split across {rateRows.length} rate groups.
         </div>
-      </div>
+      )}
 
-      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            className="cursor-pointer text-sm font-medium text-fg-muted hover:text-foreground"
-            aria-expanded={itemOpen}
-            onClick={() => setItemOpen((v) => !v)}
-          >
-            {itemOpen ? "Hide" : "Show"} item attribution ({itemRows.length} item{itemRows.length === 1 ? "" : "s"})
-          </button>
-        </div>
-        {itemOpen ? (
-          <div className="mt-2 ui-table-wrap">
-            <table className="ui-table">
-              <thead className="ui-thead">
-                <tr>
-                  <th>Item</th>
-                  <th className="text-right">Qty</th>
-                  <th className="text-right">Net Amount</th>
-                  <th className="text-right">VAT %</th>
-                  <th className="text-right">VAT Amount</th>
-                  <th className="text-right">% of Total VAT</th>
-                </tr>
-              </thead>
-              <tbody>
-                {itemRows.map((r) => (
-                  <tr key={r.id} className="ui-tr">
-                    <td className="data-mono">{r.itemLabel}</td>
-                    <td className="text-right data-mono">{n(r.qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
-                    <td className="text-right data-mono">{fmtUsdLbp(r.net.usd, r.net.lbp)}</td>
-                    <td className="text-right data-mono">{fmtPct(r.vatRatePct)}</td>
-                    <td className="text-right data-mono">{fmtUsdLbp(r.vat.usd, r.vat.lbp)}</td>
-                    <td className="text-right data-mono">{fmtPct(r.shareOfTotalTaxPct)}</td>
+      <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+        <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-fg-subtle">
+          Advanced details
+        </summary>
+
+        <div className="mt-3 space-y-3">
+          <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs font-medium uppercase tracking-wider text-fg-subtle">VAT by rate</span>
+              <span className="text-xs text-fg-subtle">{rateRows.length} rate group(s)</span>
+            </div>
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead className="ui-thead">
+                  <tr>
+                    <th>VAT Rate</th>
+                    <th className="text-right">Taxable Base</th>
+                    <th className="text-right">VAT Amount</th>
+                    <th className="text-right">% of Total VAT</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rateRows.map((r) => (
+                    <tr key={r.id} className="ui-tr">
+                      <td>
+                        <div className="data-mono text-sm text-foreground">
+                          {r.label}
+                          {r.ratePct !== null ? <span className="text-fg-subtle"> · {fmtPct(r.ratePct)}</span> : null}
+                          {r.effectiveRatePct !== null ? <span className="text-fg-subtle"> · eff {fmtPct(r.effectiveRatePct)}</span> : null}
+                        </div>
+                      </td>
+                      <td className="text-right data-mono">{fmtUsdLbp(r.taxableBase.usd, r.taxableBase.lbp)}</td>
+                      <td className="text-right data-mono">{fmtUsdLbp(r.tax.usd, r.tax.lbp)}</td>
+                      <td className="text-right data-mono">{fmtPct(r.shareOfTotalTaxPct)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        ) : null}
-      </div>
 
-      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3 text-xs">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-fg-subtle">Sum of item VAT</span>
-          <span className="data-mono text-foreground">{fmtUsdLbp(reconciliation.itemVat.usd, reconciliation.itemVat.lbp)}</span>
-        </div>
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <span className="text-fg-subtle">Sum of rate-group VAT</span>
-          <span className="data-mono text-foreground">{fmtUsdLbp(reconciliation.rateVat.usd, reconciliation.rateVat.lbp)}</span>
-        </div>
-        <div className="mt-1 flex items-center justify-between gap-2">
-          <span className="text-fg-subtle">Total VAT</span>
-          <span className="data-mono text-foreground">{fmtUsdLbp(reconciliation.totalVat.usd, reconciliation.totalVat.lbp)}</span>
-        </div>
-        {reconciliation.mismatch ? (
-          <div className="mt-2 inline-flex rounded border border-warning/50 bg-warning/10 px-2 py-1 text-[11px] font-medium text-warning">
-            Calculation mismatch
+          <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                className="cursor-pointer text-sm font-medium text-fg-muted hover:text-foreground"
+                aria-expanded={itemOpen}
+                onClick={() => setItemOpen((v) => !v)}
+              >
+                {itemOpen ? "Hide" : "Show"} item attribution ({itemRows.length} item{itemRows.length === 1 ? "" : "s"})
+              </button>
+            </div>
+            {itemOpen ? (
+              <div className="mt-2 ui-table-wrap">
+                <table className="ui-table">
+                  <thead className="ui-thead">
+                    <tr>
+                      <th>Item</th>
+                      <th className="text-right">Qty</th>
+                      <th className="text-right">Net Amount</th>
+                      <th className="text-right">VAT %</th>
+                      <th className="text-right">VAT Amount</th>
+                      <th className="text-right">% of Total VAT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itemRows.map((r) => (
+                      <tr key={r.id} className="ui-tr">
+                        <td className="data-mono">{r.itemLabel}</td>
+                        <td className="text-right data-mono">{n(r.qty).toLocaleString("en-US", { maximumFractionDigits: 3 })}</td>
+                        <td className="text-right data-mono">{fmtUsdLbp(r.net.usd, r.net.lbp)}</td>
+                        <td className="text-right data-mono">{fmtPct(r.vatRatePct)}</td>
+                        <td className="text-right data-mono">{fmtUsdLbp(r.vat.usd, r.vat.lbp)}</td>
+                        <td className="text-right data-mono">{fmtPct(r.shareOfTotalTaxPct)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
+
+          {reconciliation.mismatch ? (
+            <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-fg-subtle">Sum of item VAT</span>
+                <span className="data-mono text-foreground">{fmtUsdLbp(reconciliation.itemVat.usd, reconciliation.itemVat.lbp)}</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span className="text-fg-subtle">Sum of rate-group VAT</span>
+                <span className="data-mono text-foreground">{fmtUsdLbp(reconciliation.rateVat.usd, reconciliation.rateVat.lbp)}</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span className="text-fg-subtle">Total VAT</span>
+                <span className="data-mono text-foreground">{fmtUsdLbp(reconciliation.totalVat.usd, reconciliation.totalVat.lbp)}</span>
+              </div>
+              <div className="mt-2 inline-flex rounded border border-warning/50 bg-warning/10 px-2 py-1 text-[11px] font-medium text-warning">
+                Calculation mismatch
+              </div>
+            </div>
+          ) : null}
+
+          {rawTaxLines.length ? (
+            <div className="rounded-lg border border-border-subtle bg-bg-elevated/40 p-3">
+              <p className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Raw tax lines</p>
+              <div className="mt-2 space-y-1">
+                {rawTaxLines.map((t) => (
+                  <div key={t.id} className="rounded-md border border-border-subtle bg-bg-elevated/50 p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="data-mono text-foreground">
+                        {t.label}
+                        {t.ratePct !== null ? <span className="text-fg-subtle"> · {fmtPct(t.ratePct)}</span> : null}
+                      </span>
+                      <span className="data-mono text-foreground">{fmtUsdLbp(t.tax.usd, t.tax.lbp)}</span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="text-xs text-fg-subtle">Base</span>
+                      <span className="data-mono text-xs text-fg-muted">{fmtUsdLbp(t.base.usd, t.base.lbp)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </details>
 
       {previewNote ? <p className="text-xs text-fg-subtle">{previewNote}</p> : null}
-
-      {rawTaxLines.length ? (
-        <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-          <summary className="cursor-pointer text-xs font-medium text-fg-subtle">Raw tax lines</summary>
-          <div className="mt-2 space-y-1">
-            {rawTaxLines.map((t) => (
-              <div key={t.id} className="rounded-md border border-border-subtle bg-bg-elevated/50 p-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="data-mono text-foreground">
-                    {t.label}
-                    {t.ratePct !== null ? <span className="text-fg-subtle"> · {fmtPct(t.ratePct)}</span> : null}
-                  </span>
-                  <span className="data-mono text-foreground">{fmtUsdLbp(t.tax.usd, t.tax.lbp)}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <span className="text-xs text-fg-subtle">Base</span>
-                  <span className="data-mono text-xs text-fg-muted">{fmtUsdLbp(t.base.usd, t.base.lbp)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </details>
-      ) : null}
     </div>
   );
 }
