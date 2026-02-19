@@ -578,6 +578,20 @@ export default function ItemEditPage() {
     }
   }
 
+  async function deleteConversion(uomCode: string) {
+    if (!item) return;
+    const u = (uomCode || "").trim().toUpperCase();
+    if (!u) return;
+    setStatus("Deleting conversion...");
+    try {
+      await apiDelete(`/items/${encodeURIComponent(item.id)}/uom-conversions/${encodeURIComponent(u)}`);
+      await load();
+      setStatus("");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function addSupplierLink(e: React.FormEvent) {
     e.preventDefault();
     if (!item) return;
@@ -1159,6 +1173,7 @@ export default function ItemEditPage() {
                       <th className="px-3 py-2">UOM</th>
                       <th className="px-3 py-2 text-right">Factor</th>
                       <th className="px-3 py-2">Active</th>
+                      <th className="px-3 py-2 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1193,12 +1208,21 @@ export default function ItemEditPage() {
                               {c.is_active ? "yes" : "no"}
                             </label>
                           </td>
+                          <td className="px-3 py-2 text-right">
+                            {!isBase ? (
+                              <Button type="button" size="sm" variant="outline" onClick={() => deleteConversion(c.uom_code)}>
+                                Delete
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-fg-subtle">Base</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
                     {conversions.length === 0 ? (
                       <tr>
-                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={3}>
+                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={4}>
                           No conversions yet.
                         </td>
                       </tr>

@@ -2120,6 +2120,69 @@ def update_item_uom_conversion(item_id: str, uom_code: str, data: ItemUomConvers
                 return {"ok": True}
 
 
+@router.delete("/{item_id}/uom-conversions/{uom_code}", dependencies=[Depends(require_permission("items:write"))])
+def delete_item_uom_conversion(item_id: str, uom_code: str, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    u = _norm_uom(uom_code)
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT unit_of_measure, purchase_uom_code, sales_uom_code
+                    FROM items
+                    WHERE company_id=%s AND id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, item_id),
+                )
+                it = cur.fetchone()
+                if not it:
+                    raise HTTPException(status_code=404, detail="item not found")
+                base_uom = _norm_uom(it.get("unit_of_measure"))
+                purchase_uom = _norm_uom(it.get("purchase_uom_code")) if it.get("purchase_uom_code") is not None else None
+                sales_uom = _norm_uom(it.get("sales_uom_code")) if it.get("sales_uom_code") is not None else None
+
+                if u == base_uom:
+                    raise HTTPException(status_code=400, detail="cannot delete the base UOM conversion")
+                if purchase_uom and u == purchase_uom:
+                    raise HTTPException(status_code=409, detail="cannot delete conversion while item purchase_uom_code uses it")
+                if sales_uom and u == sales_uom:
+                    raise HTTPException(status_code=409, detail="cannot delete conversion while item sales_uom_code uses it")
+
+                cur.execute(
+                    """
+                    SELECT COUNT(*)::int AS n
+                    FROM item_barcodes
+                    WHERE company_id=%s AND item_id=%s AND uom_code=%s
+                    """,
+                    (company_id, item_id, u),
+                )
+                refs = cur.fetchone() or {}
+                barcode_refs = int(refs.get("n") or 0)
+                if barcode_refs > 0:
+                    raise HTTPException(status_code=409, detail=f"cannot delete conversion: {barcode_refs} barcode(s) still use UOM {u}")
+
+                cur.execute(
+                    """
+                    DELETE FROM item_uom_conversions
+                    WHERE company_id=%s AND item_id=%s AND uom_code=%s
+                    """,
+                    (company_id, item_id, u),
+                )
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="conversion not found")
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_uom_conversion_delete', 'item', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], item_id, json.dumps({"uom_code": u})),
+                )
+                return {"ok": True}
+
+
 class UomConversionLookupIn(BaseModel):
     item_ids: List[str]
 

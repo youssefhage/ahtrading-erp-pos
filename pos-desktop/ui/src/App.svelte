@@ -78,6 +78,20 @@
       return fallback;
     }
   };
+  const _readStorage = (key, fallback = "") => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw == null ? fallback : raw;
+    } catch (_) {
+      return fallback;
+    }
+  };
+  const _writeStorage = (key, value) => {
+    try { localStorage.setItem(key, String(value)); } catch (_) {}
+  };
+  const _removeStorage = (key) => {
+    try { localStorage.removeItem(key); } catch (_) {}
+  };
 
   const normalizeVatRate = (value) => {
     let rate = toNum(value, 0);
@@ -499,6 +513,7 @@
   let showAuditDrawer = false;
   let showTopMoreActions = false;
   let topMoreActionsButtonEl = null;
+  let topMoreMenuEl = null;
   let topMoreMenuStyle = "left: 8px; top: 56px; width: 224px;";
   const TOP_MORE_MENU_WIDTH = 224;
   let auditLoading = false;
@@ -621,6 +636,9 @@
   const closeTopMoreActions = () => {
     showTopMoreActions = false;
   };
+  const _elContainsTarget = (el, target) => (
+    !!el && !!target && typeof el.contains === "function" && el.contains(target)
+  );
   const toggleTopMoreActions = () => {
     showTopMoreActions = !showTopMoreActions;
     if (showTopMoreActions) {
@@ -2874,13 +2892,13 @@
     const t = (token || "").trim();
     if (companyKey === otherCompanyKey) {
       unofficialSessionToken = t;
-      if (t) localStorage.setItem(UNOFFICIAL_SESSION_STORAGE_KEY, t);
-      else localStorage.removeItem(UNOFFICIAL_SESSION_STORAGE_KEY);
+      if (t) _writeStorage(UNOFFICIAL_SESSION_STORAGE_KEY, t);
+      else _removeStorage(UNOFFICIAL_SESSION_STORAGE_KEY);
       return;
     }
     sessionToken = t;
-    if (t) localStorage.setItem(SESSION_STORAGE_KEY, t);
-    else localStorage.removeItem(SESSION_STORAGE_KEY);
+    if (t) _writeStorage(SESSION_STORAGE_KEY, t);
+    else _removeStorage(SESSION_STORAGE_KEY);
   };
 
   // Mock Data
@@ -4878,38 +4896,38 @@
       }, Math.max(1000, toNum(delayMs, 0)));
     };
 
-    const stored = localStorage.getItem(API_BASE_STORAGE_KEY);
+    const stored = _readStorage(API_BASE_STORAGE_KEY, "");
     if (stored) apiBase = stored;
-    sessionToken = localStorage.getItem(SESSION_STORAGE_KEY) || "";
-    unofficialSessionToken = localStorage.getItem(UNOFFICIAL_SESSION_STORAGE_KEY) || "";
-    const storedOtherAgentUrlRaw = localStorage.getItem(OTHER_AGENT_URL_STORAGE_KEY) || "";
+    sessionToken = _readStorage(SESSION_STORAGE_KEY, "");
+    unofficialSessionToken = _readStorage(UNOFFICIAL_SESSION_STORAGE_KEY, "");
+    const storedOtherAgentUrlRaw = _readStorage(OTHER_AGENT_URL_STORAGE_KEY, "");
     const storedOtherAgentUrl = _normalizeOriginUrl(storedOtherAgentUrlRaw);
     const fallbackOtherAgentUrl = _defaultOtherAgentUrlForCurrentHost();
     const nextOtherAgentUrl = _sanitizeOtherAgentUrl(storedOtherAgentUrl || fallbackOtherAgentUrl);
     otherAgentUrl = nextOtherAgentUrl;
     otherAgentDraftUrl = nextOtherAgentUrl;
     if (nextOtherAgentUrl !== storedOtherAgentUrl) {
-      try { localStorage.setItem(OTHER_AGENT_URL_STORAGE_KEY, nextOtherAgentUrl); } catch (_) {}
+      _writeStorage(OTHER_AGENT_URL_STORAGE_KEY, nextOtherAgentUrl);
     }
-    invoiceCompanyMode = localStorage.getItem(INVOICE_MODE_STORAGE_KEY) || "auto";
+    invoiceCompanyMode = _readStorage(INVOICE_MODE_STORAGE_KEY, "auto");
     invoiceCompanyMode = (invoiceCompanyMode === "official" || invoiceCompanyMode === "unofficial") ? invoiceCompanyMode : "auto";
-    flagOfficial = localStorage.getItem(FLAG_OFFICIAL_STORAGE_KEY) === "1";
-    vatDisplayMode = normalizeVatDisplayMode(localStorage.getItem(VAT_DISPLAY_MODE_STORAGE_KEY) || "both");
-    showPriceDisplayControls = localStorage.getItem(PRICE_DISPLAY_CONTROLS_STORAGE_KEY) === "1";
+    flagOfficial = _readStorage(FLAG_OFFICIAL_STORAGE_KEY, "") === "1";
+    vatDisplayMode = normalizeVatDisplayMode(_readStorage(VAT_DISPLAY_MODE_STORAGE_KEY, "both"));
+    showPriceDisplayControls = _readStorage(PRICE_DISPLAY_CONTROLS_STORAGE_KEY, "") === "1";
 
-    theme = localStorage.getItem(THEME_STORAGE_KEY) || "dark";
+    theme = _readStorage(THEME_STORAGE_KEY, "dark") || "dark";
     if (theme !== "light" && theme !== "dark") theme = "dark";
     try { document.documentElement.dataset.theme = theme; } catch (_) {}
 
-    const storedScreen = localStorage.getItem(SCREEN_STORAGE_KEY) || "pos";
+    const storedScreen = _readStorage(SCREEN_STORAGE_KEY, "pos");
     activeScreen = (storedScreen === "items") ? "items" : "pos";
 
     try {
-      const offRaw = localStorage.getItem(WEB_CONFIG_OFFICIAL_STORAGE_KEY);
+      const offRaw = _readStorage(WEB_CONFIG_OFFICIAL_STORAGE_KEY, "");
       if (offRaw) config = { ...config, ...(JSON.parse(offRaw) || {}) };
     } catch (_) {}
     try {
-      const unRaw = localStorage.getItem(WEB_CONFIG_UNOFFICIAL_STORAGE_KEY);
+      const unRaw = _readStorage(WEB_CONFIG_UNOFFICIAL_STORAGE_KEY, "");
       if (unRaw) unofficialConfig = { ...unofficialConfig, ...(JSON.parse(unRaw) || {}) };
     } catch (_) {}
     webLocalOutboxByCompany = _readJsonStorage(WEB_LOCAL_OUTBOX_STORAGE_KEY, { official: [], unofficial: [] });
@@ -4924,7 +4942,7 @@
       if (remoteHost) {
         otherAgentUrl = "";
         otherAgentDraftUrl = "";
-        try { localStorage.setItem(OTHER_AGENT_URL_STORAGE_KEY, ""); } catch (_) {}
+        _writeStorage(OTHER_AGENT_URL_STORAGE_KEY, "");
         const probe = await _probeAgentHealth(apiBase);
         if (!probe.localAgentLike) activateWebHostUnsupported("This host responds with backend health, not local POS agent health.");
         else activateWebHostUnsupported("Remote web host detected. Using cloud setup mode.");
@@ -4950,9 +4968,17 @@
     const onWindowScroll = () => {
       if (showTopMoreActions) _positionTopMoreActionsMenu();
     };
+    const onPointerDownCapture = (e) => {
+      if (!showTopMoreActions) return;
+      const target = e?.target;
+      if (_elContainsTarget(topMoreActionsButtonEl, target)) return;
+      if (_elContainsTarget(topMoreMenuEl, target)) return;
+      closeTopMoreActions();
+    };
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("resize", onWindowResize);
     window.addEventListener("scroll", onWindowScroll, true);
+    document.addEventListener("pointerdown", onPointerDownCapture, true);
 
     // Global barcode scan capture (keyboard-wedge scanners often type fast chars + Enter).
     // This intentionally works without requiring focus on the dedicated scan field.
@@ -5011,6 +5037,11 @@
     const onKeyDown = (e) => {
       if (!e) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Escape" && showTopMoreActions) {
+        e.preventDefault();
+        closeTopMoreActions();
+        return;
+      }
 
       const active = document.activeElement;
       const isScanField = !!active?.getAttribute?.("data-scan-input");
@@ -5075,6 +5106,7 @@
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("resize", onWindowResize);
       window.removeEventListener("scroll", onWindowScroll, true);
+      document.removeEventListener("pointerdown", onPointerDownCapture, true);
       document.removeEventListener("focusin", onFocusIn, true);
       document.removeEventListener("click", onClickCapture, true);
       document.removeEventListener("keydown", onKeyDown, true);
@@ -5191,13 +5223,7 @@
         More
       </button>
       {#if showTopMoreActions}
-        <button
-          class="fixed inset-0 z-[80] bg-transparent"
-          type="button"
-          aria-label="Close more actions menu"
-          on:click={closeTopMoreActions}
-        ></button>
-        <div class="fixed z-[81] rounded-2xl border border-ink/10 bg-surface shadow-2xl p-2 space-y-1" style={topMoreMenuStyle}>
+        <div bind:this={topMoreMenuEl} class="fixed z-[81] rounded-2xl border border-ink/10 bg-surface shadow-2xl p-2 space-y-1" style={topMoreMenuStyle}>
           <button
             class={`w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors ${queuedEventsTotal > 0 ? "border-amber-500/40 bg-amber-500/10" : ""}`}
             on:click={() => { showTopMoreActions = false; syncPush(); }}
