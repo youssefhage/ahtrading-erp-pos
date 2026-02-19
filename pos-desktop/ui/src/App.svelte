@@ -5524,25 +5524,46 @@
     {@const tabBase = "h-10 px-3.5 rounded-xl text-xs font-bold border transition-all whitespace-nowrap shadow-sm"}
     {@const tabOn = "bg-accent text-[rgb(var(--color-accent-content))] border-accent/40 hover:bg-accent-hover shadow-lg shadow-accent/20"}
     {@const tabOff = "bg-surface/55 text-ink/85 border-ink/10 hover:bg-surface/75 hover:text-ink"}
+    {@const draftCount = (cartDrafts || []).length}
+    {@const draftsTabOn = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
 
+    <div class="flex items-center gap-1.5 min-w-max">
+      <button
+        class={`${tabBase} ${activeScreen === "pos" ? tabOn : tabOff}`}
+        on:click={() => setActiveScreen("pos")}
+        type="button"
+        title="Cashier POS screen"
+      >
+        POS
+      </button>
+      <button
+        class={`${tabBase} w-10 px-0 inline-flex items-center justify-center relative ${showCartDraftsDrawer || draftCount > 0 ? draftsTabOn : tabOff}`}
+        on:click={openCartDrafts}
+        title="Save and resume draft carts"
+        aria-label={`Draft carts${draftCount > 0 ? ` (${draftCount})` : ""}`}
+        type="button"
+      >
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+          <path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M3 7V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        {#if draftCount > 0}
+          <span class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-accent text-[10px] leading-4 text-[rgb(var(--color-accent-content))] font-bold text-center">
+            {draftCount > 99 ? "99+" : draftCount}
+          </span>
+        {/if}
+      </button>
+      <button
+        class={`${tabBase} ${activeScreen === "items" ? tabOn : tabOff}`}
+        on:click={() => setActiveScreen("items")}
+        type="button"
+        title="Item lookup & details"
+      >
+        Items
+      </button>
+    </div>
     <button
-      class={`${tabBase} ${activeScreen === "pos" ? tabOn : tabOff}`}
-      on:click={() => setActiveScreen("pos")}
-      type="button"
-      title="Cashier POS screen"
-    >
-      POS
-    </button>
-    <button
-      class={`${tabBase} ${activeScreen === "items" ? tabOn : tabOff}`}
-      on:click={() => setActiveScreen("items")}
-      type="button"
-      title="Item lookup & details"
-    >
-      Items
-    </button>
-    <button
-      class={`${tabBase} ${activeScreen === "settings" ? tabOn : tabOff}`}
+      class={`${tabBase} ml-auto ${activeScreen === "settings" ? tabOn : tabOff}`}
       on:click={() => setActiveScreen("settings")}
       type="button"
       title="Connectivity & setup"
@@ -5604,24 +5625,6 @@
         type="button"
       >
         {saleMode === "sale" ? "Sale" : "Return"}
-      </button>
-      {@const draftCount = (cartDrafts || []).length}
-      <button
-        class={`${topBtnBase} w-8 px-0 inline-flex items-center justify-center relative ${draftCount > 0 ? topBtnActive : ""}`}
-        on:click={openCartDrafts}
-        title="Save and resume draft carts"
-        aria-label={`Draft carts${draftCount > 0 ? ` (${draftCount})` : ""}`}
-        type="button"
-      >
-        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-          <path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M3 7V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        {#if draftCount > 0}
-          <span class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-accent text-[10px] leading-4 text-[rgb(var(--color-accent-content))] font-bold text-center">
-            {draftCount > 99 ? "99+" : draftCount}
-          </span>
-        {/if}
       </button>
     {/if}
 
@@ -6079,18 +6082,21 @@
             No saved drafts yet. Build a cart, then click <span class="font-semibold text-ink">Save Current Cart</span>.
           </div>
         {:else}
-          {#each cartDrafts as draft}
+          {#each cartDrafts as draft, i}
             {@const lineCount = (draft?.cart || []).length}
             {@const customerName = String(draft?.customer?.name || "").trim()}
             {@const totalUsd = _draftTotalUsd(draft)}
+            {@const draftLabel = `Draft #${i + 1}`}
+            {@const draftTitle = customerName ? `${customerName} - ${draftLabel}` : draftLabel}
+            {@const customDraftName = String(draft?.name || "").trim()}
             <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <div class="text-sm font-bold text-ink truncate">{draft?.name || "Draft"}</div>
+                  <div class="text-sm font-bold text-ink truncate">{draftTitle}</div>
                   <div class="text-[11px] text-muted mt-1">
                     Updated {_queueAgeText(draft?.updated_at)} · {lineCount} line{lineCount === 1 ? "" : "s"}
-                    {#if customerName}
-                      {" · "}Customer: <span class="text-ink">{customerName}</span>
+                    {#if customDraftName}
+                      {" · "}Name: <span class="text-ink">{customDraftName}</span>
                     {/if}
                   </div>
                 </div>
