@@ -13,7 +13,12 @@ import { Button } from "@/components/ui/button";
 
 const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 const UNOFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000002";
-const INVOICE_PDF_TEMPLATES = new Set(["official_classic", "official_compact", "standard"]);
+const INVOICE_PDF_TEMPLATE_OPTIONS = [
+  { id: "official_classic", label: "Official Classic" },
+  { id: "official_compact", label: "Official Compact" },
+  { id: "standard", label: "Standard" },
+];
+const INVOICE_PDF_TEMPLATES = new Set(INVOICE_PDF_TEMPLATE_OPTIONS.map((opt) => opt.id));
 
 type InvoiceRow = {
   id: string;
@@ -384,6 +389,7 @@ export default function SalesInvoicePrintPage() {
     return INVOICE_PDF_TEMPLATES.has(raw) ? raw : "";
   })();
   const effectivePdfTemplate = pdfTemplate || policyTemplate;
+  const policyTemplateLabel = INVOICE_PDF_TEMPLATE_OPTIONS.find((opt) => opt.id === policyTemplate)?.label || "None";
   const pdfInlineRoute = docVariant === "receipt"
     ? `/exports/sales-receipts/${encodeURIComponent(id)}/pdf?inline=1`
     : `/exports/sales-invoices/${encodeURIComponent(id)}/pdf?inline=1${effectivePdfTemplate ? `&template=${encodeURIComponent(effectivePdfTemplate)}` : ""}`;
@@ -568,6 +574,21 @@ export default function SalesInvoicePrintPage() {
             <Button variant="outline" onClick={load} disabled={loading}>
               {loading ? "..." : "Refresh"}
             </Button>
+            {docVariant === "invoice" ? (
+              <select
+                className="h-10 rounded-md border border-border bg-bg-elevated px-2 text-xs"
+                value={pdfTemplate}
+                onChange={(e) => setPdfTemplate((e.target as HTMLSelectElement).value)}
+                title="Invoice PDF template"
+              >
+                <option value="">{`Company default (${policyTemplateLabel})`}</option>
+                {INVOICE_PDF_TEMPLATE_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             {directPrintOk ? (
               <>
                 <select

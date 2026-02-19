@@ -425,6 +425,8 @@ const LITE_NAV_SECTIONS: NavSection[] = [
 type UiVariant = "full" | "lite";
 type ColorTheme = "light" | "dark";
 type AccentTheme = "cobalt" | "sky" | "emerald" | "teal" | "rose" | "slate";
+const COLOR_THEME_STORAGE_KEY = "admin.colorTheme";
+const ACCENT_THEME_STORAGE_KEY = "admin.accentTheme";
 
 const ACCENT_THEME_VARS: Record<
   AccentTheme,
@@ -474,23 +476,58 @@ const ACCENT_THEME_VARS: Record<
   }
 };
 
-function readColorTheme(): ColorTheme {
+function normalizeCompanyThemeScope(companyId: string) {
+  return String(companyId || "").trim();
+}
+
+function themeStorageKey(baseKey: string, companyId: string) {
+  const cid = normalizeCompanyThemeScope(companyId);
+  return cid ? `${baseKey}.${cid}` : baseKey;
+}
+
+function readThemeStorage(baseKey: string, companyId: string) {
   try {
-    const raw = localStorage.getItem("admin.colorTheme");
+    const scoped = localStorage.getItem(themeStorageKey(baseKey, companyId));
+    if (scoped != null) return scoped;
+    return localStorage.getItem(baseKey);
+  } catch {
+    return null;
+  }
+}
+
+function readColorTheme(companyId: string): ColorTheme {
+  try {
+    const raw = readThemeStorage(COLOR_THEME_STORAGE_KEY, companyId);
     return raw === "dark" ? "dark" : "light";
   } catch {
     return "light";
   }
 }
 
-function readAccentTheme(): AccentTheme {
+function readAccentTheme(companyId: string): AccentTheme {
   try {
-    const raw = localStorage.getItem("admin.accentTheme");
+    const raw = readThemeStorage(ACCENT_THEME_STORAGE_KEY, companyId);
     return raw === "cobalt" || raw === "emerald" || raw === "teal" || raw === "rose" || raw === "slate" || raw === "sky"
       ? raw
       : "cobalt";
   } catch {
     return "cobalt";
+  }
+}
+
+function saveColorTheme(companyId: string, next: ColorTheme) {
+  try {
+    localStorage.setItem(themeStorageKey(COLOR_THEME_STORAGE_KEY, companyId), next);
+  } catch {
+    // ignore
+  }
+}
+
+function emitThemeChange(detail: { color?: ColorTheme; accent?: AccentTheme; companyId?: string }) {
+  try {
+    window.dispatchEvent(new CustomEvent("admin-theme-change", { detail }));
+  } catch {
+    // ignore
   }
 }
 
@@ -592,8 +629,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
       return "full";
     }
   });
-  const [colorTheme, setColorTheme] = useState<ColorTheme>(readColorTheme);
-  const [accentTheme, setAccentTheme] = useState<AccentTheme>(readAccentTheme);
+  const [colorTheme, setColorTheme] = useState<ColorTheme>(() => readColorTheme(getCompanyId()));
+  const [accentTheme, setAccentTheme] = useState<AccentTheme>(() => readAccentTheme(getCompanyId()));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -720,6 +757,12 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     const cid = getCompanyId();
     if (cid !== companyId) setCompanyId(cid);
   }, [pathname, companyId]);
+
+  useEffect(() => {
+    // Theme is scoped per active company; reload when company context changes.
+    setColorTheme(readColorTheme(companyId));
+    setAccentTheme(readAccentTheme(companyId));
+  }, [companyId]);
 
   useEffect(() => {
     // Company context display should be human-friendly.
@@ -954,17 +997,31 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
 
   useEffect(() => {
     function onStorage(e: StorageEvent) {
-      if (e.key === "ahtrading.companyId") setCompanyId(getCompanyId());
-      if (e.key === "admin.colorTheme") setColorTheme(readColorTheme());
-      if (e.key === "admin.accentTheme") setAccentTheme(readAccentTheme());
+      if (e.key === "ahtrading.companyId") {
+        const nextCompanyId = getCompanyId();
+        setCompanyId(nextCompanyId);
+        setColorTheme(readColorTheme(nextCompanyId));
+        setAccentTheme(readAccentTheme(nextCompanyId));
+        return;
+      }
+      if (!e.key) return;
+      if (e.key === COLOR_THEME_STORAGE_KEY || e.key.startsWith(`${COLOR_THEME_STORAGE_KEY}.`)) {
+        setColorTheme(readColorTheme(getCompanyId()));
+      }
+      if (e.key === ACCENT_THEME_STORAGE_KEY || e.key.startsWith(`${ACCENT_THEME_STORAGE_KEY}.`)) {
+        setAccentTheme(readAccentTheme(getCompanyId()));
+      }
     }
 
     function onThemeChange(e: Event) {
-      const ce = e as CustomEvent<{ color?: string; accent?: string }>;
+      const ce = e as CustomEvent<{ color?: string; accent?: string; companyId?: string }>;
+      const targetCompanyId = normalizeCompanyThemeScope(ce.detail?.companyId || "");
+      const activeCompanyId = normalizeCompanyThemeScope(getCompanyId());
+      if (targetCompanyId && targetCompanyId !== activeCompanyId) return;
       const color = ce.detail?.color;
       const accent = ce.detail?.accent;
       if (color === "light" || color === "dark") setColorTheme(color);
-      if (accent === "sky" || accent === "emerald" || accent === "teal" || accent === "rose" || accent === "slate") {
+      if (accent === "cobalt" || accent === "sky" || accent === "emerald" || accent === "teal" || accent === "rose" || accent === "slate") {
         setAccentTheme(accent);
       }
     }
@@ -987,21 +1044,11 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("admin.colorTheme", colorTheme);
-    } catch {
-      // ignore
-    }
     if (colorTheme === "dark") document.documentElement.classList.add("dark");
     else document.documentElement.classList.remove("dark");
   }, [colorTheme]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("admin.accentTheme", accentTheme);
-    } catch {
-      // ignore
-    }
     applyAccentThemeClass(accentTheme);
   }, [accentTheme]);
 
@@ -1144,7 +1191,10 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   }
 
   function toggleColorTheme() {
-    setColorTheme((t) => (t === "dark" ? "light" : "dark"));
+    const nextTheme = colorTheme === "dark" ? "light" : "dark";
+    setColorTheme(nextTheme);
+    saveColorTheme(companyId, nextTheme);
+    emitThemeChange({ color: nextTheme, companyId: normalizeCompanyThemeScope(companyId) });
   }
 
   async function logout() {

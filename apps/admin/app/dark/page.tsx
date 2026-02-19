@@ -5,13 +5,21 @@ import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
+import { getCompanyId } from "@/lib/api";
+
+const COLOR_THEME_STORAGE_KEY = "admin.colorTheme";
+
+function scopedThemeKey(companyId: string) {
+  const cid = String(companyId || "").trim();
+  return cid ? `${COLOR_THEME_STORAGE_KEY}.${cid}` : COLOR_THEME_STORAGE_KEY;
+}
 
 export default function DarkThemeEntryPage() {
   const router = useRouter();
 
   useEffect(() => {
     try {
-      localStorage.setItem("admin.colorTheme", "dark");
+      localStorage.setItem(scopedThemeKey(getCompanyId()), "dark");
       document.documentElement.classList.add("dark");
     } catch {
       // ignore
@@ -33,4 +41,3 @@ export default function DarkThemeEntryPage() {
     </main>
   );
 }
-

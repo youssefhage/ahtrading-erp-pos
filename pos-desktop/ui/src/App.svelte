@@ -34,8 +34,13 @@
   const SCREEN_STORAGE_KEY = "pos_ui_screen";
   const WEB_CONFIG_OFFICIAL_STORAGE_KEY = "pos_web_config_official";
   const WEB_CONFIG_UNOFFICIAL_STORAGE_KEY = "pos_web_config_unofficial";
+  const WEB_LOCAL_OUTBOX_STORAGE_KEY = "pos_web_local_outbox_v1";
+  const WEB_LOCAL_AUDIT_STORAGE_KEY = "pos_web_local_audit_v1";
   const DEFAULT_API_BASE = "/api";
   const DEFAULT_OTHER_AGENT_URL = "http://localhost:7072";
+  const WEB_LOCAL_OUTBOX_MAX = 800;
+  const WEB_LOCAL_AUDIT_MAX = 500;
+  const MANAGER_APPROVAL_TTL_MS = 2 * 60 * 1000;
 
   // These are seeded in backend/db/seeds/seed_companies.sql and used in sample POS configs.
   const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
@@ -58,6 +63,21 @@
   };
   
   const toRate = (value) => toNum(value, 0);
+
+  const normalizeCompanyKey = (companyKey) => (
+    String(companyKey || "").trim().toLowerCase() === "unofficial" ? "unofficial" : "official"
+  );
+
+  const _readJsonStorage = (key, fallback) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : fallback;
+    } catch (_) {
+      return fallback;
+    }
+  };
 
   const normalizeVatRate = (value) => {
     let rate = toNum(value, 0);
@@ -326,6 +346,10 @@
   let webHostHint = "";
   let webEventInvoiceMap = new Map();
   let webCatalogCache = new Map();
+  let webLocalOutboxByCompany = { official: [], unofficial: [] };
+  let webAuditByCompany = { official: [], unofficial: [] };
+  let managerApprovalUntilByCompany = { official: 0, unofficial: 0 };
+  let managerApprovalPendingCompanies = [];
   const WEB_CATALOG_CACHE_TTL_MS = 15000;
 
   const activateWebHostUnsupported = (hint = "") => {
@@ -478,12 +502,15 @@
 
   // Cashier
   let showCashierModal = false;
+  let cashierCompanyKey = "official";
   let cashierPin = "";
   let cashierPinEl = null;
 
   // Shift
   let showShiftModal = false;
+  let shiftCompanyKey = "official";
   let shift = null;
+  let unofficialShift = null;
   let openingCashUsd = 0;
   let openingCashLbp = 0;
   let closingCashUsd = 0;
@@ -502,8 +529,11 @@
   };
 
   // Derived
-  $: activeCashier = cashiers.find((c) => c.id === config.cashier_id);
-  $: cashierName = activeCashier ? activeCashier.name : (config.cashier_id ? "Unknown" : "Not Signed In");
+  $: activeCashierOfficial = cashiers.find((c) => c.id === config.cashier_id);
+  $: activeCashierUnofficial = unofficialCashiers.find((c) => c.id === unofficialConfig.cashier_id);
+  $: cashierOfficialName = activeCashierOfficial ? activeCashierOfficial.name : (config.cashier_id ? "Unknown" : "Not Signed In");
+  $: cashierUnofficialName = activeCashierUnofficial ? activeCashierUnofficial.name : (unofficialConfig.cashier_id ? "Unknown" : "Not Signed In");
+  $: cashierName = `O:${cashierOfficialName} · U:${cashierUnofficialName}`;
   const _isoAgeMinutes = (iso) => {
     const t = Date.parse(String(iso || ""));
     if (!Number.isFinite(t)) return 0;
@@ -554,6 +584,114 @@
     document.body.removeChild(ta);
     if (!copied) throw new Error("Clipboard is not available.");
   };
+  const _companyForStorage = (companyKey) => normalizeCompanyKey(companyKey);
+  const _trimArray = (rows, maxRows) => {
+    const list = Array.isArray(rows) ? rows : [];
+    if (list.length <= maxRows) return list;
+    return list.slice(0, maxRows);
+  };
+  const _persistWebLocalOutbox = () => {
+    try { localStorage.setItem(WEB_LOCAL_OUTBOX_STORAGE_KEY, JSON.stringify(webLocalOutboxByCompany || {})); } catch (_) {}
+  };
+  const _persistWebAudit = () => {
+    try { localStorage.setItem(WEB_LOCAL_AUDIT_STORAGE_KEY, JSON.stringify(webAuditByCompany || {})); } catch (_) {}
+  };
+  const _webLocalOutboxRowsFor = (companyKey) => {
+    const key = _companyForStorage(companyKey);
+    return Array.isArray(webLocalOutboxByCompany?.[key]) ? webLocalOutboxByCompany[key] : [];
+  };
+  const _setWebLocalOutboxRowsFor = (companyKey, rows) => {
+    const key = _companyForStorage(companyKey);
+    webLocalOutboxByCompany = {
+      ...(webLocalOutboxByCompany || {}),
+      [key]: _trimArray(rows, WEB_LOCAL_OUTBOX_MAX),
+    };
+    _persistWebLocalOutbox();
+  };
+  const _appendWebLocalOutboxEvent = (companyKey, eventType, payload, idempotencyKey = "") => {
+    const key = _companyForStorage(companyKey);
+    const nowIso = new Date().toISOString();
+    const localEventId = `local-${makeUuid()}`;
+    const ev = {
+      id: localEventId,
+      event_id: localEventId,
+      event_type: String(eventType || "").trim(),
+      payload,
+      payload_json: payload,
+      created_at: nowIso,
+      status: "pending",
+      source: "local",
+      idempotency_key: String(idempotencyKey || "").trim() || null,
+      retry_count: 0,
+      last_error: "",
+      next_attempt_at: null,
+      acked_at: null,
+      remote_event_id: "",
+    };
+    const rows = [ev, ..._webLocalOutboxRowsFor(key)];
+    _setWebLocalOutboxRowsFor(key, rows);
+    return ev;
+  };
+  const _patchWebLocalOutboxEvent = (companyKey, eventId, patch = {}) => {
+    const key = _companyForStorage(companyKey);
+    let updated = null;
+    const rows = _webLocalOutboxRowsFor(key).map((row) => {
+      const rowId = String(row?.event_id || row?.id || "").trim();
+      if (rowId !== String(eventId || "").trim()) return row;
+      updated = { ...(row || {}), ...(patch || {}) };
+      return updated;
+    });
+    _setWebLocalOutboxRowsFor(key, rows);
+    return updated;
+  };
+  const _removeWebLocalOutboxEvent = (companyKey, eventId) => {
+    const key = _companyForStorage(companyKey);
+    const target = String(eventId || "").trim();
+    const rows = _webLocalOutboxRowsFor(key).filter((row) => String(row?.event_id || row?.id || "").trim() !== target);
+    _setWebLocalOutboxRowsFor(key, rows);
+  };
+  const _findWebLocalOutboxEvent = (companyKey, eventId) => {
+    const target = String(eventId || "").trim();
+    if (!target) return null;
+    return _webLocalOutboxRowsFor(companyKey).find((row) => String(row?.event_id || row?.id || "").trim() === target) || null;
+  };
+  const _webAuditRowsFor = (companyKey) => {
+    const key = _companyForStorage(companyKey);
+    return Array.isArray(webAuditByCompany?.[key]) ? webAuditByCompany[key] : [];
+  };
+  const _appendWebAudit = (companyKey, row = {}) => {
+    const key = _companyForStorage(companyKey);
+    const withTime = {
+      created_at: new Date().toISOString(),
+      action: String(row?.action || "").trim() || "pos.action",
+      company_id: String(cfgForCompanyKey(key)?.company_id || "").trim() || null,
+      cashier_id: String(row?.cashier_id || "").trim() || null,
+      shift_id: String(row?.shift_id || "").trim() || null,
+      event_id: String(row?.event_id || "").trim() || null,
+      status: String(row?.status || "").trim() || null,
+      details: row?.details ?? null,
+      source: "web-local",
+    };
+    const rows = [withTime, ..._webAuditRowsFor(key)];
+    webAuditByCompany = {
+      ...(webAuditByCompany || {}),
+      [key]: _trimArray(rows, WEB_LOCAL_AUDIT_MAX),
+    };
+    _persistWebAudit();
+    return withTime;
+  };
+  const _managerApprovalValidFor = (companyKey) => {
+    const key = _companyForStorage(companyKey);
+    const until = toNum(managerApprovalUntilByCompany?.[key], 0);
+    return until > Date.now();
+  };
+  const _markManagerApprovedFor = (companyKey, ttlMs = MANAGER_APPROVAL_TTL_MS) => {
+    const key = _companyForStorage(companyKey);
+    managerApprovalUntilByCompany = {
+      ...(managerApprovalUntilByCompany || {}),
+      [key]: Date.now() + Math.max(1000, toNum(ttlMs, MANAGER_APPROVAL_TTL_MS)),
+    };
+  };
   $: outboxOldestMinutes = (() => {
     let maxMin = 0;
     for (const ev of ([]).concat(outbox || [], unofficialOutbox || [])) {
@@ -598,7 +736,11 @@
   $: webSetupFirstTime = webHostUnsupported && !_hasCloudDeviceConfig(originCompanyKey);
   
   $: currencyPrimary = (config.pricing_currency || "USD").toUpperCase();
-  $: shiftText = config.shift_id ? "Shift: Open" : "Shift: Closed";
+  $: shiftText = `O:${config.shift_id ? "Open" : "Closed"} · U:${unofficialConfig.shift_id ? "Open" : "Closed"}`;
+  $: selectedShiftOpen = !!shiftIdForCompany(shiftCompanyKey || originCompanyKey);
+  $: selectedShiftCashierName = normalizeCompanyKey(shiftCompanyKey || originCompanyKey) === "unofficial"
+    ? cashierUnofficialName
+    : cashierOfficialName;
   $: shiftOpeningUsd = _shiftPickMoney(shift || {}, ["opening_cash_usd", "opening_usd"], 0);
   $: shiftOpeningLbp = _shiftPickMoney(shift || {}, ["opening_cash_lbp", "opening_lbp"], 0);
   $: shiftExpectedCloseUsd = (() => {
@@ -615,6 +757,39 @@
   $: shiftVarianceLbp = toNum(closingCashLbp, 0) - toNum(shiftExpectedCloseLbp, 0);
   $: checkoutTotal = currencyPrimary === "LBP" ? (totals.totalLbp || 0) : (totals.totalUsd || 0);
   const cfgForCompanyKey = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
+  const cashierIdForCompany = (companyKey, explicitCashierId = "") => {
+    const direct = String(explicitCashierId || "").trim();
+    if (direct) return direct;
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const own = String(cfg?.cashier_id || "").trim();
+    if (own) return own;
+    return "";
+  };
+  const shiftIdForCompany = (companyKey, explicitShiftId = "") => {
+    const direct = String(explicitShiftId || "").trim();
+    if (direct) return direct;
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    return String(cfg?.shift_id || "").trim();
+  };
+  const ensureCashierForCompanies = (companyKeys, actionLabel = "checkout") => {
+    const unique = Array.from(new Set((companyKeys || []).map((k) => normalizeCompanyKey(k))));
+    const missing = unique.filter((k) => !cashierIdForCompany(k));
+    if (!missing.length) return true;
+    cashierCompanyKey = missing[0] || originCompanyKey;
+    showCashierModal = true;
+    reportError(`Cashier sign-in required before ${actionLabel}. Missing cashier for: ${missing.join(", ")}.`);
+    return false;
+  };
+  const ensureShiftForCompanies = (companyKeys, actionLabel = "checkout") => {
+    const unique = Array.from(new Set((companyKeys || []).map((k) => normalizeCompanyKey(k))));
+    const missing = unique.filter((k) => !shiftIdForCompany(k));
+    if (!missing.length) return true;
+    shiftCompanyKey = missing[0] || originCompanyKey;
+    showShiftModal = true;
+    Promise.resolve().then(() => shiftRefresh(shiftCompanyKey, { quiet: true })).catch(() => {});
+    reportError(`Open shift required before ${actionLabel}. Missing shift for: ${missing.join(", ")}.`);
+    return false;
+  };
 
   const vatCodesForCompanyKey = (companyKey) => {
     const cfg = cfgForCompanyKey(companyKey) || {};
@@ -743,6 +918,32 @@
       throw new Error(`Checkout guardrail: split totals mismatch by ${delta.toFixed(2)} USD.`);
     }
   };
+  const _companyListText = (keys = []) => (
+    Array.from(new Set((keys || []).map((k) => normalizeCompanyKey(k)))).map((k) => (k === "unofficial" ? "Unofficial" : "Official")).join(", ")
+  );
+  const requiredCompaniesForCheckout = () => {
+    const companies = cartCompaniesSet();
+    if (!companies.size) return [];
+    if (saleMode !== "sale") {
+      if (companies.size > 1) return ["official", "unofficial"].filter((k) => companies.has(k));
+      return [primaryCompanyFromCart() || originCompanyKey];
+    }
+    if (flagOfficial) return ["official"];
+    if (companies.size > 1 && invoiceCompanyMode === "auto") {
+      return ["official", "unofficial"].filter((k) => companies.has(k));
+    }
+    return [effectiveInvoiceCompany()];
+  };
+  $: checkoutRequiredCompanies = requiredCompaniesForCheckout();
+  $: checkoutMissingCashiers = checkoutRequiredCompanies.filter((k) => !cashierIdForCompany(k));
+  $: checkoutMissingShifts = checkoutRequiredCompanies.filter((k) => !shiftIdForCompany(k));
+  $: checkoutBlockReason = (() => {
+    if (!cart.length) return "";
+    if (checkoutMissingCashiers.length) return `Cashier sign-in required: ${_companyListText(checkoutMissingCashiers)}.`;
+    if (checkoutMissingShifts.length) return `Open shift required: ${_companyListText(checkoutMissingShifts)}.`;
+    return "";
+  })();
+  $: checkoutBlocked = !!checkoutBlockReason;
 
   const _itemHay = (e) => `${e?.sku || ""} ${e?.name || ""} ${e?.barcode || ""}`.toLowerCase();
 
@@ -1237,10 +1438,36 @@
     };
   };
 
-  const _submitAndProcessPosEventWeb = async (companyKey, eventType, payload, idempotencyKey = "") => {
+  const _isPermanentCloudError = (err) => {
+    const statusCode = toNum(err?.status, 0);
+    if (statusCode >= 400 && statusCode < 500 && statusCode !== 408 && statusCode !== 429) return true;
+    const msg = String(err?.message || "").trim().toLowerCase();
+    if (!msg) return false;
+    return (
+      msg.includes("payment exceeds invoice total")
+      || msg.includes("payments exceed invoice total")
+      || msg.includes("checkout guardrail")
+      || msg.includes("missing")
+      || msg.includes("invalid")
+    );
+  };
+
+  const _nextRetryIso = (retryCount = 0) => {
+    const steps = [20, 45, 90, 180, 300, 600];
+    const idx = Math.max(0, Math.min(steps.length - 1, toNum(retryCount, 0)));
+    return new Date(Date.now() + (steps[idx] * 1000)).toISOString();
+  };
+
+  const _submitAndProcessPosEventWebRemote = async (
+    companyKey,
+    eventType,
+    payload,
+    idempotencyKey = "",
+    forcedEventId = "",
+  ) => {
     const key = String(idempotencyKey || "").trim();
     const cfg = cfgForCompanyKey(companyKey) || {};
-    const eventId = makeUuid();
+    const eventId = String(forcedEventId || "").trim() || makeUuid();
     const createdAt = new Date().toISOString();
     const submitRes = await _webPosCall(companyKey, "/pos/outbox/submit", {
       method: "POST",
@@ -1274,6 +1501,62 @@
     };
     if (out.invoice_id) webEventInvoiceMap.set(processEventId, out.invoice_id);
     return out;
+  };
+  const _submitAndProcessPosEventWeb = async (companyKey, eventType, payload, idempotencyKey = "") => {
+    const localEvent = _appendWebLocalOutboxEvent(companyKey, eventType, payload, idempotencyKey);
+    const action = eventType === "sale.returned" ? "return.submit" : "sale.submit";
+    _appendWebAudit(companyKey, {
+      action,
+      cashier_id: String(payload?.cashier_id || "").trim() || null,
+      shift_id: String(payload?.shift_id || "").trim() || null,
+      event_id: String(localEvent?.event_id || "").trim(),
+      status: "queued_local",
+      details: { event_type: eventType, idempotency_key: idempotencyKey || null },
+    });
+    try {
+      const remote = await _submitAndProcessPosEventWebRemote(companyKey, eventType, payload, idempotencyKey);
+      _removeWebLocalOutboxEvent(companyKey, localEvent?.event_id || "");
+      _appendWebAudit(companyKey, {
+        action,
+        cashier_id: String(payload?.cashier_id || "").trim() || null,
+        shift_id: String(payload?.shift_id || "").trim() || null,
+        event_id: String(remote?.event_id || "").trim() || null,
+        status: "acked",
+        details: { event_type: eventType, idempotent_replay: !!remote?.idempotent_replay },
+      });
+      return remote;
+    } catch (e) {
+      const retryCount = toNum(localEvent?.retry_count, 0) + 1;
+      const permanent = _isPermanentCloudError(e);
+      const nextStatus = permanent ? "dead" : "failed";
+      const updated = _patchWebLocalOutboxEvent(companyKey, localEvent?.event_id || "", {
+        status: nextStatus,
+        retry_count: retryCount,
+        last_error: e?.message || String(e),
+        next_attempt_at: permanent ? null : _nextRetryIso(retryCount),
+      });
+      _appendWebAudit(companyKey, {
+        action,
+        cashier_id: String(payload?.cashier_id || "").trim() || null,
+        shift_id: String(payload?.shift_id || "").trim() || null,
+        event_id: String(localEvent?.event_id || "").trim(),
+        status: nextStatus,
+        details: { event_type: eventType, error: e?.message || String(e) },
+      });
+      if (permanent) {
+        const err = new Error(e?.message || "Cloud processing rejected this event.");
+        err.status = e?.status || 409;
+        err.payload = e?.payload || null;
+        throw err;
+      }
+      return {
+        event_id: String(updated?.event_id || localEvent?.event_id || "").trim(),
+        edge_accepted: true,
+        sync_deferred: true,
+        queued_local: true,
+        idempotent_replay: false,
+      };
+    }
   };
 
   const _escapeHtml = (value) => String(value ?? "")
@@ -1615,6 +1898,107 @@
     return { ok: true, return_id: returnId };
   };
 
+  const _isManagerCashier = (cashier) => {
+    if (!cashier || typeof cashier !== "object") return false;
+    if (cashier.is_manager === true || cashier.is_admin === true || cashier.can_manager_approve === true) return true;
+    const role = String(cashier.role || cashier.type || "").trim().toLowerCase();
+    if (["manager", "admin", "owner", "supervisor"].includes(role)) return true;
+    const roles = Array.isArray(cashier.roles) ? cashier.roles : [];
+    if (roles.some((r) => ["manager", "admin", "owner", "supervisor"].includes(String(r || "").trim().toLowerCase()))) return true;
+    const perms = Array.isArray(cashier.permissions) ? cashier.permissions : [];
+    return perms.some((p) => {
+      const key = String(p || "").trim().toLowerCase();
+      return key.includes("manager") || key.includes("approve") || key.includes("admin");
+    });
+  };
+  const _hasManagerMeta = (cashier) => {
+    if (!cashier || typeof cashier !== "object") return false;
+    const hasKey = (k) => Object.prototype.hasOwnProperty.call(cashier, k);
+    if (hasKey("is_manager") || hasKey("is_admin") || hasKey("can_manager_approve")) return true;
+    if (hasKey("role") || hasKey("type")) return true;
+    if (Array.isArray(cashier.roles) || Array.isArray(cashier.permissions)) return true;
+    return false;
+  };
+  const _managerApprovalRequiredForPayload = (cfg, eventType, payload) => {
+    const pm = String(payload?.payment_method || payload?.refund_method || "").trim().toLowerCase();
+    if (eventType === "sale.completed") {
+      if (cfg?.require_manager_approval_credit && pm === "credit") return true;
+      const pilot = payload?.receipt_meta?.pilot || {};
+      if (cfg?.require_manager_approval_cross_company && (pilot?.cross_company || pilot?.flagged_for_adjustment)) return true;
+      return false;
+    }
+    if (eventType === "sale.returned") {
+      return !!cfg?.require_manager_approval_returns;
+    }
+    return false;
+  };
+  const _flushWebLocalOutbox = async (companyKey, { limit = 30, eventId = "" } = {}) => {
+    const key = normalizeCompanyKey(companyKey);
+    const targetId = String(eventId || "").trim();
+    const nowMs = Date.now();
+    const sourceRows = _webLocalOutboxRowsFor(key);
+    const queue = sourceRows
+      .filter((row) => {
+        const rowId = String(row?.event_id || row?.id || "").trim();
+        if (!rowId) return false;
+        if (targetId) return rowId === targetId;
+        const st = String(row?.status || "pending").trim().toLowerCase();
+        if (st === "pending") return true;
+        if (st !== "failed") return false;
+        const nextRaw = String(row?.next_attempt_at || "").trim();
+        if (!nextRaw) return true;
+        const dueAt = Date.parse(nextRaw);
+        return Number.isNaN(dueAt) || dueAt <= nowMs;
+      })
+      .sort((a, b) => (Date.parse(String(a?.created_at || "")) || 0) - (Date.parse(String(b?.created_at || "")) || 0))
+      .slice(0, Math.max(1, toNum(limit, 30)));
+    let sent = 0;
+    const failed = [];
+    for (const row of queue) {
+      const rowEventId = String(row?.event_id || row?.id || "").trim();
+      if (!rowEventId) continue;
+      try {
+        const remote = await _submitAndProcessPosEventWebRemote(
+          key,
+          row?.event_type,
+          row?.payload || row?.payload_json || {},
+          row?.idempotency_key || "",
+          rowEventId.replace(/^local-/, ""),
+        );
+        _removeWebLocalOutboxEvent(key, rowEventId);
+        sent += 1;
+        _appendWebAudit(key, {
+          action: "outbox.retry",
+          cashier_id: String(row?.payload?.cashier_id || "").trim() || null,
+          shift_id: String(row?.payload?.shift_id || "").trim() || null,
+          event_id: String(remote?.event_id || rowEventId).trim(),
+          status: "acked",
+          details: { source: "local-outbox", remote_event_id: remote?.event_id || null },
+        });
+      } catch (e) {
+        const retryCount = toNum(row?.retry_count, 0) + 1;
+        const permanent = _isPermanentCloudError(e);
+        const statusText = permanent ? "dead" : "failed";
+        _patchWebLocalOutboxEvent(key, rowEventId, {
+          status: statusText,
+          retry_count: retryCount,
+          last_error: e?.message || String(e),
+          next_attempt_at: permanent ? null : _nextRetryIso(retryCount),
+        });
+        _appendWebAudit(key, {
+          action: "outbox.retry",
+          cashier_id: String(row?.payload?.cashier_id || "").trim() || null,
+          shift_id: String(row?.payload?.shift_id || "").trim() || null,
+          event_id: rowEventId,
+          status: statusText,
+          details: { source: "local-outbox", error: e?.message || String(e) },
+        });
+        failed.push({ event_id: rowEventId, error: e?.message || String(e) });
+      }
+    }
+    return { sent, failed };
+  };
+
   const _webApiCallFor = async (companyKey, path, options = {}) => {
     const rawPath = String(path || "");
     const method = String(options?.method || "GET").toUpperCase();
@@ -1798,18 +2182,55 @@
         _webPosCall(companyKey, "/pos/outbox/device-summary", { method: "GET" }).catch(() => null),
       ]);
       const rows = Array.isArray(rowsRes?.outbox) ? rowsRes.outbox : [];
+      const localRows = _webLocalOutboxRowsFor(companyKey).map((row) => ({
+        ...(row || {}),
+        id: String(row?.event_id || row?.id || "").trim(),
+        event_id: String(row?.event_id || row?.id || "").trim(),
+      }));
+      const seen = new Set();
+      const merged = [];
+      for (const row of rows.filter((r) => String(r?.status || "") !== "processed")) {
+        const id = String(row?.id || row?.event_id || "").trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        merged.push(row);
+      }
+      for (const row of localRows) {
+        const id = String(row?.id || row?.event_id || "").trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        merged.push(row);
+      }
       return {
-        outbox: rows.filter((r) => String(r?.status || "") !== "processed"),
-        summary: summaryRes || null,
+        outbox: merged,
+        summary: {
+          ...(summaryRes || {}),
+          local_pending: localRows.filter((r) => String(r?.status || "").trim().toLowerCase() === "pending").length,
+          local_failed: localRows.filter((r) => {
+            const st = String(r?.status || "").trim().toLowerCase();
+            return st === "failed" || st === "dead";
+          }).length,
+        },
       };
     }
     if (method === "GET" && pathname === "/audit") {
-      // Cloud transport currently doesn't expose local device audit trail.
-      return { audit: [] };
+      const limit = Math.max(1, toNum(params.get("limit"), 120));
+      return { audit: _webAuditRowsFor(companyKey).slice(0, limit) };
     }
     if (method === "GET" && pathname === "/outbox/event") {
       const eventId = String(params.get("event_id") || "").trim();
       if (!eventId) throw new Error("event_id is required");
+      const localEvent = _findWebLocalOutboxEvent(companyKey, eventId);
+      if (localEvent) {
+        return {
+          event: {
+            ...(localEvent || {}),
+            id: String(localEvent?.event_id || localEvent?.id || eventId).trim() || eventId,
+            event_id: String(localEvent?.event_id || localEvent?.id || eventId).trim() || eventId,
+            payload: localEvent?.payload ?? null,
+          },
+        };
+      }
       const listRes = await _webPosCall(companyKey, "/pos/outbox/device?limit=500", { method: "GET" });
       const rows = Array.isArray(listRes?.outbox) ? listRes.outbox : [];
       const row = rows.find((r) => String(r?.id || r?.event_id || "").trim() === eventId);
@@ -1833,9 +2254,27 @@
     if (method === "POST" && pathname === "/outbox/retry-one") {
       const eventId = String(body?.event_id || "").trim();
       if (!eventId) throw new Error("event_id is required");
+      const localEvent = _findWebLocalOutboxEvent(companyKey, eventId);
+      if (localEvent) {
+        const flushed = await _flushWebLocalOutbox(companyKey, { limit: 1, eventId });
+        if (flushed.failed.length) {
+          const err = new Error(flushed.failed[0]?.error || "Unable to retry this local event.");
+          err.payload = { event_id: eventId, failed: flushed.failed };
+          throw err;
+        }
+        return { ok: true, event_id: eventId, local: true, sent: flushed.sent };
+      }
       const process = await _webPosCall(companyKey, "/pos/outbox/process-one", {
         method: "POST",
         body: { event_id: eventId },
+      });
+      _appendWebAudit(companyKey, {
+        action: "outbox.retry",
+        cashier_id: cashierIdForCompany(companyKey) || null,
+        shift_id: shiftIdForCompany(companyKey) || null,
+        event_id: eventId,
+        status: "acked",
+        details: { source: "cloud-outbox" },
       });
       return { ok: true, event_id: eventId, process };
     }
@@ -1871,29 +2310,55 @@
       return { shift: res?.shift || null };
     }
     if (method === "POST" && pathname === "/shift/open") {
+      const cashierId = cashierIdForCompany(companyKey, body?.cashier_id);
+      if (!cashierId) throw new Error("Cashier sign-in required before opening shift.");
       const res = await _webPosCall(companyKey, "/pos/shifts/open", {
         method: "POST",
         body: {
           opening_cash_usd: toNum(body?.opening_cash_usd, 0),
           opening_cash_lbp: toNum(body?.opening_cash_lbp, 0),
-          cashier_id: body?.cashier_id || cfg.cashier_id || null,
+          cashier_id: cashierId,
         },
       });
       _setCfgForCompanyKey(companyKey, { shift_id: String(res?.shift?.id || "").trim() });
+      _appendWebAudit(companyKey, {
+        action: "shift.open",
+        cashier_id: cashierId,
+        shift_id: String(res?.shift?.id || "").trim() || null,
+        event_id: null,
+        status: "acked",
+        details: {
+          opening_cash_usd: toNum(body?.opening_cash_usd, 0),
+          opening_cash_lbp: toNum(body?.opening_cash_lbp, 0),
+        },
+      });
       return { shift: res?.shift || null };
     }
     if (method === "POST" && pathname === "/shift/close") {
       const shiftId = String(body?.shift_id || cfg.shift_id || "").trim();
       if (!shiftId) throw new Error("No open shift.");
+      const cashierId = cashierIdForCompany(companyKey, body?.cashier_id);
+      if (!cashierId) throw new Error("Cashier sign-in required before closing shift.");
       const res = await _webPosCall(companyKey, `/pos/shifts/${encodeURIComponent(shiftId)}/close`, {
         method: "POST",
         body: {
           closing_cash_usd: toNum(body?.closing_cash_usd, 0),
           closing_cash_lbp: toNum(body?.closing_cash_lbp, 0),
-          cashier_id: body?.cashier_id || cfg.cashier_id || null,
+          cashier_id: cashierId,
         },
       });
       _setCfgForCompanyKey(companyKey, { shift_id: "" });
+      _appendWebAudit(companyKey, {
+        action: "shift.close",
+        cashier_id: cashierId,
+        shift_id: shiftId,
+        event_id: null,
+        status: "acked",
+        details: {
+          closing_cash_usd: toNum(body?.closing_cash_usd, 0),
+          closing_cash_lbp: toNum(body?.closing_cash_lbp, 0),
+        },
+      });
       return { shift: res?.shift || null };
     }
 
@@ -1933,6 +2398,7 @@
       if (!String(cfg?.device_id || "").trim() || !String(cfg?.device_token || "").trim()) {
         throw new Error("Device is not connected. Run Express Setup first.");
       }
+      const localRes = await _flushWebLocalOutbox(companyKey, { limit: 30 });
       const listRes = await _webPosCall(companyKey, "/pos/outbox/device?limit=150", { method: "GET" });
       const rows = Array.isArray(listRes?.outbox) ? listRes.outbox : [];
       const nowMs = Date.now();
@@ -1952,8 +2418,8 @@
           return at - bt;
         })
         .slice(0, 30);
-      let sent = 0;
-      const failed = [];
+      let sent = toNum(localRes?.sent, 0);
+      const failed = Array.isArray(localRes?.failed) ? [...localRes.failed] : [];
       let cursor = 0;
       const workers = Array.from({ length: Math.min(4, queue.length) }, () => (async () => {
         while (true) {
@@ -1982,11 +2448,53 @@
     }
 
     if (method === "POST" && pathname === "/sale") {
-      const payloadSale = _buildSalePayloadWeb(body?.cart || [], cfg, body || {});
+      const cashierId = cashierIdForCompany(companyKey, body?.cashier_id);
+      if (!cashierId) throw new Error("Cashier sign-in required before sale.");
+      const shiftId = shiftIdForCompany(companyKey, body?.shift_id);
+      if (!shiftId) throw new Error("Open shift required before sale.");
+      const payloadSale = _buildSalePayloadWeb(body?.cart || [], cfg, {
+        ...(body || {}),
+        cashier_id: cashierId,
+        shift_id: shiftId,
+      });
+      if (_managerApprovalRequiredForPayload(cfg, "sale.completed", payloadSale) && !_managerApprovalValidFor(companyKey)) {
+        _appendWebAudit(companyKey, {
+          action: "sale.submit",
+          cashier_id: cashierId,
+          shift_id: shiftId,
+          event_id: null,
+          status: "manager_approval_required",
+          details: { payment_method: String(payloadSale?.payment_method || "").trim() || null },
+        });
+        const err = new Error("Manager approval required. Enter manager PIN to continue.");
+        err.payload = { error: "manager_approval_required", company_key: normalizeCompanyKey(companyKey) };
+        throw err;
+      }
       return await _submitAndProcessPosEventWeb(companyKey, "sale.completed", payloadSale, body?.idempotency_key || "");
     }
     if (method === "POST" && pathname === "/return") {
-      const payloadReturn = _buildReturnPayloadWeb(body?.cart || [], cfg, body || {});
+      const cashierId = cashierIdForCompany(companyKey, body?.cashier_id);
+      if (!cashierId) throw new Error("Cashier sign-in required before return.");
+      const shiftId = shiftIdForCompany(companyKey, body?.shift_id);
+      if (!shiftId) throw new Error("Open shift required before return.");
+      const payloadReturn = _buildReturnPayloadWeb(body?.cart || [], cfg, {
+        ...(body || {}),
+        cashier_id: cashierId,
+        shift_id: shiftId,
+      });
+      if (_managerApprovalRequiredForPayload(cfg, "sale.returned", payloadReturn) && !_managerApprovalValidFor(companyKey)) {
+        _appendWebAudit(companyKey, {
+          action: "return.submit",
+          cashier_id: cashierId,
+          shift_id: shiftId,
+          event_id: null,
+          status: "manager_approval_required",
+          details: { refund_method: String(payloadReturn?.refund_method || "").trim() || null },
+        });
+        const err = new Error("Manager approval required. Enter manager PIN to continue.");
+        err.payload = { error: "manager_approval_required", company_key: normalizeCompanyKey(companyKey) };
+        throw err;
+      }
       return await _submitAndProcessPosEventWeb(companyKey, "sale.returned", payloadReturn, body?.idempotency_key || "");
     }
     if (method === "POST" && pathname === "/invoices/resolve-by-event") {
@@ -2049,6 +2557,7 @@
       const err = new Error(data?.error || res.statusText);
       err.status = res.status;
       err.payload = data;
+      err.companyKey = normalizeCompanyKey(companyKey);
       throw err;
     }
     return data;
@@ -2334,7 +2843,8 @@
     try { adminPinEl?.focus(); } catch (_) {}
   };
 
-  const openCashierModal = async () => {
+  const openCashierModal = async (companyKey = originCompanyKey) => {
+    cashierCompanyKey = normalizeCompanyKey(companyKey);
     showCashierModal = true;
     await tick();
     try { cashierPinEl?.focus(); } catch (_) {}
@@ -3558,6 +4068,18 @@
   // Checkout
   const handleCheckoutRequest = () => {
     if (cart.length === 0 || loading || checkoutInFlight) return;
+    if (checkoutMissingCashiers.length) {
+      cashierCompanyKey = checkoutMissingCashiers[0] || originCompanyKey;
+      showCashierModal = true;
+      reportError(`Cashier sign-in required: ${_companyListText(checkoutMissingCashiers)}.`);
+      return;
+    }
+    if (checkoutMissingShifts.length) {
+      shiftCompanyKey = checkoutMissingShifts[0] || originCompanyKey;
+      showShiftModal = true;
+      reportError(`Open shift required: ${_companyListText(checkoutMissingShifts)}.`);
+      return;
+    }
     if (!checkoutIntentId) checkoutIntentId = makeIntentId();
     showPaymentModal = true;
   };
@@ -3569,6 +4091,7 @@
     loading = true;
     let payment_method = String(method || "cash").trim().toLowerCase();
     pendingCheckoutMethod = "";
+    managerApprovalPendingCompanies = [];
     const checkoutIntent = checkoutIntentId || makeIntentId();
     checkoutIntentId = checkoutIntent;
     
@@ -3602,13 +4125,18 @@
               pricing_currency: cfg.pricing_currency,
               exchange_rate: cfg.exchange_rate,
               shift_id: cfg.shift_id || null,
-              cashier_id: cfg.cashier_id || null,
+              cashier_id: cashierIdForCompany(companyKey),
             },
           });
         };
 
         const cartCompanies = cartCompaniesSet();
         const mixedCompanies = cartCompanies.size > 1;
+        const returnCompanies = mixedCompanies
+          ? ["official", "unofficial"].filter((k) => cart.some((c) => c.companyKey === k))
+          : [primaryCompanyFromCart() || originCompanyKey];
+        if (!ensureCashierForCompanies(returnCompanies, "return")) return;
+        if (!ensureShiftForCompanies(returnCompanies, "return")) return;
         if (mixedCompanies) {
           const companiesInOrder = ["official", "unofficial"].filter((k) => cart.some((c) => c.companyKey === k));
           const done = [];
@@ -3629,6 +4157,8 @@
                 }
               } catch (_) {}
             } catch (e) {
+              const pe = e?.payload;
+              if (pe?.error === "manager_approval_required" || pe?.error === "pos_auth_required") throw e;
               failed.push({ companyKey, error: e?.message || String(e) });
             }
           }
@@ -3725,6 +4255,8 @@
       // Flag override: issue ONE invoice on Official for later review (even if items are mixed).
       if (flagOfficial) {
         const invoiceCompany = "official";
+        if (!ensureCashierForCompanies([invoiceCompany], "sale")) return;
+        if (!ensureShiftForCompanies([invoiceCompany], "sale")) return;
         const crossCompany = mixedCompanies || !cartCompanies.has(invoiceCompany);
         if (crossCompany) {
           const missing = findMissingCompanyItems(invoiceCompany, cart);
@@ -3765,7 +4297,7 @@
             pricing_currency: cfg.pricing_currency,
             exchange_rate: cfg.exchange_rate,
             shift_id: cfg.shift_id || null,
-            cashier_id: cfg.cashier_id || null,
+            cashier_id: cashierIdForCompany(invoiceCompany),
             skip_stock_moves: crossCompany ? true : false,
           }
         });
@@ -3792,6 +4324,8 @@
 
         const groupId = `split-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
         const companiesInOrder = ["official", "unofficial"].filter((k) => cart.some((c) => c.companyKey === k));
+        if (!ensureCashierForCompanies(companiesInOrder, "split sale")) return;
+        if (!ensureShiftForCompanies(companiesInOrder, "split sale")) return;
         _assertSplitTotalsConsistent(
           companiesInOrder.map((companyKey) => ({ companyKey, lines: cart.filter((c) => c.companyKey === companyKey) })),
         );
@@ -3837,7 +4371,7 @@
                 pricing_currency: cfg.pricing_currency,
                 exchange_rate: cfg.exchange_rate,
                 shift_id: cfg.shift_id || null,
-                cashier_id: cfg.cashier_id || null,
+                cashier_id: cashierIdForCompany(companyKey),
                 skip_stock_moves: false,
               }
             });
@@ -3851,6 +4385,8 @@
             try { receiptWin = _openManagedPrintWindow(); } catch (_) {}
             await printAfterSale(companyKey, res?.event_id || "", receiptWin);
           } catch (e) {
+            const pe = e?.payload;
+            if (pe?.error === "manager_approval_required" || pe?.error === "pos_auth_required") throw e;
             failed.push({ companyKey, error: e?.message || String(e) });
           }
         }
@@ -3871,6 +4407,8 @@
 
       // Single-company (or intentionally forced) flow.
       const invoiceCompany = effectiveInvoiceCompany();
+      if (!ensureCashierForCompanies([invoiceCompany], "sale")) return;
+      if (!ensureShiftForCompanies([invoiceCompany], "sale")) return;
       const crossCompany = cartCompanies.size > 1 || (cartCompanies.size === 1 && !cartCompanies.has(invoiceCompany));
       if (crossCompany) {
         const missing = findMissingCompanyItems(invoiceCompany, cart);
@@ -3913,7 +4451,7 @@
           pricing_currency: cfg.pricing_currency,
           exchange_rate: cfg.exchange_rate,
           shift_id: cfg.shift_id || null,
-          cashier_id: cfg.cashier_id || null,
+          cashier_id: cashierIdForCompany(invoiceCompany),
           skip_stock_moves: crossCompany ? true : false,
         }
       });
@@ -3936,6 +4474,13 @@
         openAdminPinModal();
       } else if (p?.error === "manager_approval_required") {
         pendingCheckoutMethod = payment_method;
+        const fromPayload = String(p?.company_key || "").trim();
+        const fromError = String(e?.companyKey || "").trim();
+        managerApprovalPendingCompanies = fromPayload
+          ? [normalizeCompanyKey(fromPayload)]
+          : (fromError
+              ? [normalizeCompanyKey(fromError)]
+              : (checkoutRequiredCompanies.length ? [...checkoutRequiredCompanies] : [effectiveInvoiceCompany()]));
         adminPinMode = "unlock";
         openAdminPinModal();
         reportNotice("Manager approval required. Enter admin PIN to continue.");
@@ -4007,14 +4552,16 @@
   const cashierLogin = async () => {
     const pin = (cashierPin || "").trim();
     if (!pin) return;
+    const companyKey = normalizeCompanyKey(cashierCompanyKey || originCompanyKey);
     try {
       loading = true;
-      const res = await apiCall("/cashiers/login", { method: "POST", body: { pin } });
-      config = { ...config, ...(res.config || {}) };
+      const res = await apiCallFor(companyKey, "/cashiers/login", { method: "POST", body: { pin } });
+      if (companyKey === otherCompanyKey) unofficialConfig = { ...unofficialConfig, ...(res?.config || {}) };
+      else config = { ...config, ...(res?.config || {}) };
       showCashierModal = false;
       cashierPin = "";
       await fetchData();
-      reportNotice(`Signed in: ${res?.cashier?.name || "Cashier"}`);
+      reportNotice(`Signed in (${companyKey}): ${res?.cashier?.name || "Cashier"}`);
     } catch (e) {
       reportError(e.message);
     } finally {
@@ -4022,13 +4569,23 @@
     }
   };
 
-  const cashierLogout = async () => {
+  const cashierLogout = async (companyKey = "") => {
+    const target = String(companyKey || "").trim();
+    const companies = target ? [normalizeCompanyKey(target)] : ["official", "unofficial"];
     try {
       loading = true;
-      const res = await apiCall("/cashiers/logout", { method: "POST", body: {} });
-      config = { ...config, ...(res.config || {}) };
+      const results = await Promise.allSettled(
+        companies.map((k) => apiCallFor(k, "/cashiers/logout", { method: "POST", body: {} })),
+      );
+      for (let i = 0; i < companies.length; i += 1) {
+        const k = companies[i];
+        const r = results[i];
+        if (r.status !== "fulfilled") continue;
+        if (k === otherCompanyKey) unofficialConfig = { ...unofficialConfig, ...(r.value?.config || {}) };
+        else config = { ...config, ...(r.value?.config || {}) };
+      }
       await fetchData();
-      reportNotice("Signed out");
+      reportNotice(target ? `Signed out (${normalizeCompanyKey(target)})` : "Signed out (all companies)");
     } catch (e) {
       reportError(e.message);
     } finally {
@@ -4039,25 +4596,74 @@
   const adminPinSubmit = async () => {
     const pin = (adminPin || "").trim();
     if (!pin) return;
+    const pendingManagerCompanies = Array.from(new Set((managerApprovalPendingCompanies || []).map((k) => normalizeCompanyKey(k))));
     try {
       loading = true;
       let unlockMsg = "Unlocked";
-      if (adminPinMode === "set") {
-        await apiCall("/admin/pin/set", { method: "POST", body: { pin } });
-        adminPinMode = "unlock";
-      }
-      const res = await apiCall("/auth/pin", { method: "POST", body: { pin } });
-      setSessionToken(originCompanyKey, res?.token || "");
-      if (unofficialLocked || unofficialStatus === "Locked") {
-        try {
-          const resUn = await apiCallFor(otherCompanyKey, "/auth/pin", { method: "POST", body: { pin } });
-          setSessionToken(otherCompanyKey, resUn?.token || "");
-          unofficialLocked = false;
-          unofficialStatus = "Ready";
-        } catch (_) {
-          unlockMsg = "Primary unlocked. Secondary is still locked.";
-          unofficialLocked = true;
-          unofficialStatus = "Locked";
+
+      if (pendingManagerCompanies.length) {
+        for (const companyKey of pendingManagerCompanies) {
+          if (_companyUsesCloudTransport(companyKey)) {
+            const verified = await _webPosCall(companyKey, "/pos/cashiers/verify", {
+              method: "POST",
+              body: { pin },
+            });
+            const cashier = verified?.cashier || null;
+            const approverId = String(cashier?.id || "").trim();
+            const currentCashierId = String(cashierIdForCompany(companyKey) || "").trim();
+            if (!cashier || !approverId) {
+              throw new Error(`Approval PIN is invalid for ${companyKey}.`);
+            }
+            if (_hasManagerMeta(cashier)) {
+              if (!_isManagerCashier(cashier)) {
+                throw new Error(`Manager PIN required for ${companyKey}.`);
+              }
+            } else if (!currentCashierId || approverId === currentCashierId) {
+              throw new Error(`Use a second cashier PIN to approve ${companyKey}.`);
+            }
+            _markManagerApprovedFor(companyKey);
+            _appendWebAudit(companyKey, {
+              action: "manager.approval",
+              cashier_id: approverId,
+              shift_id: shiftIdForCompany(companyKey) || null,
+              event_id: null,
+              status: "approved",
+              details: {
+                mode: _hasManagerMeta(cashier) ? "cloud-manager-role" : "cloud-second-cashier",
+                cashier_name: cashier?.name || null,
+                current_cashier_id: currentCashierId || null,
+              },
+            });
+          } else {
+            if (adminPinMode === "set") {
+              await apiCallFor(companyKey, "/admin/pin/set", { method: "POST", body: { pin } });
+              adminPinMode = "unlock";
+            }
+            const authRes = await apiCallFor(companyKey, "/auth/pin", { method: "POST", body: { pin } });
+            setSessionToken(companyKey, authRes?.token || "");
+            _markManagerApprovedFor(companyKey);
+          }
+        }
+        unlockMsg = `Manager approval granted: ${_companyListText(pendingManagerCompanies)}`;
+        managerApprovalPendingCompanies = [];
+      } else {
+        if (adminPinMode === "set") {
+          await apiCall("/admin/pin/set", { method: "POST", body: { pin } });
+          adminPinMode = "unlock";
+        }
+        const res = await apiCall("/auth/pin", { method: "POST", body: { pin } });
+        setSessionToken(originCompanyKey, res?.token || "");
+        if (unofficialLocked || unofficialStatus === "Locked") {
+          try {
+            const resUn = await apiCallFor(otherCompanyKey, "/auth/pin", { method: "POST", body: { pin } });
+            setSessionToken(otherCompanyKey, resUn?.token || "");
+            unofficialLocked = false;
+            unofficialStatus = "Ready";
+          } catch (_) {
+            unlockMsg = "Primary unlocked. Secondary is still locked.";
+            unofficialLocked = true;
+            unofficialStatus = "Locked";
+          }
         }
       }
       showAdminPinModal = false;
@@ -4078,17 +4684,21 @@
     }
   };
 
-  const shiftRefresh = async () => {
+  const shiftRefresh = async (companyKey = shiftCompanyKey, { quiet = false } = {}) => {
+    const targetCompany = normalizeCompanyKey(companyKey || shiftCompanyKey || originCompanyKey);
+    shiftCompanyKey = targetCompany;
     try {
       loading = true;
-      const res = await apiCall("/shift/status", { method: "POST", body: {} });
-      shift = res?.shift || null;
-      if (shift) {
-        closingCashUsd = toNum(_shiftPickMoney(shift, ["expected_closing_cash_usd", "expected_cash_usd", "cash_expected_usd"], _shiftPickMoney(shift, ["opening_cash_usd", "opening_usd"], 0)), 0);
-        closingCashLbp = toNum(_shiftPickMoney(shift, ["expected_closing_cash_lbp", "expected_cash_lbp", "cash_expected_lbp"], _shiftPickMoney(shift, ["opening_cash_lbp", "opening_lbp"], 0)), 0);
+      const res = await apiCallFor(targetCompany, "/shift/status", { method: "POST", body: {} });
+      const nextShift = res?.shift || null;
+      if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
+      shift = nextShift;
+      if (nextShift) {
+        closingCashUsd = toNum(_shiftPickMoney(nextShift, ["expected_closing_cash_usd", "expected_cash_usd", "cash_expected_usd"], _shiftPickMoney(nextShift, ["opening_cash_usd", "opening_usd"], 0)), 0);
+        closingCashLbp = toNum(_shiftPickMoney(nextShift, ["expected_closing_cash_lbp", "expected_cash_lbp", "cash_expected_lbp"], _shiftPickMoney(nextShift, ["opening_cash_lbp", "opening_lbp"], 0)), 0);
       }
       await fetchData();
-      reportNotice(shift ? "Shift is open" : "No open shift");
+      if (!quiet) reportNotice(nextShift ? `${targetCompany} shift is open` : `${targetCompany} has no open shift`);
     } catch (e) {
       reportError(e.message);
     } finally {
@@ -4096,22 +4706,33 @@
     }
   };
 
-  const shiftOpen = async () => {
+  const shiftOpen = async (companyKey = shiftCompanyKey) => {
+    const targetCompany = normalizeCompanyKey(companyKey || shiftCompanyKey || originCompanyKey);
+    shiftCompanyKey = targetCompany;
+    const cashierId = cashierIdForCompany(targetCompany);
+    if (!cashierId) {
+      cashierCompanyKey = targetCompany;
+      showCashierModal = true;
+      reportError(`Cashier sign-in required before opening shift (${targetCompany}).`);
+      return;
+    }
     try {
       loading = true;
-      const res = await apiCall("/shift/open", {
+      const res = await apiCallFor(targetCompany, "/shift/open", {
         method: "POST",
         body: {
           opening_cash_usd: toNum(openingCashUsd, 0),
           opening_cash_lbp: toNum(openingCashLbp, 0),
-          cashier_id: config.cashier_id || null,
+          cashier_id: cashierId,
         },
       });
-      shift = res?.shift || null;
-      closingCashUsd = toNum(_shiftPickMoney(shift, ["opening_cash_usd", "opening_usd"], openingCashUsd), 0);
-      closingCashLbp = toNum(_shiftPickMoney(shift, ["opening_cash_lbp", "opening_lbp"], openingCashLbp), 0);
+      const nextShift = res?.shift || null;
+      if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
+      shift = nextShift;
+      closingCashUsd = toNum(_shiftPickMoney(nextShift, ["opening_cash_usd", "opening_usd"], openingCashUsd), 0);
+      closingCashLbp = toNum(_shiftPickMoney(nextShift, ["opening_cash_lbp", "opening_lbp"], openingCashLbp), 0);
       await fetchData();
-      reportNotice("Shift opened");
+      reportNotice(`Shift opened (${targetCompany})`);
       showShiftModal = false;
     } catch (e) {
       reportError(e.message);
@@ -4120,20 +4741,31 @@
     }
   };
 
-  const shiftClose = async () => {
+  const shiftClose = async (companyKey = shiftCompanyKey) => {
+    const targetCompany = normalizeCompanyKey(companyKey || shiftCompanyKey || originCompanyKey);
+    shiftCompanyKey = targetCompany;
+    const cashierId = cashierIdForCompany(targetCompany);
+    if (!cashierId) {
+      cashierCompanyKey = targetCompany;
+      showCashierModal = true;
+      reportError(`Cashier sign-in required before closing shift (${targetCompany}).`);
+      return;
+    }
     try {
       loading = true;
-      const res = await apiCall("/shift/close", {
+      const res = await apiCallFor(targetCompany, "/shift/close", {
         method: "POST",
         body: {
           closing_cash_usd: toNum(closingCashUsd, 0),
           closing_cash_lbp: toNum(closingCashLbp, 0),
-          cashier_id: config.cashier_id || null,
+          cashier_id: cashierId,
         },
       });
-      shift = res?.shift || null;
+      const nextShift = res?.shift || null;
+      if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
+      shift = nextShift;
       await fetchData();
-      reportNotice("Shift closed");
+      reportNotice(`Shift closed (${targetCompany})`);
       showShiftModal = false;
     } catch (e) {
       reportError(e.message);
@@ -4218,6 +4850,10 @@
       const unRaw = localStorage.getItem(WEB_CONFIG_UNOFFICIAL_STORAGE_KEY);
       if (unRaw) unofficialConfig = { ...unofficialConfig, ...(JSON.parse(unRaw) || {}) };
     } catch (_) {}
+    webLocalOutboxByCompany = _readJsonStorage(WEB_LOCAL_OUTBOX_STORAGE_KEY, { official: [], unofficial: [] });
+    webAuditByCompany = _readJsonStorage(WEB_LOCAL_AUDIT_STORAGE_KEY, { official: [], unofficial: [] });
+    cashierCompanyKey = originCompanyKey;
+    shiftCompanyKey = originCompanyKey;
 
     (async () => {
       // On remote web hosts, force cloud/web setup transport to avoid local /api/* calls.
@@ -4441,7 +5077,7 @@
     </button>
     <button
       class={topBtnBase}
-      on:click={openCashierModal}
+      on:click={() => openCashierModal(cashierCompanyKey || originCompanyKey)}
       disabled={loading}
       title="Cashier login"
       type="button"
@@ -4450,7 +5086,11 @@
     </button>
     <button
       class={topBtnBase}
-      on:click={() => { showShiftModal = true; shiftRefresh(); }}
+      on:click={() => {
+        shiftCompanyKey = checkoutMissingShifts[0] || originCompanyKey;
+        showShiftModal = true;
+        shiftRefresh(shiftCompanyKey, { quiet: true });
+      }}
       disabled={loading}
       title="Shift open/close"
       type="button"
@@ -4537,7 +5177,7 @@
           >
             Theme: {theme === "light" ? "Light" : "Dark"}
           </button>
-          {#if config.cashier_id}
+          {#if config.cashier_id || unofficialConfig.cashier_id}
             <button
               class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
               on:click={() => { showTopMoreActions = false; cashierLogout(); }}
@@ -4675,6 +5315,8 @@
             flagOfficial={flagOfficial}
             onInvoiceCompanyModeChange={onInvoiceCompanyModeChange}
             onFlagOfficialChange={onFlagOfficialChange}
+            checkoutBlocked={checkoutBlocked}
+            checkoutBlockedReason={checkoutBlockReason}
             onCheckout={handleCheckoutRequest}
           />
         </div>
@@ -4866,7 +5508,7 @@
             {@const statusText = String(ev?.status || "pending").trim().toLowerCase()}
             {@const eventType = String(ev?.event_type || "event").trim() || "event"}
             {@const eventId = String(ev?.event_id || ev?.id || "").trim()}
-            {@const errorText = String(ev?.error_message || "").trim()}
+            {@const errorText = String(ev?.error_message || ev?.last_error || "").trim()}
             <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2">
               <div class="flex items-center justify-between gap-3">
                 <div class="flex items-center gap-2">
@@ -5043,9 +5685,19 @@
     <div class="relative w-full max-w-sm bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
       <div class="p-6 border-b border-ink/10 text-center">
         <h2 class="text-xl font-bold text-ink">Cashier Login</h2>
-        <p class="text-sm text-muted mt-1">Enter PIN</p>
+        <p class="text-sm text-muted mt-1">Enter PIN for selected company</p>
       </div>
       <div class="p-6 space-y-4">
+        <label class="text-xs text-muted uppercase tracking-wider font-bold" for="cashier-company">Company</label>
+        <select
+          id="cashier-company"
+          class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-accent/50 focus:outline-none"
+          bind:value={cashierCompanyKey}
+          disabled={loading}
+        >
+          <option value="official">Official ({cashierOfficialName})</option>
+          <option value="unofficial">Unofficial ({cashierUnofficialName})</option>
+        </select>
         <label class="sr-only" for="cashier-pin">PIN</label>
         <input
           class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono text-lg tracking-widest focus:ring-2 focus:ring-accent/50 focus:outline-none"
@@ -5138,11 +5790,14 @@
       <div class="p-6 border-b border-ink/10 flex items-center justify-between">
         <div>
           <h2 class="text-xl font-bold text-ink">Shift</h2>
-          <p class="text-sm text-muted mt-1">{config.shift_id ? "Open shift detected" : "No open shift"}</p>
+          <p class="text-sm text-muted mt-1">
+            {normalizeCompanyKey(shiftCompanyKey) === "unofficial" ? "Unofficial" : "Official"}:
+            {selectedShiftOpen ? " Open shift detected" : " No open shift"}
+          </p>
         </div>
         <button
           class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
-          on:click={shiftRefresh}
+          on:click={() => shiftRefresh(shiftCompanyKey)}
           disabled={loading}
           title="Refresh"
         >
@@ -5151,7 +5806,21 @@
       </div>
 
       <div class="p-6 space-y-5">
-        {#if !config.shift_id}
+        <div>
+          <label class="text-xs text-muted uppercase tracking-wider font-bold" for="shift-company">Company</label>
+          <select
+            id="shift-company"
+            class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-accent/50 focus:outline-none"
+            bind:value={shiftCompanyKey}
+            on:change={() => shiftRefresh(shiftCompanyKey, { quiet: true })}
+            disabled={loading}
+          >
+            <option value="official">Official ({config.shift_id ? "Open" : "Closed"})</option>
+            <option value="unofficial">Unofficial ({unofficialConfig.shift_id ? "Open" : "Closed"})</option>
+          </select>
+          <div class="mt-1 text-[11px] text-muted">Cashier: {selectedShiftCashierName}</div>
+        </div>
+        {#if !selectedShiftOpen}
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label class="text-xs text-muted" for="shift-opening-usd">Opening Cash (USD)</label>
@@ -5176,7 +5845,7 @@
           </div>
           <button
             class="w-full py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
-            on:click={shiftOpen}
+            on:click={() => shiftOpen(shiftCompanyKey)}
             disabled={loading}
           >
             Open Shift
@@ -5222,7 +5891,7 @@
           </div>
           <button
             class="w-full py-3 px-4 rounded-xl bg-red-500 text-white font-bold hover:bg-red-400 transition-all active:scale-[0.98] disabled:opacity-60"
-            on:click={shiftClose}
+            on:click={() => shiftClose(shiftCompanyKey)}
             disabled={loading}
           >
             Close Shift

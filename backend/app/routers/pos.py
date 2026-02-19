@@ -2800,6 +2800,7 @@ def _eligible_cashiers_for_device(cur, company_id: str, device_id: str):
     if has_employee_assignments and not has_cashier_user_id_column:
         return []
 
+    user_id_select = "c.user_id" if has_cashier_user_id_column else "NULL::uuid AS user_id"
     joins = []
     params = []
     if has_cashier_assignments:
@@ -2826,7 +2827,7 @@ def _eligible_cashiers_for_device(cur, company_id: str, device_id: str):
 
     cur.execute(
         f"""
-        SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at
+        SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at, {user_id_select}
         FROM pos_cashiers c
         {' '.join(joins)}
         WHERE c.company_id = %s
@@ -2836,6 +2837,59 @@ def _eligible_cashiers_for_device(cur, company_id: str, device_id: str):
         params,
     )
     return cur.fetchall()
+
+
+def _cashier_manager_meta(cur, company_id: str, user_id: Optional[str]) -> dict:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        return {
+            "role": None,
+            "roles": [],
+            "permissions": [],
+            "can_manager_approve": False,
+            "is_manager": False,
+            "is_admin": False,
+        }
+    cur.execute(
+        """
+        SELECT
+          COALESCE(array_remove(array_agg(DISTINCT lower(trim(r.name))), NULL), ARRAY[]::text[]) AS roles,
+          COALESCE(array_remove(array_agg(DISTINCT lower(trim(p.code))), NULL), ARRAY[]::text[]) AS permissions
+        FROM user_roles ur
+        JOIN roles r
+          ON r.id = ur.role_id
+         AND r.company_id = ur.company_id
+        LEFT JOIN role_permissions rp
+          ON rp.role_id = ur.role_id
+        LEFT JOIN permissions p
+          ON p.id = rp.permission_id
+        WHERE ur.company_id = %s
+          AND ur.user_id = %s
+        """,
+        (company_id, normalized_user_id),
+    )
+    row = cur.fetchone() or {}
+    roles = [str(v or "").strip().lower() for v in list(row.get("roles") or []) if str(v or "").strip()]
+    permissions = [str(v or "").strip().lower() for v in list(row.get("permissions") or []) if str(v or "").strip()]
+    role_set = set(roles)
+    manager_roles = {"manager", "admin", "owner", "supervisor"}
+    is_manager = bool(role_set.intersection(manager_roles))
+    is_admin = bool(role_set.intersection({"admin", "owner"}))
+    can_manager_approve = (
+        is_manager
+        or "pos:manage" in permissions
+        or "users:write" in permissions
+        or any(("manager" in p) or ("approve" in p) or ("admin" in p) for p in permissions)
+    )
+    preferred_role = next((r for r in roles if r in manager_roles), roles[0] if roles else None)
+    return {
+        "role": preferred_role,
+        "roles": roles,
+        "permissions": permissions,
+        "can_manager_approve": bool(can_manager_approve),
+        "is_manager": bool(is_manager),
+        "is_admin": bool(is_admin),
+    }
 
 
 @router.get("/cashiers/catalog")
@@ -3114,7 +3168,20 @@ def verify_cashier(data: CashierVerifyIn, device=Depends(require_device)):
             rows = _eligible_cashiers_for_device(cur, str(device["company_id"]), str(device["device_id"]))
             for r in rows:
                 if verify_pin(pin, r["pin_hash"]):
-                    return {"cashier": {"id": r["id"], "name": r["name"]}}
+                    meta = _cashier_manager_meta(cur, str(device["company_id"]), str(r.get("user_id") or ""))
+                    return {
+                        "cashier": {
+                            "id": r["id"],
+                            "name": r["name"],
+                            "user_id": r.get("user_id"),
+                            "role": meta.get("role"),
+                            "roles": meta.get("roles") or [],
+                            "permissions": meta.get("permissions") or [],
+                            "can_manager_approve": bool(meta.get("can_manager_approve")),
+                            "is_manager": bool(meta.get("is_manager")),
+                            "is_admin": bool(meta.get("is_admin")),
+                        }
+                    }
     raise HTTPException(status_code=401, detail="invalid pin")
 
 @router.get("/cash-movements/admin", dependencies=[Depends(require_permission("pos:manage"))])

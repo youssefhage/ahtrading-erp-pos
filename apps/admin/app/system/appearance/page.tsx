@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getCompanyId } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type ColorTheme = "light" | "dark";
 type AccentTheme = "cobalt" | "sky" | "emerald" | "teal" | "rose" | "slate";
+const COLOR_THEME_STORAGE_KEY = "admin.colorTheme";
+const ACCENT_THEME_STORAGE_KEY = "admin.accentTheme";
 
 const ACCENT_THEME_VARS: Record<
   AccentTheme,
@@ -70,7 +73,34 @@ const ACCENT_THEMES: {
   { key: "slate", label: "Slate", primary: "100 116 139", dim: "51 65 85" }
 ];
 
-function emitThemeChange(detail: { color?: ColorTheme; accent?: AccentTheme }) {
+function normalizeCompanyThemeScope(companyId: string) {
+  return String(companyId || "").trim();
+}
+
+function themeStorageKey(baseKey: string, companyId: string) {
+  const cid = normalizeCompanyThemeScope(companyId);
+  return cid ? `${baseKey}.${cid}` : baseKey;
+}
+
+function readThemeStorage(baseKey: string, companyId: string) {
+  try {
+    const scoped = localStorage.getItem(themeStorageKey(baseKey, companyId));
+    if (scoped != null) return scoped;
+    return localStorage.getItem(baseKey);
+  } catch {
+    return null;
+  }
+}
+
+function saveThemeStorage(baseKey: string, companyId: string, value: string) {
+  try {
+    localStorage.setItem(themeStorageKey(baseKey, companyId), value);
+  } catch {
+    // ignore
+  }
+}
+
+function emitThemeChange(detail: { color?: ColorTheme; accent?: AccentTheme; companyId?: string }) {
   try {
     window.dispatchEvent(new CustomEvent("admin-theme-change", { detail }));
   } catch {
@@ -78,23 +108,15 @@ function emitThemeChange(detail: { color?: ColorTheme; accent?: AccentTheme }) {
   }
 }
 
-function applyColorTheme(next: ColorTheme) {
-  try {
-    localStorage.setItem("admin.colorTheme", next);
-  } catch {
-    // ignore
-  }
+function applyColorTheme(next: ColorTheme, companyId: string) {
+  saveThemeStorage(COLOR_THEME_STORAGE_KEY, companyId, next);
   if (next === "dark") document.documentElement.classList.add("dark");
   else document.documentElement.classList.remove("dark");
-  emitThemeChange({ color: next });
+  emitThemeChange({ color: next, companyId: normalizeCompanyThemeScope(companyId) });
 }
 
-function applyAccentTheme(next: AccentTheme) {
-  try {
-    localStorage.setItem("admin.accentTheme", next);
-  } catch {
-    // ignore
-  }
+function applyAccentTheme(next: AccentTheme, companyId: string) {
+  saveThemeStorage(ACCENT_THEME_STORAGE_KEY, companyId, next);
   // Remove any existing `theme-*` classes, then apply the new one.
   const cls = Array.from(document.documentElement.classList);
   for (const c of cls) {
@@ -107,13 +129,13 @@ function applyAccentTheme(next: AccentTheme) {
   document.documentElement.style.setProperty("--primary-dim", vars.primaryDim);
   document.documentElement.style.setProperty("--primary-glow", vars.primaryGlow);
   document.documentElement.style.setProperty("--ring", vars.ring);
-  emitThemeChange({ accent: next });
+  emitThemeChange({ accent: next, companyId: normalizeCompanyThemeScope(companyId) });
 }
 
-function safeReadTheme(): { color: ColorTheme; accent: AccentTheme } {
+function safeReadTheme(companyId: string): { color: ColorTheme; accent: AccentTheme } {
   try {
-    const cRaw = localStorage.getItem("admin.colorTheme");
-    const aRaw = localStorage.getItem("admin.accentTheme");
+    const cRaw = readThemeStorage(COLOR_THEME_STORAGE_KEY, companyId);
+    const aRaw = readThemeStorage(ACCENT_THEME_STORAGE_KEY, companyId);
     const color: ColorTheme = cRaw === "dark" ? "dark" : "light";
     const accent: AccentTheme =
       aRaw === "cobalt" || aRaw === "emerald" || aRaw === "teal" || aRaw === "rose" || aRaw === "slate" || aRaw === "sky"
@@ -130,13 +152,38 @@ function swatchBg(primary: string, dim: string) {
 }
 
 export default function AppearanceSettingsPage() {
+  const [companyId, setCompanyId] = useState<string>(() => getCompanyId());
   const [colorTheme, setColorTheme] = useState<ColorTheme>("light");
   const [accentTheme, setAccentTheme] = useState<AccentTheme>("cobalt");
 
   useEffect(() => {
-    const t = safeReadTheme();
+    const nextCompanyId = getCompanyId();
+    setCompanyId(nextCompanyId);
+    const t = safeReadTheme(nextCompanyId);
     setColorTheme(t.color);
     setAccentTheme(t.accent);
+  }, []);
+
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key === "ahtrading.companyId") {
+        const nextCompanyId = getCompanyId();
+        setCompanyId(nextCompanyId);
+        const t = safeReadTheme(nextCompanyId);
+        setColorTheme(t.color);
+        setAccentTheme(t.accent);
+        return;
+      }
+      if (!e.key) return;
+      if (e.key === COLOR_THEME_STORAGE_KEY || e.key.startsWith(`${COLOR_THEME_STORAGE_KEY}.`)) {
+        setColorTheme(safeReadTheme(getCompanyId()).color);
+      }
+      if (e.key === ACCENT_THEME_STORAGE_KEY || e.key.startsWith(`${ACCENT_THEME_STORAGE_KEY}.`)) {
+        setAccentTheme(safeReadTheme(getCompanyId()).accent);
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   const selectedAccent = useMemo(
@@ -149,7 +196,10 @@ export default function AppearanceSettingsPage() {
       <div>
         <h1 className="text-lg font-semibold text-foreground">Appearance</h1>
         <p className="mt-1 text-sm text-fg-subtle">
-          Choose how the portal looks on this device. Your selection is saved in your browser.
+          Choose how the portal looks on this device. Your selection is saved in your browser per active company.
+        </p>
+        <p className="mt-1 text-xs text-fg-subtle">
+          Active company: <code className="font-mono">{companyId || "not selected"}</code>
         </p>
       </div>
 
@@ -171,7 +221,7 @@ export default function AppearanceSettingsPage() {
               )}
               onClick={() => {
                 setColorTheme("light");
-                applyColorTheme("light");
+                applyColorTheme("light", companyId);
               }}
             >
               <span
@@ -202,7 +252,7 @@ export default function AppearanceSettingsPage() {
               )}
               onClick={() => {
                 setColorTheme("dark");
-                applyColorTheme("dark");
+                applyColorTheme("dark", companyId);
               }}
             >
               <span
@@ -245,7 +295,7 @@ export default function AppearanceSettingsPage() {
                 )}
                 onClick={() => {
                   setAccentTheme(t.key);
-                  applyAccentTheme(t.key);
+                  applyAccentTheme(t.key, companyId);
                 }}
               >
                 <span

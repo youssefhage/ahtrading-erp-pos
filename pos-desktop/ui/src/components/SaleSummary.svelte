@@ -11,6 +11,8 @@
   export let flagOfficial = false;
   export let onInvoiceCompanyModeChange = (v) => {};
   export let onFlagOfficialChange = (v) => {};
+  export let checkoutBlocked = false;
+  export let checkoutBlockedReason = "";
   export let onCheckout = () => {};
 
   const fmtMoney = (value, currency = "USD") => {
@@ -73,8 +75,10 @@
   $: unofficialTotalUsd = toNum(totalsByCompany?.unofficial?.totalUsd, 0);
   $: lineCount = Array.isArray(cart) ? cart.length : 0;
   $: emptyCart = lineCount === 0;
-  // Keep checkout enabled when we have either cart lines or a computed total.
-  $: canCheckout = lineCount > 0 || totalIncUsd > 0;
+  // Keep checkout enabled when we have either cart lines or a computed total,
+  // and strict guardrails are satisfied (cashier + shift).
+  $: hasSaleToCheckout = lineCount > 0 || totalIncUsd > 0;
+  $: canCheckout = hasSaleToCheckout && !checkoutBlocked;
 </script>
 
 <section class="glass-panel rounded-3xl p-4 h-full min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-3 relative group/summary">
@@ -234,6 +238,7 @@
           : "border-border/60 bg-surface-highlight/90 text-ink/70 shadow-sm cursor-not-allowed"
       }`}
       disabled={!canCheckout}
+      title={!canCheckout && checkoutBlockedReason ? checkoutBlockedReason : "Checkout"}
       on:click={onCheckout}
     >
       {#if canCheckout}
@@ -244,5 +249,8 @@
         <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
       </span>
     </button>
+    {#if hasSaleToCheckout && checkoutBlockedReason}
+      <div class="text-[10px] text-amber-300 font-semibold px-1">{checkoutBlockedReason}</div>
+    {/if}
   </div>
 </section>

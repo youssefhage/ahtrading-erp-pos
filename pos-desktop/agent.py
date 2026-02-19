@@ -3557,6 +3557,12 @@ class Handler(BaseHTTPRequestHandler):
                     return
             shift_id = data.get('shift_id') or cfg.get('shift_id') or None
             cashier_id = data.get('cashier_id') or cfg.get('cashier_id') or None
+            if not str(cashier_id or "").strip():
+                json_response(self, {'error': 'Cashier sign-in required before sale.', 'code': 'cashier_required'}, status=400)
+                return
+            if not str(shift_id or "").strip():
+                json_response(self, {'error': 'Open shift required before sale.', 'code': 'shift_required'}, status=400)
+                return
             payload = build_sale_payload(
                 cart,
                 cfg,
@@ -3765,6 +3771,12 @@ class Handler(BaseHTTPRequestHandler):
                     return
             shift_id = data.get('shift_id') or cfg.get('shift_id') or None
             cashier_id = data.get('cashier_id') or cfg.get('cashier_id') or None
+            if not str(cashier_id or "").strip():
+                json_response(self, {'error': 'Cashier sign-in required before return.', 'code': 'cashier_required'}, status=400)
+                return
+            if not str(shift_id or "").strip():
+                json_response(self, {'error': 'Open shift required before return.', 'code': 'shift_required'}, status=400)
+                return
             payload = build_return_payload(
                 cart,
                 cfg,
@@ -4273,11 +4285,26 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if not data.get("cashier_id") and cfg.get("cashier_id"):
                     data["cashier_id"] = cfg["cashier_id"]
+                if not str(data.get("cashier_id") or "").strip():
+                    json_response(self, {'error': 'Cashier sign-in required before opening shift.', 'code': 'cashier_required'}, status=400)
+                    return
                 res = post_json(f"{base}/pos/shifts/open", data, headers=device_headers(cfg))
                 shift = res.get('shift')
                 if shift:
                     cfg['shift_id'] = shift['id']
                     save_config(cfg)
+                add_audit_log(
+                    "shift.open",
+                    company_id=(cfg.get("company_id") or None),
+                    cashier_id=(str(data.get("cashier_id") or "").strip() or None),
+                    shift_id=(shift.get("id") if isinstance(shift, dict) else None),
+                    event_id=None,
+                    status="acked",
+                    details={
+                        "opening_cash_usd": float(data.get("opening_cash_usd") or 0),
+                        "opening_cash_lbp": float(data.get("opening_cash_lbp") or 0),
+                    },
+                )
                 json_response(self, {'shift': shift})
             except URLError as ex:
                 json_response(self, {'error': str(ex)}, status=502)
@@ -4301,9 +4328,24 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if not data.get("cashier_id") and cfg.get("cashier_id"):
                     data["cashier_id"] = cfg["cashier_id"]
+                if not str(data.get("cashier_id") or "").strip():
+                    json_response(self, {'error': 'Cashier sign-in required before closing shift.', 'code': 'cashier_required'}, status=400)
+                    return
                 res = post_json(f"{base}/pos/shifts/{shift_id}/close", data, headers=device_headers(cfg))
                 cfg['shift_id'] = ''
                 save_config(cfg)
+                add_audit_log(
+                    "shift.close",
+                    company_id=(cfg.get("company_id") or None),
+                    cashier_id=(str(data.get("cashier_id") or "").strip() or None),
+                    shift_id=(shift_id or None),
+                    event_id=None,
+                    status="acked",
+                    details={
+                        "closing_cash_usd": float(data.get("closing_cash_usd") or 0),
+                        "closing_cash_lbp": float(data.get("closing_cash_lbp") or 0),
+                    },
+                )
                 json_response(self, {'shift': res.get('shift')})
             except URLError as ex:
                 json_response(self, {'error': str(ex)}, status=502)

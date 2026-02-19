@@ -32,6 +32,11 @@ import {
 type PaymentMethodMapping = { method: string; role_code: string; created_at: string };
 
 type TaxCode = { id: string; name: string; rate: string | number; tax_type: string; reporting_currency: string };
+const SALES_INVOICE_TEMPLATE_OPTIONS = [
+  { id: "official_classic", label: "Official Classic" },
+  { id: "official_compact", label: "Official Compact" },
+  { id: "standard", label: "Standard" },
+];
 
 type InvoiceRow = {
   id: string;
@@ -105,6 +110,7 @@ type InvoiceDetail = {
   lines: InvoiceLine[];
   payments: SalesPayment[];
   tax_lines: TaxLine[];
+  print_policy?: { sales_invoice_pdf_template?: string | null } | null;
 };
 
 type CustomerAccountSnapshot = {
@@ -160,6 +166,7 @@ function SalesInvoiceShowInner() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
+  const [pdfTemplate, setPdfTemplate] = useState("official_classic");
   const [customerAccount, setCustomerAccount] = useState<CustomerAccountSnapshot | null>(null);
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodMapping[]>([]);
@@ -876,6 +883,16 @@ function SalesInvoiceShowInner() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    const raw = String(detail?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
+    const ok = SALES_INVOICE_TEMPLATE_OPTIONS.some((opt) => opt.id === raw);
+    setPdfTemplate(ok ? raw : "official_classic");
+  }, [detail?.print_policy?.sales_invoice_pdf_template]);
+
+  const effectivePdfTemplate = SALES_INVOICE_TEMPLATE_OPTIONS.some((opt) => opt.id === pdfTemplate)
+    ? pdfTemplate
+    : "official_classic";
+
   async function recomputePayment(paymentId: string) {
     if (!detail) return;
     setStatus("Fixing payment...");
@@ -1170,9 +1187,21 @@ function SalesInvoiceShowInner() {
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  <select
+                    className="ui-select h-10 min-w-[180px]"
+                    value={effectivePdfTemplate}
+                    onChange={(e) => setPdfTemplate((e.target as HTMLSelectElement).value)}
+                    title="Invoice PDF template"
+                  >
+                    {SALES_INVOICE_TEMPLATE_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
                   <Button asChild variant="outline">
                     <Link
-                      href={`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/print`}
+                      href={`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/print?template=${encodeURIComponent(effectivePdfTemplate)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
@@ -1181,7 +1210,7 @@ function SalesInvoiceShowInner() {
                   </Button>
                   <Button asChild variant="outline">
                     <a
-                      href={`/exports/sales-invoices/${encodeURIComponent(detail.invoice.id)}/pdf`}
+                      href={`/exports/sales-invoices/${encodeURIComponent(detail.invoice.id)}/pdf?template=${encodeURIComponent(effectivePdfTemplate)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                     >
