@@ -4362,7 +4362,7 @@
   showTabs={!webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
 >
   <svelte:fragment slot="tabs">
-    {@const tabBase = "px-4 py-2.5 rounded-2xl text-sm font-bold border transition-all whitespace-nowrap shadow-sm"}
+    {@const tabBase = "h-10 px-3.5 rounded-xl text-xs font-bold border transition-all whitespace-nowrap shadow-sm"}
     {@const tabOn = "bg-accent text-[rgb(var(--color-accent-content))] border-accent/40 hover:bg-accent-hover shadow-lg shadow-accent/20"}
     {@const tabOff = "bg-surface/55 text-ink/85 border-ink/10 hover:bg-surface/75 hover:text-ink"}
 
@@ -4394,7 +4394,7 @@
 
   <svelte:fragment slot="top-actions">
     {#if !webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
-    {@const topBtnBase = "px-3.5 py-2.5 rounded-2xl text-xs font-bold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm disabled:opacity-60"}
+    {@const topBtnBase = "h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm disabled:opacity-60"}
     {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
     {@const topBtnWarn = "border-amber-500/40 bg-amber-500/15 text-ink hover:bg-amber-500/25"}
     {#if syncNeedsAttention}
@@ -4498,7 +4498,7 @@
     {/if}
 
     <button
-      class="h-9 w-9 rounded-2xl border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors shadow-sm flex items-center justify-center"
+      class="h-8 w-8 rounded-xl border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors shadow-sm flex items-center justify-center"
       on:click={toggleTheme}
       title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
       aria-label="Toggle theme"
@@ -4517,7 +4517,7 @@
     </button>
     {#if webHostUnsupported}
       <a
-        class="px-3.5 py-2.5 rounded-2xl text-xs font-bold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm"
+        class="h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm inline-flex items-center"
         href="https://download.melqard.com"
         target="_blank"
         rel="noopener noreferrer"
@@ -4527,7 +4527,7 @@
     {/if}
     {:else}
       <a
-        class="px-3.5 py-2.5 rounded-2xl text-xs font-bold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm"
+        class="h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm inline-flex items-center"
         href="https://download.melqard.com"
         target="_blank"
         rel="noopener noreferrer"
@@ -4535,7 +4535,7 @@
         Download POS Desktop
       </a>
       <a
-        class="px-3.5 py-2.5 rounded-2xl text-xs font-bold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm"
+        class="h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm inline-flex items-center"
         href="http://127.0.0.1:7070"
         target="_blank"
         rel="noopener noreferrer"
