@@ -106,6 +106,51 @@
     --ring: 100 116 139;
   }
 
+  /*
+    Accent Themes
+    These are "color themes" that primarily change the primary accent + focus ring.
+    Dark/light mode is still controlled by the `.dark` class.
+  */
+  :root.theme-sky {
+    --primary: 14 165 233; /* sky-500 */
+    --primary-fg: 0 0 0;
+    --primary-dim: 3 105 161; /* sky-700 */
+    --primary-glow: 14 165 233;
+    --ring: 14 165 233;
+  }
+
+  :root.theme-emerald {
+    --primary: 16 185 129; /* emerald-500 */
+    --primary-fg: 0 0 0;
+    --primary-dim: 4 120 87; /* emerald-700 */
+    --primary-glow: 16 185 129;
+    --ring: 16 185 129;
+  }
+
+  :root.theme-teal {
+    --primary: 20 184 166; /* teal-500 */
+    --primary-fg: 0 0 0;
+    --primary-dim: 15 118 110; /* teal-700 */
+    --primary-glow: 20 184 166;
+    --ring: 20 184 166;
+  }
+
+  :root.theme-rose {
+    --primary: 244 63 94; /* rose-500 */
+    --primary-fg: 255 255 255;
+    --primary-dim: 190 18 60; /* rose-700 */
+    --primary-glow: 244 63 94;
+    --ring: 244 63 94;
+  }
+
+  :root.theme-slate {
+    --primary: 100 116 139; /* slate-500 */
+    --primary-fg: 255 255 255;
+    --primary-dim: 51 65 85; /* slate-700 */
+    --primary-glow: 100 116 139;
+    --ring: 100 116 139;
+  }
+
   .dark {
     /* Industrial Terminal - Dark Mode Design System */
     /* Background hierarchy: darkest at bottom, lighter as we rise */
