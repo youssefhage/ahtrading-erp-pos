@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import hashlib
 import json
 import os
 from datetime import datetime, date, timedelta
@@ -78,8 +79,13 @@ def resolve_business_date(payload: dict, *keys: str) -> date:
     return date.today()
 
 
-def next_retry_at_for_attempt(attempt_count: int) -> datetime:
+def next_retry_at_for_attempt(attempt_count: int, event_id: Optional[str] = None) -> datetime:
     delay_seconds = min(300, 2 ** max(attempt_count - 1, 0))
+    if event_id:
+        # Deterministic per-event jitter to reduce synchronized retry storms.
+        digest = hashlib.sha1(f"{event_id}:{attempt_count}".encode("utf-8")).hexdigest()
+        jitter_window = max(1, min(30, delay_seconds // 5 or 1))
+        delay_seconds = min(300, delay_seconds + (int(digest[:8], 16) % (jitter_window + 1)))
     return datetime.utcnow() + timedelta(seconds=delay_seconds)
 
 
@@ -437,6 +443,13 @@ def compute_applied_from_tender(*, tender_usd: Decimal, tender_lbp: Decimal, exc
     return applied_usd, applied_lbp
 
 
+def coalesce_tender_amount(payment: dict, tender_key: str, amount_key: str) -> Decimal:
+    raw = payment.get(tender_key)
+    if raw is None or (isinstance(raw, str) and raw.strip() == ""):
+        raw = payment.get(amount_key, 0)
+    return Decimal(str(raw or 0))
+
+
 def compute_vat_breakdown(
     cur,
     company_id: str,
@@ -776,6 +789,46 @@ def allocate_fefo_batches(
     return out
 
 
+def resolve_pos_shift_id(cur, company_id: str, device_id: str, requested_shift_id=None):
+    requested = str(requested_shift_id or "").strip()
+    if requested:
+        try:
+            requested = str(uuid.UUID(requested))
+        except Exception:
+            requested = ""
+    if requested:
+        cur.execute(
+            """
+            SELECT id
+            FROM pos_shifts
+            WHERE company_id = %s
+              AND device_id = %s
+              AND id = %s
+            LIMIT 1
+            """,
+            (company_id, device_id, requested),
+        )
+        row = cur.fetchone()
+        if row:
+            return row["id"]
+
+    # Fallback to the current open shift for this device (if any).
+    cur.execute(
+        """
+        SELECT id
+        FROM pos_shifts
+        WHERE company_id = %s
+          AND device_id = %s
+          AND status = 'open'
+        ORDER BY opened_at DESC
+        LIMIT 1
+        """,
+        (company_id, device_id),
+    )
+    row = cur.fetchone()
+    return row["id"] if row else None
+
+
 def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: str):
     # Idempotency: skip if invoice already created for this event
     cur.execute(
@@ -901,8 +954,8 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     payments = []
     for p in raw_payments:
         method = (p.get("method") or "cash").strip().lower()
-        tender_usd = Decimal(str(p.get("tender_usd", p.get("amount_usd", 0)) or 0))
-        tender_lbp = Decimal(str(p.get("tender_lbp", p.get("amount_lbp", 0)) or 0))
+        tender_usd = coalesce_tender_amount(p, "tender_usd", "amount_usd")
+        tender_lbp = coalesce_tender_amount(p, "tender_lbp", "amount_lbp")
         if tender_usd == 0 and tender_lbp == 0:
             continue
         applied_usd, applied_lbp = compute_applied_from_tender(
@@ -969,20 +1022,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         if terms > 0:
             due_date = invoice_date + timedelta(days=terms)
 
-    shift_id = payload.get("shift_id")
-    if not shift_id:
-        cur.execute(
-            """
-            SELECT id FROM pos_shifts
-            WHERE company_id = %s AND device_id = %s AND status = 'open'
-            ORDER BY opened_at DESC
-            LIMIT 1
-            """,
-            (company_id, device_id),
-        )
-        row = cur.fetchone()
-        if row:
-            shift_id = row["id"]
+    shift_id = resolve_pos_shift_id(cur, company_id, device_id, payload.get("shift_id"))
 
     cashier_id = payload.get("cashier_id") or None
 
@@ -1196,8 +1236,8 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
     # Persist payments.
     for p in raw_payments:
         method = (p.get("method") or "cash").strip().lower()
-        tender_usd = Decimal(str(p.get("tender_usd", p.get("amount_usd", 0)) or 0))
-        tender_lbp = Decimal(str(p.get("tender_lbp", p.get("amount_lbp", 0)) or 0))
+        tender_usd = coalesce_tender_amount(p, "tender_usd", "amount_usd")
+        tender_lbp = coalesce_tender_amount(p, "tender_lbp", "amount_lbp")
         if tender_usd == 0 and tender_lbp == 0:
             continue
         amount_usd, amount_lbp = compute_applied_from_tender(
@@ -1540,7 +1580,7 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
 
-    shift_id = payload.get("shift_id") or None
+    shift_id = resolve_pos_shift_id(cur, company_id, device_id, payload.get("shift_id"))
     refund_method = (payload.get("refund_method") or "").strip().lower() or None
     cashier_id = payload.get("cashier_id") or None
 
@@ -2615,21 +2655,7 @@ def process_cash_movement(cur, company_id: str, event_id: str, payload: dict, de
     if amount_usd == 0 and amount_lbp == 0:
         raise ValueError("amount is required")
 
-    shift_id = payload.get("shift_id") or None
-    if not shift_id:
-        cur.execute(
-            """
-            SELECT id
-            FROM pos_shifts
-            WHERE company_id = %s AND device_id = %s AND status = 'open'
-            ORDER BY opened_at DESC
-            LIMIT 1
-            """,
-            (company_id, device_id),
-        )
-        row = cur.fetchone()
-        if row:
-            shift_id = row["id"]
+    shift_id = resolve_pos_shift_id(cur, company_id, device_id, payload.get("shift_id"))
     if not shift_id:
         raise ValueError("no open shift for cash movement")
 
@@ -2701,39 +2727,46 @@ def _process_one(conn, company_id: str, max_attempts: int) -> bool:
             if not e:
                 return False
 
+            process_error = None
             try:
-                payload = e["payload_json"]
-                if isinstance(payload, str):
-                    payload = json.loads(payload)
+                # Use a savepoint so DB failures in posting don't abort the outer
+                # transaction; we still need to record failed/dead status.
+                with conn.transaction():
+                    payload = e["payload_json"]
+                    if isinstance(payload, str):
+                        payload = json.loads(payload)
 
-                event_type = e["event_type"]
-                event_id = e["id"]
+                    event_type = e["event_type"]
+                    event_id = e["id"]
 
-                if event_type == "sale.completed":
-                    process_sale(cur, company_id, event_id, payload, e["device_id"])
-                elif event_type == "sale.returned":
-                    process_sale_return(cur, company_id, event_id, payload, e["device_id"])
-                elif event_type == "pos.cash_movement":
-                    process_cash_movement(cur, company_id, event_id, payload, e["device_id"])
-                elif event_type == "purchase.received":
-                    process_goods_receipt(cur, company_id, event_id, payload, e["device_id"])
-                elif event_type == "purchase.invoice":
-                    process_purchase_invoice(cur, company_id, event_id, payload, e["device_id"])
-                else:
-                    raise ValueError(f"Unsupported event type {event_type}")
+                    if event_type == "sale.completed":
+                        process_sale(cur, company_id, event_id, payload, e["device_id"])
+                    elif event_type == "sale.returned":
+                        process_sale_return(cur, company_id, event_id, payload, e["device_id"])
+                    elif event_type == "pos.cash_movement":
+                        process_cash_movement(cur, company_id, event_id, payload, e["device_id"])
+                    elif event_type == "purchase.received":
+                        process_goods_receipt(cur, company_id, event_id, payload, e["device_id"])
+                    elif event_type == "purchase.invoice":
+                        process_purchase_invoice(cur, company_id, event_id, payload, e["device_id"])
+                    else:
+                        raise ValueError(f"Unsupported event type {event_type}")
 
-                cur.execute(
-                    """
-                    UPDATE pos_events_outbox
-                    SET status = 'processed',
-                        processed_at = now(),
-                        error_message = NULL,
-                        next_attempt_at = NULL
-                    WHERE id = %s
-                    """,
-                    (e["id"],),
-                )
+                    cur.execute(
+                        """
+                        UPDATE pos_events_outbox
+                        SET status = 'processed',
+                            processed_at = now(),
+                            error_message = NULL,
+                            next_attempt_at = NULL
+                        WHERE id = %s
+                        """,
+                        (e["id"],),
+                    )
             except Exception as ex:
+                process_error = ex
+
+            if process_error is not None:
                 next_attempt = int(e.get("attempt_count") or 0) + 1
                 next_status = "dead" if next_attempt >= max_attempts else "failed"
                 cur.execute(
@@ -2748,8 +2781,8 @@ def _process_one(conn, company_id: str, max_attempts: int) -> bool:
                     (
                         next_status,
                         next_attempt,
-                        str(ex),
-                        (next_retry_at_for_attempt(next_attempt) if next_status == "failed" else None),
+                        str(process_error),
+                        (next_retry_at_for_attempt(next_attempt, str(e["id"])) if next_status == "failed" else None),
                         e["id"],
                     ),
                 )

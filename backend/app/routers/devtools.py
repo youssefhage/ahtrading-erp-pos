@@ -139,8 +139,23 @@ def import_demo_data(data: DemoDataIn, company_id: str = Depends(get_company_id)
                     extra_items.append((sku, name, "EA", barcode))
 
                 items_to_create = base_items + extra_items
+                needed_uoms = sorted(
+                    {(u or "").strip().upper() for _, _, u, _ in items_to_create if (u or "").strip()} | {"BOX"}
+                )
+                for uom_code in needed_uoms:
+                    cur.execute(
+                        """
+                        INSERT INTO unit_of_measures (id, company_id, code, name, is_active)
+                        VALUES (gen_random_uuid(), %s, %s, %s, true)
+                        ON CONFLICT (company_id, code) DO UPDATE
+                        SET is_active = true,
+                            updated_at = now()
+                        """,
+                        (company_id, uom_code, uom_code),
+                    )
 
                 for idx, (sku, name, uom, barcode) in enumerate(items_to_create):
+                    base_uom = (uom or "").strip().upper()
                     price_usd = Decimal("0.50") + (Decimal(idx) * Decimal("0.15"))
                     cost_usd = max(Decimal("0.10"), price_usd * Decimal("0.65"))
 
@@ -159,20 +174,48 @@ def import_demo_data(data: DemoDataIn, company_id: str = Depends(get_company_id)
                             updated_at = now()
                         RETURNING id
                         """,
-                        (company_id, sku, barcode, name, uom, tax_code_id),
+                        (company_id, sku, barcode, name, base_uom, tax_code_id),
                     )
                     item_id = str(cur.fetchone()["id"])
                     created_item_ids.append(item_id)
 
+                    # Keep demo data POS-ready: default base conversion and case conversion.
+                    cur.execute(
+                        """
+                        INSERT INTO item_uom_conversions (id, company_id, item_id, uom_code, to_base_factor, is_active)
+                        VALUES (gen_random_uuid(), %s, %s, %s, 1, true)
+                        ON CONFLICT (company_id, item_id, uom_code) DO UPDATE
+                        SET to_base_factor = 1,
+                            is_active = true,
+                            updated_at = now()
+                        """,
+                        (company_id, item_id, base_uom),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO item_uom_conversions (id, company_id, item_id, uom_code, to_base_factor, is_active)
+                        VALUES (gen_random_uuid(), %s, %s, 'BOX', 12, true)
+                        ON CONFLICT (company_id, item_id, uom_code) DO UPDATE
+                        SET to_base_factor = 12,
+                            is_active = true,
+                            updated_at = now()
+                        """,
+                        (company_id, item_id),
+                    )
+
                     if barcode:
                         cur.execute(
                             """
-                            INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, label, is_primary)
-                            VALUES (gen_random_uuid(), %s, %s, %s, 1, NULL, true)
+                            INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, uom_code, label, is_primary)
+                            VALUES (gen_random_uuid(), %s, %s, %s, 1, %s, NULL, true)
                             ON CONFLICT (company_id, barcode) DO UPDATE
-                            SET item_id = EXCLUDED.item_id, is_primary = true, updated_at = now()
+                            SET item_id = EXCLUDED.item_id,
+                                qty_factor = EXCLUDED.qty_factor,
+                                uom_code = EXCLUDED.uom_code,
+                                is_primary = true,
+                                updated_at = now()
                             """,
-                            (company_id, item_id, barcode),
+                            (company_id, item_id, barcode, base_uom),
                         )
 
                         if len(barcode) >= 2:
@@ -183,8 +226,8 @@ def import_demo_data(data: DemoDataIn, company_id: str = Depends(get_company_id)
                             case_barcode = f"{barcode}9"
                         cur.execute(
                             """
-                            INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, label, is_primary)
-                            VALUES (gen_random_uuid(), %s, %s, %s, 12, 'Case (12)', false)
+                            INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, uom_code, label, is_primary)
+                            VALUES (gen_random_uuid(), %s, %s, %s, 12, 'BOX', 'Case (12)', false)
                             ON CONFLICT (company_id, barcode) DO NOTHING
                             """,
                             (company_id, item_id, case_barcode),

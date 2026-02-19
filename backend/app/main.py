@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from psycopg import errors as pg_errors
@@ -210,7 +211,7 @@ async def _request_logging(request: Request, call_next):
     response.headers["X-Request-Id"] = rid
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    if path != "/health":
+    if settings.http_access_log_enabled and path != "/health":
         dur_ms = int((time.time() - started) * 1000)
         _json_log(
             "info",
@@ -231,6 +232,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=settings.gzip_min_size,
 )
 app.include_router(pos_router)
 app.include_router(auth_router)

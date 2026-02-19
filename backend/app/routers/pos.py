@@ -12,6 +12,7 @@ from decimal import Decimal
 from psycopg.errors import ForeignKeyViolation, UniqueViolation  # type: ignore
 
 router = APIRouter(prefix="/pos", tags=["pos"])
+SALES_INVOICE_PDF_TEMPLATES = {"official_classic", "official_compact", "standard"}
 
 class PosEvent(BaseModel):
     event_id: uuid.UUID
@@ -24,6 +25,43 @@ class OutboxSubmit(BaseModel):
     company_id: Optional[uuid.UUID] = None
     device_id: uuid.UUID
     events: List[PosEvent]
+
+
+def _normalize_sales_invoice_pdf_template(value) -> Optional[str]:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    return raw if raw in SALES_INVOICE_PDF_TEMPLATES else None
+
+
+def _load_print_policy(cur, company_id: str) -> dict:
+    cur.execute(
+        """
+        SELECT value_json
+        FROM company_settings
+        WHERE company_id = %s AND key = 'print_policy'
+        LIMIT 1
+        """,
+        (company_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return {"sales_invoice_pdf_template": None}
+
+    raw = row.get("value_json")
+    obj = {}
+    if isinstance(raw, dict):
+        obj = raw
+    elif isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                obj = parsed
+        except Exception:
+            obj = {}
+
+    tpl = _normalize_sales_invoice_pdf_template(obj.get("sales_invoice_pdf_template"))
+    return {"sales_invoice_pdf_template": tpl}
 
 
 class ShiftOpenIn(BaseModel):
@@ -44,10 +82,17 @@ class PosCustomerCreateIn(BaseModel):
     name: str
     phone: Optional[str] = None
     email: Optional[str] = None
+    marketing_opt_in: bool = False
+    legal_name: Optional[str] = None
+    tax_id: Optional[str] = None
+    vat_no: Optional[str] = None
+    notes: Optional[str] = None
     membership_no: Optional[str] = None
+    is_member: Optional[bool] = None
+    membership_expires_at: Optional[date] = None
     party_type: Literal["individual", "business"] = "individual"
     customer_type: Literal["retail", "wholesale", "b2b"] = "retail"
-    payment_terms_days: int = 0
+    payment_terms_days: int = Field(default=0, ge=0, le=3650)
     is_active: bool = True
 
 
@@ -1068,6 +1113,7 @@ def submit_outbox(data: OutboxSubmit, device=Depends(require_device)):
 
 class OutboxProcessOneIn(BaseModel):
     event_id: uuid.UUID
+    force: bool = False
 
 
 @router.post("/outbox/process-one")
@@ -1085,6 +1131,8 @@ def process_outbox_event_now(data: OutboxProcessOneIn, device=Depends(require_de
     company_id = str(device["company_id"])
     device_id = str(device["device_id"])
     event_id = str(data.event_id)
+    error_detail: Optional[str] = None
+    response_payload: Optional[dict] = None
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -1092,7 +1140,7 @@ def process_outbox_event_now(data: OutboxProcessOneIn, device=Depends(require_de
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, device_id, event_type, payload_json, status, attempt_count
+                    SELECT id, device_id, event_type, payload_json, status, attempt_count, next_attempt_at
                     FROM pos_events_outbox
                     WHERE id = %s AND device_id = %s
                     FOR UPDATE
@@ -1106,10 +1154,22 @@ def process_outbox_event_now(data: OutboxProcessOneIn, device=Depends(require_de
                 event_type = str(row["event_type"] or "")
                 status = str(row["status"] or "")
                 attempt_count = int(row.get("attempt_count") or 0)
+                next_attempt_at = row.get("next_attempt_at")
+
+                if status == "dead" and not data.force:
+                    raise HTTPException(status_code=409, detail="event is dead; requeue it before retrying")
+                if status == "failed" and (next_attempt_at is not None) and not data.force:
+                    if next_attempt_at.tzinfo is None:
+                        now_ts = datetime.utcnow()
+                    else:
+                        now_ts = datetime.now(next_attempt_at.tzinfo)
+                    if next_attempt_at > now_ts:
+                        raise HTTPException(status_code=409, detail=f"retry scheduled at {next_attempt_at.isoformat()}")
 
                 # If it's already processed, just return the linked document (if any).
                 if status == "processed":
                     inv = None
+                    ret = None
                     if event_type == "sale.completed":
                         cur.execute(
                             """
@@ -1120,93 +1180,131 @@ def process_outbox_event_now(data: OutboxProcessOneIn, device=Depends(require_de
                             (company_id, event_id),
                         )
                         inv = cur.fetchone()
-                    return {
+                    elif event_type == "sale.returned":
+                        cur.execute(
+                            """
+                            SELECT id, return_no
+                            FROM sales_returns
+                            WHERE company_id = %s AND source_event_id = %s
+                            """,
+                            (company_id, event_id),
+                        )
+                        ret = cur.fetchone()
+                    response_payload = {
                         "ok": True,
                         "event_id": event_id,
                         "event_type": event_type,
                         "status": "processed",
                         "invoice_id": (str(inv["id"]) if inv else None),
                         "invoice_no": (inv.get("invoice_no") if inv else None),
+                        "return_id": (str(ret["id"]) if ret else None),
+                        "return_no": (ret.get("return_no") if ret else None),
                     }
+                else:
+                    payload = row.get("payload_json") or {}
+                    if isinstance(payload, str):
+                        try:
+                            payload = json.loads(payload)
+                        except Exception:
+                            payload = {}
 
-                payload = row.get("payload_json") or {}
-                if isinstance(payload, str):
+                    process_error = None
                     try:
-                        payload = json.loads(payload)
-                    except Exception:
-                        payload = {}
+                        # Isolate document posting in a savepoint so DB errors don't poison
+                        # the outer transaction; this lets us persist failed/dead status.
+                        with conn.transaction():
+                            if event_type == "sale.completed":
+                                pp.process_sale(cur, company_id, event_id, payload, device_id)
+                            elif event_type == "sale.returned":
+                                pp.process_sale_return(cur, company_id, event_id, payload, device_id)
+                            elif event_type == "pos.cash_movement":
+                                pp.process_cash_movement(cur, company_id, event_id, payload, device_id)
+                            elif event_type == "purchase.received":
+                                pp.process_goods_receipt(cur, company_id, event_id, payload, device_id)
+                            elif event_type == "purchase.invoice":
+                                pp.process_purchase_invoice(cur, company_id, event_id, payload, device_id)
+                            else:
+                                raise ValueError(f"unsupported event type {event_type}")
 
-                try:
-                    if event_type == "sale.completed":
-                        pp.process_sale(cur, company_id, event_id, payload, device_id)
-                    elif event_type == "sale.returned":
-                        pp.process_sale_return(cur, company_id, event_id, payload, device_id)
-                    elif event_type == "pos.cash_movement":
-                        pp.process_cash_movement(cur, company_id, event_id, payload, device_id)
-                    elif event_type == "purchase.received":
-                        pp.process_goods_receipt(cur, company_id, event_id, payload, device_id)
-                    elif event_type == "purchase.invoice":
-                        pp.process_purchase_invoice(cur, company_id, event_id, payload, device_id)
+                            cur.execute(
+                                """
+                                UPDATE pos_events_outbox
+                                SET status = 'processed',
+                                    processed_at = now(),
+                                    error_message = NULL,
+                                    next_attempt_at = NULL
+                                WHERE id = %s
+                                """,
+                                (event_id,),
+                            )
+                    except Exception as ex:
+                        process_error = ex
+
+                    if process_error is not None:
+                        # Keep the same attempt/dead semantics as the worker.
+                        next_attempt = attempt_count + 1
+                        max_attempts = 5
+                        next_status = "dead" if next_attempt >= max_attempts else "failed"
+                        next_retry_at = pp.next_retry_at_for_attempt(next_attempt, event_id)
+                        cur.execute(
+                            """
+                            UPDATE pos_events_outbox
+                            SET status = %s,
+                                attempt_count = %s,
+                                error_message = %s,
+                                next_attempt_at = %s
+                            WHERE id = %s
+                            """,
+                            (
+                                next_status,
+                                next_attempt,
+                                str(process_error),
+                                (next_retry_at if next_status == "failed" else None),
+                                event_id,
+                            ),
+                        )
+                        error_detail = str(process_error)
+                        response_payload = {"ok": False, "event_id": event_id, "event_type": event_type, "status": next_status}
                     else:
-                        raise ValueError(f"unsupported event type {event_type}")
+                        inv = None
+                        ret = None
+                        if event_type == "sale.completed":
+                            cur.execute(
+                                """
+                                SELECT id, invoice_no
+                                FROM sales_invoices
+                                WHERE company_id = %s AND source_event_id = %s
+                                """,
+                                (company_id, event_id),
+                            )
+                            inv = cur.fetchone()
+                        elif event_type == "sale.returned":
+                            cur.execute(
+                                """
+                                SELECT id, return_no
+                                FROM sales_returns
+                                WHERE company_id = %s AND source_event_id = %s
+                                """,
+                                (company_id, event_id),
+                            )
+                            ret = cur.fetchone()
 
-                    cur.execute(
-                        """
-                        UPDATE pos_events_outbox
-                        SET status = 'processed',
-                            processed_at = now(),
-                            error_message = NULL,
-                            next_attempt_at = NULL
-                        WHERE id = %s
-                        """,
-                        (event_id,),
-                    )
-                except Exception as ex:
-                    # Keep the same attempt/dead semantics as the worker.
-                    next_attempt = attempt_count + 1
-                    max_attempts = 5
-                    next_status = "dead" if next_attempt >= max_attempts else "failed"
-                    backoff_seconds = min(300, 2 ** max(next_attempt - 1, 0))
-                    next_retry_at = datetime.utcnow() + timedelta(seconds=backoff_seconds)
-                    cur.execute(
-                        """
-                        UPDATE pos_events_outbox
-                        SET status = %s,
-                            attempt_count = %s,
-                            error_message = %s,
-                            next_attempt_at = %s
-                        WHERE id = %s
-                        """,
-                        (
-                            next_status,
-                            next_attempt,
-                            str(ex),
-                            (next_retry_at if next_status == "failed" else None),
-                            event_id,
-                        ),
-                    )
-                    raise HTTPException(status_code=409, detail=str(ex))
+                        response_payload = {
+                            "ok": True,
+                            "event_id": event_id,
+                            "event_type": event_type,
+                            "status": "processed",
+                            "invoice_id": (str(inv["id"]) if inv else None),
+                            "invoice_no": (inv.get("invoice_no") if inv else None),
+                            "return_id": (str(ret["id"]) if ret else None),
+                            "return_no": (ret.get("return_no") if ret else None),
+                        }
 
-                inv = None
-                if event_type == "sale.completed":
-                    cur.execute(
-                        """
-                        SELECT id, invoice_no
-                        FROM sales_invoices
-                        WHERE company_id = %s AND source_event_id = %s
-                        """,
-                        (company_id, event_id),
-                    )
-                    inv = cur.fetchone()
-
-                return {
-                    "ok": True,
-                    "event_id": event_id,
-                    "event_type": event_type,
-                    "status": "processed",
-                    "invoice_id": (str(inv["id"]) if inv else None),
-                    "invoice_no": (inv.get("invoice_no") if inv else None),
-                }
+    if error_detail:
+        raise HTTPException(status_code=409, detail=error_detail)
+    if response_payload is not None:
+        return response_payload
+    raise HTTPException(status_code=500, detail="unexpected empty process result")
 
 @router.get("/inbox/pull")
 def pull_inbox(
@@ -1658,6 +1756,7 @@ def pos_config(device=Depends(require_device)):
     Device-scoped configuration for POS bootstrapping.
     """
     inventory_policy = {"require_manual_lot_selection": False}
+    print_policy = {"sales_invoice_pdf_template": None}
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
@@ -1718,7 +1817,9 @@ def pos_config(device=Depends(require_device)):
                     if str(row.get("id")) == configured_default_vat_tax_code_id:
                         vat = row
                         break
-            if not vat and vat_codes:
+            # Compliance guardrail: only auto-pick when there is exactly one VAT code.
+            # With multiple VAT codes, require explicit company setting to avoid silent misclassification.
+            if not vat and len(vat_codes) == 1:
                 vat = vat_codes[0]
             default_vat_tax_code_id = str(vat["id"]) if vat else None
 
@@ -1773,6 +1874,8 @@ def pos_config(device=Depends(require_device)):
                 except Exception:
                     inventory_policy = {"require_manual_lot_selection": False}
 
+            print_policy = _load_print_policy(cur, str(device["company_id"]))
+
     return {
         "company_id": device["company_id"],
         "device": dev,
@@ -1784,6 +1887,87 @@ def pos_config(device=Depends(require_device)):
         "payment_methods": pay_methods,
         "default_price_list_id": default_pl_id,
         "inventory_policy": inventory_policy,
+        "print_policy": print_policy,
+    }
+
+
+def _fetch_pos_sales_invoice_detail(cur, company_id: str, invoice_id: str, device_id: str):
+    cur.execute(
+        """
+        SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
+               i.subtotal_usd, i.subtotal_lbp, i.discount_total_usd, i.discount_total_lbp,
+               i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
+               i.reserve_stock,
+               i.pricing_currency, i.settlement_currency,
+               i.branch_id,
+               i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at, i.receipt_meta,
+               i.invoice_date, i.due_date, i.created_at
+        FROM sales_invoices i
+        LEFT JOIN customers c
+          ON c.company_id = i.company_id AND c.id = i.customer_id
+        LEFT JOIN warehouses w
+          ON w.company_id = i.company_id AND w.id = i.warehouse_id
+        WHERE i.company_id = %s AND i.id = %s AND i.device_id = %s
+        """,
+        (company_id, invoice_id, device_id),
+    )
+    inv = cur.fetchone()
+    if not inv:
+        return None
+
+    cur.execute(
+        """
+        SELECT l.id, l.item_id, it.sku AS item_sku, it.name AS item_name,
+               it.tax_code_id AS item_tax_code_id,
+               l.qty, l.uom, l.qty_factor, l.qty_entered,
+               l.unit_price_usd, l.unit_price_lbp,
+               l.unit_price_entered_usd, l.unit_price_entered_lbp,
+               l.pre_discount_unit_price_usd, l.pre_discount_unit_price_lbp,
+               l.discount_pct, l.discount_amount_usd, l.discount_amount_lbp,
+               l.applied_promotion_id, l.applied_promotion_item_id, l.applied_price_list_id,
+               l.line_total_usd, l.line_total_lbp
+        FROM sales_invoice_lines l
+        LEFT JOIN items it
+          ON it.company_id = %s AND it.id = l.item_id
+        WHERE l.invoice_id = %s
+        ORDER BY l.id
+        """,
+        (company_id, invoice_id),
+    )
+    lines = cur.fetchall()
+
+    cur.execute(
+        """
+        SELECT id, method, amount_usd, amount_lbp,
+               tender_usd, tender_lbp,
+               reference, auth_code, provider, settlement_currency, captured_at,
+               voided_at, void_reason,
+               created_at
+        FROM sales_payments
+        WHERE invoice_id = %s AND voided_at IS NULL
+        ORDER BY created_at ASC
+        """,
+        (invoice_id,),
+    )
+    payments = cur.fetchall()
+
+    cur.execute(
+        """
+        SELECT id, tax_code_id, base_usd, base_lbp, tax_usd, tax_lbp, tax_date, created_at
+        FROM tax_lines
+        WHERE company_id = %s AND source_type = 'sales_invoice' AND source_id = %s
+        ORDER BY created_at ASC
+        """,
+        (company_id, invoice_id),
+    )
+    tax_lines = cur.fetchall()
+
+    return {
+        "invoice": inv,
+        "lines": lines,
+        "payments": payments,
+        "tax_lines": tax_lines,
+        "print_policy": _load_print_policy(cur, company_id),
     }
 
 
@@ -1793,6 +1977,20 @@ def pos_get_sales_invoice(invoice_id: str, device=Depends(require_device)):
     Device-scoped Sales Invoice detail for printing/export flows.
     Restricted to invoices created by the same device.
     """
+    invoice_id = _normalize_required_uuid_text(invoice_id, "invoice_id")
+    company_id = str(device["company_id"])
+    device_id = str(device["device_id"])
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            detail = _fetch_pos_sales_invoice_detail(cur, company_id, invoice_id, device_id)
+            if not detail:
+                raise HTTPException(status_code=404, detail="invoice not found")
+            return detail
+
+
+@router.get("/receipts/last")
+def pos_get_last_receipt(device=Depends(require_device)):
     company_id = str(device["company_id"])
     device_id = str(device["device_id"])
     with get_conn() as conn:
@@ -1800,75 +1998,154 @@ def pos_get_sales_invoice(invoice_id: str, device=Depends(require_device)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
-                       i.subtotal_usd, i.subtotal_lbp, i.discount_total_usd, i.discount_total_lbp,
-                       i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
-                       i.reserve_stock,
-                       i.pricing_currency, i.settlement_currency,
-                       i.branch_id,
-                       i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at, i.receipt_meta,
-                       i.invoice_date, i.due_date, i.created_at
-                FROM sales_invoices i
-                LEFT JOIN customers c
-                  ON c.company_id = i.company_id AND c.id = i.customer_id
-                LEFT JOIN warehouses w
-                  ON w.company_id = i.company_id AND w.id = i.warehouse_id
-                WHERE i.company_id = %s AND i.id = %s AND i.device_id = %s
+                SELECT id
+                FROM sales_invoices
+                WHERE company_id = %s
+                  AND device_id = %s
+                  AND status = 'posted'
+                ORDER BY
+                  COALESCE(receipt_seq, 0) DESC,
+                  COALESCE(receipt_printed_at, created_at) DESC,
+                  created_at DESC
+                LIMIT 1
                 """,
-                (company_id, invoice_id, device_id),
+                (company_id, device_id),
             )
-            inv = cur.fetchone()
-            if not inv:
-                raise HTTPException(status_code=404, detail="invoice not found")
+            row = cur.fetchone()
+            if not row:
+                return {"receipt": None}
+            detail = _fetch_pos_sales_invoice_detail(cur, company_id, str(row["id"]), device_id)
+            return {"receipt": detail}
 
+
+def _fetch_pos_sales_return_detail(cur, company_id: str, return_id: str, device_id: str):
+    cur.execute(
+        """
+        SELECT r.id, r.return_no, r.invoice_id, r.warehouse_id, w.name AS warehouse_name,
+               r.device_id, r.shift_id, r.refund_method, r.branch_id,
+               r.reason_id, r.reason, r.return_condition,
+               r.restocking_fee_usd, r.restocking_fee_lbp, r.restocking_fee_reason,
+               r.status, r.total_usd, r.total_lbp, r.exchange_rate, r.created_at
+        FROM sales_returns r
+        LEFT JOIN warehouses w
+          ON w.company_id = r.company_id AND w.id = r.warehouse_id
+        WHERE r.company_id = %s
+          AND r.id = %s
+          AND r.device_id = %s
+        """,
+        (company_id, return_id, device_id),
+    )
+    ret = cur.fetchone()
+    if not ret:
+        return None
+
+    cur.execute(
+        """
+        SELECT id, item_id, qty,
+               unit_price_usd, unit_price_lbp, line_total_usd, line_total_lbp,
+               unit_cost_usd, unit_cost_lbp,
+               reason_id, line_condition
+        FROM sales_return_lines
+        WHERE company_id = %s AND sales_return_id = %s
+        ORDER BY id
+        """,
+        (company_id, return_id),
+    )
+    lines = cur.fetchall()
+
+    cur.execute(
+        """
+        SELECT id, tax_code_id, base_usd, base_lbp, tax_usd, tax_lbp, tax_date, created_at
+        FROM tax_lines
+        WHERE company_id = %s AND source_type = 'sales_return' AND source_id = %s
+        ORDER BY created_at ASC
+        """,
+        (company_id, return_id),
+    )
+    tax_lines = cur.fetchall()
+
+    cur.execute(
+        """
+        SELECT id, method, amount_usd, amount_lbp, settlement_currency,
+               bank_account_id, reference, provider, auth_code, captured_at,
+               source_type, source_id, created_at
+        FROM sales_refunds
+        WHERE company_id = %s AND sales_return_id = %s
+        ORDER BY created_at ASC, id ASC
+        """,
+        (company_id, return_id),
+    )
+    refunds = cur.fetchall()
+    return {"return": ret, "lines": lines, "tax_lines": tax_lines, "refunds": refunds}
+
+
+@router.get("/sales-returns/last")
+def pos_get_last_sales_return(device=Depends(require_device)):
+    company_id = str(device["company_id"])
+    device_id = str(device["device_id"])
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT l.id, l.item_id, it.sku AS item_sku, it.name AS item_name,
-                       it.tax_code_id AS item_tax_code_id,
-                       l.qty, l.uom, l.qty_factor, l.qty_entered,
-                       l.unit_price_usd, l.unit_price_lbp,
-                       l.unit_price_entered_usd, l.unit_price_entered_lbp,
-                       l.pre_discount_unit_price_usd, l.pre_discount_unit_price_lbp,
-                       l.discount_pct, l.discount_amount_usd, l.discount_amount_lbp,
-                       l.applied_promotion_id, l.applied_promotion_item_id, l.applied_price_list_id,
-                       l.line_total_usd, l.line_total_lbp
-                FROM sales_invoice_lines l
-                LEFT JOIN items it
-                  ON it.company_id = %s AND it.id = l.item_id
-                WHERE l.invoice_id = %s
-                ORDER BY l.id
+                SELECT id
+                FROM sales_returns
+                WHERE company_id = %s
+                  AND device_id = %s
+                  AND status = 'posted'
+                ORDER BY created_at DESC
+                LIMIT 1
                 """,
-                (company_id, invoice_id),
+                (company_id, device_id),
             )
-            lines = cur.fetchall()
+            row = cur.fetchone()
+            if not row:
+                return {"receipt": None}
+            detail = _fetch_pos_sales_return_detail(cur, company_id, str(row["id"]), device_id)
+            return {"receipt": detail}
 
+
+@router.get("/sales-returns/by-event/{event_id}")
+def pos_get_sales_return_by_event(event_id: str, device=Depends(require_device)):
+    event_id = _normalize_required_uuid_text(event_id, "event_id")
+    company_id = str(device["company_id"])
+    device_id = str(device["device_id"])
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, method, amount_usd, amount_lbp,
-                       tender_usd, tender_lbp,
-                       reference, auth_code, provider, settlement_currency, captured_at,
-                       voided_at, void_reason,
-                       created_at
-                FROM sales_payments
-                WHERE invoice_id = %s AND voided_at IS NULL
-                ORDER BY created_at ASC
+                SELECT id
+                FROM sales_returns
+                WHERE company_id = %s
+                  AND device_id = %s
+                  AND source_event_id = %s
+                ORDER BY created_at DESC
+                LIMIT 1
                 """,
-                (invoice_id,),
+                (company_id, device_id, event_id),
             )
-            payments = cur.fetchall()
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="return not found")
+            detail = _fetch_pos_sales_return_detail(cur, company_id, str(row["id"]), device_id)
+            if not detail:
+                raise HTTPException(status_code=404, detail="return not found")
+            return detail
 
-            cur.execute(
-                """
-                SELECT id, tax_code_id, base_usd, base_lbp, tax_usd, tax_lbp, tax_date, created_at
-                FROM tax_lines
-                WHERE company_id = %s AND source_type = 'sales_invoice' AND source_id = %s
-                ORDER BY created_at ASC
-                """,
-                (company_id, invoice_id),
-            )
-            tax_lines = cur.fetchall()
 
-            return {"invoice": inv, "lines": lines, "payments": payments, "tax_lines": tax_lines}
+@router.get("/sales-returns/{return_id}")
+def pos_get_sales_return(return_id: str, device=Depends(require_device)):
+    return_id = _normalize_required_uuid_text(return_id, "return_id")
+    company_id = str(device["company_id"])
+    device_id = str(device["device_id"])
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            detail = _fetch_pos_sales_return_detail(cur, company_id, return_id, device_id)
+            if not detail:
+                raise HTTPException(status_code=404, detail="return not found")
+            return detail
 
 @router.post("/heartbeat")
 def heartbeat(
@@ -1991,6 +2268,7 @@ def _expected_cash(
         (company_id,),
     )
     cash_methods = [r["method"] for r in cur.fetchall()] or []
+    cash_methods_norm = [str(m).strip().lower() for m in cash_methods if str(m or "").strip()]
     if not cash_methods:
         return Decimal("0"), Decimal("0")
     if shift_id:
@@ -2000,6 +2278,7 @@ def _expected_cash(
             FROM sales_payments sp
             JOIN sales_invoices si ON si.id = sp.invoice_id
             WHERE si.company_id = %s AND si.shift_id = %s AND sp.method = ANY(%s)
+              AND sp.voided_at IS NULL
         """
         params = [company_id, shift_id, cash_methods]
     else:
@@ -2011,6 +2290,7 @@ def _expected_cash(
             WHERE si.company_id = %s AND si.device_id = %s
               AND si.created_at >= %s
               AND sp.method = ANY(%s)
+              AND sp.voided_at IS NULL
         """
         params = [company_id, device_id, opened_at, cash_methods]
     cur.execute(sql, params)
@@ -2024,29 +2304,31 @@ def _expected_cash(
     if shift_id:
         cur.execute(
             """
-            SELECT COALESCE(SUM(total_usd), 0) AS usd,
-                   COALESCE(SUM(total_lbp), 0) AS lbp
-            FROM sales_returns
-            WHERE company_id = %s
-              AND shift_id = %s
-              AND status = 'posted'
-              AND refund_method = ANY(%s)
+            SELECT COALESCE(SUM(rf.amount_usd), 0) AS usd,
+                   COALESCE(SUM(rf.amount_lbp), 0) AS lbp
+            FROM sales_refunds rf
+            JOIN sales_returns sr ON sr.id = rf.sales_return_id
+            WHERE sr.company_id = %s
+              AND sr.shift_id = %s
+              AND sr.status = 'posted'
+              AND lower(coalesce(rf.method, '')) = ANY(%s)
             """,
-            (company_id, shift_id, cash_methods),
+            (company_id, shift_id, cash_methods_norm),
         )
     else:
         cur.execute(
             """
-            SELECT COALESCE(SUM(total_usd), 0) AS usd,
-                   COALESCE(SUM(total_lbp), 0) AS lbp
-            FROM sales_returns
-            WHERE company_id = %s
-              AND device_id = %s
-              AND created_at >= %s
-              AND status = 'posted'
-              AND refund_method = ANY(%s)
+            SELECT COALESCE(SUM(rf.amount_usd), 0) AS usd,
+                   COALESCE(SUM(rf.amount_lbp), 0) AS lbp
+            FROM sales_refunds rf
+            JOIN sales_returns sr ON sr.id = rf.sales_return_id
+            WHERE sr.company_id = %s
+              AND sr.device_id = %s
+              AND sr.created_at >= %s
+              AND sr.status = 'posted'
+              AND lower(coalesce(rf.method, '')) = ANY(%s)
             """,
-            (company_id, device_id, opened_at, cash_methods),
+            (company_id, device_id, opened_at, cash_methods_norm),
         )
     rrow = cur.fetchone()
     if rrow:
@@ -2169,6 +2451,7 @@ def shift_cash_reconciliation(shift_id: str, company_id: str = Depends(get_compa
                 (company_id,),
             )
             cash_methods = [r["method"] for r in cur.fetchall()] or []
+            cash_methods_norm = [str(m).strip().lower() for m in cash_methods if str(m or "").strip()]
 
             sales_usd = Decimal("0")
             sales_lbp = Decimal("0")
@@ -2182,6 +2465,7 @@ def shift_cash_reconciliation(shift_id: str, company_id: str = Depends(get_compa
                     FROM sales_payments sp
                     JOIN sales_invoices si ON si.id = sp.invoice_id
                     WHERE si.company_id = %s AND si.shift_id = %s AND sp.method = ANY(%s)
+                      AND sp.voided_at IS NULL
                     """,
                     (company_id, shift_id, cash_methods),
                 )
@@ -2191,15 +2475,16 @@ def shift_cash_reconciliation(shift_id: str, company_id: str = Depends(get_compa
 
                 cur.execute(
                     """
-                    SELECT COALESCE(SUM(total_usd), 0) AS usd,
-                           COALESCE(SUM(total_lbp), 0) AS lbp
-                    FROM sales_returns
-                    WHERE company_id = %s
-                      AND shift_id = %s
-                      AND status = 'posted'
-                      AND refund_method = ANY(%s)
+                    SELECT COALESCE(SUM(rf.amount_usd), 0) AS usd,
+                           COALESCE(SUM(rf.amount_lbp), 0) AS lbp
+                    FROM sales_refunds rf
+                    JOIN sales_returns sr ON sr.id = rf.sales_return_id
+                    WHERE sr.company_id = %s
+                      AND sr.shift_id = %s
+                      AND sr.status = 'posted'
+                      AND lower(coalesce(rf.method, '')) = ANY(%s)
                     """,
-                    (company_id, shift_id, cash_methods),
+                    (company_id, shift_id, cash_methods_norm),
                 )
                 row = cur.fetchone() or {}
                 refunds_usd = Decimal(str(row.get("usd") or 0))
@@ -2669,6 +2954,8 @@ def create_customer_from_pos(data: PosCustomerCreateIn, device=Depends(require_d
     name = (data.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
+    membership_no = (data.membership_no or "").strip() or None
+    is_member = bool(data.is_member) if data.is_member is not None else bool(membership_no)
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
@@ -2681,8 +2968,10 @@ def create_customer_from_pos(data: PosCustomerCreateIn, device=Depends(require_d
                    payment_terms_days, credit_limit_usd, credit_limit_lbp,
                    price_list_id, is_active)
                 VALUES
-                  (gen_random_uuid(), %s, NULL, %s, %s, %s, %s, %s, NULL, false, NULL, NULL, NULL, NULL, %s, false, NULL, %s, 0, 0, NULL, %s)
+                  (gen_random_uuid(), %s, NULL, %s, %s, %s, %s, %s, NULL, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, 0, NULL, %s)
                 RETURNING id, name, phone, email,
+                          party_type, customer_type, marketing_opt_in,
+                          legal_name, tax_id, vat_no, notes,
                           membership_no, is_member, membership_expires_at,
                           payment_terms_days,
                           credit_limit_usd, credit_limit_lbp,
@@ -2699,7 +2988,14 @@ def create_customer_from_pos(data: PosCustomerCreateIn, device=Depends(require_d
                     (data.email or "").strip() or None,
                     (data.party_type or "individual").strip() or "individual",
                     (data.customer_type or "retail").strip() or "retail",
-                    (data.membership_no or "").strip() or None,
+                    bool(data.marketing_opt_in),
+                    (data.legal_name or "").strip() or None,
+                    (data.tax_id or "").strip() or None,
+                    (data.vat_no or "").strip() or None,
+                    (data.notes or "").strip() or None,
+                    membership_no,
+                    is_member,
+                    data.membership_expires_at,
                     int(data.payment_terms_days or 0),
                     bool(data.is_active),
                 ),

@@ -38,25 +38,44 @@ type Customer = {
 
 export default function CustomersListPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<unknown>(null);
+  const [q, setQ] = useState("");
+  const [pageSize, setPageSize] = useState(25);
+  const [page, setPage] = useState(0);
+
+  const offset = page * pageSize;
+  const query = useMemo(() => ({ q: q.trim(), limit: pageSize, offset }), [q, pageSize, offset]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const res = await apiGet<{ customers: Customer[] }>("/customers");
+      const params = new URLSearchParams();
+      params.set("limit", String(query.limit));
+      params.set("offset", String(query.offset));
+      params.set("include_inactive", "true");
+      if (query.q) params.set("q", query.q);
+      const res = await apiGet<{ customers: Customer[]; total?: number }>(`/customers?${params.toString()}`);
       setCustomers(res.customers || []);
+      setTotal(typeof res.total === "number" ? res.total : null);
     } catch (e) {
       setCustomers([]);
+      setTotal(null);
       setErr(e);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [query.limit, query.offset, query.q]);
 
   useEffect(() => {
-    load();
+    setPage(0);
+  }, [q, pageSize]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => load(), 250);
+    return () => window.clearTimeout(t);
   }, [load]);
 
   const columns = useMemo(() => {
@@ -147,7 +166,10 @@ export default function CustomersListPage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Customers</h1>
-          <p className="text-sm text-fg-muted">{loading ? "Loading..." : `${customers.length} customers`}</p>
+          <p className="text-sm text-fg-muted">
+            {total != null ? `${total.toLocaleString("en-US")} total` : `${customers.length} shown`}
+            {loading ? " · refreshing..." : ""}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" onClick={load} disabled={loading}>
@@ -175,6 +197,16 @@ export default function CustomersListPage() {
               getRowId={(r) => r.id}
               initialSort={{ columnId: "name", dir: "asc" }}
               globalFilterPlaceholder="Name / phone / code / email / membership"
+              globalFilterValue={q}
+              onGlobalFilterValueChange={setQ}
+              isLoading={loading}
+              serverPagination={{
+                page,
+                pageSize,
+                total,
+                onPageChange: setPage,
+                onPageSizeChange: setPageSize,
+              }}
             />
           </CardContent>
         </Card>

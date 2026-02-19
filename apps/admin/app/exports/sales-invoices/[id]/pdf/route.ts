@@ -3,14 +3,17 @@ import { headers } from "next/headers";
 import { backendGetJson, backendGetJsonWithHeaders } from "@/lib/server/backend";
 import { pdfResponse } from "@/lib/server/pdf";
 import { safeFilenamePart } from "@/lib/pdf/format";
-import { SalesInvoicePdf, type SalesInvoiceDetail } from "@/lib/pdf/sales-invoice";
+import { SalesInvoicePdf, type SalesInvoiceDetail, type SalesInvoicePdfTemplate } from "@/lib/pdf/sales-invoice";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+const INVOICE_PDF_TEMPLATES = new Set(["official_classic", "official_compact", "standard"]);
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const inline = new URL(req.url).searchParams.get("inline") === "1";
+  const qs = new URL(req.url).searchParams;
+  const inline = qs.get("inline") === "1";
+  const template = (qs.get("template") || "").trim() as SalesInvoicePdfTemplate | "";
 
   const h = await headers();
   const cookie = (h.get("cookie") || "").trim();
@@ -57,9 +60,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
 
   const no = safeFilenamePart(detail.invoice.invoice_no || detail.invoice.id);
   const filename = `sales-invoice_${no}.pdf`;
+  const templateFromQuery = String(template || "").trim().toLowerCase();
+  const templateFromPolicy = String(detail?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
+  const effectiveTemplate = INVOICE_PDF_TEMPLATES.has(templateFromQuery)
+    ? templateFromQuery
+    : INVOICE_PDF_TEMPLATES.has(templateFromPolicy)
+      ? templateFromPolicy
+      : "";
 
   return pdfResponse({
-    element: SalesInvoicePdf({ detail, company, customer, addresses }),
+    element: SalesInvoicePdf({ detail, company, customer, addresses, template: effectiveTemplate || undefined }),
     filename,
     inline
   });

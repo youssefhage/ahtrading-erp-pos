@@ -38,12 +38,38 @@ class CustomerIn(BaseModel):
 
 
 @router.get("", dependencies=[Depends(require_permission("customers:read"))])
-def list_customers(company_id: str = Depends(get_company_id)):
+def list_customers(
+    q: str = "",
+    limit: Optional[int] = None,
+    offset: int = 0,
+    include_inactive: bool = True,
+    company_id: str = Depends(get_company_id),
+):
+    if limit is not None and (limit <= 0 or limit > 500):
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
+    qq = (q or "").strip()
+    like = f"%{qq}%"
+
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            cur.execute(
-                """
+            base_sql = """
+                FROM customers
+                WHERE company_id = %s
+                  AND (%s = true OR is_active = true)
+                  AND (
+                    %s = ''
+                    OR COALESCE(name, '') ILIKE %s
+                    OR COALESCE(code, '') ILIKE %s
+                    OR COALESCE(phone, '') ILIKE %s
+                    OR COALESCE(email, '') ILIKE %s
+                    OR COALESCE(membership_no, '') ILIKE %s
+                  )
+            """
+            params = [company_id, bool(include_inactive), qq, like, like, like, like, like]
+            select_sql = f"""
                 SELECT id, code, name, phone, email, party_type, customer_type, assigned_salesperson_user_id, marketing_opt_in,
                        legal_name, tax_id, vat_no, notes,
                        membership_no, is_member, membership_expires_at,
@@ -54,13 +80,20 @@ def list_customers(company_id: str = Depends(get_company_id)):
                        price_list_id,
                        is_active,
                        updated_at
-                FROM customers
-                WHERE company_id = %s
+                {base_sql}
                 ORDER BY name
-                """,
-                (company_id,),
-            )
-            return {"customers": cur.fetchall()}
+            """
+
+            # Backwards compatibility for existing clients expecting the full list.
+            if limit is None:
+                cur.execute(select_sql, params)
+                return {"customers": cur.fetchall()}
+
+            cur.execute(f"SELECT COUNT(*)::int AS total {base_sql}", params)
+            total = int((cur.fetchone() or {}).get("total") or 0)
+
+            cur.execute(select_sql + " LIMIT %s OFFSET %s", params + [int(limit), int(offset)])
+            return {"customers": cur.fetchall(), "total": total, "limit": int(limit), "offset": int(offset)}
 
 
 @router.get("/typeahead", dependencies=[Depends(require_permission("customers:read"))])

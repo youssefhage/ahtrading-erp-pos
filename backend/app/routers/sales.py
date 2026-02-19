@@ -17,6 +17,7 @@ router = APIRouter(prefix="/sales", tags=["sales"])
 
 USD_Q = Decimal("0.0001")
 LBP_Q = Decimal("0.01")
+SALES_INVOICE_PDF_TEMPLATES = {"official_classic", "official_compact", "standard"}
 
 
 def q_usd(v: Decimal) -> Decimal:
@@ -119,6 +120,43 @@ def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
     cur.execute("SELECT next_document_no(%s, %s) AS doc_no", (company_id, doc_type))
     return cur.fetchone()["doc_no"]
 
+
+def _normalize_sales_invoice_pdf_template(value) -> Optional[str]:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    return raw if raw in SALES_INVOICE_PDF_TEMPLATES else None
+
+
+def _load_print_policy(cur, company_id: str) -> dict:
+    cur.execute(
+        """
+        SELECT value_json
+        FROM company_settings
+        WHERE company_id = %s AND key = 'print_policy'
+        LIMIT 1
+        """,
+        (company_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return {"sales_invoice_pdf_template": None}
+
+    raw = row.get("value_json")
+    obj = {}
+    if isinstance(raw, dict):
+        obj = raw
+    elif isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                obj = parsed
+        except Exception:
+            obj = {}
+
+    tpl = _normalize_sales_invoice_pdf_template(obj.get("sales_invoice_pdf_template"))
+    return {"sales_invoice_pdf_template": tpl}
+
 def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
     if exchange_rate and exchange_rate != 0:
         if usd == 0 and lbp != 0:
@@ -126,6 +164,51 @@ def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) 
         elif lbp == 0 and usd != 0:
             lbp = usd * exchange_rate
     return q_usd(usd), q_lbp(lbp)
+
+
+def _resolve_default_vat_tax_code_id(cur, company_id: str) -> Optional[str]:
+    """
+    Resolve the company default VAT tax code with compliance guardrails:
+    - Prefer explicit company_settings.default_vat_tax_code_id when valid.
+    - Otherwise auto-pick only when there is exactly one VAT tax code.
+    - If multiple VAT codes exist and no explicit default is configured, return None.
+    """
+    cur.execute(
+        """
+        SELECT id
+        FROM tax_codes
+        WHERE company_id = %s AND tax_type = 'vat'
+        ORDER BY name
+        """,
+        (company_id,),
+    )
+    vat_codes = [str(r.get("id")) for r in (cur.fetchall() or []) if r.get("id")]
+    if not vat_codes:
+        return None
+
+    cur.execute(
+        """
+        SELECT value_json
+        FROM company_settings
+        WHERE company_id = %s
+          AND key = 'default_vat_tax_code_id'
+        LIMIT 1
+        """,
+        (company_id,),
+    )
+    vrow = cur.fetchone()
+    configured = None
+    if vrow and vrow.get("value_json") is not None:
+        raw = vrow.get("value_json")
+        if isinstance(raw, dict):
+            configured = str(raw.get("id") or raw.get("tax_code_id") or "").strip() or None
+        else:
+            configured = str(raw or "").strip() or None
+    if configured and configured in vat_codes:
+        return configured
+    if len(vat_codes) == 1:
+        return vat_codes[0]
+    return None
 
 def _compute_applied_from_tender(*, tender_usd: Decimal, tender_lbp: Decimal, exchange_rate: Decimal, settle: str) -> tuple[Decimal, Decimal]:
     settle = (settle or "USD").upper()
@@ -490,7 +573,13 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
             )
             tax_lines = cur.fetchall()
 
-            return {"invoice": inv, "lines": lines, "payments": payments, "tax_lines": tax_lines}
+            return {
+                "invoice": inv,
+                "lines": lines,
+                "payments": payments,
+                "tax_lines": tax_lines,
+                "print_policy": _load_print_policy(cur, company_id),
+            }
 
 class SalesInvoiceDraftLineIn(BaseModel):
     item_id: str
@@ -561,7 +650,7 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, status, exchange_rate, warehouse_id
+                SELECT id, status, exchange_rate, warehouse_id, COALESCE(doc_subtype,'standard') AS doc_subtype
                 FROM sales_invoices
                 WHERE company_id = %s AND id = %s
                 """,
@@ -579,29 +668,17 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
                 (invoice_id,),
             )
             lines = cur.fetchall()
-            base_usd = sum([q_usd(Decimal(str(l["line_total_usd"] or 0)) for l in lines])
-            base_lbp = sum([q_lbp(Decimal(str(l["line_total_lbp"] or 0)) for l in lines])
+            base_usd = sum([q_usd(Decimal(str(l["line_total_usd"] or 0))) for l in lines])
+            base_lbp = sum([q_lbp(Decimal(str(l["line_total_lbp"] or 0))) for l in lines])
 
             exchange_rate = Decimal(str(inv["exchange_rate"] or 0))
             tax_code_id = None  # default VAT code id (if any)
             tax_usd = Decimal("0")
             tax_lbp = Decimal("0")
             tax_rows: list[dict] = []
-
-            if apply_vat:
-                cur.execute(
-                    """
-                    SELECT id, rate
-                    FROM tax_codes
-                    WHERE company_id = %s AND tax_type = 'vat'
-                    ORDER BY name
-                    LIMIT 1
-                    """,
-                    (company_id,),
-                )
-                vat = cur.fetchone()
-                if vat:
-                    tax_code_id = vat["id"]
+            apply_vat_effective = bool(apply_vat) and str(inv.get("doc_subtype") or "standard") != "opening_balance"
+            if apply_vat_effective:
+                tax_code_id = _resolve_default_vat_tax_code_id(cur, company_id)
 
                 # VAT breakdown by tax_code_id (item tax_code overrides default VAT code).
                 item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
@@ -663,7 +740,7 @@ def preview_sales_invoice_post(invoice_id: str, apply_vat: bool = True, company_
             return {
                 "base_usd": base_usd,
                 "base_lbp": base_lbp,
-                "apply_vat": bool(apply_vat),
+                "apply_vat": apply_vat_effective,
                 "tax_code_id": tax_code_id,
                 "tax_usd": tax_usd,
                 "tax_lbp": tax_lbp,
@@ -1149,8 +1226,8 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     raise HTTPException(status_code=400, detail="invoice has no lines")
 
                 exchange_rate = Decimal(str(inv["exchange_rate"] or 0))
-                base_usd = sum([q_usd(Decimal(str(l["line_total_usd"] or 0)) for l in lines])
-                base_lbp = sum([q_lbp(Decimal(str(l["line_total_lbp"] or 0)) for l in lines])
+                base_usd = sum([q_usd(Decimal(str(l["line_total_usd"] or 0))) for l in lines])
+                base_lbp = sum([q_lbp(Decimal(str(l["line_total_lbp"] or 0))) for l in lines])
 
                 # VAT breakdown: group base/tax by the effective VAT tax_code_id.
                 # - Per-item items.tax_code_id overrides the default VAT code.
@@ -1159,23 +1236,9 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                 tax_usd = Decimal("0")
                 tax_lbp = Decimal("0")
                 tax_rows: list[dict] = []
-                if data.apply_vat:
-                    if inv["doc_subtype"] == "opening_balance":
-                        raise HTTPException(status_code=400, detail="opening balance invoices cannot apply VAT")
-
-                    cur.execute(
-                        """
-                        SELECT id, rate
-                        FROM tax_codes
-                        WHERE company_id = %s AND tax_type = 'vat'
-                        ORDER BY name
-                        LIMIT 1
-                        """,
-                        (company_id,),
-                    )
-                    vat = cur.fetchone()
-                    if vat:
-                        tax_code_id = vat["id"]
+                apply_vat_effective = bool(data.apply_vat) and inv["doc_subtype"] != "opening_balance"
+                if apply_vat_effective:
+                    tax_code_id = _resolve_default_vat_tax_code_id(cur, company_id)
 
                     item_ids = sorted({str(l.get("item_id")) for l in (lines or []) if l.get("item_id")})
                     item_tax: dict[str, Optional[str]] = {}
@@ -1984,11 +2047,39 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 paid = cur.fetchone() or {}
                 paid_usd = Decimal(str(paid.get("paid_usd") or 0))
                 paid_lbp = Decimal(str(paid.get("paid_lbp") or 0))
+
+                # Credit-note returns reduce receivable outstanding for this invoice.
+                cur.execute(
+                    """
+                    SELECT
+                      COALESCE(SUM(rf.amount_usd), 0) AS credited_usd,
+                      COALESCE(SUM(rf.amount_lbp), 0) AS credited_lbp
+                    FROM sales_refunds rf
+                    JOIN sales_returns sr ON sr.id = rf.sales_return_id
+                    WHERE sr.company_id = %s
+                      AND sr.invoice_id = %s
+                      AND sr.status = 'posted'
+                      AND lower(coalesce(rf.method, '')) = 'credit'
+                    """,
+                    (company_id, data.invoice_id),
+                )
+                credited = cur.fetchone() or {}
+                credited_usd = Decimal(str(credited.get("credited_usd") or 0))
+                credited_lbp = Decimal(str(credited.get("credited_lbp") or 0))
+
                 total_usd = Decimal(str(row.get("total_usd") or 0))
                 total_lbp = Decimal(str(row.get("total_lbp") or 0))
+                outstanding_usd = total_usd - paid_usd - credited_usd
+                outstanding_lbp = total_lbp - paid_lbp - credited_lbp
                 eps_usd = USD_Q
                 eps_lbp = LBP_Q
-                if (paid_usd + applied_usd) > (total_usd + eps_usd) or (paid_lbp + applied_lbp) > (total_lbp + eps_lbp):
+                if outstanding_usd < eps_usd:
+                    outstanding_usd = Decimal("0")
+                if outstanding_lbp < eps_lbp:
+                    outstanding_lbp = Decimal("0")
+                if outstanding_usd == 0 and outstanding_lbp == 0:
+                    raise HTTPException(status_code=409, detail="invoice has no outstanding balance")
+                if applied_usd > (outstanding_usd + eps_usd) or applied_lbp > (outstanding_lbp + eps_lbp):
                     raise HTTPException(status_code=409, detail="payment exceeds invoice outstanding balance")
 
                 cur.execute(
@@ -2173,6 +2264,8 @@ def void_sales_payment(payment_id: str, data: SalesPaymentVoidIn, company_id: st
 
                 invoice_id = str(pay["invoice_id"])
                 exchange_rate = Decimal(str(pay.get("exchange_rate") or 0))
+                void_date = date.today()
+                assert_period_open(cur, company_id, void_date)
 
                 # Must be a credit-sale invoice: invoice journal must include AR debit.
                 defaults = _fetch_account_defaults(cur, company_id)
@@ -2216,14 +2309,9 @@ def void_sales_payment(payment_id: str, data: SalesPaymentVoidIn, company_id: st
                     "sales_payment",
                     str(payment_id),
                     "sales_payment_void",
-                    date.today(),
+                    void_date,
                     user["user_id"],
                     memo,
-                )
-                # Ensure exchange_rate is carried (used by reports).
-                cur.execute(
-                    "UPDATE gl_journals SET exchange_rate=%s WHERE company_id=%s AND id=%s",
-                    (exchange_rate, company_id, void_journal_id),
                 )
 
                 # Reverse bank transaction if we had auto-created one for this payment.
@@ -2253,7 +2341,7 @@ def void_sales_payment(payment_id: str, data: SalesPaymentVoidIn, company_id: st
                         (
                             company_id,
                             bt["bank_account_id"],
-                            bt.get("txn_date") or date.today(),
+                            bt.get("txn_date") or void_date,
                             Decimal(str(bt.get("amount_usd") or 0)),
                             Decimal(str(bt.get("amount_lbp") or 0)),
                             f"Void payment {str(payment_id)[:8]}",
@@ -2304,8 +2392,10 @@ def recompute_sales_payment(payment_id: str, data: SalesPaymentRecomputeIn, comp
                     SELECT p.id, p.invoice_id, p.method,
                            p.amount_usd, p.amount_lbp,
                            p.tender_usd, p.tender_lbp,
+                           p.voided_at,
                            p.settlement_currency AS payment_settlement_currency,
-                           si.customer_id, si.exchange_rate, si.settlement_currency AS invoice_settlement_currency
+                           si.customer_id, si.exchange_rate, si.settlement_currency AS invoice_settlement_currency,
+                           si.status AS invoice_status
                     FROM sales_payments p
                     JOIN sales_invoices si ON si.id = p.invoice_id AND si.company_id = %s
                     WHERE p.id = %s::uuid
@@ -2316,6 +2406,13 @@ def recompute_sales_payment(payment_id: str, data: SalesPaymentRecomputeIn, comp
                 row = cur.fetchone()
                 if not row:
                     raise HTTPException(status_code=404, detail="payment not found")
+                if row.get("voided_at"):
+                    raise HTTPException(status_code=409, detail="cannot recompute a voided payment")
+                if str(row.get("invoice_status") or "").strip().lower() != "posted":
+                    raise HTTPException(status_code=409, detail="recompute is allowed only for posted invoices")
+
+                adjust_date = date.today()
+                assert_period_open(cur, company_id, adjust_date)
 
                 exchange_rate = Decimal(str(row.get("exchange_rate") or 0))
                 settle = str(
@@ -2365,25 +2462,8 @@ def recompute_sales_payment(payment_id: str, data: SalesPaymentRecomputeIn, comp
                         (delta_usd, delta_lbp, company_id, row["customer_id"]),
                     )
 
-                # GL journal (if present): rebuild entries so the journal matches the recomputed applied amounts.
-                cur.execute(
-                    """
-                    SELECT id
-                    FROM gl_journals
-                    WHERE company_id=%s AND source_type='sales_payment' AND source_id=%s
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """,
-                    (company_id, payment_id),
-                )
-                jrow = cur.fetchone()
-                if jrow:
-                    journal_id = jrow["id"]
-                    cur.execute(
-                        "UPDATE gl_journals SET exchange_rate=%s WHERE company_id=%s AND id=%s",
-                        (exchange_rate, company_id, journal_id),
-                    )
-
+                # GL is immutable. Post a delta adjustment journal instead of editing prior entries.
+                if delta_usd != 0 or delta_lbp != 0:
                     defaults = _fetch_account_defaults(cur, company_id)
                     ar = defaults.get("AR")
                     if not ar:
@@ -2393,21 +2473,60 @@ def recompute_sales_payment(payment_id: str, data: SalesPaymentRecomputeIn, comp
                     if not pay_account:
                         raise HTTPException(status_code=400, detail=f"Missing payment method mapping for {row['method']}")
 
-                    cur.execute("DELETE FROM gl_entries WHERE journal_id=%s", (journal_id,))
                     cur.execute(
                         """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Customer payment (recomputed)')
+                        INSERT INTO gl_journals
+                          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+                        VALUES
+                          (gen_random_uuid(), %s, %s, 'sales_payment_adjust', %s::uuid, %s, 'market', %s, %s, %s)
+                        RETURNING id
                         """,
-                        (journal_id, pay_account, new_applied_usd, new_applied_lbp),
+                        (
+                            company_id,
+                            f"CPA-{str(payment_id)[:8]}-{uuid.uuid4().hex[:4]}",
+                            payment_id,
+                            adjust_date,
+                            exchange_rate,
+                            "Customer payment recompute adjustment",
+                            user["user_id"],
+                        ),
                     )
-                    cur.execute(
-                        """
-                        INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
-                        VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'AR settlement (recomputed)')
-                        """,
-                        (journal_id, ar, new_applied_usd, new_applied_lbp),
-                    )
+                    adj_journal_id = cur.fetchone()["id"]
+
+                    if delta_usd > 0 or delta_lbp > 0:
+                        # Increased payment: Dr payment account, Cr AR.
+                        cur.execute(
+                            """
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'Customer payment recompute delta')
+                            """,
+                            (adj_journal_id, pay_account, delta_usd, delta_lbp),
+                        )
+                        cur.execute(
+                            """
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'AR settlement recompute delta')
+                            """,
+                            (adj_journal_id, ar, delta_usd, delta_lbp),
+                        )
+                    else:
+                        # Decreased payment: Dr AR, Cr payment account.
+                        abs_usd = abs(delta_usd)
+                        abs_lbp = abs(delta_lbp)
+                        cur.execute(
+                            """
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                            VALUES (gen_random_uuid(), %s, %s, %s, 0, %s, 0, 'AR settlement recompute reversal')
+                            """,
+                            (adj_journal_id, ar, abs_usd, abs_lbp),
+                        )
+                        cur.execute(
+                            """
+                            INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo)
+                            VALUES (gen_random_uuid(), %s, %s, 0, %s, 0, %s, 'Customer payment recompute reversal')
+                            """,
+                            (adj_journal_id, pay_account, abs_usd, abs_lbp),
+                        )
 
                 # Bank txn (if present)
                 cur.execute(

@@ -68,9 +68,9 @@ export function fmtUsdMaybe(amount: unknown, opts?: MoneyMaybeOptions): string {
 }
 
 export function fmtLbpMaybe(amount: unknown, opts?: MoneyMaybeOptions): string {
-  if (isMissing(amount)) return "LL -";
+  if (isMissing(amount)) return "-";
   const n = toFiniteNumber(amount);
-  if (opts?.dashIfZero && n === 0) return "LL -";
+  if (opts?.dashIfZero && n === 0) return "-";
   const sign = n < 0 ? "-" : "";
   const abs = Math.abs(n);
   return `${sign}LL ${lbpFormatter(opts?.maximumFractionDigits ?? 0).format(abs)}`;
@@ -84,18 +84,30 @@ export function fmtUsdLbp(
     // When one side is non-zero and the other is zero, it's often "not set / derived".
     // This replaces the zero side with a dash to avoid confusion.
     dashIfZeroWhenOtherNonZero?: boolean;
+    // Hide the missing side entirely (instead of showing a trailing dash) to keep UI concise.
+    hideMissingSide?: boolean;
     usd?: MoneyMaybeOptions;
     lbp?: MoneyMaybeOptions;
   }
 ): string {
   const sep = opts?.sep ?? " / ";
   const dash = opts?.dashIfZeroWhenOtherNonZero ?? true;
+  const hideMissingSide = opts?.hideMissingSide ?? true;
   const u = toFiniteNumber(usdAmount);
   const l = toFiniteNumber(lbpAmount);
   const usdDash = dash && u === 0 && l !== 0;
   const lbpDash = dash && l === 0 && u !== 0;
-  return `${fmtUsdMaybe(usdAmount, { ...opts?.usd, dashIfZero: (opts?.usd?.dashIfZero ?? false) || usdDash })}${sep}${fmtLbpMaybe(lbpAmount, {
+  const usdText = fmtUsdMaybe(usdAmount, { ...opts?.usd, dashIfZero: (opts?.usd?.dashIfZero ?? false) || usdDash });
+  const lbpText = fmtLbpMaybe(lbpAmount, {
     ...opts?.lbp,
     dashIfZero: (opts?.lbp?.dashIfZero ?? false) || lbpDash,
-  })}`;
+  });
+  if (hideMissingSide) {
+    const usdMissing = usdText === "$-";
+    const lbpMissing = lbpText === "-";
+    if (usdMissing && lbpMissing) return "$-";
+    if (usdMissing) return lbpText;
+    if (lbpMissing) return usdText;
+  }
+  return `${usdText}${sep}${lbpText}`;
 }

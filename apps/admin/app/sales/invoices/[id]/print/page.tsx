@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 
 const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 const UNOFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000002";
+const INVOICE_PDF_TEMPLATES = new Set(["official_classic", "official_compact", "standard"]);
 
 type InvoiceRow = {
   id: string;
@@ -83,6 +84,7 @@ type InvoiceDetail = {
   lines: InvoiceLine[];
   payments: SalesPayment[];
   tax_lines: TaxLine[];
+  print_policy?: { sales_invoice_pdf_template?: string | null } | null;
 };
 
 type Company = {
@@ -284,6 +286,8 @@ export default function SalesInvoicePrintPage() {
     hasExplicitPaper: false,
     hasExplicitLandscape: false,
   }));
+  const [docVariant, setDocVariant] = useState<"invoice" | "receipt">("invoice");
+  const [pdfTemplate, setPdfTemplate] = useState("");
   const [directPrintOk, setDirectPrintOk] = useState(() => canDirectPrint());
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
   const [selectedPrinter, setSelectedPrinter] = useState("");
@@ -346,6 +350,10 @@ export default function SalesInvoicePrintPage() {
     // Optional: allow kiosk-style auto print via ?autoprint=1.
     try {
       const qs = new URLSearchParams(window.location.search);
+      const rawDoc = String(qs.get("doc") || "").trim().toLowerCase();
+      setDocVariant(rawDoc === "receipt" ? "receipt" : "invoice");
+      const rawTemplate = String(qs.get("template") || "").trim().toLowerCase();
+      setPdfTemplate(INVOICE_PDF_TEMPLATES.has(rawTemplate) ? rawTemplate : "");
       if (qs.get("autoprint") === "1") setTimeout(() => window.print(), 250);
     } catch {
       // ignore
@@ -368,10 +376,17 @@ export default function SalesInvoicePrintPage() {
   }, [company, isUnofficial, queryPrint.hasExplicitPaper, queryPrint.landscape]);
 
   const paper = queryPrint.hasExplicitPaper ? queryPrint.paper : isUnofficial ? "receipt" : "a4";
-  const docTitle = "Sales Invoice";
-  const primaryDocNo = detail?.invoice?.invoice_no || "(draft)";
-  const printerPreferenceKeyPrefix = "sales_invoice";
-  const pdfInlineRoute = `/exports/sales-invoices/${encodeURIComponent(id)}/pdf?inline=1`;
+  const docTitle = docVariant === "receipt" ? "Sales Receipt" : "Sales Invoice";
+  const primaryDocNo = (docVariant === "receipt" ? detail?.invoice?.receipt_no : detail?.invoice?.invoice_no) || detail?.invoice?.invoice_no || "(draft)";
+  const printerPreferenceKeyPrefix = docVariant === "receipt" ? "sales_receipt" : "sales_invoice";
+  const policyTemplate = (() => {
+    const raw = String(detail?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
+    return INVOICE_PDF_TEMPLATES.has(raw) ? raw : "";
+  })();
+  const effectivePdfTemplate = pdfTemplate || policyTemplate;
+  const pdfInlineRoute = docVariant === "receipt"
+    ? `/exports/sales-receipts/${encodeURIComponent(id)}/pdf?inline=1`
+    : `/exports/sales-invoices/${encodeURIComponent(id)}/pdf?inline=1${effectivePdfTemplate ? `&template=${encodeURIComponent(effectivePdfTemplate)}` : ""}`;
 
   useEffect(() => {
     // Best-effort: load printers when running inside Admin Desktop (Tauri).
@@ -430,7 +445,7 @@ export default function SalesInvoicePrintPage() {
           })
           .join("\n");
         const txt =
-          `${docTitle}\n${inv?.invoice_no || "(draft)"}\nDate ${fmtIso(inv?.invoice_date)}\n` +
+          `${docTitle}\n${inv?.receipt_no || inv?.invoice_no || "(draft)"}\nDate ${fmtIso(inv?.invoice_date)}\n` +
           `------------------------------\n${lines}\n` +
           `------------------------------\nTotal USD: ${fmtUsd(inv?.total_usd || 0)}\nTotal LBP: ${fmtLbp(inv?.total_lbp || 0)}\n`;
         await tauriInvoke("print_text", { text: txt, printer, copies: c });

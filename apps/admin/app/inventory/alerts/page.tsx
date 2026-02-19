@@ -13,12 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-type Item = { id: string; sku: string; name: string };
 type Warehouse = { id: string; name: string };
 
 type ExpiryRow = {
   item_id: string;
+  item_sku?: string | null;
+  item_name?: string | null;
   warehouse_id: string;
+  warehouse_name?: string | null;
   batch_id: string;
   batch_no: string | null;
   expiry_date: string | null;
@@ -49,7 +51,6 @@ type AiRecRow = {
 export default function InventoryAlertsPage() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState<Item[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [aiExpiryOps, setAiExpiryOps] = useState<AiRecRow[]>([]);
 
@@ -58,12 +59,10 @@ export default function InventoryAlertsPage() {
   const [reorder, setReorder] = useState<ReorderRow[]>([]);
   const [warehouseId, setWarehouseId] = useState("");
 
-  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
 
   async function loadBase() {
-    const [i, w] = await Promise.all([apiGet<{ items: Item[] }>("/items/min"), apiGet<{ warehouses: Warehouse[] }>("/warehouses")]);
-    setItems(i.items || []);
+    const w = await apiGet<{ warehouses: Warehouse[] }>("/warehouses");
     setWarehouses(w.warehouses || []);
   }
 
@@ -173,29 +172,20 @@ export default function InventoryAlertsPage() {
         id: "item",
         header: "Item",
         sortable: true,
-        accessor: (r) => {
-          const it = itemById.get(r.item_id);
-          return `${it?.sku || ""} ${it?.name || ""} ${r.item_id || ""}`;
-        },
-        cell: (r) => {
-          const it = itemById.get(r.item_id);
-          return it ? (
-            <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
-              <span className="font-mono text-xs">{it.sku}</span> · {it.name}
-            </ShortcutLink>
-          ) : (
-            <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item" className="font-mono text-xs">
-              {r.item_id}
-            </ShortcutLink>
-          );
-        },
+        accessor: (r) => `${r.item_sku || ""} ${r.item_name || ""} ${r.item_id || ""}`,
+        cell: (r) => (
+          <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
+            <span className="font-mono text-xs">{r.item_sku || r.item_id}</span>
+            {r.item_name ? ` · ${r.item_name}` : ""}
+          </ShortcutLink>
+        ),
       },
       {
         id: "warehouse",
         header: "Warehouse",
         sortable: true,
-        accessor: (r) => whById.get(r.warehouse_id)?.name || r.warehouse_id,
-        cell: (r) => <span className="text-sm">{whById.get(r.warehouse_id)?.name || r.warehouse_id}</span>,
+        accessor: (r) => r.warehouse_name || whById.get(r.warehouse_id)?.name || r.warehouse_id,
+        cell: (r) => <span className="text-sm">{r.warehouse_name || whById.get(r.warehouse_id)?.name || r.warehouse_id}</span>,
       },
       {
         id: "batch",
@@ -230,7 +220,7 @@ export default function InventoryAlertsPage() {
         ),
       },
     ];
-  }, [itemById, whById]);
+  }, [whById]);
 
   const reorderColumns = useMemo((): Array<DataTableColumn<ReorderRow>> => {
     return [

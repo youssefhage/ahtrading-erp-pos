@@ -10,7 +10,21 @@
   export let searchCustomers = () => {};
   export let selectCustomer = (c) => {};
   export let createCustomer = () => {};
-  export let customerDraft = { name: "", phone: "", email: "" };
+  export let customerDraft = {
+    name: "",
+    phone: "",
+    email: "",
+    party_type: "individual",
+    customer_type: "retail",
+    legal_name: "",
+    membership_no: "",
+    payment_terms_days: "",
+    tax_id: "",
+    vat_no: "",
+    notes: "",
+    marketing_opt_in: false,
+    is_active: true,
+  };
   
   const MIN_CHARS = 2;
   const DEBOUNCE_MS = 160;
@@ -20,6 +34,7 @@
   let listEl = null;
   let itemEls = [];
   let newCustomerNameEl = null;
+  let showAdvancedFields = false;
 
   const clearTimer = () => {
     if (timer) {
@@ -87,6 +102,10 @@
       // Avoid `autofocus` attr; focus programmatically when the form appears.
       newCustomerNameEl?.focus?.();
     });
+  }
+
+  $: if (!addCustomerMode) {
+    showAdvancedFields = false;
   }
 
   // Keep the highlighted row visible while using arrow keys.
@@ -162,6 +181,88 @@
             bind:value={customerDraft.email}
           />
         </div>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="block">
+            <span class="sr-only">Party Type</span>
+            <select
+              class="w-full bg-bg/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all"
+              bind:value={customerDraft.party_type}
+            >
+              <option value="individual">Individual</option>
+              <option value="business">Business</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="sr-only">Customer Type</span>
+            <select
+              class="w-full bg-bg/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all"
+              bind:value={customerDraft.customer_type}
+            >
+              <option value="retail">Retail</option>
+              <option value="wholesale">Wholesale</option>
+              <option value="b2b">B2B</option>
+            </select>
+          </label>
+        </div>
+        <button
+          class="w-full px-3 py-2 rounded-xl border border-white/10 text-xs font-semibold text-muted hover:text-ink hover:border-indigo-500/30 transition-colors flex items-center justify-between"
+          on:click={() => (showAdvancedFields = !showAdvancedFields)}
+          type="button"
+        >
+          <span>Advanced details</span>
+          <span class={`transition-transform ${showAdvancedFields ? "rotate-180" : ""}`}>v</span>
+        </button>
+        {#if showAdvancedFields}
+          <div class="space-y-2 pt-1">
+            <div class="grid grid-cols-2 gap-2">
+              <input
+                class="w-full bg-bg/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all placeholder-muted/50"
+                placeholder="Membership No."
+                bind:value={customerDraft.membership_no}
+              />
+              <input
+                class="w-full bg-bg/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all placeholder-muted/50"
+                placeholder="Legal Name"
+                bind:value={customerDraft.legal_name}
+              />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <input
+                class="w-full bg-bg/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all placeholder-muted/50"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="Payment Terms (days)"
+                bind:value={customerDraft.payment_terms_days}
+              />
+              <input
+                class="w-full bg-bg/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all placeholder-muted/50"
+                placeholder="Tax ID"
+                bind:value={customerDraft.tax_id}
+              />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <input
+                class="w-full bg-bg/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all placeholder-muted/50"
+                placeholder="VAT No."
+                bind:value={customerDraft.vat_no}
+              />
+              <label class="flex items-center gap-2 rounded-xl border border-white/10 bg-bg/40 px-3 py-2.5 text-xs text-muted">
+                <input
+                  class="h-3.5 w-3.5 rounded border-white/20 bg-bg/70"
+                  type="checkbox"
+                  bind:checked={customerDraft.marketing_opt_in}
+                />
+                Marketing opt-in
+              </label>
+            </div>
+            <textarea
+              class="w-full min-h-[70px] resize-y bg-bg/50 border border-white/10 rounded-xl px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all placeholder-muted/50"
+              placeholder="Notes"
+              bind:value={customerDraft.notes}
+            ></textarea>
+          </div>
+        {/if}
       </div>
       <div class="flex gap-2 justify-end pt-1">
         <button 
@@ -171,8 +272,9 @@
           Cancel
         </button>
         <button 
-          class="px-4 py-2 text-xs bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-500/25 transition-all font-bold tracking-wide active:scale-[0.98]"
+          class="px-4 py-2 text-xs bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-500/25 transition-all font-bold tracking-wide active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
           on:click={createCustomer}
+          disabled={!String(customerDraft.name || "").trim()}
         >
           Save Customer
         </button>

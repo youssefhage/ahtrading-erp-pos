@@ -16,11 +16,20 @@ The POS Agent can print the last receipt directly through the OS print spooler:
   - `receipt_printer`
   - `receipt_print_copies`
   - `auto_print_receipt`
+  - `receipt_template` (`classic` | `compact` | `detailed`)
+  - `receipt_company_name`
+  - `receipt_footer_text`
+
+Available template presets:
+- `classic`: balanced format with core metadata
+- `compact`: minimal metadata, best for speed
+- `detailed`: includes SKU + unit price detail rows
 
 Printer discovery:
 
 - Endpoint: `GET /api/printers`
 - Uses PowerShell on Windows and CUPS (`lpstat`) on macOS.
+- Receipt template list: `GET /api/receipts/templates`
 
 ### Official (A4 PDF)
 
@@ -38,6 +47,14 @@ Config keys (POS Agent):
 - `invoice_printer`
 - `invoice_print_copies`
 - `auto_print_invoice`
+- `invoice_template` (`official_classic` | `official_compact` | `standard`)
+
+Invoice template list:
+- Endpoint: `GET /api/invoices/templates`
+
+Company default:
+- Admin: `System -> Config -> Policies -> Print Policy`
+- Stored in `company_settings.key='print_policy'` and used as fallback when no explicit template is provided.
 
 Notes:
 
@@ -57,4 +74,3 @@ Notes:
 5. Use **Test** to validate each printer mapping.
 
 This is intentionally not hardcoded: each terminal can map printers locally.
-

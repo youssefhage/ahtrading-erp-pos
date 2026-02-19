@@ -2,6 +2,24 @@ import os
 from typing import List
 
 class Settings:
+    def _truthy(self, raw: str) -> bool:
+        return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def _env_int(self, name: str, default: int) -> int:
+        raw = (os.getenv(name) or "").strip()
+        if not raw:
+            return default
+        try:
+            return int(raw)
+        except Exception:
+            return default
+
+    def _env_bool(self, name: str, default: bool) -> bool:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        return self._truthy(raw)
+
     def _split_csv(self, raw: str, *, default: List[str]) -> List[str]:
         parts = [p.strip() for p in (raw or "").split(",")]
         return [p for p in parts if p] or default
@@ -20,5 +38,12 @@ class Settings:
             default=["download.melqard.com"],
         )
         self.api_version = os.getenv("APP_VERSION", "0.1.0").strip() or "0.1.0"
+        # Transport/perf tuning.
+        self.gzip_min_size = max(256, self._env_int("GZIP_MIN_SIZE", 1024))
+        # Keep access logs on by default in local/dev for debugging, and off in prod unless explicitly enabled.
+        self.http_access_log_enabled = self._env_bool(
+            "HTTP_ACCESS_LOG_ENABLED",
+            self.env in {"local", "dev"},
+        )
 
 settings = Settings()

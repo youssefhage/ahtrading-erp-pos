@@ -32,12 +32,18 @@ export async function backendGetJsonWithHeaders<T>(path: string, extraHeaders?: 
     ...(cookie ? { cookie } : {}),
     ...(extraHeaders || {})
   } as Record<string, string>;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: Object.keys(merged).length ? merged : undefined,
-    // Never cache PDFs or the data they depend on (auditability + correctness).
-    cache: "no-store"
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      headers: Object.keys(merged).length ? merged : undefined,
+      // Never cache PDFs or the data they depend on (auditability + correctness).
+      cache: "no-store"
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new BackendHttpError(503, "Backend GET failed: 503", detail);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new BackendHttpError(res.status, `Backend GET failed: ${res.status}`, text);

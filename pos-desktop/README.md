@@ -58,6 +58,12 @@ Config keys:
 - vat_rate
 - tax_code_id
 - loyalty_rate (points per USD)
+- receipt_printer / receipt_print_copies / auto_print_receipt
+- receipt_template (`classic` | `compact` | `detailed`)
+- receipt_company_name / receipt_footer_text
+- print_base_url
+- invoice_printer / invoice_print_copies / auto_print_invoice
+- invoice_template (`official_classic` | `official_compact` | `standard`)
 
 Device auth:
 - Register the device on the backend to obtain `device_id` and `device_token`.
@@ -71,6 +77,7 @@ During pull, the agent also fetches `/pos/config` from the backend to populate:
 - `warehouse_id`
 - `tax_code_id`
 - `vat_rate`
+- `invoice_template` (from company `print_policy` when configured)
 
 ## Unified Mode (Two Companies)
 Run two agents (one per company) and point the UI to the second agent using **Other Agent** in the header.
@@ -83,6 +90,8 @@ Unified behaviors:
 - GET /api/health
 - GET /api/config
 - POST /api/config
+- GET /api/receipts/templates
+- GET /api/invoices/templates
 - GET /api/items
 - POST /api/sale
 - POST /api/return

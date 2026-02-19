@@ -4,15 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet, apiPatch } from "@/lib/api";
 import { ErrorBanner } from "@/components/error-banner";
+import { ItemTypeahead, type ItemTypeaheadItem } from "@/components/item-typeahead";
 import { ShortcutLink } from "@/components/shortcut-link";
-import { SearchableSelect } from "@/components/searchable-select";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-
-type Item = { id: string; sku: string; name: string };
 
 type BatchRow = {
   id: string;
@@ -64,12 +62,10 @@ export default function InventoryBatchesPage() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [items, setItems] = useState<Item[]>([]);
-  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
-
   const [rows, setRows] = useState<BatchRow[]>([]);
 
   const [filterItemId, setFilterItemId] = useState("");
+  const [filterItemLabel, setFilterItemLabel] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [expFrom, setExpFrom] = useState("");
   const [expTo, setExpTo] = useState("");
@@ -116,18 +112,12 @@ export default function InventoryBatchesPage() {
       {
         id: "item",
         header: "Item",
-        accessor: (b) => {
-          const it = itemById.get(b.item_id);
-          return `${it?.sku || b.item_sku || ""} ${it?.name || b.item_name || ""}`.trim();
-        },
-        cell: (b) => {
-          const it = itemById.get(b.item_id);
-          return (
-            <ShortcutLink href={`/catalog/items/${encodeURIComponent(b.item_id)}`} title="Open item">
-              <span className="font-mono text-xs">{it?.sku || b.item_sku || "-"}</span> · {it?.name || b.item_name || "-"}
-            </ShortcutLink>
-          );
-        },
+        accessor: (b) => `${b.item_sku || ""} ${b.item_name || ""}`.trim(),
+        cell: (b) => (
+          <ShortcutLink href={`/catalog/items/${encodeURIComponent(b.item_id)}`} title="Open item">
+            <span className="font-mono text-xs">{b.item_sku || "-"}</span> · {b.item_name || "-"}
+          </ShortcutLink>
+        ),
       },
       { id: "batch_no", header: "Batch", accessor: (b) => b.batch_no || "", mono: true, sortable: true },
       { id: "expiry_date", header: "Expiry", accessor: (b) => b.expiry_date || "", mono: true, sortable: true, cell: (b) => fmtIso(b.expiry_date) },
@@ -175,7 +165,7 @@ export default function InventoryBatchesPage() {
         ),
       },
     ];
-  }, [itemById, openEdit, openLayers]);
+  }, [openEdit, openLayers]);
 
   const layerColumns = useMemo((): Array<DataTableColumn<CostLayerRow>> => {
     return [
@@ -215,19 +205,13 @@ export default function InventoryBatchesPage() {
     setLoading(true);
     setStatus("Loading...");
     try {
-      const [it, batches] = await Promise.all([
-        apiGet<{ items: Item[] }>("/items/min"),
-        (async () => {
-          const qs = new URLSearchParams();
-          if (filterItemId) qs.set("item_id", filterItemId);
-          if (filterStatus) qs.set("status", filterStatus);
-          if (expFrom) qs.set("exp_from", expFrom);
-          if (expTo) qs.set("exp_to", expTo);
-          qs.set("limit", "500");
-          return await apiGet<{ batches: BatchRow[] }>(`/inventory/batches?${qs.toString()}`);
-        })()
-      ]);
-      setItems(it.items || []);
+      const qs = new URLSearchParams();
+      if (filterItemId) qs.set("item_id", filterItemId);
+      if (filterStatus) qs.set("status", filterStatus);
+      if (expFrom) qs.set("exp_from", expFrom);
+      if (expTo) qs.set("exp_to", expTo);
+      qs.set("limit", "500");
+      const batches = await apiGet<{ batches: BatchRow[] }>(`/inventory/batches?${qs.toString()}`);
       setRows(batches.batches || []);
       setStatus("");
     } catch (err) {
@@ -273,17 +257,34 @@ export default function InventoryBatchesPage() {
         <div className="grid w-full grid-cols-1 gap-2 md:grid-cols-12">
           <div className="md:col-span-5">
             <label className="text-xs font-medium text-fg-muted">Item (optional)</label>
-            <SearchableSelect
-              value={filterItemId}
-              onChange={setFilterItemId}
-              placeholder="All items"
-              searchPlaceholder="Search items..."
-              maxOptions={120}
-              options={[
-                { value: "", label: "All items" },
-                ...items.map((i) => ({ value: i.id, label: `${i.sku} · ${i.name}`, keywords: `${i.sku} ${i.name}` })),
-              ]}
-            />
+            <div className="space-y-1">
+              <ItemTypeahead
+                placeholder={filterItemLabel || "All items"}
+                onSelect={(it: ItemTypeaheadItem) => {
+                  setFilterItemId(it.id);
+                  setFilterItemLabel(`${it.sku} · ${it.name}`);
+                }}
+                onClear={() => {
+                  setFilterItemId("");
+                  setFilterItemLabel("");
+                }}
+              />
+              {filterItemId ? (
+                <div className="flex items-center justify-between text-xs text-fg-muted">
+                  <span className="truncate">Selected: {filterItemLabel || filterItemId}</span>
+                  <button
+                    type="button"
+                    className="ui-link"
+                    onClick={() => {
+                      setFilterItemId("");
+                      setFilterItemLabel("");
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
           <div className="md:col-span-3">
             <label className="text-xs font-medium text-fg-muted">Status (optional)</label>

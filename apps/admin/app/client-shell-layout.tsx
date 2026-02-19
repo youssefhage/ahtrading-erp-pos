@@ -21,6 +21,8 @@ function isPrintPath(pathname: string) {
 const TITLE_BY_PATH: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/sales/invoices": "Sales Invoices",
+  "/sales/receipts": "Sales Receipts",
+  "/sales/credit-notes": "Sales Credit Notes",
   "/sales/adjustment-queue": "Adjustment Queue",
   "/sales/payments": "Sales Payments",
   "/sales/returns": "Sales Returns",
@@ -34,6 +36,7 @@ const TITLE_BY_PATH: Record<string, string> = {
   "/partners/suppliers": "Suppliers",
   "/catalog/items": "Items",
   "/catalog/items/list": "Items",
+  "/catalog/products": "Product Catalog",
   "/catalog/item-categories": "Item Categories",
   "/catalog/price-lists": "Price Lists",
   "/catalog/promotions": "Promotions",

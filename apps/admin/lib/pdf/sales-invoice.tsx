@@ -5,6 +5,8 @@ import { fmtIsoDate, generatedAtStamp } from "@/lib/pdf/format";
 import { pdfStyles as s } from "@/lib/pdf/styles";
 
 const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
+const SALES_INVOICE_PDF_TEMPLATES = ["official_classic", "official_compact", "standard"] as const;
+export type SalesInvoicePdfTemplate = (typeof SALES_INVOICE_PDF_TEMPLATES)[number];
 
 type Company = {
   id: string;
@@ -101,7 +103,19 @@ export type SalesInvoiceDetail = {
   lines: InvoiceLine[];
   payments: SalesPayment[];
   tax_lines: TaxLine[];
+  print_policy?: {
+    sales_invoice_pdf_template?: string | null;
+  } | null;
 };
+
+function normalizePdfTemplate(value: unknown): SalesInvoicePdfTemplate | null {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return null;
+  if ((SALES_INVOICE_PDF_TEMPLATES as readonly string[]).includes(raw)) {
+    return raw as SalesInvoicePdfTemplate;
+  }
+  return null;
+}
 
 function toNum(v: unknown) {
   const n = Number(v || 0);
@@ -761,6 +775,129 @@ function OfficialInvoiceTemplate(props: {
   );
 }
 
+function OfficialCompactInvoiceTemplate(props: {
+  detail: SalesInvoiceDetail;
+  company?: Company | null;
+  customer?: Customer | null;
+}) {
+  const inv = props.detail.invoice;
+  const lines = props.detail.lines || [];
+  const taxLines = props.detail.tax_lines || [];
+  const company = props.company || null;
+  const customer = props.customer || null;
+
+  const docNo = inv.invoice_no || inv.receipt_no || inv.id.slice(0, 8);
+  const customerNo = customer?.code || inv.customer_id || "-";
+  const customerName = customerLabel(inv, customer);
+  const customerPhone = String(customer?.phone || "").trim() || "-";
+  const totalQty = lines.reduce((a, l) => a + lineQty(l), 0);
+
+  const taxUsd = taxLines.reduce((a, t) => a + toNum(t.tax_usd), 0);
+  const totalUsd = toNum(inv.total_usd);
+  const computedBeforeVat = toNum(inv.subtotal_usd) - toNum(inv.discount_total_usd);
+  const beforeVat = Math.abs(totalUsd - taxUsd) > 0.009 ? totalUsd - taxUsd : computedBeforeVat;
+  const vatPct = beforeVat > 0 ? (taxUsd / beforeVat) * 100 : 0;
+  const vatPctLabel = vatPct > 0 ? `${vatPct.toFixed(vatPct % 1 === 0 ? 0 : 2)}%` : "";
+
+  return (
+    <Document title={`Sales Invoice ${docNo}`}>
+      <Page size="A4" style={s.page} wrap>
+        <View style={s.headerRow}>
+          <View style={{ maxWidth: "64%" }}>
+            <Text style={s.h1}>{company?.legal_name || company?.name || "Company"}</Text>
+            {company?.registration_no ? (
+              <Text style={[s.muted, s.mono, { marginTop: 3 }]}>Reg No: {String(company.registration_no)}</Text>
+            ) : null}
+            {company?.vat_no ? <Text style={[s.muted, s.mono]}>VAT No: {String(company.vat_no)}</Text> : null}
+          </View>
+          <View>
+            <Text style={[s.h2, { textAlign: "right" }]}>Invoice</Text>
+            <Text style={[s.mono, { marginTop: 2, textAlign: "right" }]}>{docNo}</Text>
+            <Text style={[s.muted, s.mono, { marginTop: 3, textAlign: "right" }]}>Inv {fmtUsDate(inv.invoice_date)}</Text>
+            <Text style={[s.muted, s.mono, { textAlign: "right" }]}>Due {fmtUsDate(inv.due_date)}</Text>
+          </View>
+        </View>
+
+        <View style={[s.section, s.grid3]}>
+          <View style={s.box}>
+            <Text style={s.label}>Customer</Text>
+            <Text style={s.value}>{customerName}</Text>
+            <Text style={[s.muted, s.mono, { marginTop: 3 }]}>No. {customerNo}</Text>
+            <Text style={[s.muted, s.mono]}>Tel {customerPhone}</Text>
+          </View>
+          <View style={s.box}>
+            <Text style={s.label}>Reference</Text>
+            <Text style={[s.value, s.mono]}>{inv.receipt_no || docNo}</Text>
+            <Text style={[s.muted, s.mono, { marginTop: 3 }]}>Status {inv.status}</Text>
+          </View>
+          <View style={s.box}>
+            <Text style={s.label}>Currencies</Text>
+            <Text style={s.value}>
+              Pricing <Text style={s.mono}>{inv.pricing_currency}</Text>
+            </Text>
+            <Text style={s.value}>
+              Settlement <Text style={s.mono}>{inv.settlement_currency}</Text>
+            </Text>
+          </View>
+        </View>
+
+        <View style={s.section}>
+          <Text style={s.h2}>Items</Text>
+          <View style={[s.table, { marginTop: 6 }]}>
+            <View style={s.thead} fixed>
+              <Text style={[s.th, { flex: 2.2 }]}>Item</Text>
+              <Text style={[s.th, { flex: 4.4 }]}>Description</Text>
+              <Text style={[s.th, s.right, { flex: 1.2 }]}>Qty</Text>
+              <Text style={[s.th, { flex: 1.1 }]}>UOM</Text>
+              <Text style={[s.th, s.right, { flex: 1.7 }]}>Unit USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.8 }]}>Amount USD</Text>
+            </View>
+            {lines.map((l) => (
+              <View key={l.id} style={s.tr} wrap={false}>
+                <Text style={[s.td, s.mono, { flex: 2.2 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
+                <Text style={[s.td, { flex: 4.4 }]}>{l.item_name || "-"}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.2 }]}>{fmtQty(lineQty(l))}</Text>
+                <Text style={[s.td, { flex: 1.1 }]}>{String(l.uom || "").trim() || "-"}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmtPlainMoney(lineUnitPrice(l))}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.8 }]}>{fmtPlainMoney(l.line_total_usd)}</Text>
+              </View>
+            ))}
+            {lines.length === 0 ? (
+              <View style={s.tr}>
+                <Text style={[s.td, s.muted, { flex: 1 }]}>No items.</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        <View style={[s.section, { flexDirection: "row", gap: 10 }]}>
+          <View style={[s.box, { flex: 1 }]}>
+            <Text style={s.label}>Total Qty</Text>
+            <Text style={[s.value, s.mono]}>{fmtQty(totalQty)}</Text>
+          </View>
+          <View style={[s.box, { flex: 1 }]}>
+            <Text style={s.label}>Before VAT</Text>
+            <Text style={[s.value, s.mono]}>{fmtUsd(beforeVat)}</Text>
+          </View>
+          <View style={[s.box, { flex: 1 }]}>
+            <Text style={s.label}>{`VAT ${vatPctLabel}`.trim()}</Text>
+            <Text style={[s.value, s.mono]}>{fmtUsd(taxUsd)}</Text>
+          </View>
+          <View style={[s.box, { flex: 1 }]}>
+            <Text style={s.label}>Total Incl. VAT</Text>
+            <Text style={[s.value, s.mono]}>{fmtUsd(totalUsd)}</Text>
+          </View>
+        </View>
+
+        <View style={s.foot}>
+          <Text style={s.mono}>Ref {inv.id}</Text>
+          <Text style={s.mono}>Generated {generatedAtStamp()}</Text>
+        </View>
+      </Page>
+    </Document>
+  );
+}
+
 function StandardInvoiceTemplate(props: { detail: SalesInvoiceDetail; company?: Company | null }) {
   const inv = props.detail.invoice;
   const lines = props.detail.lines || [];
@@ -875,9 +1012,22 @@ export function SalesInvoicePdf(props: {
   company?: Company | null;
   customer?: Customer | null;
   addresses?: PartyAddress[];
+  template?: SalesInvoicePdfTemplate | string;
 }) {
   const company = props.company || null;
+  const selected = normalizePdfTemplate(props.template);
   const isOfficial = company?.id === OFFICIAL_COMPANY_ID;
+
+  if (selected === "official_compact") {
+    return <OfficialCompactInvoiceTemplate detail={props.detail} company={props.company} customer={props.customer} />;
+  }
+  if (selected === "official_classic") {
+    return <OfficialInvoiceTemplate detail={props.detail} company={props.company} customer={props.customer} addresses={props.addresses} />;
+  }
+  if (selected === "standard") {
+    return <StandardInvoiceTemplate detail={props.detail} company={props.company} />;
+  }
+
   if (isOfficial) {
     return <OfficialInvoiceTemplate detail={props.detail} company={props.company} customer={props.customer} addresses={props.addresses} />;
   }

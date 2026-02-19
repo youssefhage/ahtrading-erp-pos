@@ -104,8 +104,8 @@ function SalesPaymentsPageInner() {
 
   const loadBase = useCallback(async () => {
     const [cust, inv, pm] = await Promise.all([
-      apiGet<{ customers: Customer[] }>("/customers"),
-      apiGet<{ invoices: InvoiceRow[] }>("/sales/invoices"),
+      apiGet<{ customers: Customer[] }>("/customers?limit=500&offset=0&include_inactive=true"),
+      apiGet<{ invoices: InvoiceRow[] }>("/sales/invoices?limit=500&offset=0"),
       apiGet<{ methods: PaymentMethodMapping[] }>("/config/payment-methods")
     ]);
     setCustomers(cust.customers || []);

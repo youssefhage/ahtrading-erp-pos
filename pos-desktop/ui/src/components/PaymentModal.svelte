@@ -117,7 +117,7 @@
             Cancel
           </button>
           <button 
-            class="flex-[2] py-4 px-6 rounded-xl bg-gradient-to-r from-accent to-accent-hover text-white font-bold text-lg tracking-wide shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            class="flex-[2] py-4 px-6 rounded-xl bg-gradient-to-r from-accent to-accent-hover text-[rgb(var(--color-accent-content))] font-bold text-lg tracking-wide shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
             on:click={() => onConfirm(paymentMethod)}
           >
             {mode === "return" ? "Confirm Refund" : "Complete Sale"}

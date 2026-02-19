@@ -48,6 +48,12 @@ function taxRateInputToDecimal(raw: string): number {
   return n > 1 ? n / 100 : n;
 }
 
+const SALES_INVOICE_TEMPLATE_OPTIONS = [
+  { id: "official_classic", label: "Official Classic" },
+  { id: "official_compact", label: "Official Compact" },
+  { id: "standard", label: "Standard" },
+];
+
 export default function ConfigPage() {
   const sp = useSearchParams();
   const tab = String(sp.get("tab") || "policies").trim() || "policies";
@@ -98,6 +104,11 @@ export default function ConfigPage() {
   const [lbpRoundStep, setLbpRoundStep] = useState("5000");
   const [savingPricingPolicy, setSavingPricingPolicy] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
+
+  // Print policy (company_settings.key='print_policy')
+  const [salesInvoicePdfTemplate, setSalesInvoicePdfTemplate] = useState("official_classic");
+  const [savingPrintPolicy, setSavingPrintPolicy] = useState(false);
+  const [printPolicyOpen, setPrintPolicyOpen] = useState(false);
 
   // Tax code form
   const [taxName, setTaxName] = useState("");
@@ -399,6 +410,13 @@ export default function ConfigPage() {
   }, [settings]);
 
   useEffect(() => {
+    const pol = settings.find((s) => s.key === "print_policy");
+    const raw = String((pol?.value_json || {})?.sales_invoice_pdf_template || "").trim().toLowerCase();
+    const allowed = SALES_INVOICE_TEMPLATE_OPTIONS.some((opt) => opt.id === raw);
+    setSalesInvoicePdfTemplate(allowed ? raw : "official_classic");
+  }, [settings]);
+
+  useEffect(() => {
     if (!defaultRole && roles.length) setDefaultRole(roles[0]?.code || "");
     if (!methodRole && roles.length) setMethodRole(roles[0]?.code || "");
   }, [roles, defaultRole, methodRole]);
@@ -579,6 +597,34 @@ export default function ConfigPage() {
       return false;
     } finally {
       setSavingPricingPolicy(false);
+    }
+  }
+
+  async function savePrintPolicy(e: React.FormEvent): Promise<boolean> {
+    e.preventDefault();
+    setSavingPrintPolicy(true);
+    setStatus("Saving print policy...");
+    try {
+      const current = ((settings.find((s) => s.key === "print_policy")?.value_json || {}) as any) || {};
+      const normalized = SALES_INVOICE_TEMPLATE_OPTIONS.some((opt) => opt.id === salesInvoicePdfTemplate)
+        ? salesInvoicePdfTemplate
+        : "official_classic";
+      await apiPost("/pricing/company-settings", {
+        key: "print_policy",
+        value_json: {
+          ...current,
+          sales_invoice_pdf_template: normalized,
+        },
+      });
+      await load();
+      setStatus("");
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+      return false;
+    } finally {
+      setSavingPrintPolicy(false);
     }
   }
 
@@ -898,6 +944,56 @@ export default function ConfigPage() {
           <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
             <div className="text-xs font-medium text-fg-muted">LBP Round Step</div>
             <div className="mt-1 text-sm text-foreground">{lbpRoundStep}</div>
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        title="Print Policy"
+        description="Default A4 sales invoice PDF template used by exports and POS print flows."
+        actions={
+          <Dialog open={printPolicyOpen} onOpenChange={setPrintPolicyOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">Edit</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Print Policy</DialogTitle>
+                <DialogDescription>Set the company default template for sales invoice PDFs.</DialogDescription>
+              </DialogHeader>
+              <form
+                onSubmit={async (e) => {
+                  const ok = await savePrintPolicy(e);
+                  if (ok) setPrintPolicyOpen(false);
+                }}
+                className="grid grid-cols-1 gap-3"
+              >
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg-muted">Sales Invoice PDF Template</label>
+                  <select className="ui-select" value={salesInvoicePdfTemplate} onChange={(e) => setSalesInvoicePdfTemplate(e.target.value)}>
+                    {SALES_INVOICE_TEMPLATE_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={savingPrintPolicy}>
+                    {savingPrintPolicy ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        }
+      >
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+            <div className="text-xs font-medium text-fg-muted">Sales Invoice PDF Template</div>
+            <div className="mt-1 text-sm text-foreground">
+              {SALES_INVOICE_TEMPLATE_OPTIONS.find((opt) => opt.id === salesInvoicePdfTemplate)?.label || salesInvoicePdfTemplate}
+            </div>
           </div>
         </div>
       </Section>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { apiGet } from "@/lib/api";
@@ -354,6 +355,24 @@ export default function SalesReturnsPage() {
                             </div>
                             <StatusChip value={detail.return.status} />
                           </div>
+
+                          {(
+                            String(detail.return.refund_method || "").toLowerCase() === "credit" ||
+                            (detail.refunds || []).some((r) => String(r.method || "").toLowerCase() === "credit")
+                          ) ? (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <Button asChild size="sm" variant="outline">
+                                <Link href={`/sales/credit-notes/${encodeURIComponent(detail.return.id)}/print`} target="_blank" rel="noopener noreferrer">
+                                  Print Credit Note
+                                </Link>
+                              </Button>
+                              <Button asChild size="sm" variant="outline">
+                                <a href={`/exports/sales-credit-notes/${encodeURIComponent(detail.return.id)}/pdf`} target="_blank" rel="noopener noreferrer">
+                                  Credit Note PDF
+                                </a>
+                              </Button>
+                            </div>
+                          ) : null}
 
                           <div className="mt-3">
                             <div className="text-xs text-fg-muted">Net refund</div>

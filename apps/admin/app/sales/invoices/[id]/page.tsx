@@ -152,6 +152,7 @@ function SalesInvoiceShowInner() {
 
   const [postOpen, setPostOpen] = useState(false);
   const [postApplyingVat, setPostApplyingVat] = useState(true);
+  const [postVatAdvancedOpen, setPostVatAdvancedOpen] = useState(false);
   const [postRecordPayment, setPostRecordPayment] = useState(false);
   const [postMethod, setPostMethod] = useState("cash");
   const [postUsd, setPostUsd] = useState("0");
@@ -659,6 +660,7 @@ function SalesInvoiceShowInner() {
       return;
     }
     setPostApplyingVat(true);
+    setPostVatAdvancedOpen(false);
     setPostRecordPayment(false);
     setPostMethod("cash");
     setPostUsd("0");
@@ -796,11 +798,12 @@ function SalesInvoiceShowInner() {
       lbp = lbpRes.ok ? lbpRes.value : 0;
     }
     const pay = !postRecordPayment || (usd === 0 && lbp === 0) ? [] : [{ method: postMethod, amount_usd: usd, amount_lbp: lbp }];
+    const applyVat = postVatAdvancedOpen ? postApplyingVat : true;
 
     setPostSubmitting(true);
     setStatus("Posting invoice...");
     try {
-      await apiPost(`/sales/invoices/${detail.invoice.id}/post`, { apply_vat: postApplyingVat, payments: pay });
+      await apiPost(`/sales/invoices/${detail.invoice.id}/post`, { apply_vat: applyVat, payments: pay });
       setPostOpen(false);
       await load();
       setStatus("");
@@ -921,6 +924,28 @@ function SalesInvoiceShowInner() {
                       Download PDF
                     </a>
                   </Button>
+                  {detail.invoice.status === "posted" ? (
+                    <>
+                      <Button asChild variant="outline">
+                        <a
+                          href={`/sales/invoices/${encodeURIComponent(detail.invoice.id)}/print?paper=receipt&doc=receipt`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Print Receipt
+                        </a>
+                      </Button>
+                      <Button asChild variant="outline">
+                        <a
+                          href={`/exports/sales-receipts/${encodeURIComponent(detail.invoice.id)}/pdf`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Receipt PDF
+                        </a>
+                      </Button>
+                    </>
+                  ) : null}
                   {detail.invoice.status === "draft" ? (
                     <>
                       <Button asChild variant="outline">
@@ -1367,19 +1392,36 @@ function SalesInvoiceShowInner() {
                     ) : null}
                   </div>
                 </div>
-                <label className="md:col-span-6 flex items-center gap-2 text-xs text-fg-muted">
-                  <input
-                    type="checkbox"
-                    className="ui-checkbox"
-                    checked={postApplyingVat}
-                    onChange={(e) => {
-                      const next = e.target.checked;
-                      setPostApplyingVat(next);
-                      refreshPostPreview(next);
-                    }}
-                  />
-                  Apply VAT from company tax codes
-                </label>
+                <div className="md:col-span-6 rounded-md border border-border-subtle bg-bg-elevated/60 p-3 text-xs text-fg-muted">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>VAT mode</span>
+                    <span className="font-medium text-foreground">Automatic</span>
+                  </div>
+                  <p className="mt-1">VAT is applied by default using item tax codes and company VAT settings.</p>
+                  {!postVatAdvancedOpen ? (
+                    <button
+                      type="button"
+                      className="mt-2 text-xs font-medium text-fg-subtle underline underline-offset-2 hover:text-foreground"
+                      onClick={() => setPostVatAdvancedOpen(true)}
+                    >
+                      Change VAT behavior (advanced)
+                    </button>
+                  ) : (
+                    <label className="mt-2 flex items-center gap-2 text-xs text-fg-muted">
+                      <input
+                        type="checkbox"
+                        className="ui-checkbox"
+                        checked={postApplyingVat}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setPostApplyingVat(next);
+                          refreshPostPreview(next);
+                        }}
+                      />
+                      Apply VAT from company tax codes
+                    </label>
+                  )}
+                </div>
                 <label className="md:col-span-6 flex items-center gap-2 text-xs text-fg-muted">
                   <input
                     type="checkbox"

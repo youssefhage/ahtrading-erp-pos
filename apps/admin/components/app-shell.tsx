@@ -167,7 +167,9 @@ function iconForHref(href: string) {
     "/system/audit-logs": FileText,
 
     "/sales/invoices": ReceiptText,
+    "/sales/receipts": ReceiptText,
     "/sales/payments": BadgeDollarSign,
+    "/sales/credit-notes": ReceiptText,
     "/sales/returns": ArrowLeftRight,
 
     "/purchasing/purchase-orders": ClipboardList,
@@ -183,6 +185,7 @@ function iconForHref(href: string) {
 
     "/catalog/items": Package,
     "/catalog/items/list": Package,
+    "/catalog/products": Package,
     "/catalog/item-categories": Percent,
     "/catalog/price-lists": BadgeDollarSign,
     "/catalog/promotions": Sparkles,
@@ -283,6 +286,8 @@ const FULL_NAV_SECTIONS: NavSection[] = [
     label: "Sales",
     items: [
       { label: "Sales Invoices", href: "/sales/invoices" },
+      { label: "Sales Receipts", href: "/sales/receipts" },
+      { label: "Credit Notes", href: "/sales/credit-notes" },
       { label: "Adjustment Queue", href: "/sales/adjustment-queue" },
       { label: "Sales Payments", href: "/sales/payments" },
       { label: "Sales Returns", href: "/sales/returns" }
@@ -305,6 +310,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Customers", href: "/partners/customers/list" },
       { label: "Suppliers", href: "/partners/suppliers" },
       { label: "Items", href: "/catalog/items/list" },
+      { label: "Products", href: "/catalog/products" },
       { label: "Categories", href: "/catalog/item-categories" },
       { label: "Price Lists", href: "/catalog/price-lists" },
       { label: "Promotions", href: "/catalog/promotions" }

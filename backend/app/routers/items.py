@@ -477,15 +477,17 @@ def create_uom(data: UomCreateIn, company_id: str = Depends(get_company_id), use
                     SET name = EXCLUDED.name,
                         is_active = EXCLUDED.is_active,
                         updated_at = now()
+                    RETURNING id
                     """,
                     (company_id, code, name, bool(data.is_active)),
                 )
+                uom_id = cur.fetchone()["id"]
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                     VALUES (gen_random_uuid(), %s, %s, 'uom_upsert', 'uom', %s, %s::jsonb)
                     """,
-                    (company_id, user["user_id"], code, json.dumps({"code": code, "name": name, "is_active": bool(data.is_active)})),
+                    (company_id, user["user_id"], uom_id, json.dumps({"code": code, "name": name, "is_active": bool(data.is_active)})),
                 )
                 return {"ok": True, "code": code}
 
@@ -519,15 +521,19 @@ def update_uom(code: str, data: UomUpdateIn, company_id: str = Depends(get_compa
                     UPDATE unit_of_measures
                     SET {', '.join(fields)}, updated_at = now()
                     WHERE company_id = %s AND code = %s
+                    RETURNING id
                     """,
                     params,
                 )
+                updated = cur.fetchone()
+                if not updated:
+                    raise HTTPException(status_code=404, detail="uom not found")
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                     VALUES (gen_random_uuid(), %s, %s, 'uom_update', 'uom', %s, %s::jsonb)
                     """,
-                    (company_id, user["user_id"], ucode, json.dumps(patch)),
+                    (company_id, user["user_id"], updated["id"], json.dumps(patch)),
                 )
                 return {"ok": True}
 

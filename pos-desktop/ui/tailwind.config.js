@@ -19,8 +19,8 @@ export default {
       },
       fontFamily: {
         // Keep Tailwind's `font-sans` consistent with `src/styles.css` (offline-safe fallbacks included).
-        sans: ['Manrope', '"Space Grotesk"', '"Avenir Next"', '"Segoe UI"', 'sans-serif'],
-        mono: ['"JetBrains Mono"', '"IBM Plex Mono"', '"SF Mono"', 'Consolas', 'monospace'],
+        sans: ['Roboto', '"Avenir Next"', '"Segoe UI"', 'sans-serif'],
+        mono: ['Roboto', '"SF Mono"', 'Consolas', 'monospace'],
       },
     },
   },

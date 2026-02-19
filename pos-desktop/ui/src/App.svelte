@@ -22,6 +22,7 @@
   const UNOFFICIAL_SESSION_STORAGE_KEY = "pos_ui_session_token_unofficial";
   const INVOICE_MODE_STORAGE_KEY = "pos_ui_invoice_company_mode";
   const FLAG_OFFICIAL_STORAGE_KEY = "pos_ui_flag_official";
+  const VAT_DISPLAY_MODE_STORAGE_KEY = "pos_ui_vat_display_mode";
   const THEME_STORAGE_KEY = "pos_ui_theme";
   const SCREEN_STORAGE_KEY = "pos_ui_screen";
   const WEB_CONFIG_OFFICIAL_STORAGE_KEY = "pos_web_config_official";
@@ -32,6 +33,16 @@
   // These are seeded in backend/db/seeds/seed_companies.sql and used in sample POS configs.
   const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
   const UNOFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000002";
+  const RECEIPT_TEMPLATE_OPTIONS = [
+    { id: "classic", label: "Classic", desc: "Balanced receipt with key metadata." },
+    { id: "compact", label: "Compact", desc: "Minimal receipt for faster printing." },
+    { id: "detailed", label: "Detailed", desc: "Adds SKU and unit price details." },
+  ];
+  const INVOICE_TEMPLATE_OPTIONS = [
+    { id: "official_classic", label: "Official Classic", desc: "Full official A4 with detailed sections." },
+    { id: "official_compact", label: "Official Compact", desc: "Condensed official A4 for faster reading." },
+    { id: "standard", label: "Standard", desc: "General invoice layout (non-official style)." },
+  ];
 
   // Utility functions
   const toNum = (value, fallback = 0) => {
@@ -40,6 +51,18 @@
   };
   
   const toRate = (value) => toNum(value, 0);
+
+  const normalizeVatRate = (value) => {
+    let rate = toNum(value, 0);
+    if (rate > 1 && rate <= 100) rate = rate / 100;
+    return Math.max(0, rate);
+  };
+
+  const normalizeVatDisplayMode = (value) => {
+    const mode = String(value || "").trim().toLowerCase();
+    if (mode === "ex" || mode === "inc" || mode === "both") return mode;
+    return "both";
+  };
 
   const normalizeApiBase = (value) => {
     let v = (value || "").trim();
@@ -225,6 +248,22 @@
     return out;
   };
 
+  const makeEmptyCustomerDraft = () => ({
+    name: "",
+    phone: "",
+    email: "",
+    party_type: "individual",
+    customer_type: "retail",
+    legal_name: "",
+    membership_no: "",
+    payment_terms_days: "",
+    tax_id: "",
+    vat_no: "",
+    notes: "",
+    marketing_opt_in: false,
+    is_active: true,
+  });
+
   const _normalizeScanCode = (value) => {
     let v = String(value || "");
     // Remove control chars scanners may inject (FNC/GS/CR/LF) and trim.
@@ -311,9 +350,13 @@
     receipt_printer: "",
     receipt_print_copies: 1,
     auto_print_receipt: false,
+    receipt_template: "classic",
+    receipt_company_name: "AH Trading",
+    receipt_footer_text: "",
     invoice_printer: "",
     invoice_print_copies: 1,
     auto_print_invoice: false,
+    invoice_template: "official_classic",
     require_manager_approval_credit: false,
     require_manager_approval_returns: false,
     require_manager_approval_cross_company: false,
@@ -340,9 +383,13 @@
     receipt_printer: "",
     receipt_print_copies: 1,
     auto_print_receipt: false,
+    receipt_template: "classic",
+    receipt_company_name: "AH Trading",
+    receipt_footer_text: "",
     invoice_printer: "",
     invoice_print_copies: 1,
     auto_print_invoice: false,
+    invoice_template: "official_classic",
     require_manager_approval_credit: false,
     require_manager_approval_returns: false,
     require_manager_approval_cross_company: false,
@@ -365,6 +412,7 @@
   // Unified invoice routing
   let invoiceCompanyMode = "auto"; // "auto" | "official" | "unofficial"
   let flagOfficial = false;
+  let vatDisplayMode = "both"; // "ex" | "inc" | "both"
 
   // Layout
   let catalogCollapsed = true;
@@ -374,7 +422,7 @@
   let customerResults = [];
   let customerSearching = false;
   let addCustomerMode = false;
-  let customerDraft = { name: "", phone: "", email: "" };
+  let customerDraft = makeEmptyCustomerDraft();
   let _customerSearchSeq = 0;
   let _customerRemoteTimer = null;
   const CUSTOMER_REMOTE_SEARCH_DEBOUNCE_MS = 180;
@@ -404,8 +452,8 @@
   let printingStatus = "";
   let printingError = "";
   // Official: A4 invoice PDF
-  let printOfficial = { printer: "", copies: 1, auto: false, baseUrl: "" };
-  let printUnofficial = { printer: "", copies: 1, auto: false };
+  let printOfficial = { printer: "", copies: 1, auto: false, baseUrl: "", template: "official_classic" };
+  let printUnofficial = { printer: "", copies: 1, auto: false, template: "classic", companyName: "AH Trading", footerText: "" };
 
   // Cashier
   let showCashierModal = false;
@@ -464,33 +512,99 @@
   $: currencyPrimary = (config.pricing_currency || "USD").toUpperCase();
   $: shiftText = config.shift_id ? "Shift: Open" : "Shift: Closed";
   $: checkoutTotal = currencyPrimary === "LBP" ? (totals.totalLbp || 0) : (totals.totalUsd || 0);
-  
-  $: cartSubtotals = (() => {
-    let subtotalUsd = 0;
-    let subtotalLbpRaw = 0;
-    let officialSubtotalUsd = 0;
-    let unofficialSubtotalUsd = 0;
-    for (const ln of cart || []) {
-      const qty = toNum(ln?.qty, 0);
-      const extUsd = toNum(ln?.price_usd, 0) * qty;
-      const extLbp = toNum(ln?.price_lbp, 0) * qty;
-      subtotalUsd += extUsd;
-      subtotalLbpRaw += extLbp;
-      if (ln?.companyKey === "unofficial") unofficialSubtotalUsd += extUsd;
-      else officialSubtotalUsd += extUsd;
+  const cfgForCompanyKey = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
+
+  const vatCodesForCompanyKey = (companyKey) => {
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const raw = cfg?.vat_codes;
+    const map = {};
+    if (!raw) return map;
+
+    if (Array.isArray(raw)) {
+      for (const row of raw) {
+        const id = String(row?.id || "").trim();
+        if (!id) continue;
+        map[id] = normalizeVatRate(row?.rate);
+      }
+      return map;
     }
-    return { subtotalUsd, subtotalLbpRaw, officialSubtotalUsd, unofficialSubtotalUsd };
+
+    if (typeof raw === "object") {
+      for (const [key, value] of Object.entries(raw)) {
+        const id = String(key || "").trim();
+        if (!id) continue;
+        const rate = (value && typeof value === "object") ? value?.rate : value;
+        map[id] = normalizeVatRate(rate);
+      }
+    }
+    return map;
+  };
+
+  const vatRateForLine = (line) => {
+    const companyKey = line?.companyKey || "official";
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const defaultRate = normalizeVatRate(cfg?.vat_rate);
+    const defaultTaxCodeId = String(cfg?.tax_code_id || "").trim();
+    const taxCodeId = String(line?.tax_code_id || defaultTaxCodeId || "").trim();
+    if (!taxCodeId) return 0;
+
+    const vatCodes = vatCodesForCompanyKey(companyKey);
+    const hasVatCodes = Object.keys(vatCodes).length > 0;
+    const hasRateForCode = Object.prototype.hasOwnProperty.call(vatCodes, taxCodeId);
+
+    if (hasRateForCode) return normalizeVatRate(vatCodes[taxCodeId]);
+    if (taxCodeId === defaultTaxCodeId) return defaultRate;
+    if (hasVatCodes) return 0;
+    return defaultRate;
+  };
+
+  const cartLineAmounts = (line) => {
+    const companyKey = line?.companyKey === "unofficial" ? "unofficial" : "official";
+    const qty = Math.max(0, toNum(line?.qty, 0));
+    const baseUsd = toNum(line?.price_usd, 0) * qty;
+    const rawBaseLbp = toNum(line?.price_lbp, 0) * qty;
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const fallbackEx = toNum(cfg?.exchange_rate, toNum(config?.exchange_rate, 0));
+    const baseLbp = rawBaseLbp === 0 && fallbackEx > 0 ? baseUsd * fallbackEx : rawBaseLbp;
+    const vatRate = vatRateForLine(line);
+    const taxUsd = baseUsd * vatRate;
+    const taxLbp = baseLbp * vatRate;
+    return { companyKey, baseUsd, baseLbp, taxUsd, taxLbp };
+  };
+
+  $: cartVatSnapshot = (() => {
+    const byCompany = {
+      official: { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
+      unofficial: { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
+    };
+    let subtotalUsd = 0;
+    let subtotalLbp = 0;
+    let taxUsd = 0;
+    let taxLbp = 0;
+
+    for (const ln of cart || []) {
+      const row = cartLineAmounts(ln);
+      subtotalUsd += row.baseUsd;
+      subtotalLbp += row.baseLbp;
+      taxUsd += row.taxUsd;
+      taxLbp += row.taxLbp;
+      const bucket = row.companyKey === "unofficial" ? byCompany.unofficial : byCompany.official;
+      bucket.subtotalUsd += row.baseUsd;
+      bucket.taxUsd += row.taxUsd;
+    }
+
+    byCompany.official.totalUsd = byCompany.official.subtotalUsd + byCompany.official.taxUsd;
+    byCompany.unofficial.totalUsd = byCompany.unofficial.subtotalUsd + byCompany.unofficial.taxUsd;
+    return { subtotalUsd, subtotalLbp, taxUsd, taxLbp, byCompany };
   })();
 
   // Totals Calculation
   $: totals = (() => {
-    const rate = toRate(config.exchange_rate);
-    const vatRate = toRate(config.vat_rate);
-    const subtotalUsd = toNum(cartSubtotals?.subtotalUsd, 0);
-    const subtotalLbpRaw = toNum(cartSubtotals?.subtotalLbpRaw, 0);
-    const subtotalLbp = subtotalLbpRaw === 0 && rate > 0 ? subtotalUsd * rate : subtotalLbpRaw;
-    const taxUsd = subtotalUsd * vatRate;
-    const taxLbp = subtotalLbp * vatRate;
+    const subtotalUsd = toNum(cartVatSnapshot?.subtotalUsd, 0);
+    const subtotalLbp = toNum(cartVatSnapshot?.subtotalLbp, 0);
+    const taxUsd = toNum(cartVatSnapshot?.taxUsd, 0);
+    const taxLbp = toNum(cartVatSnapshot?.taxLbp, 0);
+    const vatRate = subtotalUsd > 0 ? (taxUsd / subtotalUsd) : 0;
     return {
       subtotalUsd,
       subtotalLbp,
@@ -498,20 +612,15 @@
       taxLbp,
       totalUsd: subtotalUsd + taxUsd,
       totalLbp: subtotalLbp + taxLbp,
-      vatRate
+      vatRate,
     };
   })();
 
   $: totalsByCompany = (() => {
-    const cfgOff = (otherCompanyKey === "official") ? unofficialConfig : config;
-    const cfgUn = (otherCompanyKey === "unofficial") ? unofficialConfig : config;
-    const vOff = toRate(cfgOff.vat_rate);
-    const vUn = toRate(cfgUn.vat_rate);
-    const offSub = toNum(cartSubtotals?.officialSubtotalUsd, 0);
-    const unSub = toNum(cartSubtotals?.unofficialSubtotalUsd, 0);
+    const byCompany = cartVatSnapshot?.byCompany || {};
     return {
-      official: { subtotalUsd: offSub, taxUsd: offSub * vOff, totalUsd: offSub + (offSub * vOff) },
-      unofficial: { subtotalUsd: unSub, taxUsd: unSub * vUn, totalUsd: unSub + (unSub * vUn) },
+      official: byCompany.official || { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
+      unofficial: byCompany.unofficial || { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
     };
   })();
 
@@ -703,8 +812,6 @@
     return "/receipt/last";
   };
 
-  const cfgForCompanyKey = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
-
   const _webConfigStorageKey = (companyKey) => (
     companyKey === otherCompanyKey ? WEB_CONFIG_UNOFFICIAL_STORAGE_KEY : WEB_CONFIG_OFFICIAL_STORAGE_KEY
   );
@@ -846,7 +953,7 @@
     for (const row of vatCodes || []) {
       const id = String(row?.id || "").trim();
       if (!id) continue;
-      map[id] = toNum(row?.rate, 0);
+      map[id] = normalizeVatRate(row?.rate);
     }
     return map;
   };
@@ -865,7 +972,7 @@
     const pricingCurrency = String(payload.pricing_currency || cfg.pricing_currency || "USD").toUpperCase();
     const settlementCurrency = pricingCurrency;
     const defaultTaxCodeId = payload.tax_code_id || cfg.tax_code_id || null;
-    const vatRate = toNum(cfg.vat_rate, 0);
+    const vatRate = normalizeVatRate(cfg.vat_rate);
     const vatCodes = (cfg.vat_codes && typeof cfg.vat_codes === "object") ? cfg.vat_codes : {};
 
     let baseUsd = 0;
@@ -924,7 +1031,7 @@
         b.lbp += toNum(ln.line_total_lbp, 0);
       }
       for (const [taxCodeId, b] of baseByTax.entries()) {
-        let rate = Object.prototype.hasOwnProperty.call(vatCodes, taxCodeId) ? toNum(vatCodes[taxCodeId], 0) : vatRate;
+        let rate = Object.prototype.hasOwnProperty.call(vatCodes, taxCodeId) ? normalizeVatRate(vatCodes[taxCodeId]) : vatRate;
         if (!rate && String(defaultTaxCodeId) === taxCodeId) rate = vatRate;
         const lineTaxLbp = b.lbp * rate;
         const lineTaxUsd = exchangeRate > 0 ? (lineTaxLbp / exchangeRate) : 0;
@@ -1026,7 +1133,7 @@
 
     const processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
       method: "POST",
-      body: { event_id: processEventId },
+      body: { event_id: processEventId, force: true },
     });
     const out = {
       event_id: processEventId,
@@ -1037,6 +1144,333 @@
     };
     if (out.invoice_id) webEventInvoiceMap.set(processEventId, out.invoice_id);
     return out;
+  };
+
+  const _escapeHtml = (value) => String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+  const _fmtMoney = (value, digits = 2) => {
+    const n = toNum(value, 0);
+    return n.toLocaleString(undefined, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  };
+
+  const _fmtDateTime = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const ms = Date.parse(raw);
+    if (Number.isNaN(ms)) return raw;
+    return new Date(ms).toLocaleString();
+  };
+
+  const _resolveInvoiceByEventWeb = async (companyKey, eventId) => {
+    const eid = String(eventId || "").trim();
+    if (!eid) throw new Error("event_id is required");
+    const cached = webEventInvoiceMap.get(eid);
+    if (cached) return { event_id: eid, invoice_id: cached };
+    const processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
+      method: "POST",
+      body: { event_id: eid, force: true },
+    });
+    const invoiceId = String(processed?.invoice_id || "").trim();
+    if (invoiceId) webEventInvoiceMap.set(eid, invoiceId);
+    return { event_id: eid, invoice_id: invoiceId || null };
+  };
+
+  const _fetchInvoiceDetailWeb = async (companyKey, invoiceId) => {
+    const invId = String(invoiceId || "").trim();
+    if (!invId) throw new Error("invoice_id is required");
+    return await _webPosCall(companyKey, `/pos/sales-invoices/${encodeURIComponent(invId)}`, { method: "GET" });
+  };
+
+  const _fetchLastReceiptDetailWeb = async (companyKey) => {
+    return await _webPosCall(companyKey, "/pos/receipts/last", { method: "GET" });
+  };
+
+  const _openPrintWindowWithHtml = (html, receiptWin = null) => {
+    let win = receiptWin;
+    try {
+      if (!win || win.closed) {
+        win = window.open("about:blank", "_blank", "noopener,noreferrer");
+      }
+    } catch (_) {
+      win = null;
+    }
+    if (!win) {
+      throw new Error("Unable to open print window. Please allow popups for this site.");
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => {
+      try { win.focus(); win.print(); } catch (_) {}
+    }, 80);
+    return win;
+  };
+
+  const _renderInvoicePrintHtmlWeb = (companyKey, detail, cfg, { thermal = false } = {}) => {
+    const inv = (detail && detail.invoice && typeof detail.invoice === "object") ? detail.invoice : {};
+    const lines = Array.isArray(detail?.lines) ? detail.lines : [];
+    const payments = Array.isArray(detail?.payments) ? detail.payments : [];
+    const taxLines = Array.isArray(detail?.tax_lines) ? detail.tax_lines : [];
+    const taxUsd = taxLines.length
+      ? taxLines.reduce((s, r) => s + toNum(r?.tax_usd, 0), 0)
+      : Math.max(0, toNum(inv?.total_usd, 0) - toNum(inv?.subtotal_usd, 0));
+    const taxLbp = taxLines.length
+      ? taxLines.reduce((s, r) => s + toNum(r?.tax_lbp, 0), 0)
+      : Math.max(0, toNum(inv?.total_lbp, 0) - toNum(inv?.subtotal_lbp, 0));
+
+    const fallbackName = companyKey === "official" ? "Official Invoice" : "Sales Receipt";
+    const companyName = String(cfg?.receipt_company_name || fallbackName).trim() || fallbackName;
+    const footerText = String(cfg?.receipt_footer_text || "").trim();
+    const docNo = String(inv?.receipt_no || inv?.invoice_no || "").trim();
+    const docDate = _fmtDateTime(inv?.created_at || inv?.invoice_date || "");
+    const customerName = String(inv?.customer_name || "Walk-in Customer").trim();
+    const paymentHtml = payments.length
+      ? payments
+        .map((p) => {
+          const method = _escapeHtml(String(p?.method || "payment").toUpperCase());
+          const usd = _fmtMoney(p?.amount_usd, 2);
+          const lbp = _fmtMoney(p?.amount_lbp, 2);
+          return `<div>${method}: USD ${usd} | LBP ${lbp}</div>`;
+        })
+        .join("")
+      : "<div>Unpaid / Credit</div>";
+
+    const lineRows = thermal
+      ? lines.map((ln) => `
+          <tr>
+            <td>${_escapeHtml(String(ln?.item_name || ln?.item_sku || "Item"))}</td>
+            <td class="r">${_fmtMoney(ln?.qty, 2)}</td>
+            <td class="r">${_fmtMoney(ln?.line_total_lbp, 2)}</td>
+          </tr>
+        `).join("")
+      : lines.map((ln, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td>${_escapeHtml(String(ln?.item_name || ln?.item_sku || "Item"))}</td>
+            <td class="r">${_fmtMoney(ln?.qty, 2)}</td>
+            <td class="r">${_fmtMoney(ln?.unit_price_usd, 2)}</td>
+            <td class="r">${_fmtMoney(ln?.line_total_usd, 2)}</td>
+            <td class="r">${_fmtMoney(ln?.line_total_lbp, 2)}</td>
+          </tr>
+        `).join("");
+
+    const pageSize = thermal ? "80mm auto" : "A4";
+    const margin = thermal ? "4mm" : "10mm";
+    const thCols = thermal
+      ? "<th>Item</th><th class='r'>Qty</th><th class='r'>LBP</th>"
+      : "<th>#</th><th>Item</th><th class='r'>Qty</th><th class='r'>Unit USD</th><th class='r'>Line USD</th><th class='r'>Line LBP</th>";
+    const noLinesColspan = thermal ? 3 : 6;
+
+    return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${_escapeHtml(docNo || "Print")}</title>
+  <style>
+    @page { size: ${pageSize}; margin: ${margin}; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #111; margin: 0; }
+    .wrap { padding: 8px; }
+    .hd { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+    .name { font-weight: 700; font-size: ${thermal ? "14px" : "18px"}; }
+    .muted { color: #555; font-size: 12px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; margin-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: ${thermal ? "11px" : "12px"}; }
+    th, td { border-bottom: 1px solid #ddd; padding: 4px 2px; text-align: left; vertical-align: top; }
+    th { font-weight: 700; }
+    .r { text-align: right; }
+    .tot { margin-top: 8px; font-size: 12px; }
+    .tot .row { display: flex; justify-content: space-between; margin: 2px 0; }
+    .tot .bold { font-weight: 700; border-top: 1px solid #111; padding-top: 4px; margin-top: 4px; }
+    .pay { margin-top: 8px; font-size: 12px; }
+    .foot { margin-top: 10px; font-size: 11px; color: #444; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hd">
+      <div class="name">${_escapeHtml(companyName)}</div>
+      <div class="muted">${thermal ? "RECEIPT" : "INVOICE"}</div>
+    </div>
+    <div class="grid">
+      <div><strong>No:</strong> ${_escapeHtml(docNo || "-")}</div>
+      <div><strong>Date:</strong> ${_escapeHtml(docDate || "-")}</div>
+      <div><strong>Customer:</strong> ${_escapeHtml(customerName)}</div>
+      <div><strong>Status:</strong> ${_escapeHtml(String(inv?.status || "").toUpperCase() || "-")}</div>
+    </div>
+    <table>
+      <thead><tr>${thCols}</tr></thead>
+      <tbody>${lineRows || `<tr><td colspan="${noLinesColspan}">No lines</td></tr>`}</tbody>
+    </table>
+    <div class="tot">
+      <div class="row"><span>Subtotal USD</span><span>USD ${_fmtMoney(inv?.subtotal_usd, 2)}</span></div>
+      <div class="row"><span>VAT USD</span><span>USD ${_fmtMoney(taxUsd, 2)}</span></div>
+      <div class="row"><span>Total USD</span><span>USD ${_fmtMoney(inv?.total_usd, 2)}</span></div>
+      <div class="row bold"><span>Total LBP</span><span>LBP ${_fmtMoney(inv?.total_lbp, 2)}</span></div>
+      <div class="row"><span>VAT LBP</span><span>LBP ${_fmtMoney(taxLbp, 2)}</span></div>
+    </div>
+    <div class="pay"><strong>Payments</strong>${paymentHtml}</div>
+    ${footerText ? `<div class="foot">${_escapeHtml(footerText)}</div>` : ""}
+  </div>
+</body>
+</html>`;
+  };
+
+  const _printInvoiceDetailWeb = async (companyKey, detail, receiptWin = null, { thermal = false } = {}) => {
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const html = _renderInvoicePrintHtmlWeb(companyKey, detail || {}, cfg, { thermal });
+    _openPrintWindowWithHtml(html, receiptWin);
+    return { ok: true, invoice_id: detail?.invoice?.id || null };
+  };
+
+  const _printInvoiceByEventWeb = async (companyKey, eventId, receiptWin = null, { thermal = false } = {}) => {
+    const resolved = await _resolveInvoiceByEventWeb(companyKey, eventId);
+    const invoiceId = String(resolved?.invoice_id || "").trim();
+    if (!invoiceId) throw new Error("invoice not found for event");
+    const detail = await _fetchInvoiceDetailWeb(companyKey, invoiceId);
+    await _printInvoiceDetailWeb(companyKey, detail, receiptWin, { thermal });
+    return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
+  };
+
+  const _printLastReceiptWeb = async (companyKey, receiptWin = null, { thermal = false } = {}) => {
+    const res = await _fetchLastReceiptDetailWeb(companyKey);
+    const detail = res?.receipt || null;
+    const invoiceId = String(detail?.invoice?.id || "").trim();
+    if (!invoiceId) throw new Error("No receipt found for this device.");
+    await _printInvoiceDetailWeb(companyKey, detail, receiptWin, { thermal });
+    return { ok: true, invoice_id: invoiceId };
+  };
+
+  const _resolveReturnByEventWeb = async (companyKey, eventId) => {
+    const eid = String(eventId || "").trim();
+    if (!eid) throw new Error("event_id is required");
+    const processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
+      method: "POST",
+      body: { event_id: eid, force: true },
+    });
+    const retId = String(processed?.return_id || "").trim();
+    if (retId) return { event_id: eid, return_id: retId };
+    const byEvent = await _webPosCall(companyKey, `/pos/sales-returns/by-event/${encodeURIComponent(eid)}`, { method: "GET" });
+    const byEventId = String(byEvent?.return?.id || "").trim();
+    return { event_id: eid, return_id: byEventId || null };
+  };
+
+  const _fetchReturnDetailWeb = async (companyKey, returnId) => {
+    const rid = String(returnId || "").trim();
+    if (!rid) throw new Error("return_id is required");
+    return await _webPosCall(companyKey, `/pos/sales-returns/${encodeURIComponent(rid)}`, { method: "GET" });
+  };
+
+  const _fetchLastReturnDetailWeb = async (companyKey) => {
+    return await _webPosCall(companyKey, "/pos/sales-returns/last", { method: "GET" });
+  };
+
+  const _renderReturnPrintHtmlWeb = (companyKey, detail, cfg, { thermal = false } = {}) => {
+    const ret = (detail && detail.return && typeof detail.return === "object") ? detail.return : {};
+    const lines = Array.isArray(detail?.lines) ? detail.lines : [];
+    const refunds = Array.isArray(detail?.refunds) ? detail.refunds : [];
+    const taxLines = Array.isArray(detail?.tax_lines) ? detail.tax_lines : [];
+    const taxUsd = Math.abs(taxLines.reduce((s, r) => s + toNum(r?.tax_usd, 0), 0));
+    const taxLbp = Math.abs(taxLines.reduce((s, r) => s + toNum(r?.tax_lbp, 0), 0));
+
+    const fallbackName = companyKey === "official" ? "Official Return" : "Return Receipt";
+    const companyName = String(cfg?.receipt_company_name || fallbackName).trim() || fallbackName;
+    const footerText = String(cfg?.receipt_footer_text || "").trim();
+    const docNo = String(ret?.return_no || "").trim();
+    const docDate = _fmtDateTime(ret?.created_at || "");
+    const refundHtml = refunds.length
+      ? refunds
+        .map((r) => `<div>${_escapeHtml(String(r?.method || "refund").toUpperCase())}: USD ${_fmtMoney(r?.amount_usd, 2)} | LBP ${_fmtMoney(r?.amount_lbp, 2)}</div>`)
+        .join("")
+      : "<div>No refund rows</div>";
+    const lineRows = lines.map((ln) => `
+      <tr>
+        <td>${_escapeHtml(String(ln?.item_id || "Item"))}</td>
+        <td class="r">${_fmtMoney(ln?.qty, 2)}</td>
+        <td class="r">${_fmtMoney(ln?.line_total_usd, 2)}</td>
+        <td class="r">${_fmtMoney(ln?.line_total_lbp, 2)}</td>
+      </tr>
+    `).join("");
+
+    const pageSize = thermal ? "80mm auto" : "A4";
+    const margin = thermal ? "4mm" : "10mm";
+    return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${_escapeHtml(docNo || "Return Print")}</title>
+  <style>
+    @page { size: ${pageSize}; margin: ${margin}; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #111; margin: 0; }
+    .wrap { padding: 8px; }
+    .hd { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .name { font-weight: 700; font-size: ${thermal ? "14px" : "18px"}; }
+    .muted { color: #555; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: ${thermal ? "11px" : "12px"}; }
+    th, td { border-bottom: 1px solid #ddd; padding: 4px 2px; text-align: left; }
+    .r { text-align: right; }
+    .tot { margin-top: 8px; font-size: 12px; }
+    .tot .row { display: flex; justify-content: space-between; margin: 2px 0; }
+    .tot .bold { font-weight: 700; border-top: 1px solid #111; padding-top: 4px; margin-top: 4px; }
+    .foot { margin-top: 10px; font-size: 11px; color: #444; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hd">
+      <div class="name">${_escapeHtml(companyName)}</div>
+      <div class="muted">RETURN</div>
+    </div>
+    <div class="muted">No: ${_escapeHtml(docNo || "-")} | Date: ${_escapeHtml(docDate || "-")}</div>
+    <table>
+      <thead><tr><th>Item</th><th class="r">Qty</th><th class="r">USD</th><th class="r">LBP</th></tr></thead>
+      <tbody>${lineRows || "<tr><td colspan='4'>No lines</td></tr>"}</tbody>
+    </table>
+    <div class="tot">
+      <div class="row"><span>Total USD</span><span>USD ${_fmtMoney(ret?.total_usd, 2)}</span></div>
+      <div class="row bold"><span>Total LBP</span><span>LBP ${_fmtMoney(ret?.total_lbp, 2)}</span></div>
+      <div class="row"><span>VAT USD</span><span>USD ${_fmtMoney(taxUsd, 2)}</span></div>
+      <div class="row"><span>VAT LBP</span><span>LBP ${_fmtMoney(taxLbp, 2)}</span></div>
+      <div class="row"><span>Restocking Fee USD</span><span>USD ${_fmtMoney(ret?.restocking_fee_usd, 2)}</span></div>
+      <div class="row"><span>Restocking Fee LBP</span><span>LBP ${_fmtMoney(ret?.restocking_fee_lbp, 2)}</span></div>
+    </div>
+    <div class="muted" style="margin-top:8px"><strong>Refunds</strong>${refundHtml}</div>
+    ${footerText ? `<div class="foot">${_escapeHtml(footerText)}</div>` : ""}
+  </div>
+</body>
+</html>`;
+  };
+
+  const _printReturnDetailWeb = async (companyKey, detail, receiptWin = null, { thermal = false } = {}) => {
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const html = _renderReturnPrintHtmlWeb(companyKey, detail || {}, cfg, { thermal });
+    _openPrintWindowWithHtml(html, receiptWin);
+    return { ok: true, return_id: detail?.return?.id || null };
+  };
+
+  const _printReturnByEventWeb = async (companyKey, eventId, receiptWin = null, { thermal = false } = {}) => {
+    const resolved = await _resolveReturnByEventWeb(companyKey, eventId);
+    const returnId = String(resolved?.return_id || "").trim();
+    if (!returnId) throw new Error("return not found for event");
+    const detail = await _fetchReturnDetailWeb(companyKey, returnId);
+    await _printReturnDetailWeb(companyKey, detail, receiptWin, { thermal });
+    return { ok: true, event_id: resolved.event_id, return_id: returnId };
+  };
+
+  const _printLastReturnWeb = async (companyKey, receiptWin = null, { thermal = false } = {}) => {
+    const res = await _fetchLastReturnDetailWeb(companyKey);
+    const detail = res?.receipt || null;
+    const returnId = String(detail?.return?.id || "").trim();
+    if (!returnId) throw new Error("No return receipt found for this device.");
+    await _printReturnDetailWeb(companyKey, detail, receiptWin, { thermal });
+    return { ok: true, return_id: returnId };
   };
 
   const _webApiCallFor = async (companyKey, path, options = {}) => {
@@ -1064,6 +1498,7 @@
       const rateRes = await _webPosCall(companyKey, "/pos/exchange-rate", { method: "GET" }).catch(() => ({}));
       const openShiftRes = await _webPosCall(companyKey, "/pos/shifts/open", { method: "GET" }).catch(() => ({}));
       const vatCodes = Array.isArray(posCfg?.vat_codes) ? posCfg.vat_codes : [];
+      const policyTemplate = String(posCfg?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
       const next = _setCfgForCompanyKey(companyKey, {
         company_id: String(posCfg?.company_id || cfg.company_id || "").trim(),
         device_id: String(posCfg?.device?.id || cfg.device_id || "").trim(),
@@ -1071,11 +1506,12 @@
         branch_id: String(posCfg?.device?.branch_id || cfg.branch_id || "").trim(),
         warehouse_id: posCfg?.default_warehouse_id || cfg.warehouse_id || "",
         tax_code_id: posCfg?.default_vat_tax_code_id || posCfg?.vat?.id || cfg.tax_code_id || null,
-        vat_rate: toNum(posCfg?.vat?.rate, toNum(cfg.vat_rate, 0)),
+        vat_rate: normalizeVatRate(posCfg?.vat?.rate ?? cfg.vat_rate),
         vat_codes: _toVatCodeMap(vatCodes),
         exchange_rate: toNum(rateRes?.rate?.usd_to_lbp, toNum(cfg.exchange_rate, 0)),
         pricing_currency: String(cfg.pricing_currency || posCfg?.company?.base_currency || "USD").toUpperCase(),
         shift_id: String(openShiftRes?.shift?.id || "").trim(),
+        invoice_template: policyTemplate || String(cfg.invoice_template || "official_classic").trim().toLowerCase(),
       });
       return next;
     }
@@ -1121,16 +1557,38 @@
       }
     }
     if (method === "POST" && pathname === "/customers/create") {
+      const name = String(body?.name || "").trim();
+      const phone = String(body?.phone || "").trim() || null;
+      const email = String(body?.email || "").trim() || null;
+      const legalName = String(body?.legal_name || "").trim() || null;
+      const membershipNo = String(body?.membership_no || "").trim() || null;
+      const taxId = String(body?.tax_id || "").trim() || null;
+      const vatNo = String(body?.vat_no || "").trim() || null;
+      const notes = String(body?.notes || "").trim() || null;
+      const rawPartyType = String(body?.party_type || "individual").trim().toLowerCase();
+      const rawCustomerType = String(body?.customer_type || "retail").trim().toLowerCase();
+      const partyType = rawPartyType === "business" ? "business" : "individual";
+      const customerType = ["retail", "wholesale", "b2b"].includes(rawCustomerType) ? rawCustomerType : "retail";
+      const termsRaw = String(body?.payment_terms_days ?? "").trim();
+      const parsedTerms = Number.parseInt(termsRaw || "0", 10);
+      const paymentTermsDays = Number.isFinite(parsedTerms) && parsedTerms >= 0 ? parsedTerms : 0;
       return await _webPosCall(companyKey, "/pos/customers", {
         method: "POST",
         body: {
-          name: String(body?.name || "").trim(),
-          phone: String(body?.phone || "").trim() || null,
-          email: String(body?.email || "").trim() || null,
-          party_type: "individual",
-          customer_type: "retail",
-          payment_terms_days: 0,
-          is_active: true,
+          name,
+          phone,
+          email,
+          party_type: partyType,
+          customer_type: customerType,
+          legal_name: legalName,
+          membership_no: membershipNo,
+          tax_id: taxId,
+          vat_no: vatNo,
+          notes,
+          marketing_opt_in: !!body?.marketing_opt_in,
+          is_member: !!membershipNo,
+          payment_terms_days: paymentTermsDays,
+          is_active: body?.is_active !== false,
         },
       });
     }
@@ -1162,13 +1620,30 @@
         summary: summaryRes || null,
       };
     }
-    if (method === "GET" && pathname === "/edge/status") {
-      return { edge_ok: true, edge_auth_ok: true, mode: "cloud" };
+    if (method === "GET" && pathname === "/receipts/last") {
+      return await _fetchLastReceiptDetailWeb(companyKey);
     }
-    if (method === "GET" && pathname === "/receipts/last") return { receipt: null };
-    if (method === "GET" && pathname === "/printers") return { printers: [], default_printer: null };
-    if (method === "POST" && pathname === "/printers/test") return { ok: false, warning: "Printer test is desktop-only." };
-    if (method === "POST" && pathname === "/receipts/print-last") return { ok: false, warning: "Receipt printing is desktop-only." };
+    if (method === "GET" && pathname === "/returns/last") {
+      return await _fetchLastReturnDetailWeb(companyKey);
+    }
+    if (method === "GET" && pathname === "/printers") {
+      return {
+        printers: [{ name: "Browser Print Dialog", type: "browser" }],
+        default_printer: "Browser Print Dialog",
+        mode: "browser",
+      };
+    }
+    if (method === "POST" && pathname === "/printers/test") {
+      const html = `<!doctype html><html><head><meta charset="utf-8"><title>Print Test</title></head><body style="font-family:sans-serif;padding:16px"><h3>Browser Print Test</h3><p>${new Date().toLocaleString()}</p></body></html>`;
+      _openPrintWindowWithHtml(html, null);
+      return { ok: true, mode: "browser" };
+    }
+    if (method === "POST" && pathname === "/receipts/print-last") {
+      return await _printLastReceiptWeb(companyKey, null, { thermal: companyKey !== "official" });
+    }
+    if (method === "POST" && pathname === "/returns/print-last") {
+      return await _printLastReturnWeb(companyKey, null, { thermal: companyKey !== "official" });
+    }
 
     if (method === "POST" && pathname === "/shift/status") {
       const res = await _webPosCall(companyKey, "/pos/shifts/open", { method: "GET" });
@@ -1220,8 +1695,17 @@
     if (method === "POST" && pathname === "/sync/push") {
       const listRes = await _webPosCall(companyKey, "/pos/outbox/device?limit=150", { method: "GET" }).catch(() => ({ outbox: [] }));
       const rows = Array.isArray(listRes?.outbox) ? listRes.outbox : [];
+      const nowMs = Date.now();
       const queue = rows
-        .filter((r) => ["pending", "failed"].includes(String(r?.status || "")))
+        .filter((r) => {
+          const st = String(r?.status || "");
+          if (st === "pending") return true;
+          if (st !== "failed") return false;
+          const nextRaw = String(r?.next_attempt_at || "").trim();
+          if (!nextRaw) return true;
+          const dueAt = Date.parse(nextRaw);
+          return Number.isNaN(dueAt) || dueAt <= nowMs;
+        })
         .sort((a, b) => {
           const at = Date.parse(String(a?.created_at || "")) || 0;
           const bt = Date.parse(String(b?.created_at || "")) || 0;
@@ -1230,16 +1714,24 @@
         .slice(0, 30);
       let sent = 0;
       const failed = [];
-      for (const ev of queue) {
-        const eventId = String(ev?.id || "").trim();
-        if (!eventId) continue;
-        try {
-          await _webPosCall(companyKey, "/pos/outbox/process-one", { method: "POST", body: { event_id: eventId } });
-          sent += 1;
-        } catch (e) {
-          failed.push({ event_id: eventId, error: e?.message || String(e) });
+      let cursor = 0;
+      const workers = Array.from({ length: Math.min(4, queue.length) }, () => (async () => {
+        while (true) {
+          const idx = cursor;
+          cursor += 1;
+          if (idx >= queue.length) break;
+          const ev = queue[idx];
+          const eventId = String(ev?.id || "").trim();
+          if (!eventId) continue;
+          try {
+            await _webPosCall(companyKey, "/pos/outbox/process-one", { method: "POST", body: { event_id: eventId } });
+            sent += 1;
+          } catch (e) {
+            failed.push({ event_id: eventId, error: e?.message || String(e) });
+          }
         }
-      }
+      })());
+      await Promise.all(workers);
       const summary = await _webPosCall(companyKey, "/pos/outbox/device-summary", { method: "GET" }).catch(() => null);
       return { ok: true, sent, failed, summary };
     }
@@ -1255,18 +1747,13 @@
     if (method === "POST" && pathname === "/invoices/resolve-by-event") {
       const eventId = String(body?.event_id || "").trim();
       if (!eventId) throw new Error("event_id is required");
-      const cached = webEventInvoiceMap.get(eventId);
-      if (cached) return { ok: true, event_id: eventId, invoice_id: cached };
-      const processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
-        method: "POST",
-        body: { event_id: eventId },
-      });
-      const invoiceId = String(processed?.invoice_id || "").trim();
-      if (invoiceId) webEventInvoiceMap.set(eventId, invoiceId);
-      return { ok: true, event_id: eventId, invoice_id: invoiceId || null };
+      const resolved = await _resolveInvoiceByEventWeb(companyKey, eventId);
+      return { ok: true, event_id: resolved.event_id, invoice_id: resolved.invoice_id || null };
     }
     if (method === "POST" && pathname === "/invoices/print-by-event") {
-      throw new Error("Desktop printer is not available in browser mode.");
+      const eventId = String(body?.event_id || "").trim();
+      if (!eventId) throw new Error("event_id is required");
+      return await _printInvoiceByEventWeb(companyKey, eventId, null, { thermal: companyKey !== "official" });
     }
 
     throw new Error(`Unsupported web POS route: ${method} ${pathname}`);
@@ -1325,17 +1812,14 @@
   const printAfterSale = async (companyKey, eventId = "", receiptWin = null) => {
     const cfg = cfgForCompanyKey(companyKey) || {};
     const eid = String(eventId || "").trim();
-
-    if (_companyUsesCloudTransport(companyKey) && companyKey !== "official") {
-      try { if (receiptWin) receiptWin.close(); } catch (_) {}
-      return;
-    }
+    const isCloud = _companyUsesCloudTransport(companyKey);
 
     if (companyKey === "official") {
       const auto = !!cfg.auto_print_invoice;
       if (auto && eid) {
         try {
-          await apiCallFor(companyKey, "/invoices/print-by-event", { method: "POST", body: { event_id: eid } });
+          if (isCloud) await _printInvoiceByEventWeb(companyKey, eid, receiptWin, { thermal: false });
+          else await apiCallFor(companyKey, "/invoices/print-by-event", { method: "POST", body: { event_id: eid } });
           try { if (receiptWin) receiptWin.close(); } catch (_) {}
           return;
         } catch (_) {
@@ -1344,6 +1828,10 @@
       }
       if (eid) {
         try {
+          if (isCloud) {
+            await _printInvoiceByEventWeb(companyKey, eid, receiptWin, { thermal: false });
+            return;
+          }
           const resolved = await apiCallFor(companyKey, "/invoices/resolve-by-event", { method: "POST", body: { event_id: eid } });
           const invId = String(resolved?.invoice_id || "").trim();
           const pb = String(cfg.print_base_url || "").trim().replace(/\/+$/, "");
@@ -1363,17 +1851,42 @@
     const auto = !!cfg.auto_print_receipt;
     if (auto) {
       try {
-        await apiCallFor(companyKey, "/receipts/print-last", { method: "POST", body: {} });
+        if (isCloud && eid) await _printInvoiceByEventWeb(companyKey, eid, receiptWin, { thermal: true });
+        else if (isCloud) await _printLastReceiptWeb(companyKey, receiptWin, { thermal: true });
+        else await apiCallFor(companyKey, "/receipts/print-last", { method: "POST", body: {} });
         try { if (receiptWin) receiptWin.close(); } catch (_) {}
         return;
       } catch (_) {
         // Fall back to the printable HTML view if direct printing isn't available.
       }
     }
+    if (isCloud) {
+      try {
+        if (eid) await _printInvoiceByEventWeb(companyKey, eid, receiptWin, { thermal: true });
+        else await _printLastReceiptWeb(companyKey, receiptWin, { thermal: true });
+        return;
+      } catch (_) {}
+    }
     try {
       if (receiptWin) receiptWin.location = _agentReceiptUrl(companyKey);
       else window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer");
     } catch (_) {}
+  };
+
+  const openReceiptPreview = async () => {
+    const companyKey = effectiveInvoiceCompany();
+    if (_companyUsesCloudTransport(companyKey)) {
+      let receiptWin = null;
+      try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
+      try {
+        await _printLastReceiptWeb(companyKey, receiptWin, { thermal: companyKey !== "official" });
+      } catch (e) {
+        try { if (receiptWin) receiptWin.close(); } catch (_) {}
+        reportError(e?.message || "Unable to print last receipt.");
+      }
+      return;
+    }
+    try { window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer"); } catch (_) {}
   };
 
   // Wrapper for the agent serving this UI (origin).
@@ -1988,6 +2501,11 @@
     try { localStorage.setItem(FLAG_OFFICIAL_STORAGE_KEY, flagOfficial ? "1" : "0"); } catch (_) {}
   };
 
+  const onVatDisplayModeChange = (v) => {
+    vatDisplayMode = normalizeVatDisplayMode(v);
+    try { localStorage.setItem(VAT_DISPLAY_MODE_STORAGE_KEY, vatDisplayMode); } catch (_) {}
+  };
+
   const configureOtherAgent = async () => {
     // Legacy entry point; keep for now but route to Settings.
     otherAgentDraftUrl = otherAgentUrl || DEFAULT_OTHER_AGENT_URL;
@@ -2007,11 +2525,15 @@
       copies: Math.max(1, Math.min(10, toNum(offCfg.invoice_print_copies, 1))),
       auto: !!offCfg.auto_print_invoice,
       baseUrl: String(offCfg.print_base_url || "").trim(),
+      template: String(offCfg.invoice_template || "official_classic").trim().toLowerCase() || "official_classic",
     };
     printUnofficial = {
       printer: String(unCfg.receipt_printer || "").trim(),
       copies: Math.max(1, Math.min(10, toNum(unCfg.receipt_print_copies, 1))),
       auto: !!unCfg.auto_print_receipt,
+      template: String(unCfg.receipt_template || "classic").trim().toLowerCase() || "classic",
+      companyName: String(unCfg.receipt_company_name || "AH Trading").trim() || "AH Trading",
+      footerText: String(unCfg.receipt_footer_text || "").trim(),
     };
 
     const results = await Promise.allSettled([
@@ -2046,6 +2568,7 @@
             invoice_printer: (printOfficial.printer || "").trim() || "",
             invoice_print_copies: Math.max(1, Math.min(10, toNum(printOfficial.copies, 1))),
             auto_print_invoice: !!printOfficial.auto,
+            invoice_template: (printOfficial.template || "official_classic").trim().toLowerCase() || "official_classic",
           }
         }),
         apiCallFor("unofficial", "/config", {
@@ -2054,6 +2577,9 @@
             receipt_printer: (printUnofficial.printer || "").trim() || "",
             receipt_print_copies: Math.max(1, Math.min(10, toNum(printUnofficial.copies, 1))),
             auto_print_receipt: !!printUnofficial.auto,
+            receipt_template: (printUnofficial.template || "classic").trim().toLowerCase() || "classic",
+            receipt_company_name: (printUnofficial.companyName || "").trim() || "AH Trading",
+            receipt_footer_text: (printUnofficial.footerText || "").trim(),
           }
         }),
       ]);
@@ -2610,13 +3136,50 @@
   };
   
   const createCustomer = async () => {
+    const name = String(customerDraft?.name || "").trim();
+    if (!name) {
+      reportError("Customer name is required.");
+      return;
+    }
+    const email = String(customerDraft?.email || "").trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      reportError("Please enter a valid email address.");
+      return;
+    }
+    const termsRaw = String(customerDraft?.payment_terms_days ?? "").trim();
+    const parsedTerms = Number.parseInt(termsRaw || "0", 10);
+    if (!Number.isFinite(parsedTerms) || parsedTerms < 0 || parsedTerms > 3650) {
+      reportError("Payment terms must be between 0 and 3650 days.");
+      return;
+    }
+    const rawPartyType = String(customerDraft?.party_type || "individual").trim().toLowerCase();
+    const rawCustomerType = String(customerDraft?.customer_type || "retail").trim().toLowerCase();
+    const partyType = rawPartyType === "business" ? "business" : "individual";
+    const customerType = ["retail", "wholesale", "b2b"].includes(rawCustomerType) ? rawCustomerType : "retail";
+    const membershipNo = String(customerDraft?.membership_no || "").trim();
+    const payload = {
+      name,
+      phone: String(customerDraft?.phone || "").trim() || null,
+      email: email || null,
+      party_type: partyType,
+      customer_type: customerType,
+      legal_name: String(customerDraft?.legal_name || "").trim() || null,
+      membership_no: membershipNo || null,
+      tax_id: String(customerDraft?.tax_id || "").trim() || null,
+      vat_no: String(customerDraft?.vat_no || "").trim() || null,
+      notes: String(customerDraft?.notes || "").trim() || null,
+      marketing_opt_in: !!customerDraft?.marketing_opt_in,
+      is_member: !!membershipNo,
+      payment_terms_days: parsedTerms,
+      is_active: customerDraft?.is_active !== false,
+    };
     try {
       const companyKey = effectiveInvoiceCompany();
-      const res = await apiCallFor(companyKey, "/customers/create", { method: "POST", body: customerDraft });
+      const res = await apiCallFor(companyKey, "/customers/create", { method: "POST", body: payload });
       if (res.customer) {
         selectCustomer(res.customer);
         addCustomerMode = false;
-        customerDraft = { name: "", phone: "", email: "" };
+        customerDraft = makeEmptyCustomerDraft();
         fetchData();
       }
     } catch(e) { reportError(e.message); }
@@ -2686,7 +3249,13 @@
               done.push({ companyKey, event_id: res?.event_id || "ok" });
               queueSyncPush(companyKey);
               cart = cart.filter((c) => c.companyKey !== companyKey);
-              try { window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer"); } catch (_) {}
+              try {
+                if (_companyUsesCloudTransport(companyKey)) {
+                  await _printReturnByEventWeb(companyKey, res?.event_id || "", null, { thermal: companyKey !== "official" });
+                } else {
+                  window.open(_agentReceiptUrl(companyKey), "_blank", "noopener,noreferrer");
+                }
+              } catch (_) {}
             } catch (e) {
               failed.push({ companyKey, error: e?.message || String(e) });
             }
@@ -2714,7 +3283,13 @@
         activeCustomer = null;
         checkoutIntentId = "";
         await fetchData();
-        try { window.open(_agentReceiptUrl(returnCompany), "_blank", "noopener,noreferrer"); } catch (_) {}
+        try {
+          if (_companyUsesCloudTransport(returnCompany)) {
+            await _printReturnByEventWeb(returnCompany, res?.event_id || "", null, { thermal: returnCompany !== "official" });
+          } else {
+            window.open(_agentReceiptUrl(returnCompany), "_blank", "noopener,noreferrer");
+          }
+        } catch (_) {}
         return;
       }
 
@@ -3236,7 +3811,9 @@
       try { localStorage.setItem(OTHER_AGENT_URL_STORAGE_KEY, nextOtherAgentUrl); } catch (_) {}
     }
     invoiceCompanyMode = localStorage.getItem(INVOICE_MODE_STORAGE_KEY) || "auto";
+    invoiceCompanyMode = (invoiceCompanyMode === "official" || invoiceCompanyMode === "unofficial") ? invoiceCompanyMode : "auto";
     flagOfficial = localStorage.getItem(FLAG_OFFICIAL_STORAGE_KEY) === "1";
+    vatDisplayMode = normalizeVatDisplayMode(localStorage.getItem(VAT_DISPLAY_MODE_STORAGE_KEY) || "both");
 
     theme = localStorage.getItem(THEME_STORAGE_KEY) || "dark";
     if (theme !== "light" && theme !== "dark") theme = "dark";
@@ -3421,7 +3998,7 @@
 >
   <svelte:fragment slot="tabs">
     {@const tabBase = "px-4 py-2.5 rounded-2xl text-sm font-bold border transition-all whitespace-nowrap shadow-sm"}
-    {@const tabOn = "bg-accent text-white border-accent/40 hover:bg-accent-hover shadow-lg shadow-accent/20"}
+    {@const tabOn = "bg-accent text-[rgb(var(--color-accent-content))] border-accent/40 hover:bg-accent-hover shadow-lg shadow-accent/20"}
     {@const tabOff = "bg-surface/55 text-ink/85 border-ink/10 hover:bg-surface/75 hover:text-ink"}
 
     <button
@@ -3494,10 +4071,10 @@
     >
       Shift
     </button>
-    {#if !webHostUnsupported}
+    {#if !webHostUnsupported || _hasCloudDeviceConfig(originCompanyKey)}
       <button
         class={topBtnBase}
-        on:click={() => { try { window.open('/receipt/last', '_blank', 'noopener,noreferrer'); } catch (_) {} }}
+        on:click={openReceiptPreview}
         title="Open printable last receipt"
       >
         Receipt
@@ -3640,6 +4217,8 @@
         <Cart
           cart={cart}
           config={config}
+          vatDisplayMode={vatDisplayMode}
+          vatRateForLine={vatRateForLine}
           updateQty={updateLineQty}
           uomOptionsForLine={uomOptionsForLine}
           updateUom={updateLineUom}
@@ -3669,6 +4248,9 @@
             cart={cart}
             totals={totals}
             totalsByCompany={totalsByCompany}
+            vatDisplayMode={vatDisplayMode}
+            onVatDisplayModeChange={onVatDisplayModeChange}
+            vatRateForLine={vatRateForLine}
             originCompanyKey={originCompanyKey}
             invoiceCompanyMode={invoiceCompanyMode}
             flagOfficial={flagOfficial}
@@ -3707,7 +4289,7 @@
         {#if _hasCloudDeviceConfig(originCompanyKey)}
           <div class="mt-3 flex flex-wrap gap-2">
             <button
-              class="px-4 py-2 rounded-xl bg-accent text-white font-extrabold hover:bg-accent-hover transition-colors"
+              class="px-4 py-2 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-extrabold hover:bg-accent-hover transition-colors"
               on:click={async () => { setActiveScreen("pos"); await fetchData(); }}
               type="button"
             >
@@ -3791,7 +4373,7 @@
             Cancel
           </button>
           <button
-            class="flex-[2] py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
+            class="flex-[2] py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
             on:click={cashierLogin}
             disabled={loading}
             type="button"
@@ -3839,7 +4421,7 @@
             Cancel
           </button>
           <button
-            class="flex-[2] py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
+            class="flex-[2] py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
             on:click={adminPinSubmit}
             disabled={loading}
             type="button"
@@ -3901,7 +4483,7 @@
             </div>
           </div>
           <button
-            class="w-full py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
+            class="w-full py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
             on:click={shiftOpen}
             disabled={loading}
           >
@@ -3982,7 +4564,7 @@
             Disable
           </button>
           <button
-            class="py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
+            class="py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
             on:click={saveOtherAgent}
             disabled={loading}
             type="button"
@@ -4046,6 +4628,17 @@
 	              />
 	              <div class="mt-1 text-[11px] text-muted">Must serve `/exports/sales-invoices/.../pdf`.</div>
 	            </div>
+            <div>
+              <label class="text-xs text-muted" for="print-official-template">Invoice template</label>
+              <select id="print-official-template" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm" bind:value={printOfficial.template}>
+                {#each INVOICE_TEMPLATE_OPTIONS as opt}
+                  <option value={opt.id}>{opt.label}</option>
+                {/each}
+              </select>
+              <div class="mt-1 text-[11px] text-muted">
+                {INVOICE_TEMPLATE_OPTIONS.find((t) => t.id === printOfficial.template)?.desc || "A4 invoice PDF format"}
+              </div>
+            </div>
             <div class="flex items-center justify-between gap-3">
               <label class="flex items-center gap-2 text-xs text-muted">
                 <input type="checkbox" bind:checked={printOfficial.auto} />
@@ -4078,6 +4671,37 @@
 	                {/each}
 	              </select>
 	            </div>
+            <div>
+              <label class="text-xs text-muted" for="print-unofficial-template">Receipt template</label>
+              <select id="print-unofficial-template" class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm" bind:value={printUnofficial.template}>
+                {#each RECEIPT_TEMPLATE_OPTIONS as opt}
+                  <option value={opt.id}>{opt.label}</option>
+                {/each}
+              </select>
+              <div class="mt-1 text-[11px] text-muted">
+                {RECEIPT_TEMPLATE_OPTIONS.find((t) => t.id === printUnofficial.template)?.desc || "Thermal print format"}
+              </div>
+            </div>
+            <div>
+              <label class="text-xs text-muted" for="print-unofficial-company">Receipt header</label>
+              <input
+                id="print-unofficial-company"
+                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm"
+                placeholder="AH Trading"
+                bind:value={printUnofficial.companyName}
+                maxlength="64"
+              />
+            </div>
+            <div>
+              <label class="text-xs text-muted" for="print-unofficial-footer">Receipt footer (optional)</label>
+              <input
+                id="print-unofficial-footer"
+                class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm"
+                placeholder="Thank you for your purchase"
+                bind:value={printUnofficial.footerText}
+                maxlength="160"
+              />
+            </div>
             <div class="flex items-center justify-between gap-3">
               <label class="flex items-center gap-2 text-xs text-muted">
                 <input type="checkbox" bind:checked={printUnofficial.auto} />
@@ -4111,7 +4735,7 @@
               Refresh
             </button>
             <button
-              class="py-3 px-4 rounded-xl bg-accent text-white font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
+              class="py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
               on:click={savePrinting}
               type="button"
             >

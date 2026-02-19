@@ -1,6 +1,8 @@
 <script>
   export let cart = [];
   export let config = {};
+  export let vatDisplayMode = "both";
+  export let vatRateForLine = (line) => 0;
   export let updateQty = (index, qty) => {};
   export let uomOptionsForLine = (line) => [];
   export let updateUom = (index, opt) => {};
@@ -27,7 +29,16 @@
     return `${Math.round(n * 100)}%`;
   };
 
+  const fmtVatPct = (r) => {
+    const pct = Math.max(0, toNum(r, 0) * 100);
+    return Number.isInteger(pct) ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
+  };
+
   $: currencyPrimary = (config.pricing_currency || "USD").toUpperCase();
+  $: vatMode = (() => {
+    const m = String(vatDisplayMode || "").trim().toLowerCase();
+    return (m === "ex" || m === "inc" || m === "both") ? m : "both";
+  })();
   const lineUom = (line) => (line.uom || line.uom_code || line.unit_of_measure || "pcs");
 
   const nameSizeClass = (name) => {
@@ -80,6 +91,26 @@
     if (!el || typeof el.select !== "function") return;
     try { el.select(); } catch (_) {}
   };
+
+  const lineVatRate = (line) => Math.max(0, toNum(vatRateForLine ? vatRateForLine(line) : 0, 0));
+
+  const lineBaseUnitPrice = (line) => (
+    currencyPrimary === "USD"
+      ? toNum(line?.price_usd, 0)
+      : toNum(line?.price_lbp, 0)
+  );
+
+  const lineBaseAmount = (line) => lineBaseUnitPrice(line) * Math.max(0, toNum(line?.qty, 0));
+  const lineTotalAmount = (line, includeVat = false) => {
+    const base = lineBaseAmount(line);
+    if (!includeVat) return base;
+    return base * (1 + lineVatRate(line));
+  };
+  const unitTotalPrice = (line, includeVat = false) => {
+    const base = lineBaseUnitPrice(line);
+    if (!includeVat) return base;
+    return base * (1 + lineVatRate(line));
+  };
 </script>
 
 <section class="glass-panel rounded-3xl flex flex-col h-full w-full overflow-hidden relative group/panel">
@@ -125,6 +156,14 @@
       {#each cart as line, i (line.key || `${line.companyKey || "official"}|${line.id || ""}|${line.qty_factor || 1}|${line.uom || line.unit_of_measure || "pcs"}`)}
         {@const uomOpts = uomOptionsForLine(line) || []}
         {@const uomSel = findUomOpt(uomOpts, line)}
+        {@const vatRate = lineVatRate(line)}
+        {@const lineAmountEx = lineTotalAmount(line, false)}
+        {@const lineAmountInc = lineTotalAmount(line, true)}
+        {@const unitPriceEx = unitTotalPrice(line, false)}
+        {@const unitPriceInc = unitTotalPrice(line, true)}
+        {@const lineAmountPrimary = vatMode === "ex" ? lineAmountEx : lineAmountInc}
+        {@const unitPricePrimary = vatMode === "ex" ? unitPriceEx : unitPriceInc}
+        {@const preDiscBase = currencyPrimary === "USD" ? toNum(line.pre_discount_unit_price_usd, 0) : toNum(line.pre_discount_unit_price_lbp, 0)}
         <div class="group relative grid grid-cols-[minmax(0,1fr)_120px_140px_130px] gap-3 p-3.5 rounded-2xl bg-surface/40 hover:bg-surface/60 border border-white/5 hover:border-white/10 transition-all duration-200 shadow-sm hover:shadow-md">
           <div class="min-w-0 pr-2">
             <h4 class={`leading-snug text-ink/95 clamp-2 group-hover:text-accent transition-colors duration-200 ${nameSizeClass(line.name)}`}>{line.name || "Unknown Item"}</h4>
@@ -144,6 +183,9 @@
                   {companyLabelForLine(line)}
                 </span>
               {/if}
+              <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${vatRate > 0 ? "text-blue-300 border-blue-400/20 bg-blue-500/10" : "text-muted border-white/10 bg-surface-highlight/40"}`}>
+                {vatRate > 0 ? `VAT ${fmtVatPct(vatRate)}` : "No VAT"}
+              </span>
               {#if toNum(line.discount_pct, 0) > 0}
                 <span class="text-[10px] font-bold text-accent px-1.5 py-0.5 rounded bg-accent/10 border border-accent/10">
                   -{fmtPct(line.discount_pct)}
@@ -214,26 +256,22 @@
 
           <div class="flex flex-col items-end justify-center min-w-[90px]">
             <div class="font-bold text-lg text-ink num-readable leading-none tracking-tight">
-              {fmtMoney(
-                (currencyPrimary === "USD" ? toNum(line.price_usd) : toNum(line.price_lbp)) * toNum(line.qty),
-                currencyPrimary
-              )}
+              {fmtMoney(lineAmountPrimary, currencyPrimary)}
             </div>
             <div class="flex flex-col items-end mt-1 text-[10px] text-muted space-y-0.5">
               {#if toNum(line.pre_discount_unit_price_usd, 0) > 0 || toNum(line.pre_discount_unit_price_lbp, 0) > 0}
                 <span class="line-through opacity-50 num-readable">
-                  {fmtMoney(
-                    (currencyPrimary === "USD" ? toNum(line.pre_discount_unit_price_usd) : toNum(line.pre_discount_unit_price_lbp)),
-                    currencyPrimary
-                  )}
+                  {fmtMoney(vatMode === "ex" ? preDiscBase : (preDiscBase * (1 + vatRate)), currencyPrimary)}
                 </span>
               {/if}
               <span class="opacity-80 num-readable">
-                {fmtMoney(
-                  (currencyPrimary === "USD" ? toNum(line.price_usd) : toNum(line.price_lbp)),
-                  currencyPrimary
-                )} / {lineUom(line)}
+                {fmtMoney(unitPricePrimary, currencyPrimary)} / {lineUom(line)}
               </span>
+              {#if vatMode === "both"}
+                <span class="opacity-70 num-readable">
+                  ex {fmtMoney(lineAmountEx, currencyPrimary)}
+                </span>
+              {/if}
             </div>
           </div>
 

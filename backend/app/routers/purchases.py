@@ -9,6 +9,7 @@ import re
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
+from ..payment_guards import assert_not_overpaid
 import json
 import os
 from ..journal_utils import auto_balance_journal
@@ -4315,6 +4316,8 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                     raise HTTPException(status_code=400, detail=str(e))
 
                 payment_accounts = _fetch_payment_method_accounts(cur, company_id)
+                immediate_paid_usd = Decimal("0")
+                immediate_paid_lbp = Decimal("0")
                 for p in data.payments or []:
                     method = (p.method or 'bank').strip().lower()
                     amount_usd = Decimal(str(p.amount_usd or 0))
@@ -4322,6 +4325,15 @@ def post_supplier_invoice(invoice_id: str, data: SupplierInvoicePostIn, company_
                     amount_usd, amount_lbp = _normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
                     if amount_usd == 0 and amount_lbp == 0:
                         continue
+                    assert_not_overpaid(
+                        total_usd=total_usd,
+                        total_lbp=total_lbp,
+                        paid_usd=(immediate_paid_usd + amount_usd),
+                        paid_lbp=(immediate_paid_lbp + amount_lbp),
+                        detail="payments exceed invoice total",
+                    )
+                    immediate_paid_usd += amount_usd
+                    immediate_paid_lbp += amount_lbp
                     cur.execute(
                         """
                         INSERT INTO supplier_payments (id, supplier_invoice_id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at)
@@ -4839,6 +4851,8 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
 
                 # Optional immediate payments (posts separate payment journals like /purchases/payments).
                 payment_accounts = _fetch_payment_method_accounts(cur, company_id)
+                immediate_paid_usd = Decimal("0")
+                immediate_paid_lbp = Decimal("0")
                 for p in data.payments or []:
                     method = (p.method or "bank").strip().lower()
                     amount_usd = Decimal(str(p.amount_usd or 0))
@@ -4846,6 +4860,15 @@ def create_supplier_invoice_direct(data: SupplierInvoiceDirectIn, company_id: st
                     amount_usd, amount_lbp = _normalize_dual_amounts(amount_usd, amount_lbp, exchange_rate)
                     if amount_usd == 0 and amount_lbp == 0:
                         continue
+                    assert_not_overpaid(
+                        total_usd=total_usd,
+                        total_lbp=total_lbp,
+                        paid_usd=(immediate_paid_usd + amount_usd),
+                        paid_lbp=(immediate_paid_lbp + amount_lbp),
+                        detail="payments exceed invoice total",
+                    )
+                    immediate_paid_usd += amount_usd
+                    immediate_paid_lbp += amount_lbp
                     cur.execute(
                         """
                         INSERT INTO supplier_payments (id, supplier_invoice_id, method, amount_usd, amount_lbp, reference, auth_code, provider, settlement_currency, captured_at)
@@ -4927,6 +4950,7 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                     SELECT id, supplier_id, status, is_on_hold, total_usd, total_lbp, exchange_rate
                     FROM supplier_invoices
                     WHERE company_id = %s AND id = %s
+                    FOR UPDATE
                     """,
                     (company_id, data.supplier_invoice_id),
                 )
@@ -4988,10 +5012,13 @@ def create_supplier_payment(data: SupplierPaymentIn, company_id: str = Depends(g
                 paid_lbp = Decimal(str(sums.get("paid_lbp") or 0))
                 total_usd = Decimal(str(inv.get("total_usd") or 0))
                 total_lbp = Decimal(str(inv.get("total_lbp") or 0))
-                eps_usd = Decimal("0.01")
-                eps_lbp = Decimal("100")
-                if (paid_usd + amount_usd) > (total_usd + eps_usd) or (paid_lbp + amount_lbp) > (total_lbp + eps_lbp):
-                    raise HTTPException(status_code=400, detail="payment exceeds invoice total")
+                assert_not_overpaid(
+                    total_usd=total_usd,
+                    total_lbp=total_lbp,
+                    paid_usd=(paid_usd + amount_usd),
+                    paid_lbp=(paid_lbp + amount_lbp),
+                    detail="payment exceeds invoice total",
+                )
 
                 cur.execute(
                     """

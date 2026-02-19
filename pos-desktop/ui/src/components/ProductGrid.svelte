@@ -338,7 +338,7 @@
               <span
                 class={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
                   isActive 
-                    ? "bg-accent text-white shadow-lg shadow-accent/40 scale-105" 
+                    ? "bg-accent text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/40 scale-105" 
                     : "bg-surface-highlight/50 text-muted hover:bg-white/10 hover:text-ink"
                 }`}
                 aria-hidden="true"

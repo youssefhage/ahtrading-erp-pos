@@ -441,7 +441,7 @@
           
           <button
             type="button"
-            class="flex-1 px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-widest border border-accent/40 bg-accent hover:bg-accent-hover text-white shadow-lg shadow-accent/20 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            class="flex-1 px-4 py-2.5 rounded-xl text-xs font-extrabold uppercase tracking-widest border border-accent/40 bg-accent hover:bg-accent-hover text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/20 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] transition-all"
             on:click={addSelectedToCart}
           >
             Add to Cart

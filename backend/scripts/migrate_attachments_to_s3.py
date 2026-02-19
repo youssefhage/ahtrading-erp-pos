@@ -10,6 +10,7 @@ Safe behavior:
 
 import os
 import sys
+import time
 from typing import Optional
 
 import psycopg
@@ -24,7 +25,10 @@ def env(name: str, default: str = "") -> str:
 def main() -> int:
     db_url = env("DATABASE_URL", "postgresql://localhost/ahtrading")
     company_id = env("COMPANY_ID")
-    limit = int(env("LIMIT", "200"))
+    # Total rows to process in this run.
+    limit = max(1, int(env("LIMIT", "200")))
+    # Per-query batch size (keep conservative; rows include bytea blobs).
+    batch_rows = max(1, int(env("BATCH_ROWS", "20")))
     dry_run = env("DRY_RUN", "0").lower() in {"1", "true", "yes"}
 
     if not s3_enabled():
@@ -35,50 +39,91 @@ def main() -> int:
         return 2
 
     moved = 0
+    moved_bytes = 0
+    dry_run_offset = 0
     with psycopg.connect(db_url) as conn:
         conn.row_factory = psycopg.rows.dict_row
         with conn.cursor() as cur:
             cur.execute("SELECT set_config('app.current_company_id', %s, true)", (company_id,))
-            cur.execute(
-                """
-                SELECT id, filename, content_type, bytes
-                FROM document_attachments
-                WHERE company_id=%s
-                  AND (storage_backend='db' OR storage_backend IS NULL)
-                  AND bytes IS NOT NULL
-                ORDER BY uploaded_at ASC
-                LIMIT %s
-                """,
-                (company_id, limit),
-            )
-            rows = cur.fetchall() or []
-
-            for r in rows:
-                key = f"attachments/{company_id}/{r['id']}"
+            while moved < limit:
+                remaining = limit - moved
+                take = min(batch_rows, remaining)
                 if dry_run:
-                    print(f"[dry-run] would move {r['id']} -> {key}")
-                    continue
-                etag = put_bytes(key=key, data=r["bytes"] or b"", content_type=r["content_type"] or "application/octet-stream")
-                cur.execute(
-                    """
-                    UPDATE document_attachments
-                    SET storage_backend='s3',
-                        object_key=%s,
-                        object_etag=%s,
-                        bytes=NULL
-                    WHERE company_id=%s AND id=%s
-                    """,
-                    (key, etag, company_id, r["id"]),
-                )
-                moved += 1
+                    # In dry-run we don't update rows, so paginate deterministically with OFFSET
+                    # to avoid re-reading the same records.
+                    cur.execute(
+                        """
+                        SELECT id, filename, content_type, bytes
+                        FROM document_attachments
+                        WHERE company_id=%s
+                          AND (storage_backend='db' OR storage_backend IS NULL)
+                          AND bytes IS NOT NULL
+                        ORDER BY uploaded_at ASC
+                        LIMIT %s OFFSET %s
+                        """,
+                        (company_id, take, dry_run_offset),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT id, filename, content_type, bytes
+                        FROM document_attachments
+                        WHERE company_id=%s
+                          AND (storage_backend='db' OR storage_backend IS NULL)
+                          AND bytes IS NOT NULL
+                        ORDER BY uploaded_at ASC
+                        LIMIT %s
+                        """,
+                        (company_id, take),
+                    )
+                rows = cur.fetchall() or []
+                if not rows:
+                    break
+                if dry_run:
+                    dry_run_offset += len(rows)
 
-        if not dry_run:
-            conn.commit()
+                for r in rows:
+                    key = f"attachments/{company_id}/{r['id']}"
+                    raw_blob = r["bytes"] or b""
+                    blob = raw_blob.tobytes() if isinstance(raw_blob, memoryview) else bytes(raw_blob)
+                    size = len(blob)
+                    if dry_run:
+                        print(f"[dry-run] would move {r['id']} ({size} bytes) -> {key}")
+                        moved += 1
+                        moved_bytes += size
+                        continue
+                    etag = ""
+                    # S3/MinIO uploads can fail transiently under load.
+                    for attempt in range(1, 4):
+                        try:
+                            etag = put_bytes(key=key, data=blob, content_type=r["content_type"] or "application/octet-stream")
+                            break
+                        except Exception as exc:
+                            if attempt >= 3:
+                                raise
+                            print(f"warn: put_object failed for {r['id']} (attempt {attempt}/3): {exc}", file=sys.stderr)
+                            time.sleep(0.4 * attempt)
+                    cur.execute(
+                        """
+                        UPDATE document_attachments
+                        SET storage_backend='s3',
+                            object_key=%s,
+                            object_etag=%s,
+                            bytes=NULL
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (key, etag, company_id, r["id"]),
+                    )
+                    moved += 1
+                    moved_bytes += size
 
-    print(f"migrated {moved} attachment(s)")
+                if not dry_run:
+                    conn.commit()
+
+    mode = "would migrate" if dry_run else "migrated"
+    print(f"{mode} {moved} attachment(s), bytes={moved_bytes}")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

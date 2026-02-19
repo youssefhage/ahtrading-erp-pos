@@ -2,6 +2,9 @@
   export let cart = [];
   export let totals = {};
   export let totalsByCompany = null;
+  export let vatDisplayMode = "both"; // "ex" | "inc" | "both"
+  export let onVatDisplayModeChange = (v) => {};
+  export let vatRateForLine = (line) => 0;
   export let originCompanyKey = "official";
   export let invoiceCompanyMode = "auto"; // "auto" | "official" | "unofficial"
   export let flagOfficial = false;
@@ -13,6 +16,11 @@
     const v = Math.max(0, Number(value) || 0);
     if (currency === "LBP") return `${Math.round(v).toLocaleString()} LBP`;
     return `${v.toFixed(2)} USD`;
+  };
+
+  const toNum = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
   };
 
   const companyLabel = (k) => (k === "unofficial" ? "Unofficial" : "Official");
@@ -37,7 +45,34 @@
     if (!flagOfficial && mixedCart && invoiceCompanyMode !== "auto") return "Cross-company stock moves are skipped and require later review.";
     return "";
   })();
-  $: canCheckout = cart.length > 0;
+  $: mode = (() => {
+    const m = String(vatDisplayMode || "").trim().toLowerCase();
+    return (m === "ex" || m === "inc" || m === "both") ? m : "both";
+  })();
+  $: modeLabel = mode === "ex" ? "Ex VAT" : (mode === "inc" ? "Incl VAT" : "Both");
+  $: lineTotals = (() => {
+    let subtotalUsd = 0;
+    let taxUsd = 0;
+    for (const ln of cart || []) {
+      const qty = Math.max(0, toNum(ln?.qty, 0));
+      const baseUsd = toNum(ln?.price_usd, 0) * qty;
+      const vatRate = Math.max(0, toNum(vatRateForLine ? vatRateForLine(ln) : 0, 0));
+      subtotalUsd += baseUsd;
+      taxUsd += baseUsd * vatRate;
+    }
+    return { subtotalUsd, taxUsd, totalUsd: subtotalUsd + taxUsd };
+  })();
+  $: subtotalUsd = lineTotals?.subtotalUsd || toNum(totals?.subtotalUsd, 0);
+  $: taxUsd = lineTotals?.taxUsd || toNum(totals?.taxUsd, 0);
+  $: totalIncUsd = lineTotals?.totalUsd || toNum(totals?.totalUsd, 0);
+  $: primaryTotalUsd = mode === "ex" ? subtotalUsd : totalIncUsd;
+  $: officialSubtotalUsd = toNum(totalsByCompany?.official?.subtotalUsd, 0);
+  $: officialTotalUsd = toNum(totalsByCompany?.official?.totalUsd, 0);
+  $: unofficialSubtotalUsd = toNum(totalsByCompany?.unofficial?.subtotalUsd, 0);
+  $: unofficialTotalUsd = toNum(totalsByCompany?.unofficial?.totalUsd, 0);
+  $: lineCount = Array.isArray(cart) ? cart.length : 0;
+  // Keep checkout enabled when we have either cart lines or a computed total.
+  $: canCheckout = lineCount > 0 || totalIncUsd > 0;
 </script>
 
 <section class="glass-panel rounded-3xl p-6 flex flex-col gap-6 relative group/summary">
@@ -89,16 +124,64 @@
       {/if}
     </div>
 
+    <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-3">
+      <div class="text-[10px] font-bold uppercase tracking-wider text-muted mb-2">Price Display</div>
+      <div class="grid grid-cols-3 gap-1.5">
+        <button
+          type="button"
+          class={`px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+            mode === "ex"
+              ? "bg-accent/20 border-accent/40 text-accent"
+              : "bg-surface/40 border-white/5 text-muted hover:text-ink"
+          }`}
+          on:click={() => onVatDisplayModeChange("ex")}
+        >
+          Ex VAT
+        </button>
+        <button
+          type="button"
+          class={`px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+            mode === "inc"
+              ? "bg-accent/20 border-accent/40 text-accent"
+              : "bg-surface/40 border-white/5 text-muted hover:text-ink"
+          }`}
+          on:click={() => onVatDisplayModeChange("inc")}
+        >
+          Incl VAT
+        </button>
+        <button
+          type="button"
+          class={`px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+            mode === "both"
+              ? "bg-accent/20 border-accent/40 text-accent"
+              : "bg-surface/40 border-white/5 text-muted hover:text-ink"
+          }`}
+          on:click={() => onVatDisplayModeChange("both")}
+        >
+          Both
+        </button>
+      </div>
+      <div class="mt-2 text-[10px] text-muted">
+        Showing prices: <span class="font-bold text-ink">{modeLabel}</span>
+      </div>
+    </div>
+
     <!-- Company Split Totals -->
     {#if totalsByCompany}
       <div class="grid grid-cols-2 gap-3">
         <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-3 flex flex-col gap-1">
           <div class="text-[10px] font-bold uppercase tracking-wider text-muted">Official</div>
-          <div class="num-readable font-bold text-ink text-lg">{fmtMoney(totalsByCompany.official?.totalUsd || 0, "USD")}</div>
+          <div class="num-readable font-bold text-ink text-lg">{fmtMoney(mode === "ex" ? officialSubtotalUsd : officialTotalUsd, "USD")}</div>
+          {#if mode === "both"}
+            <div class="text-[10px] text-muted num-readable">ex {fmtMoney(officialSubtotalUsd, "USD")}</div>
+          {/if}
         </div>
         <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-3 flex flex-col gap-1">
           <div class="text-[10px] font-bold uppercase tracking-wider text-muted">Unofficial</div>
-          <div class="num-readable font-bold text-ink text-lg">{fmtMoney(totalsByCompany.unofficial?.totalUsd || 0, "USD")}</div>
+          <div class="num-readable font-bold text-ink text-lg">{fmtMoney(mode === "ex" ? unofficialSubtotalUsd : unofficialTotalUsd, "USD")}</div>
+          {#if mode === "both"}
+            <div class="text-[10px] text-muted num-readable">ex {fmtMoney(unofficialSubtotalUsd, "USD")}</div>
+          {/if}
         </div>
       </div>
     {/if}
@@ -106,31 +189,40 @@
     <!-- Final Totals -->
     <div class="space-y-3 pt-2">
       <div class="flex justify-between text-muted text-sm px-1">
-        <span>Subtotal</span>
-        <span class="num-readable font-medium">{fmtMoney(totals.subtotalUsd || 0, "USD")}</span>
+        <span>Subtotal (ex VAT)</span>
+        <span class="num-readable font-medium">{fmtMoney(subtotalUsd, "USD")}</span>
       </div>
-      {#if totals.taxUsd > 0}
+      {#if taxUsd > 0}
         <div class="flex justify-between text-muted text-sm px-1">
           <span>VAT</span>
-          <span class="num-readable font-medium">{fmtMoney(totals.taxUsd || 0, "USD")}</span>
+          <span class="num-readable font-medium">{fmtMoney(taxUsd, "USD")}</span>
         </div>
       {/if}
+      <div class="flex justify-between text-muted text-sm px-1">
+        <span>Total (inc VAT)</span>
+        <span class="num-readable font-medium">{fmtMoney(totalIncUsd, "USD")}</span>
+      </div>
       
       <div class="relative py-6 mt-2">
          <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
          <div class="flex justify-between items-end">
-           <span class="text-xl font-bold text-ink">Total</span>
-           <span class="num-readable text-3xl font-extrabold text-accent tracking-tight">{fmtMoney(totals.totalUsd || 0, "USD")}</span>
+           <span class="text-xl font-bold text-ink">{mode === "ex" ? "Total (ex VAT)" : "Total (inc VAT)"}</span>
+           <span class="num-readable text-3xl font-extrabold text-accent tracking-tight">{fmtMoney(primaryTotalUsd, "USD")}</span>
          </div>
+         {#if mode === "both"}
+           <div class="mt-1 text-right text-[10px] text-muted num-readable">
+             ex {fmtMoney(subtotalUsd, "USD")}
+           </div>
+         {/if}
       </div>
     </div>
 
     <!-- Checkout Action -->
     <button
-      class={`w-full py-4 rounded-2xl font-bold text-lg tracking-wide transition-all relative overflow-hidden ${
+      class={`w-full py-4 rounded-2xl font-bold text-lg tracking-wide transition-all relative overflow-hidden border border-accent/40 bg-gradient-to-br from-accent to-accent-hover text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 ${
         canCheckout
-          ? "bg-gradient-to-br from-accent to-accent-hover text-white shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] group/btn"
-          : "bg-surface-highlight text-muted border border-ink/10 cursor-not-allowed"
+          ? "hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] group/btn"
+          : "opacity-55 cursor-not-allowed"
       }`}
       disabled={!canCheckout}
       on:click={onCheckout}

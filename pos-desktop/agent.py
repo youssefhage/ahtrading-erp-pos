@@ -99,12 +99,97 @@ DEFAULT_CONFIG = {
     'receipt_printer': '',
     'receipt_print_copies': 1,
     'auto_print_receipt': False,
+    # Thermal receipt format profile.
+    # Supported: classic, compact, detailed
+    'receipt_template': 'classic',
+    # Optional display label for receipt header.
+    'receipt_company_name': 'AH Trading',
+    # Optional line printed at the end of each receipt.
+    'receipt_footer_text': '',
 
     # Official invoice printing (A4 PDF) (optional)
     'invoice_printer': '',
     'invoice_print_copies': 1,
     'auto_print_invoice': False,
+    # A4 invoice PDF template profile (served by Admin /exports route).
+    # Supported: official_classic, official_compact, standard
+    'invoice_template': 'official_classic',
 }
+
+
+RECEIPT_TEMPLATES = {
+    "classic": {
+        "id": "classic",
+        "label": "Classic",
+        "description": "Balanced layout with core metadata and totals.",
+    },
+    "compact": {
+        "id": "compact",
+        "label": "Compact",
+        "description": "Minimal metadata for faster thermal prints.",
+    },
+    "detailed": {
+        "id": "detailed",
+        "label": "Detailed",
+        "description": "Expanded line details with SKU and unit pricing.",
+    },
+}
+
+INVOICE_TEMPLATES = {
+    "official_classic": {
+        "id": "official_classic",
+        "label": "Official Classic",
+        "description": "Full official layout with delivery/primary address blocks.",
+    },
+    "official_compact": {
+        "id": "official_compact",
+        "label": "Official Compact",
+        "description": "Simpler official A4 layout with condensed sections.",
+    },
+    "standard": {
+        "id": "standard",
+        "label": "Standard",
+        "description": "General invoice layout used by non-official companies.",
+    },
+}
+
+
+def _normalize_receipt_template_id(value) -> str:
+    v = str(value or "classic").strip().lower()
+    if v in RECEIPT_TEMPLATES:
+        return v
+    return "classic"
+
+
+def _clean_receipt_text(value, fallback: str = "", limit: int = 120) -> str:
+    raw = str(value if value is not None else fallback).strip()
+    if not raw:
+        return ""
+    return raw[: max(1, int(limit or 120))]
+
+
+def _receipt_render_profile(cfg: Optional[dict] = None) -> dict:
+    c = cfg or {}
+    return {
+        "template_id": _normalize_receipt_template_id(c.get("receipt_template")),
+        "company_name": _clean_receipt_text(c.get("receipt_company_name"), fallback="AH Trading", limit=64) or "AH Trading",
+        "footer_text": _clean_receipt_text(c.get("receipt_footer_text"), fallback="", limit=160),
+    }
+
+
+def _receipt_templates_payload() -> list[dict]:
+    return [RECEIPT_TEMPLATES[k] for k in ("classic", "compact", "detailed")]
+
+
+def _normalize_invoice_template_id(value) -> str:
+    v = str(value or "official_classic").strip().lower()
+    if v in INVOICE_TEMPLATES:
+        return v
+    return "official_classic"
+
+
+def _invoice_templates_payload() -> list[dict]:
+    return [INVOICE_TEMPLATES[k] for k in ("official_classic", "official_compact", "standard")]
 
 
 def load_config():
@@ -131,6 +216,10 @@ def load_config():
         cfg["device_id"] = os.environ["POS_DEVICE_ID"]
     if os.environ.get("POS_DEVICE_TOKEN"):
         cfg["device_token"] = os.environ["POS_DEVICE_TOKEN"]
+    cfg["receipt_template"] = _normalize_receipt_template_id(cfg.get("receipt_template"))
+    cfg["receipt_company_name"] = _clean_receipt_text(cfg.get("receipt_company_name"), fallback="AH Trading", limit=64) or "AH Trading"
+    cfg["receipt_footer_text"] = _clean_receipt_text(cfg.get("receipt_footer_text"), fallback="", limit=160)
+    cfg["invoice_template"] = _normalize_invoice_template_id(cfg.get("invoice_template"))
     return cfg
 
 
@@ -1436,9 +1525,14 @@ def get_last_receipt():
         }
 
 
-def _receipt_html(receipt_row):
+def _receipt_html(receipt_row, cfg: Optional[dict] = None):
     if not receipt_row:
         return """<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Receipt</title></head><body><p>No receipt yet.</p></body></html>"""
+
+    profile = _receipt_render_profile(cfg)
+    template_id = profile["template_id"]
+    company_name = profile["company_name"]
+    footer_text = profile["footer_text"]
 
     r = receipt_row.get("receipt") or {}
     lines = r.get("lines") or []
@@ -1461,6 +1555,16 @@ def _receipt_html(receipt_row):
 
     title = "Sale Receipt" if receipt_row.get("receipt_type") == "sale" else "Return Receipt"
     cashier = r.get("cashier") or {}
+    cashier_name = cashier.get("name") or cashier.get("id") or "-"
+
+    meta_rows = []
+    meta_rows.append(f'<div class="muted">Time: <span class="mono">{e(r.get("created_at") or "-")}</span></div>')
+    if template_id != "compact":
+        meta_rows.append(f'<div class="muted">Event: <span class="mono">{e(r.get("event_id") or "-")}</span></div>')
+        meta_rows.append(f'<div class="muted">Shift: <span class="mono">{e(r.get("shift_id") or "-")}</span></div>')
+        meta_rows.append(f'<div class="muted">Customer: <span class="mono">{e(r.get("customer_id") or "-")}</span></div>')
+    meta_rows.append(f'<div class="muted">Cashier: <span>{e(cashier_name)}</span></div>')
+    meta_rows.append(f'<div class="muted">Payment: <span>{e(r.get("payment_method") or "-")}</span></div>')
 
     line_rows = []
     for ln in lines:
@@ -1469,6 +1573,8 @@ def _receipt_html(receipt_row):
         qty = qty_entered if qty_entered is not None else (ln.get("qty") or 0)
         uom = (ln.get("uom") or "").strip()
         qty_label = f"{qty} {uom}".strip()
+        unit_usd = fmt_usd(ln.get("unit_price_usd"))
+        sku = (ln.get("sku") or "").strip() or (ln.get("item_id") or "")
         line_rows.append(
             f"""
             <tr>
@@ -1478,7 +1584,18 @@ def _receipt_html(receipt_row):
             </tr>
             """
         )
+        if template_id == "detailed":
+            detail_meta = f"{sku} @ {unit_usd} USD"
+            line_rows.append(
+                f"""
+                <tr class="detail">
+                  <td colspan="3">{e(detail_meta)}</td>
+                </tr>
+                """
+            )
 
+    width_mm = "72mm" if template_id == "compact" else "80mm"
+    footer_html = f'<div class="footer">{e(footer_text)}</div>' if footer_text else ""
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -1487,7 +1604,7 @@ def _receipt_html(receipt_row):
 	    <title>{e(title)}</title>
 	    <style>
 	      :root {{
-	        --w: 80mm;
+	        --w: {width_mm};
 	        --fg: #111;
 	        --muted: #666;
 	        --border: #ddd;
@@ -1510,10 +1627,12 @@ def _receipt_html(receipt_row):
       table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
       thead th {{ text-align: left; border-bottom: 1px solid var(--border); padding: 6px 0; }}
       tbody td {{ padding: 6px 0; border-bottom: 1px dashed #eee; vertical-align: top; }}
+      tbody tr.detail td {{ font-size: 10px; color: var(--muted); padding-top: 2px; }}
       td.qty, th.qty {{ text-align: right; width: 18%; }}
       td.amt, th.amt {{ text-align: right; width: 28%; }}
       .totals {{ margin-top: 10px; font-size: 12px; }}
       .row {{ display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }}
+      .footer {{ margin-top: 12px; font-size: 11px; color: var(--muted); text-align: center; }}
       .actions {{ margin-top: 12px; display: flex; gap: 8px; }}
       button {{
         border: 1px solid var(--border);
@@ -1530,15 +1649,10 @@ def _receipt_html(receipt_row):
     </style>
   </head>
   <body>
-    <h1>AH Trading</h1>
+    <h1>{e(company_name)}</h1>
     <h2>{e(title)}</h2>
     <div class="meta">
-      <div class="muted">Time: <span class="mono">{e(r.get("created_at"))}</span></div>
-      <div class="muted">Event: <span class="mono">{e(r.get("event_id"))}</span></div>
-      <div class="muted">Shift: <span class="mono">{e(r.get("shift_id") or "-")}</span></div>
-      <div class="muted">Cashier: <span>{e(cashier.get("name") or cashier.get("id") or "-")}</span></div>
-      <div class="muted">Customer: <span class="mono">{e(r.get("customer_id") or "-")}</span></div>
-      <div class="muted">Payment: <span>{e(r.get("payment_method") or "-")}</span></div>
+      {''.join(meta_rows)}
     </div>
 
     <table>
@@ -1560,6 +1674,7 @@ def _receipt_html(receipt_row):
       <div class="row"><span class="muted">Total USD</span><strong class="mono">{e(fmt_usd(totals.get("total_usd")))}</strong></div>
       <div class="row"><span class="muted">Total LBP</span><strong class="mono">{e(fmt_lbp(totals.get("total_lbp")))}</strong></div>
     </div>
+    {footer_html}
 
     <div class="actions">
       <button onclick="window.print()">Print</button>
@@ -1573,13 +1688,23 @@ def _receipt_html(receipt_row):
 </html>"""
 
 
-def _receipt_text(receipt_row, width: int = 42) -> str:
+def _receipt_text(
+    receipt_row,
+    width: int = 42,
+    template_id: str = "classic",
+    company_name: str = "AH Trading",
+    footer_text: str = "",
+) -> str:
     """
     Plain-text receipt for thermal printers via OS spooling.
     Keeps dependencies minimal (no HTML->PDF rendering).
     """
     if not receipt_row:
         return "No receipt yet.\n"
+
+    template = _normalize_receipt_template_id(template_id)
+    company_label = _clean_receipt_text(company_name, fallback="AH Trading", limit=64) or "AH Trading"
+    footer_label = _clean_receipt_text(footer_text, fallback="", limit=160)
 
     r = receipt_row.get("receipt") or {}
     lines = r.get("lines") or []
@@ -1603,17 +1728,30 @@ def _receipt_text(receipt_row, width: int = 42) -> str:
         except Exception:
             return "0"
 
+    def push_aligned(left: str, right: str):
+        left_s = clip(left)
+        right_s = str(right or "").strip()
+        if not right_s:
+            out.append(left_s)
+            return
+        if len(right_s) >= width:
+            out.append(left_s)
+            out.append(clip(right_s))
+            return
+        out.append(left_s[: max(0, width - len(right_s) - 1)] + " " + right_s)
+
     out = []
     title = "SALE" if receipt_row.get("receipt_type") == "sale" else "RETURN"
-    out.append("AH Trading")
+    out.append(company_label)
     out.append(title)
     out.append(f"Time: {r.get('created_at') or '-'}")
-    out.append(f"Event: {r.get('event_id') or '-'}")
-    if r.get("shift_id"):
-        out.append(f"Shift: {r.get('shift_id')}")
+    if template != "compact":
+        out.append(f"Event: {r.get('event_id') or '-'}")
+        if r.get("shift_id"):
+            out.append(f"Shift: {r.get('shift_id')}")
     if r.get("cashier", {}).get("name") or r.get("cashier", {}).get("id"):
         out.append(f"Cashier: {r.get('cashier', {}).get('name') or r.get('cashier', {}).get('id')}")
-    if r.get("customer_id"):
+    if template != "compact" and r.get("customer_id"):
         out.append(f"Customer: {r.get('customer_id')}")
     if r.get("payment_method"):
         out.append(f"Payment: {r.get('payment_method')}")
@@ -1627,20 +1765,20 @@ def _receipt_text(receipt_row, width: int = 42) -> str:
         uom = (ln.get("uom") or "").strip()
         qty_label = f"{qty} {uom}".strip()
         amt = fmt_usd(ln.get("line_total_usd"))
-        left = clip(name)
-        # Right-align qty and amount where possible.
-        right = f"{qty_label}  {amt}".strip()
-        if len(right) >= width:
-            out.append(left)
-            out.append(clip(right))
-        else:
-            out.append(left[: max(0, width - len(right) - 1)] + " " + right)
+        push_aligned(name, f"{qty_label}  {amt}".strip())
+        if template == "detailed":
+            sku = (ln.get("sku") or "").strip() or (ln.get("item_id") or "")
+            unit = fmt_usd(ln.get("unit_price_usd"))
+            out.append(clip(f"  {sku} @ {unit} USD"))
 
     out.append("-" * width)
     out.append(f"Subtotal USD: {fmt_usd(totals.get('base_usd'))}")
     out.append(f"VAT USD:      {fmt_usd(totals.get('tax_usd'))}")
     out.append(f"Total USD:    {fmt_usd(totals.get('total_usd'))}")
     out.append(f"Total LBP:    {fmt_lbp(totals.get('total_lbp'))}")
+    if footer_label:
+        out.append("-" * width)
+        out.append(clip(footer_label))
     out.append("")
     return "\n".join(out) + "\n"
 
@@ -1829,7 +1967,7 @@ def _require_print_base_url(cfg: dict) -> str:
     return raw.rstrip("/")
 
 
-def _fetch_invoice_pdf(cfg: dict, invoice_id: str) -> bytes:
+def _fetch_invoice_pdf(cfg: dict, invoice_id: str, template: Optional[str] = None) -> bytes:
     """
     Fetch the A4 invoice PDF from the Admin app exports route using device headers.
     """
@@ -1838,7 +1976,8 @@ def _fetch_invoice_pdf(cfg: dict, invoice_id: str) -> bytes:
     if not invoice_id:
         raise ValueError("missing invoice_id")
 
-    url = f"{base}/exports/sales-invoices/{quote(invoice_id)}/pdf?inline=1"
+    tpl = _normalize_invoice_template_id(template if template is not None else cfg.get("invoice_template"))
+    url = f"{base}/exports/sales-invoices/{quote(invoice_id)}/pdf?inline=1&template={quote(tpl)}"
     req = Request(url, headers={**device_headers(cfg), "Accept": "application/pdf"}, method="GET")
     with urlopen(req, timeout=30) as resp:
         return resp.read()
@@ -2493,8 +2632,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if _reject_if_disallowed_origin(self):
                 return
+            cfg = load_config()
             row = get_last_receipt()
-            text_response(self, _receipt_html(row), status=200, content_type="text/html")
+            text_response(self, _receipt_html(row, cfg=cfg), status=200, content_type="text/html")
             return
         if parsed.path.startswith('/api/'):
             if _reject_if_disallowed_origin(self):
@@ -2649,6 +2789,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/receipts/last":
             json_response(self, {"receipt": get_last_receipt()})
+            return
+        if parsed.path == "/api/receipts/templates":
+            json_response(
+                self,
+                {
+                    "templates": _receipt_templates_payload(),
+                    "selected": _normalize_receipt_template_id(cfg.get("receipt_template")),
+                },
+            )
+            return
+        if parsed.path == "/api/invoices/templates":
+            json_response(
+                self,
+                {
+                    "templates": _invoice_templates_payload(),
+                    "selected": _normalize_invoice_template_id(cfg.get("invoice_template")),
+                },
+            )
             return
 
         if parsed.path == '/api/customers':
@@ -3069,6 +3227,14 @@ class Handler(BaseHTTPRequestHandler):
                     data["outbox_stale_warn_minutes"] = max(1, min(1440, int(data.get("outbox_stale_warn_minutes") or 5)))
                 except Exception:
                     data["outbox_stale_warn_minutes"] = int(cfg.get("outbox_stale_warn_minutes") or 5)
+            if "receipt_template" in data:
+                data["receipt_template"] = _normalize_receipt_template_id(data.get("receipt_template"))
+            if "receipt_company_name" in data:
+                data["receipt_company_name"] = _clean_receipt_text(data.get("receipt_company_name"), fallback="AH Trading", limit=64)
+            if "receipt_footer_text" in data:
+                data["receipt_footer_text"] = _clean_receipt_text(data.get("receipt_footer_text"), fallback="", limit=160)
+            if "invoice_template" in data:
+                data["invoice_template"] = _normalize_invoice_template_id(data.get("invoice_template"))
             cfg.update(data)
             save_config(cfg)
             json_response(self, {'ok': True, 'config': cfg})
@@ -3080,19 +3246,39 @@ class Handler(BaseHTTPRequestHandler):
             cfg = load_config()
             printer = (str(data.get("printer") or "").strip() or str(cfg.get("receipt_printer") or "").strip() or None)
             copies = data.get("copies") if "copies" in data else cfg.get("receipt_print_copies")
+            profile = _receipt_render_profile(
+                {
+                    "receipt_template": data.get("template") if "template" in data else cfg.get("receipt_template"),
+                    "receipt_company_name": data.get("company_name") if "company_name" in data else cfg.get("receipt_company_name"),
+                    "receipt_footer_text": data.get("footer_text") if "footer_text" in data else cfg.get("receipt_footer_text"),
+                }
+            )
 
             row = get_last_receipt()
             if not row:
                 json_response(self, {"error": "no_receipt"}, status=404)
                 return
             try:
-                txt = _receipt_text(row)
+                txt = _receipt_text(
+                    row,
+                    template_id=profile["template_id"],
+                    company_name=profile["company_name"],
+                    footer_text=profile["footer_text"],
+                )
                 _print_text_to_printer(txt, printer=printer, copies=copies)
             except Exception as ex:
                 json_response(self, {"error": "print_failed", "detail": str(ex), "printer": printer}, status=502)
                 return
 
-            json_response(self, {"ok": True, "printer": printer, "copies": copies})
+            json_response(
+                self,
+                {
+                    "ok": True,
+                    "printer": printer,
+                    "copies": copies,
+                    "template": profile["template_id"],
+                },
+            )
             return
 
         if parsed.path == "/api/printers/test":
@@ -3134,10 +3320,11 @@ class Handler(BaseHTTPRequestHandler):
 
             printer = (str(data.get("printer") or "").strip() or str(cfg.get("invoice_printer") or "").strip() or None)
             copies = data.get("copies") if "copies" in data else cfg.get("invoice_print_copies")
+            invoice_template = _normalize_invoice_template_id(data.get("template") if "template" in data else cfg.get("invoice_template"))
 
             try:
                 resolved = _resolve_sales_invoice_from_event(cfg, event_id)
-                pdf = _fetch_invoice_pdf(cfg, resolved["invoice_id"])
+                pdf = _fetch_invoice_pdf(cfg, resolved["invoice_id"], template=invoice_template)
                 _print_pdf_to_printer(pdf, printer=printer, copies=copies)
             except Exception as ex:
                 json_response(
@@ -3147,7 +3334,17 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
-            json_response(self, {"ok": True, "event_id": event_id, "printer": printer, "copies": copies, **resolved})
+            json_response(
+                self,
+                {
+                    "ok": True,
+                    "event_id": event_id,
+                    "printer": printer,
+                    "copies": copies,
+                    "template": invoice_template,
+                    **resolved,
+                },
+            )
             return
 
         if parsed.path == "/api/customers/create":
@@ -3155,6 +3352,22 @@ class Handler(BaseHTTPRequestHandler):
             name = str(data.get("name") or "").strip()
             phone = str(data.get("phone") or "").strip()
             email = str(data.get("email") or "").strip()
+            party_type = str(data.get("party_type") or "individual").strip().lower()
+            customer_type = str(data.get("customer_type") or "retail").strip().lower()
+            legal_name = str(data.get("legal_name") or "").strip()
+            membership_no = str(data.get("membership_no") or "").strip()
+            tax_id = str(data.get("tax_id") or "").strip()
+            vat_no = str(data.get("vat_no") or "").strip()
+            notes = str(data.get("notes") or "").strip()
+            terms_raw = str(data.get("payment_terms_days") if data.get("payment_terms_days") is not None else "").strip()
+            try:
+                payment_terms_days = int(terms_raw or "0")
+            except Exception:
+                payment_terms_days = 0
+            if payment_terms_days < 0:
+                payment_terms_days = 0
+            if payment_terms_days > 3650:
+                payment_terms_days = 3650
             if not name:
                 json_response(self, {"error": "name is required"}, status=400)
                 return
@@ -3170,10 +3383,17 @@ class Handler(BaseHTTPRequestHandler):
                 "name": name,
                 "phone": phone or None,
                 "email": email or None,
-                "party_type": "individual",
-                "customer_type": "retail",
-                "payment_terms_days": 0,
-                "is_active": True,
+                "party_type": "business" if party_type == "business" else "individual",
+                "customer_type": customer_type if customer_type in {"retail", "wholesale", "b2b"} else "retail",
+                "marketing_opt_in": bool(data.get("marketing_opt_in")),
+                "legal_name": legal_name or None,
+                "membership_no": membership_no or None,
+                "tax_id": tax_id or None,
+                "vat_no": vat_no or None,
+                "notes": notes or None,
+                "is_member": bool(membership_no),
+                "payment_terms_days": payment_terms_days,
+                "is_active": bool(data.get("is_active", True)),
             }
             res, status, err = _setup_req_json_safe(
                 f"{api_base}/pos/customers",
@@ -3626,6 +3846,10 @@ class Handler(BaseHTTPRequestHandler):
                     cfg['warehouse_id'] = pos_cfg['default_warehouse_id']
                 if isinstance(pos_cfg.get("inventory_policy"), dict):
                     cfg["inventory_policy"] = pos_cfg.get("inventory_policy") or {}
+                if isinstance(pos_cfg.get("print_policy"), dict):
+                    pp = pos_cfg.get("print_policy") or {}
+                    if "sales_invoice_pdf_template" in pp:
+                        cfg["invoice_template"] = _normalize_invoice_template_id(pp.get("sales_invoice_pdf_template"))
                 vat = pos_cfg.get('vat') or {}
                 if vat.get('id'):
                     cfg['tax_code_id'] = vat['id']

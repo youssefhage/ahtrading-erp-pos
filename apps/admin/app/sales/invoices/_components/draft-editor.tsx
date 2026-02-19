@@ -19,6 +19,8 @@ import { getFxRateUsdToLbp } from "@/lib/fx";
 
 type Warehouse = { id: string; name: string };
 type UomConv = { uom_code: string; to_base_factor: string | number; is_active: boolean };
+type TaxCode = { id: string; name: string; rate: string | number; tax_type: string; reporting_currency?: string };
+type CompanySettingRow = { key: string; value_json: any };
 
 type InvoiceLineDraft = {
   item_id: string;
@@ -128,6 +130,34 @@ function addDays(iso: string, days: number) {
   return d.toISOString().slice(0, 10);
 }
 
+function taxRateToFraction(raw: unknown) {
+  const n = Number(raw || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n > 1 ? n / 100 : n;
+}
+
+function parseDefaultVatTaxCodeId(valueJson: any): string | null {
+  if (valueJson == null) return null;
+  if (typeof valueJson === "object" && !Array.isArray(valueJson)) {
+    return String(valueJson.id || valueJson.tax_code_id || "").trim() || null;
+  }
+  return String(valueJson || "").trim() || null;
+}
+
+function resolveDefaultVatTaxCodeId(taxCodes: TaxCode[], settings: CompanySettingRow[]): string | null {
+  const vatCodes = (taxCodes || []).filter((t) => String(t.tax_type || "").toLowerCase() === "vat");
+  if (!vatCodes.length) return null;
+  const configured = parseDefaultVatTaxCodeId((settings || []).find((s) => s.key === "default_vat_tax_code_id")?.value_json);
+  if (configured && vatCodes.some((t) => t.id === configured)) return configured;
+  if (vatCodes.length === 1) return vatCodes[0].id;
+  return null;
+}
+
+function fmtVatPercent(rateFraction: number) {
+  const pct = (Number(rateFraction || 0) || 0) * 100;
+  return Number.isInteger(pct) ? pct.toFixed(0) : pct.toFixed(2);
+}
+
 export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoiceId?: string }) {
   const router = useRouter();
 
@@ -136,6 +166,8 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const [saving, setSaving] = useState(false);
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
+  const [defaultVatTaxCodeId, setDefaultVatTaxCodeId] = useState<string | null>(null);
 
   const [customerId, setCustomerId] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerTypeaheadCustomer | null>(null);
@@ -162,6 +194,32 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
   const addQtyRef = useRef<HTMLInputElement | null>(null);
   const saveHotkeyRef = useRef<() => void>(() => {});
 
+  const taxById = useMemo(() => new Map((taxCodes || []).map((t) => [t.id, t])), [taxCodes]);
+
+  const vatMetaFor = useCallback(
+    (rawTaxCodeId?: string | null) => {
+      const itemTaxCodeId = String(rawTaxCodeId || "").trim() || null;
+      const effectiveTaxCodeId = itemTaxCodeId || defaultVatTaxCodeId || null;
+      if (!effectiveTaxCodeId) {
+        return { taxCodeId: null as string | null, rate: 0, label: "No VAT" };
+      }
+      const tc = taxById.get(effectiveTaxCodeId);
+      if (!tc) {
+        return {
+          taxCodeId: effectiveTaxCodeId,
+          rate: 0,
+          label: itemTaxCodeId ? effectiveTaxCodeId : "No VAT",
+        };
+      }
+      if (String(tc.tax_type || "").toLowerCase() !== "vat") {
+        return { taxCodeId: effectiveTaxCodeId, rate: 0, label: String(tc.name || effectiveTaxCodeId) };
+      }
+      const rate = taxRateToFraction(tc.rate);
+      return { taxCodeId: effectiveTaxCodeId, rate, label: `${String(tc.name || "VAT")} (${fmtVatPercent(rate)}%)` };
+    },
+    [taxById, defaultVatTaxCodeId]
+  );
+
   const ensureUomConversions = useCallback(async (itemIds: string[]) => {
     const ids = Array.from(new Set((itemIds || []).map((x) => String(x || "").trim()).filter(Boolean)));
     if (!ids.length) return;
@@ -179,13 +237,22 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     let subtotalLbp = 0;
     let discountUsd = 0;
     let discountLbp = 0;
+    let vatUsd = 0;
+    let vatLbp = 0;
     for (const l of lines || []) {
       const r = resolveLine(l, ex);
+      const vat = vatMetaFor(l.tax_code_id);
+      const lineVatLbp = r.totalLbp * vat.rate;
+      const lineVatUsd = ex > 0 ? lineVatLbp / ex : r.totalUsd * vat.rate;
       subtotalUsd += r.totalUsd;
       subtotalLbp += r.totalLbp;
       discountUsd += r.discountUsd;
       discountLbp += r.discountLbp;
+      vatUsd += lineVatUsd;
+      vatLbp += lineVatLbp;
     }
+    const totalInclUsd = subtotalUsd + vatUsd;
+    const totalInclLbp = subtotalLbp + vatLbp;
     return {
       subtotalUsd,
       subtotalLbp,
@@ -193,8 +260,12 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       discountLbp,
       totalUsd: subtotalUsd,
       totalLbp: subtotalLbp,
+      vatUsd,
+      vatLbp,
+      totalInclUsd,
+      totalInclLbp,
     };
-  }, [lines, exchangeRate]);
+  }, [lines, exchangeRate, vatMetaFor]);
 
   const addUomOptions = useMemo(() => {
     if (!addItem) return [];
@@ -213,6 +284,29 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     return out.length ? out : base ? [{ value: base, label: base }] : [];
   }, [addItem, uomConvByItem]);
 
+  const addPricingPreview = useMemo(() => {
+    if (!addItem) return null;
+    const ex = toNum(exchangeRate);
+    let preUsd = toNum(addUsd);
+    let preLbp = toNum(addLbp);
+    const discPctUi = clampPct(toNum(addDiscPct));
+    const discFrac = discPctUi / 100;
+    if (ex > 0) {
+      if (preUsd === 0 && preLbp > 0) preUsd = preLbp / ex;
+      if (preLbp === 0 && preUsd > 0) preLbp = preUsd * ex;
+    }
+    const netUsd = preUsd * (1 - discFrac);
+    const netLbp = preLbp * (1 - discFrac);
+    const vat = vatMetaFor((addItem as any).tax_code_id ?? null);
+    const vatUnitLbp = netLbp * vat.rate;
+    const vatUnitUsd = ex > 0 ? vatUnitLbp / ex : netUsd * vat.rate;
+    return {
+      vatLabel: vat.label,
+      unitInclUsd: netUsd + vatUnitUsd,
+      unitInclLbp: netLbp + vatUnitLbp,
+    };
+  }, [addItem, exchangeRate, addUsd, addLbp, addDiscPct, vatMetaFor]);
+
   function applyInvoiceDiscountToAllLines() {
     const pct = clampPct(toNum(invoiceDiscountPct));
     setInvoiceDiscountPct(String(pct));
@@ -224,11 +318,15 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
     setLoading(true);
     setStatus("Loading...");
     try {
-      const [wh, fx] = await Promise.all([
+      const [wh, fx, tc, settingsRes] = await Promise.all([
         apiGet<{ warehouses: Warehouse[] }>("/warehouses"),
         getFxRateUsdToLbp(),
+        apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes").catch(() => ({ tax_codes: [] as TaxCode[] })),
+        apiGet<{ settings: CompanySettingRow[] }>("/pricing/company-settings").catch(() => ({ settings: [] as CompanySettingRow[] })),
       ]);
       setWarehouses(wh.warehouses || []);
+      setTaxCodes(tc.tax_codes || []);
+      setDefaultVatTaxCodeId(resolveDefaultVatTaxCodeId(tc.tax_codes || [], settingsRes.settings || []));
       const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 90000;
 
       const firstWhId = (wh.warehouses || [])[0]?.id || "";
@@ -618,7 +716,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 
   function lineIssues(l: InvoiceLineDraft) {
     const uom = String(l.uom || l.unit_of_measure || "").trim();
-    const vatMissing = !String(l.tax_code_id || "").trim();
+    const vatMissing = !String(l.tax_code_id || defaultVatTaxCodeId || "").trim();
     const costUsd = toNum(String(l.standard_cost_usd ?? 0));
     const costLbp = toNum(String(l.standard_cost_lbp ?? 0));
     const costMissing = costUsd <= 0 && costLbp <= 0;
@@ -813,8 +911,26 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                     <label className="text-xs font-medium text-fg-muted">Disc%</label>
                     <Input inputMode="decimal" value={addDiscPct} onChange={(e) => setAddDiscPct(e.target.value)} placeholder="0" />
                   </div>
-                  <div className="md:col-span-12 text-xs text-fg-subtle">
-                    Qty factor: <span className="font-mono">{toNum(addQtyFactor).toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
+                  <div className="md:col-span-12 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-fg-subtle">
+                    <span>
+                      Qty factor: <span className="font-mono">{toNum(addQtyFactor).toLocaleString("en-US", { maximumFractionDigits: 6 })}</span>
+                    </span>
+                    {addPricingPreview ? (
+                      <>
+                        <span>
+                          VAT: <span className="font-mono">{addPricingPreview.vatLabel}</span>
+                        </span>
+                        <span>
+                          Unit incl VAT:{" "}
+                          <span className="font-mono">
+                            {addPricingPreview.unitInclUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                            {showSecondaryCurrency
+                              ? ` / ${addPricingPreview.unitInclLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+                              : ""}
+                          </span>
+                        </span>
+                      </>
+                    ) : null}
                   </div>
                   <div className="md:col-span-12 flex justify-end gap-2">
                     <Button type="submit" variant="outline" disabled={loading}>
@@ -823,10 +939,10 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                   </div>
 	                </form>
 
-	                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+	                <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
 	                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-xs text-fg-muted">
 	                    <div className="flex items-center justify-between gap-2">
-	                      <span>Subtotal</span>
+	                      <span>Total (ex VAT)</span>
 	                      <span className="font-mono text-foreground">
 	                        {totals.subtotalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
                           {showSecondaryCurrency
@@ -848,11 +964,22 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                  </div>
 	                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-xs text-fg-muted">
 	                    <div className="flex items-center justify-between gap-2">
-	                      <span>Total</span>
+	                      <span>VAT</span>
 	                      <span className="font-mono text-foreground">
-	                        {totals.totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+	                        {totals.vatUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
                           {showSecondaryCurrency
-                            ? ` / ${totals.totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+                            ? ` / ${totals.vatLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+                            : ""}
+	                      </span>
+	                    </div>
+	                  </div>
+	                  <div className="rounded-md border border-border-subtle bg-bg-elevated/60 p-2 text-xs text-fg-muted">
+	                    <div className="flex items-center justify-between gap-2">
+	                      <span>Total (inc VAT)</span>
+	                      <span className="font-mono text-foreground">
+	                        {totals.totalInclUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                          {showSecondaryCurrency
+                            ? ` / ${totals.totalInclLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
                             : ""}
 	                      </span>
 	                    </div>
@@ -869,15 +996,24 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
 	                        <th className="px-3 py-2 text-right">Unit USD</th>
 	                        {showSecondaryCurrency ? <th className="px-3 py-2 text-right">Unit LBP</th> : null}
 	                        <th className="px-3 py-2 text-right">Disc%</th>
-	                        <th className="px-3 py-2 text-right">Net USD</th>
-	                        {showSecondaryCurrency ? <th className="px-3 py-2 text-right">Net LBP</th> : null}
+	                        <th className="px-3 py-2">VAT</th>
+	                        <th className="px-3 py-2 text-right">Line USD (ex)</th>
+	                        {showSecondaryCurrency ? <th className="px-3 py-2 text-right">Line LBP (ex)</th> : null}
+	                        <th className="px-3 py-2 text-right">Line USD (inc)</th>
+	                        {showSecondaryCurrency ? <th className="px-3 py-2 text-right">Line LBP (inc)</th> : null}
 	                        <th className="px-3 py-2 text-right">Actions</th>
 	                      </tr>
                     </thead>
                     <tbody>
 	                      {lines.map((l, idx) => {
+                          const ex = toNum(exchangeRate);
                           const issues = lineIssues(l);
-	                        const r = resolveLine(l, toNum(exchangeRate));
+	                        const r = resolveLine(l, ex);
+                          const vat = vatMetaFor(l.tax_code_id);
+                          const lineVatLbp = r.totalLbp * vat.rate;
+                          const lineVatUsd = ex > 0 ? lineVatLbp / ex : r.totalUsd * vat.rate;
+                          const lineInclUsd = r.totalUsd + lineVatUsd;
+                          const lineInclLbp = r.totalLbp + lineVatLbp;
 	                        const convs = uomConvByItem[l.item_id] || [];
 	                        const uomOpts = (() => {
 	                          const seen = new Set<string>();
@@ -903,6 +1039,9 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                                 <span className="font-mono text-xs">{l.item_sku || l.item_id.slice(0, 8)}</span>
                                 {l.item_name ? <span> · {l.item_name}</span> : null}
                               </ShortcutLink>
+                              <div className="mt-1 text-xs text-fg-subtle">
+                                VAT: <span className="font-mono">{vat.label}</span>
+                              </div>
                               {issues.uomMissing || issues.vatMissing || issues.costMissing ? (
                                 <div className="mt-1 flex flex-wrap gap-1">
                                   {issues.uomMissing ? <IssuePill tone="danger">Missing UOM</IssuePill> : null}
@@ -982,12 +1121,27 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                                 className="h-8 w-20 text-right font-mono text-xs"
                               />
                             </td>
+                            <td className="px-3 py-2 text-xs text-fg-subtle">
+                              {vat.rate > 0 ? (
+                                <span className="font-mono">{fmtVatPercent(vat.rate)}%</span>
+                              ) : (
+                                <span className="font-mono">-</span>
+                              )}
+                            </td>
                             <td className="px-3 py-2 text-right font-mono text-xs">
                               {r.totalUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
                             </td>
                             {showSecondaryCurrency ? (
                               <td className="px-3 py-2 text-right font-mono text-xs">
                                 {r.totalLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                              </td>
+                            ) : null}
+                            <td className="px-3 py-2 text-right font-mono text-xs">
+                              {lineInclUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
+                            </td>
+                            {showSecondaryCurrency ? (
+                              <td className="px-3 py-2 text-right font-mono text-xs">
+                                {lineInclLbp.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                               </td>
                             ) : null}
                             <td className="px-3 py-2 text-right">
@@ -1007,7 +1161,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
                       })}
 	                      {lines.length === 0 ? (
 	                        <tr>
-	                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={showSecondaryCurrency ? 9 : 7}>
+	                          <td className="px-3 py-6 text-center text-fg-subtle" colSpan={showSecondaryCurrency ? 12 : 9}>
 	                            No lines yet.
 	                          </td>
 	                        </tr>

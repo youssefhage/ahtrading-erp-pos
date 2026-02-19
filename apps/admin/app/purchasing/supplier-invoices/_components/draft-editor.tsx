@@ -582,8 +582,18 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     setTimeout(() => addQtyRef.current?.focus(), 0);
   }
 
-  function addLine(e: React.FormEvent) {
-    e.preventDefault();
+  function selectInputText(e: React.FocusEvent<HTMLInputElement>) {
+    const input = e.currentTarget;
+    window.setTimeout(() => {
+      try {
+        input.select();
+      } catch {
+        // ignore
+      }
+    }, 0);
+  }
+
+  function tryAddLine() {
     if (!addItem) return setStatus("Select an item.");
     const qtyEntered = toNum(addQty);
     if (qtyEntered <= 0) return setStatus("qty must be > 0");
@@ -600,7 +610,6 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     const uom = String(addUom || (addItem as any).unit_of_measure || "").trim().toUpperCase() || null;
     if (!uom) return setStatus("UOM is required.");
     setLines((prev) => [
-      ...prev,
       {
         item_id: addItem.id,
         item_sku: addItem.sku,
@@ -615,7 +624,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         expiry_date: addExpiry || "",
         supplier_item_code: null,
         supplier_item_name: null
-      }
+      },
+      ...prev,
     ]);
     setAddItem(null);
     setAddQty("1");
@@ -626,6 +636,22 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     setAddBatchNo("");
     setAddExpiry("");
     setStatus("");
+    return true;
+  }
+
+  function addLine(e: React.FormEvent) {
+    e.preventDefault();
+    tryAddLine();
+  }
+
+  function onAddUomKeyDownCapture(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Enter" && e.key !== "NumpadEnter") return;
+    if (!(e.target instanceof HTMLElement)) return;
+    if (e.target.tagName.toLowerCase() !== "button") return;
+    if (e.target.getAttribute("aria-haspopup") !== "listbox") return;
+    e.preventDefault();
+    e.stopPropagation();
+    tryAddLine();
   }
 
   function patchLine(idx: number, patch: Partial<InvoiceLineDraft>) {
@@ -1353,18 +1379,27 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     <label className="text-xs font-medium text-fg-muted">Item (search by SKU, name, or barcode)</label>
                     <ItemTypeahead globalScan disabled={loading} onSelect={(it) => void onPickItem(it)} />
                     {addItem ? (
-                      <p className="text-xs text-fg-subtle">
-                        Selected: <span className="font-mono">{addItem.sku}</span> · {addItem.name}
-                      </p>
+                      <div className="rounded-md border border-border-subtle bg-bg-elevated/40 px-3 py-2">
+                        <div className="text-[11px] text-fg-subtle">
+                          Selected SKU: <span className="font-mono">{addItem.sku}</span>
+                        </div>
+                        <div className="text-base font-semibold leading-tight">{addItem.name}</div>
+                      </div>
                     ) : (
                       <p className="text-xs text-fg-subtle">Tip: pick the item first, then type qty and cost.</p>
                     )}
                   </div>
                   <div className="space-y-1 md:col-span-1">
                     <label className="text-xs font-medium text-fg-muted">Qty</label>
-                    <Input inputMode="decimal" ref={addQtyRef} value={addQty} onChange={(e) => setAddQty(e.target.value)} />
+                    <Input
+                      inputMode="decimal"
+                      ref={addQtyRef}
+                      value={addQty}
+                      onChange={(e) => setAddQty(e.target.value)}
+                      onFocus={selectInputText}
+                    />
                   </div>
-                  <div className="space-y-1 md:col-span-2">
+                  <div className="space-y-1 md:col-span-2" onKeyDownCapture={onAddUomKeyDownCapture}>
                     <label className="text-xs font-medium text-fg-muted">UOM</label>
                     <SearchableSelect
                       value={addUom}
@@ -1437,8 +1472,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                             <td className="px-3 py-2">
                               <div>
                                 <div>
-                                  <span className="font-mono text-xs">{l.item_sku || l.item_id}</span>
-                                  {l.item_name ? <span> · {l.item_name}</span> : null}
+                                  <div className="font-mono text-xs text-fg-subtle">{l.item_sku || l.item_id}</div>
+                                  {l.item_name ? <div className="text-sm font-semibold">{l.item_name}</div> : null}
                                 </div>
                                 {costMissing ? (
                                   <div className="mt-1 text-xs text-danger">Missing unit cost</div>
@@ -1459,6 +1494,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                                 data-line-idx={idx}
                                 data-line-field="qty"
                                 onKeyDown={(e) => onLineKeyDown(e, idx, "qty")}
+                                onFocus={selectInputText}
                                 className="h-8 w-24 text-right font-mono text-xs"
                                 disabled={loading || saving}
                               />

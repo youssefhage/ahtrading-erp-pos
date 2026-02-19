@@ -205,12 +205,17 @@ def stock_summary(
         with conn.cursor() as cur:
             if by_batch:
                 sql = """
-                    SELECT sm.item_id, sm.warehouse_id, sm.batch_id,
+                    SELECT sm.item_id, i.sku AS item_sku, i.name AS item_name,
+                           sm.warehouse_id, w.name AS warehouse_name, sm.batch_id,
                            b.batch_no, b.expiry_date,
                            SUM(sm.qty_in) AS qty_in,
                            SUM(sm.qty_out) AS qty_out,
                            SUM(sm.qty_in) - SUM(sm.qty_out) AS qty_on_hand
                     FROM stock_moves sm
+                    LEFT JOIN items i
+                      ON i.company_id = sm.company_id AND i.id = sm.item_id
+                    LEFT JOIN warehouses w
+                      ON w.company_id = sm.company_id AND w.id = sm.warehouse_id
                     LEFT JOIN batches b ON b.id = sm.batch_id
                     WHERE sm.company_id = %s
                 """
@@ -253,13 +258,18 @@ def stock_summary(
                         AND po.status = 'posted'
                       GROUP BY pol.item_id, po.warehouse_id
                     )
-                    SELECT o.item_id, o.warehouse_id,
+                    SELECT o.item_id, i.sku AS item_sku, i.name AS item_name,
+                           o.warehouse_id, w.name AS warehouse_name,
                            o.qty_in, o.qty_out,
                            o.qty_on_hand,
                            COALESCE(r.reserved_qty, 0) AS reserved_qty,
                            (o.qty_on_hand - COALESCE(r.reserved_qty, 0)) AS qty_available,
                            COALESCE(inc.incoming_qty, 0) AS incoming_qty
                     FROM on_hand o
+                    LEFT JOIN items i
+                      ON i.company_id = %s AND i.id = o.item_id
+                    LEFT JOIN warehouses w
+                      ON w.company_id = %s AND w.id = o.warehouse_id
                     LEFT JOIN reserved r
                       ON r.item_id = o.item_id AND r.warehouse_id = o.warehouse_id
                     LEFT JOIN incoming inc
@@ -269,7 +279,7 @@ def stock_summary(
             params = [company_id]
             if not by_batch:
                 # CTEs each need company_id.
-                params = [company_id, company_id, company_id]
+                params = [company_id, company_id, company_id, company_id, company_id]
             if item_id:
                 if by_batch:
                     sql += " AND sm.item_id = %s"
@@ -283,7 +293,7 @@ def stock_summary(
                     sql += " AND o.warehouse_id = %s"
                 params.append(warehouse_id)
             if by_batch:
-                sql += " GROUP BY sm.item_id, sm.warehouse_id, sm.batch_id, b.batch_no, b.expiry_date"
+                sql += " GROUP BY sm.item_id, i.sku, i.name, sm.warehouse_id, w.name, sm.batch_id, b.batch_no, b.expiry_date"
             else:
                 sql += " ORDER BY o.item_id, o.warehouse_id"
             cur.execute(sql, params)
@@ -1478,23 +1488,30 @@ def list_stock_moves(
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
             sql = """
-                SELECT id, item_id, warehouse_id, location_id, batch_id, move_date,
-                       qty_in, qty_out, unit_cost_usd, unit_cost_lbp,
-                       source_type, source_id, created_at
+                SELECT stock_moves.id, stock_moves.item_id, stock_moves.warehouse_id,
+                       stock_moves.location_id, stock_moves.batch_id, stock_moves.move_date,
+                       i.sku AS item_sku, i.name AS item_name,
+                       w.name AS warehouse_name,
+                       stock_moves.qty_in, stock_moves.qty_out, stock_moves.unit_cost_usd, stock_moves.unit_cost_lbp,
+                       stock_moves.source_type, stock_moves.source_id, stock_moves.created_at
                 FROM stock_moves
-                WHERE company_id = %s
+                LEFT JOIN items i
+                  ON i.company_id = stock_moves.company_id AND i.id = stock_moves.item_id
+                LEFT JOIN warehouses w
+                  ON w.company_id = stock_moves.company_id AND w.id = stock_moves.warehouse_id
+                WHERE stock_moves.company_id = %s
             """
             params = [company_id]
             if item_id:
-                sql += " AND item_id = %s"
+                sql += " AND stock_moves.item_id = %s"
                 params.append(item_id)
             if warehouse_id:
-                sql += " AND warehouse_id = %s"
+                sql += " AND stock_moves.warehouse_id = %s"
                 params.append(warehouse_id)
             if source_type:
-                sql += " AND source_type = %s"
+                sql += " AND stock_moves.source_type = %s"
                 params.append(source_type)
-            sql += " ORDER BY created_at DESC LIMIT %s"
+            sql += " ORDER BY stock_moves.created_at DESC LIMIT %s"
             params.append(limit)
             cur.execute(sql, params)
             return {"moves": cur.fetchall()}
@@ -1512,15 +1529,19 @@ def expiry_alerts(days: int = 30, company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT sm.item_id, sm.warehouse_id, sm.batch_id,
+                SELECT sm.item_id, i.sku AS item_sku, i.name AS item_name,
+                       sm.warehouse_id, w.name AS warehouse_name, sm.batch_id,
                        b.batch_no, b.expiry_date, b.status, b.hold_reason,
                        SUM(sm.qty_in) - SUM(sm.qty_out) AS qty_on_hand
                 FROM stock_moves sm
                 JOIN batches b ON b.id = sm.batch_id
+                LEFT JOIN items i ON i.company_id = sm.company_id AND i.id = sm.item_id
+                LEFT JOIN warehouses w ON w.company_id = sm.company_id AND w.id = sm.warehouse_id
                 WHERE sm.company_id = %s
                   AND b.expiry_date IS NOT NULL
                   AND b.expiry_date <= (CURRENT_DATE + (%s || ' days')::interval)
-                GROUP BY sm.item_id, sm.warehouse_id, sm.batch_id, b.batch_no, b.expiry_date, b.status, b.hold_reason
+                GROUP BY sm.item_id, i.sku, i.name, sm.warehouse_id, w.name,
+                         sm.batch_id, b.batch_no, b.expiry_date, b.status, b.hold_reason
                 HAVING (SUM(sm.qty_in) - SUM(sm.qty_out)) > 0
                 ORDER BY b.expiry_date ASC, b.status ASC
                 """,

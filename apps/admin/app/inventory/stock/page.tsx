@@ -11,7 +11,10 @@ import { DataTable, type DataTableColumn } from "@/components/data-table";
 
 type StockRow = {
   item_id: string;
+  item_sku?: string | null;
+  item_name?: string | null;
   warehouse_id: string;
+  warehouse_name?: string | null;
   batch_id?: string | null;
   batch_no?: string | null;
   expiry_date?: string | null;
@@ -23,52 +26,21 @@ type StockRow = {
   incoming_qty?: string | number;
 };
 
-type Item = { id: string; sku: string; name: string };
-type Warehouse = { id: string; name: string };
-type EnrichedRow = StockRow & { sku: string; name: string; warehouse_name: string };
-
 export default function StockPage() {
   const [rows, setRows] = useState<StockRow[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [status, setStatus] = useState("");
   const [byBatch, setByBatch] = useState(false);
 
-  const itemById = useMemo(() => {
-    const m = new Map<string, Item>();
-    for (const i of items) m.set(i.id, i);
-    return m;
-  }, [items]);
-
-  const whById = useMemo(() => {
-    const m = new Map<string, Warehouse>();
-    for (const w of warehouses) m.set(w.id, w);
-    return m;
-  }, [warehouses]);
-
-  const enriched = useMemo(() => {
-    return rows.map((r) => {
-      const it = itemById.get(r.item_id);
-      const wh = whById.get(r.warehouse_id);
-      return {
-        ...r,
-        sku: it?.sku || r.item_id,
-        name: it?.name || "",
-        warehouse_name: wh?.name || r.warehouse_id
-      };
-    });
-  }, [rows, itemById, whById]);
-
   const columns = useMemo(() => {
-    const cols: Array<DataTableColumn<EnrichedRow>> = [
+    const cols: Array<DataTableColumn<StockRow>> = [
       {
         id: "sku",
         header: "SKU",
         sortable: true,
         mono: true,
         cell: (r) => (
-          <ShortcutLink href={`/catalog/items/${encodeURIComponent((r as any).item_id)}`} title="Open item" className="font-mono text-xs">
-            {(r as any).sku}
+          <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item" className="font-mono text-xs">
+            {r.item_sku || r.item_id}
           </ShortcutLink>
         )
       },
@@ -77,12 +49,18 @@ export default function StockPage() {
         header: "Item",
         sortable: true,
         cell: (r) => (
-          <ShortcutLink href={`/catalog/items/${encodeURIComponent((r as any).item_id)}`} title="Open item">
-            {(r as any).name || "-"}
+          <ShortcutLink href={`/catalog/items/${encodeURIComponent(r.item_id)}`} title="Open item">
+            {r.item_name || "-"}
           </ShortcutLink>
         )
       },
-      { id: "warehouse_name", header: "Warehouse", sortable: true },
+      {
+        id: "warehouse_name",
+        header: "Warehouse",
+        sortable: true,
+        accessor: (r) => r.warehouse_name || r.warehouse_id,
+        cell: (r) => r.warehouse_name || r.warehouse_id,
+      },
     ];
     if (byBatch) {
       cols.push({
@@ -168,14 +146,8 @@ export default function StockPage() {
   const load = useCallback(async () => {
     setStatus("Loading...");
     try {
-      const [stock, itemsRes, whRes] = await Promise.all([
-        apiGet<{ stock: StockRow[] }>(`/inventory/stock?by_batch=${byBatch ? "true" : "false"}`),
-        apiGet<{ items: Item[] }>("/items/min"),
-        apiGet<{ warehouses: Warehouse[] }>("/warehouses")
-      ]);
+      const stock = await apiGet<{ stock: StockRow[] }>(`/inventory/stock?by_batch=${byBatch ? "true" : "false"}`);
       setRows(stock.stock || []);
-      setItems(itemsRes.items || []);
-      setWarehouses(whRes.warehouses || []);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -195,15 +167,15 @@ export default function StockPage() {
           <CardHeader>
             <CardTitle>On Hand</CardTitle>
             <CardDescription>
-              Aggregated from stock moves. {enriched.length} rows
+              Aggregated from stock moves. {rows.length} rows
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <DataTable
+            <DataTable<StockRow>
               tableId={byBatch ? "inventory.stock.byBatch" : "inventory.stock"}
-              rows={enriched}
+              rows={rows}
               columns={columns}
-              getRowId={(r) => `${(r as any).item_id}:${(r as any).warehouse_id}:${(r as any).batch_id || ""}`}
+              getRowId={(r) => `${r.item_id}:${r.warehouse_id}:${r.batch_id || ""}`}
               emptyText="No stock rows yet."
               globalFilterPlaceholder="Search item, SKU, warehouse..."
               actions={
