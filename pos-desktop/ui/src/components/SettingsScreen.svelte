@@ -15,6 +15,10 @@
   export let syncPullFor = async (companyKey) => {};
   export let syncPushFor = async (companyKey) => {};
   export let runStressBenchmark = async (lineCount) => null;
+  export let vatDisplayMode = "both";
+  export let onVatDisplayModeChange = (mode) => {};
+  export let showPriceDisplayControls = false;
+  export let onShowPriceDisplayControlsChange = (enabled) => {};
   export let setupLogin = async (payload) => ({ ok: false, error: "setup login unavailable", payload });
   export let setupBranches = async (payload) => ({ ok: false, error: "setup branches unavailable", payload });
   export let setupDevices = async (payload) => ({ ok: false, error: "setup devices unavailable", payload });
@@ -974,6 +978,39 @@
           </div>
         </div>
       {/if}
+
+      <div class="glass-panel rounded-xl p-4 border border-white/5 bg-surface/20">
+        <h3 class="text-[10px] font-bold uppercase tracking-[0.2em] text-muted mb-3">POS Display</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="pos_price_display_mode">Default Price Display</label>
+            <select
+              id="pos_price_display_mode"
+              class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 text-xs font-bold focus:ring-1 focus:ring-accent/50 focus:outline-none text-ink"
+              value={vatDisplayMode}
+              on:change={(e) => onVatDisplayModeChange(e?.target?.value || "both")}
+            >
+              <option value="ex">Ex VAT</option>
+              <option value="inc">Incl VAT</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
+          <div class="rounded-xl border border-white/5 bg-surface-highlight/20 px-3 py-2 flex items-center justify-between gap-3">
+            <div class="text-xs text-ink/90">Show quick buttons in checkout</div>
+            <label class="inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                class="accent-accent w-4 h-4"
+                checked={showPriceDisplayControls}
+                on:change={(e) => onShowPriceDisplayControlsChange(!!e?.target?.checked)}
+              />
+            </label>
+          </div>
+        </div>
+        <p class="mt-2 text-[10px] text-muted/70">
+          Keep this off to save vertical space. Checkout will still use the default mode selected above.
+        </p>
+      </div>
 
       <!-- Official Manual -->
       <div class="space-y-4">

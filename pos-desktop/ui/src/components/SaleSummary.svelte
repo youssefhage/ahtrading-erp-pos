@@ -3,6 +3,7 @@
   export let totals = {};
   export let totalsByCompany = null;
   export let vatDisplayMode = "both"; // "ex" | "inc" | "both"
+  export let showPriceDisplayControls = false;
   export let onVatDisplayModeChange = (v) => {};
   export let vatRateForLine = (line) => 0;
   export let originCompanyKey = "official";
@@ -125,45 +126,52 @@
       {/if}
     </div>
 
-    <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-2.5">
-      <div class="text-[10px] font-bold uppercase tracking-wider text-muted mb-1.5">Price Display</div>
-      <div class="grid grid-cols-3 gap-1">
-        <button
-          type="button"
-          class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
-            mode === "ex"
-              ? "bg-accent/20 border-accent/40 text-accent"
-              : "bg-surface/40 border-white/5 text-muted hover:text-ink"
-          }`}
-          on:click={() => onVatDisplayModeChange("ex")}
-        >
-          Ex VAT
-        </button>
-        <button
-          type="button"
-          class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
-            mode === "inc"
-              ? "bg-accent/20 border-accent/40 text-accent"
-              : "bg-surface/40 border-white/5 text-muted hover:text-ink"
-          }`}
-          on:click={() => onVatDisplayModeChange("inc")}
-        >
-          Incl VAT
-        </button>
-        <button
-          type="button"
-          class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
-            mode === "both"
-              ? "bg-accent/20 border-accent/40 text-accent"
-              : "bg-surface/40 border-white/5 text-muted hover:text-ink"
-          }`}
-          on:click={() => onVatDisplayModeChange("both")}
-        >
-          Both
-        </button>
+    {#if showPriceDisplayControls}
+      <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-2.5">
+        <div class="text-[10px] font-bold uppercase tracking-wider text-muted mb-1.5">Price Display</div>
+        <div class="grid grid-cols-3 gap-1">
+          <button
+            type="button"
+            class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+              mode === "ex"
+                ? "bg-accent/20 border-accent/40 text-accent"
+                : "bg-surface/40 border-white/5 text-muted hover:text-ink"
+            }`}
+            on:click={() => onVatDisplayModeChange("ex")}
+          >
+            Ex VAT
+          </button>
+          <button
+            type="button"
+            class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+              mode === "inc"
+                ? "bg-accent/20 border-accent/40 text-accent"
+                : "bg-surface/40 border-white/5 text-muted hover:text-ink"
+            }`}
+            on:click={() => onVatDisplayModeChange("inc")}
+          >
+            Incl VAT
+          </button>
+          <button
+            type="button"
+            class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
+              mode === "both"
+                ? "bg-accent/20 border-accent/40 text-accent"
+                : "bg-surface/40 border-white/5 text-muted hover:text-ink"
+            }`}
+            on:click={() => onVatDisplayModeChange("both")}
+          >
+            Both
+          </button>
+        </div>
+        <div class="mt-1 text-[10px] text-muted">Mode: <span class="font-bold text-ink">{modeLabel}</span></div>
       </div>
-      <div class="mt-1 text-[10px] text-muted">Mode: <span class="font-bold text-ink">{modeLabel}</span></div>
-    </div>
+    {:else}
+      <div class="rounded-xl border border-white/5 bg-surface-highlight/25 px-3 py-2 flex items-center justify-between">
+        <span class="text-[10px] uppercase tracking-wider font-bold text-muted">Price Display</span>
+        <span class="text-[11px] font-bold text-ink">{modeLabel}</span>
+      </div>
+    {/if}
 
     <!-- Company Split Totals -->
     {#if totalsByCompany && !emptyCart}

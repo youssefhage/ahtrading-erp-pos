@@ -29,6 +29,7 @@
   const INVOICE_MODE_STORAGE_KEY = "pos_ui_invoice_company_mode";
   const FLAG_OFFICIAL_STORAGE_KEY = "pos_ui_flag_official";
   const VAT_DISPLAY_MODE_STORAGE_KEY = "pos_ui_vat_display_mode";
+  const PRICE_DISPLAY_CONTROLS_STORAGE_KEY = "pos_ui_price_display_controls";
   const THEME_STORAGE_KEY = "pos_ui_theme";
   const SCREEN_STORAGE_KEY = "pos_ui_screen";
   const WEB_CONFIG_OFFICIAL_STORAGE_KEY = "pos_web_config_official";
@@ -420,6 +421,7 @@
   let invoiceCompanyMode = "auto"; // "auto" | "official" | "unofficial"
   let flagOfficial = false;
   let vatDisplayMode = "both"; // "ex" | "inc" | "both"
+  let showPriceDisplayControls = false;
 
   // Layout
   let catalogCollapsed = true;
@@ -2863,6 +2865,11 @@
     try { localStorage.setItem(VAT_DISPLAY_MODE_STORAGE_KEY, vatDisplayMode); } catch (_) {}
   };
 
+  const onShowPriceDisplayControlsChange = (value) => {
+    showPriceDisplayControls = value !== false;
+    try { localStorage.setItem(PRICE_DISPLAY_CONTROLS_STORAGE_KEY, showPriceDisplayControls ? "1" : "0"); } catch (_) {}
+  };
+
   const configureOtherAgent = async () => {
     // Legacy entry point; keep for now but route to Settings.
     otherAgentDraftUrl = otherAgentUrl || DEFAULT_OTHER_AGENT_URL;
@@ -4194,6 +4201,7 @@
     invoiceCompanyMode = (invoiceCompanyMode === "official" || invoiceCompanyMode === "unofficial") ? invoiceCompanyMode : "auto";
     flagOfficial = localStorage.getItem(FLAG_OFFICIAL_STORAGE_KEY) === "1";
     vatDisplayMode = normalizeVatDisplayMode(localStorage.getItem(VAT_DISPLAY_MODE_STORAGE_KEY) || "both");
+    showPriceDisplayControls = localStorage.getItem(PRICE_DISPLAY_CONTROLS_STORAGE_KEY) === "1";
 
     theme = localStorage.getItem(THEME_STORAGE_KEY) || "dark";
     if (theme !== "light" && theme !== "dark") theme = "dark";
@@ -4659,6 +4667,7 @@
             totals={totals}
             totalsByCompany={totalsByCompany}
             vatDisplayMode={vatDisplayMode}
+            showPriceDisplayControls={showPriceDisplayControls}
             onVatDisplayModeChange={onVatDisplayModeChange}
             vatRateForLine={vatRateForLine}
             originCompanyKey={originCompanyKey}
@@ -4734,6 +4743,10 @@
       syncPullFor={syncPullFor}
       syncPushFor={syncPushFor}
       runStressBenchmark={runStressBenchmark}
+      vatDisplayMode={vatDisplayMode}
+      onVatDisplayModeChange={onVatDisplayModeChange}
+      showPriceDisplayControls={showPriceDisplayControls}
+      onShowPriceDisplayControlsChange={onShowPriceDisplayControlsChange}
       setupLogin={setupLogin}
       setupBranches={setupBranches}
       setupDevices={setupDevices}
@@ -4748,6 +4761,32 @@
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     background-color: rgb(var(--color-surface) / 0.96) !important;
+  }
+
+  :global(.queue-status-bad) {
+    border-color: rgb(248 113 113 / 0.35) !important;
+    background-color: rgb(239 68 68 / 0.12) !important;
+    color: rgb(252 165 165) !important;
+  }
+
+  :global(.queue-error-msg) {
+    border: 1px solid rgb(248 113 113 / 0.25) !important;
+    background-color: rgb(239 68 68 / 0.10) !important;
+    color: rgb(254 202 202) !important;
+    font-weight: 500;
+  }
+
+  :global(:root[data-theme="light"] .queue-status-bad) {
+    border-color: rgb(239 68 68 / 0.45) !important;
+    background-color: rgb(254 226 226 / 0.92) !important;
+    color: rgb(153 27 27) !important;
+  }
+
+  :global(:root[data-theme="light"] .queue-error-msg) {
+    border-color: rgb(239 68 68 / 0.45) !important;
+    background-color: rgb(254 226 226 / 0.92) !important;
+    color: rgb(127 29 29) !important;
+    font-weight: 600;
   }
 </style>
 
@@ -4834,7 +4873,7 @@
                   <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${ev?.companyKey === "unofficial" ? "border-amber-500/35 bg-amber-500/12 text-amber-300" : "border-emerald-500/35 bg-emerald-500/12 text-emerald-300"}`}>
                     {ev?.companyKey === "unofficial" ? "Unofficial" : "Official"}
                   </span>
-                  <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${statusText === "failed" || statusText === "dead" ? "border-red-500/35 bg-red-500/12 text-red-300" : "border-amber-500/35 bg-amber-500/12 text-amber-300"}`}>
+                  <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${statusText === "failed" || statusText === "dead" ? "queue-status-bad" : "border-amber-500/35 bg-amber-500/12 text-amber-300"}`}>
                     {statusText || "pending"}
                   </span>
                 </div>
@@ -4843,7 +4882,7 @@
               <div class="text-xs font-mono text-ink/90">{_shortQueueEventId(eventId)}</div>
               <div class="text-xs text-muted">{eventType}</div>
               {#if errorText}
-                <div class="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[11px] text-red-200 break-words">
+                <div class="queue-error-msg rounded-lg px-3 py-2 text-[11px] break-words">
                   {errorText}
                 </div>
               {/if}
