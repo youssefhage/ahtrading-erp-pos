@@ -107,6 +107,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_pos_outbox_event_type_idem_nonempty
   ON pos_outbox_events(event_type, idempotency_key)
   WHERE idempotency_key IS NOT NULL AND idempotency_key <> '';
 
+CREATE TABLE IF NOT EXISTS pos_audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL,
+  action TEXT NOT NULL,
+  company_id TEXT,
+  cashier_id TEXT,
+  shift_id TEXT,
+  event_id TEXT,
+  status TEXT,
+  details_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pos_audit_log_created ON pos_audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pos_audit_log_action_created ON pos_audit_log(action, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pos_audit_log_event ON pos_audit_log(event_id);
+
 CREATE TABLE IF NOT EXISTS pos_inbox_events (
   event_id TEXT PRIMARY KEY,
   event_type TEXT,

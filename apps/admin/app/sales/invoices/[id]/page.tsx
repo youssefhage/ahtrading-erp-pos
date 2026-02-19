@@ -195,6 +195,7 @@ function SalesInvoiceShowInner() {
   const [cancelDraftOpen, setCancelDraftOpen] = useState(false);
   const [cancelDraftReason, setCancelDraftReason] = useState("");
   const [cancelDrafting, setCancelDrafting] = useState(false);
+  const [invoiceMathOpen, setInvoiceMathOpen] = useState(false);
   const searchParams = useSearchParams();
 
   const methodChoices = useMemo(() => {
@@ -341,6 +342,12 @@ function SalesInvoiceShowInner() {
       invoiceIncludedNow,
     };
   }, [customerAccount, detail?.invoice?.customer_id, detail?.invoice?.status, salesOverview]);
+
+  const invoicePrimaryBal = salesOverview?.primaryBal ?? 0;
+
+  useEffect(() => {
+    setInvoiceMathOpen(invoicePrimaryBal > 0);
+  }, [detail?.invoice?.id, invoicePrimaryBal]);
 
   const taxById = useMemo(() => {
     return new Map((taxCodes || []).map((t) => [String(t.id), t]));
@@ -1316,127 +1323,149 @@ function SalesInvoiceShowInner() {
 
                   <div className="ui-panel p-4 md:col-span-4">
                     <div className="space-y-3">
-                      <div>
-                        <p className="ui-panel-title">Financials</p>
-                        <p className="mt-1 text-xs text-fg-subtle">Due, payments, and account context.</p>
-                      </div>
-
                       <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <p className="ui-panel-title">Amount Due Now</p>
-                          <span className="text-xs text-fg-subtle">This invoice</span>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="ui-panel-title">Now</p>
+                            <p className="mt-1 text-xs text-fg-subtle">What needs action on this invoice.</p>
+                          </div>
+                          <span
+                            className={`rounded-full px-2 py-1 text-xs font-medium ${salesOverview.primaryBal > 0 ? "bg-warning/15 text-warning" : "bg-success/20 text-success"}`}
+                          >
+                            {salesOverview.primaryBal > 0 ? "Open balance" : "Settled"}
+                          </span>
                         </div>
-                        <div className={`data-mono mt-2 text-2xl font-semibold leading-none ${salesOverview.primaryTone}`}>
+
+                        <div className={`data-mono mt-3 text-3xl font-semibold leading-none ${salesOverview.primaryTone}`}>
                           {salesOverview.primaryFmt(salesOverview.primaryBal)}
                         </div>
-                        <div className="data-mono mt-1 text-sm text-fg-muted">{salesOverview.secondaryFmt(salesOverview.secondaryBal)}</div>
-                        <div className="section-divider my-2" />
-                        <div className="space-y-1">
-                          <div className="ui-kv">
-                            <span className="ui-kv-label">Invoice total</span>
-                            <span className="ui-kv-value">{fmtUsdLbp(salesOverview.totalUsd, salesOverview.totalLbp)}</span>
-                          </div>
-                          <div className="ui-kv">
-                            <span className="ui-kv-label">Applied</span>
-                            <span className="ui-kv-value">{fmtUsdLbp(salesOverview.paidUsd, salesOverview.paidLbp)}</span>
-                          </div>
-                          {salesOverview.hasAnyTender ? (
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">Amount received</span>
-                              <span className="ui-kv-value">{fmtUsdLbp(salesOverview.tenderUsd, salesOverview.tenderLbp)}</span>
-                            </div>
-                          ) : null}
-                          {(detail.tax_lines || []).length ? (
-                            <div className="ui-kv">
-                              <span className="ui-kv-label">VAT</span>
-                              <span className="ui-kv-value">{fmtUsdLbp(salesOverview.vatUsd, salesOverview.vatLbp)}</span>
-                            </div>
-                          ) : null}
+
+                        <div className="mt-3">
+                          {detail.invoice.status === "posted" ? (
+                            <Button asChild className="w-full">
+                              <Link href={`/sales/payments?invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`}>
+                                Record Payment
+                              </Link>
+                            </Button>
+                          ) : (
+                            <Button className="w-full" disabled>
+                              Record Payment
+                            </Button>
+                          )}
                         </div>
-                        <details className="mt-2 rounded-lg border border-border-subtle bg-bg-elevated/40 p-2.5">
-                          <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.12em] text-fg-subtle">Breakdown</summary>
+
+                        {detail.invoice.status !== "posted" ? (
+                          <p className="mt-2 text-xs text-fg-subtle">Post the invoice first to record payments.</p>
+                        ) : null}
+
+                        <details
+                          className="mt-3 rounded-lg border border-border-subtle bg-bg-elevated/40 p-2.5"
+                          open={invoiceMathOpen}
+                          onToggle={(e) => setInvoiceMathOpen((e.currentTarget as HTMLDetailsElement).open)}
+                        >
+                          <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.12em] text-fg-subtle">Invoice math</summary>
                           <div className="mt-2 space-y-1">
                             <div className="ui-kv">
+                              <span className="ui-kv-label">Settlement currency</span>
+                              <span className="ui-kv-value">{salesOverview.settle}</span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Amount due</span>
+                              <span className="ui-kv-value">{salesOverview.primaryFmt(salesOverview.primaryBal)}</span>
+                            </div>
+                            <div className="ui-kv ui-kv-sub">
+                              <span className="ui-kv-label">Amount due (other)</span>
+                              <span className="ui-kv-value">{salesOverview.secondaryFmt(salesOverview.secondaryBal)}</span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Invoice total</span>
+                              <span className="ui-kv-value">{salesOverview.primaryFmt(salesOverview.primaryTotal)}</span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Applied</span>
+                              <span className="ui-kv-value">{salesOverview.primaryFmt(salesOverview.primaryPaid)}</span>
+                            </div>
+                            {salesOverview.hasAnyTender ? (
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Amount received</span>
+                                <span className="ui-kv-value">
+                                  {salesOverview.settle === "LBP" ? fmtLbp(salesOverview.tenderLbp) : fmtUsd(salesOverview.tenderUsd)}
+                                </span>
+                              </div>
+                            ) : null}
+                            {(detail.tax_lines || []).length ? (
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">VAT</span>
+                                <span className="ui-kv-value">
+                                  {salesOverview.settle === "LBP" ? fmtLbp(salesOverview.vatLbp) : fmtUsd(salesOverview.vatUsd)}
+                                </span>
+                              </div>
+                            ) : null}
+                            <div className="ui-kv">
                               <span className="ui-kv-label">Subtotal</span>
-                              <span className="ui-kv-value">{fmtUsdLbp(salesOverview.subUsd, salesOverview.subLbp)}</span>
+                              <span className="ui-kv-value">
+                                {salesOverview.settle === "LBP" ? fmtLbp(salesOverview.subLbp) : fmtUsd(salesOverview.subUsd)}
+                              </span>
                             </div>
                             <div className="ui-kv">
                               <span className="ui-kv-label">Discount</span>
-                              <span className="ui-kv-value">{fmtUsdLbp(salesOverview.discUsd, salesOverview.discLbp)}</span>
+                              <span className="ui-kv-value">
+                                {salesOverview.settle === "LBP" ? fmtLbp(salesOverview.discLbp) : fmtUsd(salesOverview.discUsd)}
+                              </span>
                             </div>
                           </div>
                         </details>
                       </div>
 
                       <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="ui-panel-title">Payments</p>
-                            <p className="mt-1 text-xs text-fg-subtle">Applied and amount received.</p>
-                          </div>
-                          {detail.invoice.status === "posted" ? (
-                            <Button asChild variant="outline" size="sm">
-                              <Link href={`/sales/payments?invoice_id=${encodeURIComponent(detail.invoice.id)}&record=1`}>Record</Link>
-                            </Button>
-                          ) : (
-                            <Button variant="outline" size="sm" disabled>
-                              Record
-                            </Button>
-                          )}
-                        </div>
-
-                        {detail.invoice.status !== "posted" ? (
-                          <p className="mt-2 text-xs text-fg-subtle">Payments are recorded after posting.</p>
-                        ) : null}
+                        <p className="ui-panel-title">Money Movement</p>
+                        <p className="mt-1 text-xs text-fg-subtle">Payments already applied to this invoice.</p>
 
                         <div className="mt-2 max-h-56 space-y-2 overflow-auto pr-1">
                           {detail.payments.map((p) => (
                             <div key={p.id} className="rounded-md border border-border-subtle bg-bg-elevated/50 px-2.5 py-2">
                               <div className="flex items-start justify-between gap-2">
                                 <span className="data-mono text-sm text-foreground">{formatMethodLabel(p.method)}</span>
-                                <span className="data-mono text-xs text-right text-fg-muted">
-                                  Applied {fmtUsdLbp(n(p.amount_usd), n(p.amount_lbp))}
+                                <span className="data-mono text-xs text-right text-foreground">
+                                  {salesOverview.settle === "LBP" ? fmtLbp(n(p.amount_lbp)) : fmtUsd(n(p.amount_usd))}
                                 </span>
                               </div>
                               {hasTender(p) ? (
                                 <div className="mt-1 data-mono text-xs text-fg-muted">
-                                  Received {fmtUsdLbp(n(p.tender_usd), n(p.tender_lbp))}
+                                  Received {salesOverview.settle === "LBP" ? fmtLbp(n(p.tender_lbp)) : fmtUsd(n(p.tender_usd))}
                                 </div>
                               ) : null}
-                              <div className="mt-2 flex justify-end gap-2">
-                                <Button variant="outline" size="sm" onClick={() => recomputePayment(p.id)}>
-                                  Fix
-                                </Button>
-                                <ConfirmButton
-                                  variant="destructive"
-                                  size="sm"
-                                  title="Void Payment?"
-                                  description="This will create a reversing GL entry."
-                                  confirmText="Void"
-                                  confirmVariant="destructive"
-                                  onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
-                                  onConfirm={() => voidPayment(p.id)}
-                                >
-                                  Void
-                                </ConfirmButton>
-                              </div>
+                              <details className="mt-2">
+                                <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.12em] text-fg-subtle">Actions</summary>
+                                <div className="mt-2 flex justify-end gap-2">
+                                  <Button variant="outline" size="sm" onClick={() => recomputePayment(p.id)}>
+                                    Fix
+                                  </Button>
+                                  <ConfirmButton
+                                    variant="destructive"
+                                    size="sm"
+                                    title="Void Payment?"
+                                    description="This will create a reversing GL entry."
+                                    confirmText="Void"
+                                    confirmVariant="destructive"
+                                    onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+                                    onConfirm={() => voidPayment(p.id)}
+                                  >
+                                    Void
+                                  </ConfirmButton>
+                                </div>
+                              </details>
                             </div>
                           ))}
-                          {detail.payments.length === 0 ? <p className="text-xs text-fg-subtle">No payments.</p> : null}
+                          {detail.payments.length === 0 ? <p className="text-xs text-fg-subtle">No payments yet.</p> : null}
                         </div>
                       </div>
 
-                      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="ui-panel-title">Customer Account</p>
-                          <span
-                            className="text-xs text-fg-subtle"
-                            title="Includes other unpaid invoices, credits, unapplied payments."
-                          >
-                            What is this?
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs text-fg-subtle">All open invoices/credits.</p>
+                      <details className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                        <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.12em] text-fg-subtle">
+                          Customer Account Context
+                        </summary>
+                        <p className="mt-2 text-xs text-fg-subtle">All open invoices/credits, including unapplied payments.</p>
                         {customerAccountOverview?.hasBalance ? (
                           <div className="mt-2 space-y-1">
                             <div className="ui-kv ui-kv-strong">
@@ -1459,14 +1488,13 @@ function SalesInvoiceShowInner() {
                                 {fmtUsdLbp(customerAccountOverview.includingInvoiceUsd, customerAccountOverview.includingInvoiceLbp)}
                               </span>
                             </div>
-                            <p className="mt-2 text-xs text-fg-subtle">Includes other unpaid invoices, credits, unapplied payments.</p>
                           </div>
                         ) : customerAccountOverview?.hasCustomer ? (
                           <p className="mt-2 text-xs text-fg-subtle">Customer account balance unavailable.</p>
                         ) : (
                           <p className="mt-2 text-xs text-fg-subtle">No customer selected for this invoice.</p>
                         )}
-                      </div>
+                      </details>
                     </div>
                   </div>
                 </div>

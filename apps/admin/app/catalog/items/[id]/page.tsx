@@ -256,7 +256,7 @@ function KeyField(props: { label: string; value: string; mono?: boolean; copyTex
   return (
     <div className={cn("min-w-0", props.className)}>
       <div className="flex items-start justify-between gap-1">
-        <p className="text-[11px] font-medium uppercase tracking-wider text-fg-muted">{props.label}</p>
+        <p className="text-[11px] font-normal uppercase tracking-wider text-fg-subtle">{props.label}</p>
         {props.copyText ? <CopyIconButton text={props.copyText} label={props.label} className="h-7 w-7" /> : null}
       </div>
       <p

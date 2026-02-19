@@ -116,6 +116,20 @@ DEFAULT_CONFIG = {
 }
 
 
+def _round_usd(value) -> float:
+    try:
+        return max(0.0, round(float(value or 0.0) + 1e-9, 2))
+    except Exception:
+        return 0.0
+
+
+def _round_lbp(value) -> int:
+    try:
+        return max(0, int(round(float(value or 0.0) + 1e-9)))
+    except Exception:
+        return 0
+
+
 RECEIPT_TEMPLATES = {
     "classic": {
         "id": "classic",
@@ -2317,6 +2331,77 @@ def mark_outbox_sent(event_ids):
         conn.commit()
 
 
+def add_audit_log(
+    action: str,
+    *,
+    company_id=None,
+    cashier_id=None,
+    shift_id=None,
+    event_id=None,
+    status=None,
+    details=None,
+):
+    act = str(action or "").strip()
+    if not act:
+        return
+    created_at = datetime.utcnow().isoformat()
+    det = None
+    if details is not None:
+        try:
+            det = json.dumps(details)
+        except Exception:
+            det = json.dumps({"raw": str(details)})
+    with db_connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO pos_audit_log (created_at, action, company_id, cashier_id, shift_id, event_id, status, details_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                created_at,
+                act,
+                str(company_id or "").strip() or None,
+                str(cashier_id or "").strip() or None,
+                str(shift_id or "").strip() or None,
+                str(event_id or "").strip() or None,
+                str(status or "").strip() or None,
+                det,
+            ),
+        )
+        conn.commit()
+
+
+def list_audit_logs(limit: int = 200):
+    lim = max(1, min(1000, int(limit or 200)))
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT id, created_at, action, company_id, cashier_id, shift_id, event_id, status, details_json
+            FROM pos_audit_log
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (lim,),
+        )
+        rows = []
+        for r in cur.fetchall():
+            row = dict(r)
+            det_raw = row.get("details_json")
+            if det_raw:
+                try:
+                    row["details"] = json.loads(det_raw)
+                except Exception:
+                    row["details"] = {"raw": str(det_raw)}
+            else:
+                row["details"] = None
+            row.pop("details_json", None)
+            rows.append(row)
+        return rows
+
+
 def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_id, payment_method, shift_id, cashier_id):
     lines = []
     base_usd = 0
@@ -2431,8 +2516,8 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
                 'tax_date': datetime.utcnow().date().isoformat()
             }
 
-    total_usd = base_usd + tax_usd
-    total_lbp = base_lbp + tax_lbp
+    total_usd = _round_usd(base_usd + tax_usd)
+    total_lbp = _round_lbp(base_lbp + tax_lbp)
 
     settlement_currency = (pricing_currency or 'USD').upper()
     payments = []
@@ -2823,6 +2908,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == '/api/outbox':
             json_response(self, {'outbox': list_outbox()})
+            return
+        if parsed.path == "/api/audit":
+            limit_raw = (parse_qs(parsed.query).get("limit") or ["200"])[0]
+            try:
+                limit_i = int(limit_raw or "200")
+            except Exception:
+                limit_i = 200
+            json_response(self, {"audit": list_audit_logs(limit_i)})
             return
         if parsed.path == "/api/outbox/event":
             event_id = (parse_qs(parsed.query).get("event_id") or [""])[0].strip()
@@ -3442,6 +3535,15 @@ class Handler(BaseHTTPRequestHandler):
                 existing = get_outbox_event_by_idempotency("sale.completed", idempotency_key)
                 if existing and existing.get("event_id"):
                     was_acked = str(existing.get("status") or "") == "acked"
+                    add_audit_log(
+                        "sale.submit",
+                        company_id=(cfg.get("company_id") or None),
+                        cashier_id=(data.get("cashier_id") or cfg.get("cashier_id") or None),
+                        shift_id=(data.get("shift_id") or cfg.get("shift_id") or None),
+                        event_id=str(existing.get("event_id") or ""),
+                        status="idempotent_replay",
+                        details={"acked": was_acked, "payment_method": pm},
+                    )
                     json_response(
                         self,
                         {
@@ -3483,6 +3585,15 @@ class Handler(BaseHTTPRequestHandler):
                 if bool(pilot.get("cross_company")) or bool(pilot.get("flagged_for_adjustment")):
                     needs_manager = True
             if needs_manager and _require_manager_approval(self, cfg):
+                add_audit_log(
+                    "sale.submit",
+                    company_id=(cfg.get("company_id") or None),
+                    cashier_id=(cashier_id or None),
+                    shift_id=(shift_id or None),
+                    event_id=None,
+                    status="manager_approval_required",
+                    details={"payment_method": pm},
+                )
                 return
             created_at = datetime.utcnow().isoformat()
             event_id = str(uuid.uuid4())
@@ -3522,6 +3633,15 @@ class Handler(BaseHTTPRequestHandler):
             if not inserted:
                 existing = get_outbox_event_by_idempotency("sale.completed", idempotency_key) if idempotency_key else None
                 was_acked = str((existing or {}).get("status") or "") == "acked"
+                add_audit_log(
+                    "sale.submit",
+                    company_id=(cfg.get("company_id") or None),
+                    cashier_id=(cashier_id or None),
+                    shift_id=(shift_id or None),
+                    event_id=str((existing or {}).get("event_id") or event_id),
+                    status="idempotent_replay",
+                    details={"acked": was_acked, "payment_method": pm},
+                )
                 json_response(
                     self,
                     {
@@ -3590,6 +3710,20 @@ class Handler(BaseHTTPRequestHandler):
             }
             if pm == "credit" and sync_error:
                 resp["sync_error"] = sync_error
+            add_audit_log(
+                "sale.submit",
+                company_id=(cfg.get("company_id") or None),
+                cashier_id=(cashier_id or None),
+                shift_id=(shift_id or None),
+                event_id=event_id,
+                status=("acked" if outbox_status == "acked" else "queued"),
+                details={
+                    "payment_method": pm,
+                    "sync_accepted": resp.get("sync_accepted"),
+                    "sync_deferred": resp.get("sync_deferred"),
+                    "idempotent_replay": False,
+                },
+            )
             json_response(self, resp)
             return
 
@@ -3609,6 +3743,15 @@ class Handler(BaseHTTPRequestHandler):
                 existing = get_outbox_event_by_idempotency("sale.returned", idempotency_key)
                 if existing and existing.get("event_id"):
                     was_acked = str(existing.get("status") or "") == "acked"
+                    add_audit_log(
+                        "return.submit",
+                        company_id=(cfg.get("company_id") or None),
+                        cashier_id=(data.get("cashier_id") or cfg.get("cashier_id") or None),
+                        shift_id=(data.get("shift_id") or cfg.get("shift_id") or None),
+                        event_id=str(existing.get("event_id") or ""),
+                        status="idempotent_replay",
+                        details={"acked": was_acked, "refund_method": str(refund_method or "")},
+                    )
                     json_response(
                         self,
                         {
@@ -3640,6 +3783,15 @@ class Handler(BaseHTTPRequestHandler):
             if "skip_stock_moves" in data:
                 payload["skip_stock_moves"] = bool(data.get("skip_stock_moves"))
             if bool(cfg.get("require_manager_approval_returns")) and _require_manager_approval(self, cfg):
+                add_audit_log(
+                    "return.submit",
+                    company_id=(cfg.get("company_id") or None),
+                    cashier_id=(cashier_id or None),
+                    shift_id=(shift_id or None),
+                    event_id=None,
+                    status="manager_approval_required",
+                    details={"refund_method": str(refund_method or "")},
+                )
                 return
             created_at = datetime.utcnow().isoformat()
             event_id = str(uuid.uuid4())
@@ -3674,6 +3826,15 @@ class Handler(BaseHTTPRequestHandler):
             if not inserted:
                 existing = get_outbox_event_by_idempotency("sale.returned", idempotency_key) if idempotency_key else None
                 was_acked = str((existing or {}).get("status") or "") == "acked"
+                add_audit_log(
+                    "return.submit",
+                    company_id=(cfg.get("company_id") or None),
+                    cashier_id=(cashier_id or None),
+                    shift_id=(shift_id or None),
+                    event_id=str((existing or {}).get("event_id") or event_id),
+                    status="idempotent_replay",
+                    details={"acked": was_acked, "refund_method": str(refund_method or "")},
+                )
                 json_response(
                     self,
                     {
@@ -3741,6 +3902,20 @@ class Handler(BaseHTTPRequestHandler):
             }
             if sync_error:
                 resp["sync_error"] = sync_error
+            add_audit_log(
+                "return.submit",
+                company_id=(cfg.get("company_id") or None),
+                cashier_id=(cashier_id or None),
+                shift_id=(shift_id or None),
+                event_id=event_id,
+                status=("acked" if outbox_status == "acked" else "queued"),
+                details={
+                    "refund_method": str(refund_method or ""),
+                    "sync_accepted": resp.get("sync_accepted"),
+                    "sync_deferred": resp.get("sync_deferred"),
+                    "idempotent_replay": False,
+                },
+            )
             json_response(self, resp)
             return
 
@@ -3832,9 +4007,27 @@ class Handler(BaseHTTPRequestHandler):
 
             ev = _get_outbox_event(event_id)
             if not ev:
+                add_audit_log(
+                    "outbox.retry",
+                    company_id=company_id,
+                    cashier_id=(cfg.get("cashier_id") or None),
+                    shift_id=(cfg.get("shift_id") or None),
+                    event_id=event_id,
+                    status="missing",
+                    details={"error": "event not found"},
+                )
                 json_response(self, {"error": "event not found", "event_id": event_id}, status=404)
                 return
             if str(ev.get("status") or "").strip().lower() == "acked":
+                add_audit_log(
+                    "outbox.retry",
+                    company_id=company_id,
+                    cashier_id=(cfg.get("cashier_id") or None),
+                    shift_id=(cfg.get("shift_id") or None),
+                    event_id=event_id,
+                    status="already_acked",
+                    details=None,
+                )
                 json_response(self, {"ok": True, "event_id": event_id, "already_acked": True})
                 return
 
@@ -3861,6 +4054,15 @@ class Handler(BaseHTTPRequestHandler):
                     "submit": submit_res,
                     "rejected": rejected,
                 }
+                add_audit_log(
+                    "outbox.retry",
+                    company_id=company_id,
+                    cashier_id=(cfg.get("cashier_id") or None),
+                    shift_id=(cfg.get("shift_id") or None),
+                    event_id=event_id,
+                    status="submit_rejected",
+                    details=payload,
+                )
                 status = 409 if "missing" not in err.lower() else 400
                 json_response(self, payload, status=status)
                 return
@@ -3873,6 +4075,15 @@ class Handler(BaseHTTPRequestHandler):
                 timeout_s=12.0,
             )
             if process_status:
+                add_audit_log(
+                    "outbox.retry",
+                    company_id=company_id,
+                    cashier_id=(cfg.get("cashier_id") or None),
+                    shift_id=(cfg.get("shift_id") or None),
+                    event_id=event_id,
+                    status="process_failed",
+                    details={"status": process_status, "error": process_err or ""},
+                )
                 json_response(
                     self,
                     {
@@ -3887,6 +4098,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if isinstance(process_res, dict) and str(process_res.get("error") or "").strip():
+                add_audit_log(
+                    "outbox.retry",
+                    company_id=company_id,
+                    cashier_id=(cfg.get("cashier_id") or None),
+                    shift_id=(cfg.get("shift_id") or None),
+                    event_id=event_id,
+                    status="process_failed",
+                    details={"error": str(process_res.get("error") or "").strip(), "process": process_res},
+                )
                 json_response(
                     self,
                     {
@@ -3901,6 +4121,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             mark_outbox_sent([event_id])
+            add_audit_log(
+                "outbox.retry",
+                company_id=company_id,
+                cashier_id=(cfg.get("cashier_id") or None),
+                shift_id=(cfg.get("shift_id") or None),
+                event_id=event_id,
+                status="acked",
+                details={"submit": submit_res, "process": process_res},
+            )
             json_response(self, {"ok": True, "event_id": event_id, "submit": submit_res, "process": process_res, "acked": True})
             return
 

@@ -16,7 +16,9 @@
     primaryCompanyFromCart as primaryCompanyFromLines,
   } from "./lib/unified-sale-flow.js";
   import {
+    assertPaymentsWithinTotals,
     buildSalePaymentsForSettlement,
+    normalizeSettlementCurrency,
     saleIdempotencyKeyForCompany,
   } from "./lib/unified-checkout.js";
 
@@ -442,6 +444,7 @@
   // Checkout State
   let showPaymentModal = false;
   let saleMode = "sale"; // "sale" | "return"
+  let checkoutInFlight = false;
 
   // Admin unlock (POS agent can require a local admin PIN when LAN-exposed)
   let showAdminPinModal = false;
@@ -452,6 +455,9 @@
   // Printing settings
   let showPrintingModal = false;
   let showQueueDrawer = false;
+  let showAuditDrawer = false;
+  let auditLoading = false;
+  let auditEvents = [];
   let queueRetryingKeys = new Set();
   let showQueuePayloadModal = false;
   let queuePayloadLoading = false;
@@ -478,6 +484,18 @@
   let openingCashLbp = 0;
   let closingCashUsd = 0;
   let closingCashLbp = 0;
+  const _shiftMoney = (value, fallback = null) => {
+    if (value == null || value === "") return fallback;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const _shiftPickMoney = (obj, keys = [], fallback = null) => {
+    for (const key of keys || []) {
+      const v = _shiftMoney(obj?.[key], null);
+      if (v != null) return v;
+    }
+    return fallback;
+  };
 
   // Derived
   $: activeCashier = cashiers.find((c) => c.id === config.cashier_id);
@@ -576,6 +594,20 @@
   
   $: currencyPrimary = (config.pricing_currency || "USD").toUpperCase();
   $: shiftText = config.shift_id ? "Shift: Open" : "Shift: Closed";
+  $: shiftOpeningUsd = _shiftPickMoney(shift || {}, ["opening_cash_usd", "opening_usd"], 0);
+  $: shiftOpeningLbp = _shiftPickMoney(shift || {}, ["opening_cash_lbp", "opening_lbp"], 0);
+  $: shiftExpectedCloseUsd = (() => {
+    const direct = _shiftPickMoney(shift || {}, ["expected_closing_cash_usd", "expected_cash_usd", "cash_expected_usd"], null);
+    if (direct != null) return direct;
+    return shiftOpeningUsd;
+  })();
+  $: shiftExpectedCloseLbp = (() => {
+    const direct = _shiftPickMoney(shift || {}, ["expected_closing_cash_lbp", "expected_cash_lbp", "cash_expected_lbp"], null);
+    if (direct != null) return direct;
+    return shiftOpeningLbp;
+  })();
+  $: shiftVarianceUsd = toNum(closingCashUsd, 0) - toNum(shiftExpectedCloseUsd, 0);
+  $: shiftVarianceLbp = toNum(closingCashLbp, 0) - toNum(shiftExpectedCloseLbp, 0);
   $: checkoutTotal = currencyPrimary === "LBP" ? (totals.totalLbp || 0) : (totals.totalUsd || 0);
   const cfgForCompanyKey = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
 
@@ -688,6 +720,24 @@
       unofficial: byCompany.unofficial || { subtotalUsd: 0, taxUsd: 0, totalUsd: 0 },
     };
   })();
+  const _roundUsd = (value) => Math.max(0, Math.round((toNum(value, 0) + 1e-9) * 100) / 100);
+  const _sumLineTotalUsd = (lines) => {
+    let total = 0;
+    for (const ln of (lines || [])) {
+      const row = cartLineAmounts(ln);
+      total += toNum(row.baseUsd, 0) + toNum(row.taxUsd, 0);
+    }
+    return _roundUsd(total);
+  };
+  const _assertSplitTotalsConsistent = (groups = []) => {
+    let grouped = 0;
+    for (const g of (groups || [])) grouped += _sumLineTotalUsd(g?.lines || []);
+    const cartTotal = _roundUsd(totals?.totalUsd || 0);
+    const delta = Math.abs(_roundUsd(grouped) - cartTotal);
+    if (delta > 0.01) {
+      throw new Error(`Checkout guardrail: split totals mismatch by ${delta.toFixed(2)} USD.`);
+    }
+  };
 
   const _itemHay = (e) => `${e?.sku || ""} ${e?.name || ""} ${e?.barcode || ""}`.toLowerCase();
 
@@ -1035,7 +1085,7 @@
   const _buildSalePayloadWeb = (cartLines, cfg, payload = {}) => {
     const exchangeRate = toNum(payload.exchange_rate, toNum(cfg.exchange_rate, 0));
     const pricingCurrency = String(payload.pricing_currency || cfg.pricing_currency || "USD").toUpperCase();
-    const settlementCurrency = pricingCurrency;
+    const settlementCurrency = normalizeSettlementCurrency(pricingCurrency);
     const defaultTaxCodeId = payload.tax_code_id || cfg.tax_code_id || null;
     const vatRate = normalizeVatRate(cfg.vat_rate);
     const vatCodes = (cfg.vat_codes && typeof cfg.vat_codes === "object") ? cfg.vat_codes : {};
@@ -1115,14 +1165,21 @@
     const taxCodeForBlock = defaultTaxCodeId || (taxBreakdown[0]?.tax_code_id || null);
     const hasTax = taxBreakdown.length > 0 || taxUsd !== 0 || taxLbp !== 0;
 
-    const totalUsd = baseUsd + taxUsd;
-    const totalLbp = baseLbp + taxLbp;
+    const totalUsd = Math.round((baseUsd + taxUsd + 1e-9) * 100) / 100;
+    const totalLbp = Math.round(baseLbp + taxLbp + 1e-9);
     const paymentMethod = String(payload.payment_method || "cash").trim().toLowerCase();
     const payments = buildSalePaymentsForSettlement({
       paymentMethod,
       totalUsd,
       totalLbp,
       settlementCurrency,
+    });
+    assertPaymentsWithinTotals({
+      paymentMethod,
+      settlementCurrency,
+      totalUsd,
+      totalLbp,
+      payments,
     });
 
     return {
@@ -1729,6 +1786,10 @@
         summary: summaryRes || null,
       };
     }
+    if (method === "GET" && pathname === "/audit") {
+      // Cloud transport currently doesn't expose local device audit trail.
+      return { audit: [] };
+    }
     if (method === "GET" && pathname === "/outbox/event") {
       const eventId = String(params.get("event_id") || "").trim();
       if (!eventId) throw new Error("event_id is required");
@@ -2068,6 +2129,30 @@
     queuePayloadError = "";
     queuePayloadEvent = null;
     queuePayloadText = "";
+  };
+  const loadAuditEvents = async () => {
+    auditLoading = true;
+    try {
+      const [offRes, unRes] = await Promise.allSettled([
+        apiCallFor("official", "/audit?limit=120", { method: "GET" }),
+        apiCallFor("unofficial", "/audit?limit=120", { method: "GET" }),
+      ]);
+      const merged = [];
+      if (offRes.status === "fulfilled") {
+        for (const row of (offRes.value?.audit || [])) merged.push({ ...(row || {}), companyKey: "official" });
+      }
+      if (unRes.status === "fulfilled") {
+        for (const row of (unRes.value?.audit || [])) merged.push({ ...(row || {}), companyKey: "unofficial" });
+      }
+      merged.sort((a, b) => (Date.parse(String(b?.created_at || "")) || 0) - (Date.parse(String(a?.created_at || "")) || 0));
+      auditEvents = merged;
+    } finally {
+      auditLoading = false;
+    }
+  };
+  const openAuditDrawer = async () => {
+    showAuditDrawer = true;
+    await loadAuditEvents();
   };
   const copyQueueEventId = async (ev) => {
     const eventId = _queueEventId(ev);
@@ -3450,12 +3535,14 @@
 
   // Checkout
   const handleCheckoutRequest = () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || loading || checkoutInFlight) return;
     if (!checkoutIntentId) checkoutIntentId = makeIntentId();
     showPaymentModal = true;
   };
 
   const handleProcessSale = async (method) => {
+    if (checkoutInFlight) return;
+    checkoutInFlight = true;
     showPaymentModal = false;
     loading = true;
     let payment_method = String(method || "cash").trim().toLowerCase();
@@ -3683,6 +3770,9 @@
 
         const groupId = `split-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
         const companiesInOrder = ["official", "unofficial"].filter((k) => cart.some((c) => c.companyKey === k));
+        _assertSplitTotalsConsistent(
+          companiesInOrder.map((companyKey) => ({ companyKey, lines: cart.filter((c) => c.companyKey === companyKey) })),
+        );
 
         const customerByCompany = {};
         if (requested_customer_id) {
@@ -3832,6 +3922,7 @@
       }
     } finally {
       loading = false;
+      checkoutInFlight = false;
     }
   };
 
@@ -3970,6 +4061,10 @@
       loading = true;
       const res = await apiCall("/shift/status", { method: "POST", body: {} });
       shift = res?.shift || null;
+      if (shift) {
+        closingCashUsd = toNum(_shiftPickMoney(shift, ["expected_closing_cash_usd", "expected_cash_usd", "cash_expected_usd"], _shiftPickMoney(shift, ["opening_cash_usd", "opening_usd"], 0)), 0);
+        closingCashLbp = toNum(_shiftPickMoney(shift, ["expected_closing_cash_lbp", "expected_cash_lbp", "cash_expected_lbp"], _shiftPickMoney(shift, ["opening_cash_lbp", "opening_lbp"], 0)), 0);
+      }
       await fetchData();
       reportNotice(shift ? "Shift is open" : "No open shift");
     } catch (e) {
@@ -3991,6 +4086,8 @@
         },
       });
       shift = res?.shift || null;
+      closingCashUsd = toNum(_shiftPickMoney(shift, ["opening_cash_usd", "opening_usd"], openingCashUsd), 0);
+      closingCashLbp = toNum(_shiftPickMoney(shift, ["opening_cash_lbp", "opening_lbp"], openingCashLbp), 0);
       await fetchData();
       reportNotice("Shift opened");
       showShiftModal = false;
@@ -4317,20 +4414,28 @@
       >
         Send Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
       </button>
-      <button
-        class={topBtnBase}
-        on:click={() => showQueueDrawer = true}
-        disabled={loading}
-        title="Inspect pending queue events"
-      >
-        Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
-      </button>
       <span class="hidden 2xl:inline text-[11px] text-muted whitespace-nowrap px-1">{syncActionHelp}</span>
     {:else}
       <span class="hidden xl:inline text-[11px] text-emerald-300/90 whitespace-nowrap px-2 py-1 rounded-full border border-emerald-500/25 bg-emerald-500/10">
         Auto sync on
       </span>
     {/if}
+    <button
+      class={topBtnBase}
+      on:click={() => showQueueDrawer = true}
+      disabled={loading}
+      title="Inspect pending queue events"
+    >
+      Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
+    </button>
+    <button
+      class={topBtnBase}
+      on:click={openAuditDrawer}
+      disabled={loading}
+      title="Recent sale/return/retry audit entries"
+    >
+      Audit
+    </button>
     <button
       class={topBtnBase}
       on:click={openCashierModal}
@@ -4612,6 +4717,7 @@
   total={checkoutTotal}
   currency={currencyPrimary}
   mode={saleMode}
+  busy={loading || checkoutInFlight}
   onConfirm={handleProcessSale}
   onCancel={() => showPaymentModal = false}
 />
@@ -4726,6 +4832,81 @@
                   View Payload
                 </button>
               </div>
+            </article>
+          {/each}
+        {/if}
+      </div>
+    </aside>
+  </div>
+{/if}
+
+{#if showAuditDrawer}
+  <div class="fixed inset-0 z-[72]">
+    <button
+      class="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      type="button"
+      aria-label="Close audit drawer"
+      on:click={() => showAuditDrawer = false}
+    ></button>
+    <aside class="absolute right-0 top-0 h-full w-full max-w-2xl bg-surface border-l border-ink/10 shadow-2xl overflow-hidden flex flex-col">
+      <header class="p-5 border-b border-ink/10 flex items-center justify-between gap-3">
+        <div>
+          <h2 class="text-xl font-bold text-ink">Audit Trail</h2>
+          <p class="text-sm text-muted mt-1">Sales, returns, and retry actions with cashier + timestamp.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+            on:click={loadAuditEvents}
+            disabled={auditLoading || loading}
+            type="button"
+          >
+            {auditLoading ? "Refreshing..." : "Refresh"}
+          </button>
+          <button
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+            on:click={() => showAuditDrawer = false}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+      </header>
+
+      <div class="flex-1 overflow-y-auto p-5 space-y-3">
+        {#if auditLoading && auditEvents.length === 0}
+          <div class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-5 text-sm text-muted">
+            Loading audit events...
+          </div>
+        {:else if auditEvents.length === 0}
+          <div class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-5 text-sm text-muted">
+            No audit entries yet.
+          </div>
+        {:else}
+          {#each auditEvents as row}
+            {@const action = String(row?.action || "event").trim() || "event"}
+            {@const statusText = String(row?.status || "ok").trim() || "ok"}
+            {@const eventId = String(row?.event_id || "").trim()}
+            {@const cashierId = String(row?.cashier_id || "").trim()}
+            <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2">
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${row?.companyKey === "unofficial" ? "border-amber-500/35 bg-amber-500/12 text-amber-300" : "border-emerald-500/35 bg-emerald-500/12 text-emerald-300"}`}>
+                    {row?.companyKey === "unofficial" ? "Unofficial" : "Official"}
+                  </span>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border border-ink/20 bg-ink/10 text-ink">
+                    {action}
+                  </span>
+                  <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${statusText.includes("fail") || statusText.includes("reject") ? "border-red-500/35 bg-red-500/12 text-red-300" : "border-accent/35 bg-accent/12 text-accent"}`}>
+                    {statusText}
+                  </span>
+                </div>
+                <div class="text-[11px] text-muted whitespace-nowrap">{_queueAgeText(row?.created_at)}</div>
+              </div>
+              <div class="text-xs text-muted">Cashier: <span class="font-mono text-ink/90">{cashierId || "—"}</span></div>
+              {#if eventId}
+                <div class="text-xs text-muted">Event: <span class="font-mono text-ink/90">{_shortQueueEventId(eventId)}</span></div>
+              {/if}
             </article>
           {/each}
         {/if}
@@ -4923,6 +5104,22 @@
             Open Shift
           </button>
         {:else}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3">
+              <div class="text-[11px] uppercase tracking-wide text-muted">Expected Cash</div>
+              <div class="mt-1 text-sm font-mono text-ink">USD {toNum(shiftExpectedCloseUsd, 0).toFixed(2)}</div>
+              <div class="text-sm font-mono text-ink">{Math.round(toNum(shiftExpectedCloseLbp, 0)).toLocaleString()} LBP</div>
+            </div>
+            <div class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3">
+              <div class="text-[11px] uppercase tracking-wide text-muted">Variance (Actual - Expected)</div>
+              <div class={`mt-1 text-sm font-mono ${Math.abs(toNum(shiftVarianceUsd, 0)) < 0.01 ? "text-emerald-300" : (shiftVarianceUsd > 0 ? "text-amber-300" : "text-red-300")}`}>
+                USD {shiftVarianceUsd >= 0 ? "+" : ""}{toNum(shiftVarianceUsd, 0).toFixed(2)}
+              </div>
+              <div class={`text-sm font-mono ${Math.abs(toNum(shiftVarianceLbp, 0)) < 1 ? "text-emerald-300" : (shiftVarianceLbp > 0 ? "text-amber-300" : "text-red-300")}`}>
+                {shiftVarianceLbp >= 0 ? "+" : ""}{Math.round(toNum(shiftVarianceLbp, 0)).toLocaleString()} LBP
+              </div>
+            </div>
+          </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label class="text-xs text-muted" for="shift-closing-usd">Closing Cash (USD)</label>

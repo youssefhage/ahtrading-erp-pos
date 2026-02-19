@@ -49,7 +49,7 @@ function Inner() {
     setErr(null);
     try {
       const res = await apiGet<{ transfers: TransferRow[] }>(
-        `/inventory/transfers?q=&status=${encodeURIComponent(statusFilter)}&limit=2000`
+        `/inventory/transfers?q=&status=${encodeURIComponent(statusFilter)}&limit=1000`
       );
       setRows(res.transfers || []);
     } catch (e) {

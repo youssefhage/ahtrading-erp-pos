@@ -564,6 +564,38 @@
     return `${n.toFixed(2)} ms`;
   };
 
+  const toFiniteOrNull = (...values) => {
+    for (const value of values) {
+      const n = Number(value);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  };
+
+  const normalizeBenchReport = (report) => {
+    const row = report && typeof report === "object" ? { ...report } : {};
+    const timestamp = String(row.timestamp || row.started_at || new Date().toISOString());
+    const itemCount = Math.max(0, Math.trunc(toFiniteOrNull(row.item_count, row.line_count, 0) || 0));
+    const writeMs = toFiniteOrNull(
+      row.write_ms,
+      row.full_reprice_ms,
+      row.partial_reprice_ms,
+      row.total_benchmark_ms
+    );
+    const readMs = toFiniteOrNull(
+      row.read_ms,
+      row.first_render_ms,
+      row.build_cart_ms
+    );
+    return {
+      ...row,
+      timestamp,
+      item_count: itemCount,
+      write_ms: writeMs,
+      read_ms: readMs,
+    };
+  };
+
   const fmtTime = (iso) => {
     try {
       return new Date(String(iso || "")).toLocaleTimeString();
@@ -578,7 +610,7 @@
     try {
       const report = await runStressBenchmark(count);
       if (!report) throw new Error("Benchmark did not return data.");
-      benchRuns = [report, ...(benchRuns || [])].slice(0, 10);
+      benchRuns = [normalizeBenchReport(report), ...(benchRuns || [])].slice(0, 10);
     } catch (e) {
       benchErr = e?.message || String(e);
     } finally {

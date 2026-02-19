@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  assertPaymentsWithinTotals,
   buildSalePaymentsForSettlement,
+  normalizeSettlementCurrency,
   saleIdempotencyKeyForCompany,
 } from "../src/lib/unified-checkout.js";
 
@@ -19,7 +21,7 @@ test("buildSalePaymentsForSettlement keeps credit as zero immediate payment", ()
 test("buildSalePaymentsForSettlement uses only USD amount on USD settlement", () => {
   const payments = buildSalePaymentsForSettlement({
     paymentMethod: "cash",
-    totalUsd: 50,
+    totalUsd: 50.00000001,
     totalLbp: 4500000,
     settlementCurrency: "USD",
   });
@@ -34,6 +36,52 @@ test("buildSalePaymentsForSettlement uses only LBP amount on LBP settlement", ()
     settlementCurrency: "LBP",
   });
   assert.deepEqual(payments, [{ method: "card", amount_usd: 0, amount_lbp: 4500000 }]);
+});
+
+test("normalizeSettlementCurrency only allows USD or LBP", () => {
+  assert.equal(normalizeSettlementCurrency("lbp"), "LBP");
+  assert.equal(normalizeSettlementCurrency("usd"), "USD");
+  assert.equal(normalizeSettlementCurrency("anything"), "USD");
+});
+
+test("assertPaymentsWithinTotals accepts normalized USD settlement", () => {
+  assert.doesNotThrow(() =>
+    assertPaymentsWithinTotals({
+      paymentMethod: "cash",
+      settlementCurrency: "USD",
+      totalUsd: 50.005,
+      totalLbp: 0,
+      payments: [{ amount_usd: 50.01, amount_lbp: 0 }],
+    }),
+  );
+});
+
+test("assertPaymentsWithinTotals rejects mixed-currency overpaying USD settlements", () => {
+  assert.throws(
+    () =>
+      assertPaymentsWithinTotals({
+        paymentMethod: "cash",
+        settlementCurrency: "USD",
+        totalUsd: 50,
+        totalLbp: 0,
+        payments: [{ amount_usd: 50, amount_lbp: 100 }],
+      }),
+    /USD settlement cannot include LBP/i,
+  );
+});
+
+test("assertPaymentsWithinTotals rejects LBP overpayment", () => {
+  assert.throws(
+    () =>
+      assertPaymentsWithinTotals({
+        paymentMethod: "card",
+        settlementCurrency: "LBP",
+        totalUsd: 0,
+        totalLbp: 1000,
+        payments: [{ amount_usd: 0, amount_lbp: 1001 }],
+      }),
+    /exceeds invoice total \(LBP\)/i,
+  );
 });
 
 test("saleIdempotencyKeyForCompany is stable per company regardless checkout branch", () => {

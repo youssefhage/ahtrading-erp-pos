@@ -51,7 +51,7 @@ function Inner() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await apiGet<{ changes: Row[] }>(`/pricing/price-changes?q=&limit=2000`);
+      const res = await apiGet<{ changes: Row[] }>(`/pricing/price-changes?q=&limit=1000`);
       setRows(res.changes || []);
     } catch (e) {
       setRows([]);
