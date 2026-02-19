@@ -7,6 +7,7 @@ import json
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
+from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
 from ..validation import RateType
 
@@ -72,16 +73,8 @@ def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
 
 
 def _get_rounding_account(cur, company_id: str) -> Optional[str]:
-    cur.execute(
-        """
-        SELECT account_id
-        FROM company_account_defaults
-        WHERE company_id = %s AND role_code = 'ROUNDING'
-        """,
-        (company_id,),
-    )
-    row = cur.fetchone()
-    return row["account_id"] if row else None
+    defaults = ensure_company_account_defaults(cur, company_id, roles=("ROUNDING", "INV_ADJ"))
+    return defaults.get("ROUNDING")
 
 
 class JournalLineIn(BaseModel):
@@ -162,15 +155,11 @@ def _month_range(as_of: date) -> tuple[date, date]:
     return start, end
 
 def _fetch_account_defaults(cur, company_id: str) -> dict:
-    cur.execute(
-        """
-        SELECT role_code, account_id
-        FROM company_account_defaults
-        WHERE company_id = %s
-        """,
-        (company_id,),
+    return ensure_company_account_defaults(
+        cur,
+        company_id,
+        roles=("AR", "AP", "OPENING_BALANCE", "OPENING_STOCK", "INV_ADJ", "ROUNDING"),
     )
-    return {r["role_code"]: r["account_id"] for r in cur.fetchall()}
 
 
 def _ensure_opening_item(cur, company_id: str) -> str:

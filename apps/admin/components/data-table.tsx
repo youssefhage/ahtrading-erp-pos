@@ -439,33 +439,44 @@ export function DataTable<T>(props: DataTableProps<T>) {
     }
     setGlobalFilter(value);
   };
+  const hasToolbarLeft = Boolean(toolbarLeft);
+  const hasActions = Boolean(actions);
+  const showToolbar = enableGlobalFilter || hasToolbarLeft || hasActions;
 
   return (
     <div className={cn("space-y-3", className)}>
       {headerSlot ? <div>{headerSlot}</div> : null}
 
-      <div className="ui-table-toolbar flex flex-wrap items-center justify-between gap-2">
-        {enableGlobalFilter ? (
-          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
-            <div className="w-full md:w-96">
-              <Input value={effectiveGlobalFilter} onChange={(e) => handleGlobalFilterChange(e.target.value)} placeholder={globalFilterPlaceholder} />
+      {showToolbar ? (
+        <div className="ui-table-toolbar flex flex-wrap items-center justify-between gap-2">
+          {enableGlobalFilter ? (
+            <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
+              <div className="w-full md:w-96">
+                <Input value={effectiveGlobalFilter} onChange={(e) => handleGlobalFilterChange(e.target.value)} placeholder={globalFilterPlaceholder} />
+              </div>
+              {toolbarLeft}
             </div>
-            {toolbarLeft}
-          </div>
-        ) : (
-          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">{toolbarLeft}</div>
-        )}
+          ) : (
+            <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">{toolbarLeft}</div>
+          )}
 
-          <div className="flex w-full items-center justify-end gap-2 md:w-auto">
-            {actions}
+          <div className="flex w-full items-center justify-end gap-2 md:w-auto">{actions}</div>
+        </div>
+      ) : null}
 
+      <div className="ui-table-wrap">
+        <div className="flex items-center justify-end border-b border-border-subtle bg-bg-sunken/10 px-2 py-1.5">
           <Dialog>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <span className="inline-flex items-center gap-2">
-                  <Settings2 className="h-4 w-4" />
-                  Columns
-                </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-fg-muted hover:text-foreground"
+                aria-label="Customize columns"
+                title="Customize columns"
+              >
+                <Settings2 className="h-4 w-4" />
+                <span className="sr-only">Columns</span>
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -549,9 +560,6 @@ export function DataTable<T>(props: DataTableProps<T>) {
             </DialogContent>
           </Dialog>
         </div>
-      </div>
-
-      <div className="ui-table-wrap">
         <table className="ui-table">
           <thead className="ui-thead">
             <tr>

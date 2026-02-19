@@ -16,6 +16,12 @@ import json
 import psycopg
 from psycopg.rows import dict_row
 
+try:
+    from backend.app.account_defaults import ensure_company_account_defaults
+except ImportError:  # pragma: no cover
+    # Allow running from within `backend/` where package root may not be `backend`.
+    from app.account_defaults import ensure_company_account_defaults
+
 USD_Q = Decimal("0.0001")
 LBP_Q = Decimal("0.01")
 
@@ -73,16 +79,8 @@ def _next_doc_no(cur, company_id: str, doc_type: str) -> str:
 
 
 def _get_rounding_account(cur, company_id: str) -> str | None:
-    cur.execute(
-        """
-        SELECT account_id
-        FROM company_account_defaults
-        WHERE company_id = %s AND role_code = 'ROUNDING'
-        """,
-        (company_id,),
-    )
-    row = cur.fetchone()
-    return row["account_id"] if row else None
+    defaults = ensure_company_account_defaults(cur, company_id, roles=("ROUNDING", "INV_ADJ"))
+    return defaults.get("ROUNDING")
 
 
 def _advance_next_run_date(cur_date: date, cadence: str, day_of_month: int | None = None) -> date:
@@ -375,4 +373,3 @@ def run_recurring_journal_scheduler(db_url: str, company_id: str, limit_rules: i
                             """,
                             (next_try, company_id, rule_id),
                         )
-

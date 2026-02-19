@@ -903,33 +903,54 @@ export default function ItemViewPage() {
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
               <div className="space-y-5">
-                <section className="space-y-3">
+                <section className="space-y-4">
                   <p className="ui-panel-title border-b border-border-subtle pb-2">Core identity</p>
-                  <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-3">
-                    <KeyField label="SKU" value={item.sku || "-"} copyText={item.sku || ""} />
-                    <KeyField label="Name" value={item.name || "-"} />
-                    <KeyField label="Type" value={itemTypeLabel(item.item_type)} />
-                    <KeyField label="UOM" value={item.unit_of_measure || "-"} />
-                    <KeyField label="Primary Barcode" value={item.barcode || "-"} copyText={item.barcode || ""} />
-                    <KeyField
-                      label="Category"
-                      value={item.category_id ? (categoryMeta?.name || shortId(item.category_id)) : "-"}
-                      hint={item.category_id ? `ID: ${shortId(item.category_id)}` : undefined}
-                      copyText={item.category_id || ""}
-                    />
-                    <KeyField
-                      label="Tax"
-                      value={
-                        item.tax_code_id
-                          ? `${taxMeta ? `${taxMeta.name}${taxMeta.rate !== undefined && taxMeta.rate !== null ? ` (${fmtRate(taxMeta.rate)})` : ""}` : item.tax_code_id}`
-                          : "-"
-                      }
-                      copyText={item.tax_code_id || ""}
-                      hint={item.tax_code_id && taxMeta ? `ID: ${shortId(item.tax_code_id)}` : undefined}
-                    />
-                    <KeyField label="Status" value={item.is_active === false ? "Inactive" : "Active"} />
-                    <KeyField label="Track Batches" value={item.track_batches ? "On" : "Off"} />
-                    <KeyField label="Track Expiry" value={item.track_expiry ? "On" : "Off"} />
+                  <div className="space-y-5">
+                    <div className="space-y-3">
+                      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-fg-subtle">Primary identifiers</p>
+                      <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+                        <KeyField className="md:col-span-2" label="Name" value={item.name || "-"} />
+                        <KeyField label="SKU" value={item.sku || "-"} copyText={item.sku || ""} mono />
+                        <KeyField label="Primary Barcode" value={item.barcode || "-"} copyText={item.barcode || ""} mono />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-5 border-t border-border-subtle pt-5 md:grid-cols-2">
+                      <div className="space-y-3">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-fg-subtle">Classification</p>
+                        <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+                          <KeyField label="Type" value={itemTypeLabel(item.item_type)} />
+                          <KeyField label="UOM" value={item.unit_of_measure || "-"} mono />
+                          <KeyField
+                            className="sm:col-span-2"
+                            label="Category"
+                            value={item.category_id ? (categoryMeta?.name || shortId(item.category_id)) : "-"}
+                            hint={item.category_id ? `ID: ${shortId(item.category_id)}` : undefined}
+                            copyText={item.category_id || ""}
+                          />
+                          <KeyField
+                            className="sm:col-span-2"
+                            label="Tax"
+                            value={
+                              item.tax_code_id
+                                ? `${taxMeta ? `${taxMeta.name}${taxMeta.rate !== undefined && taxMeta.rate !== null ? ` (${fmtRate(taxMeta.rate)})` : ""}` : item.tax_code_id}`
+                                : "-"
+                            }
+                            copyText={item.tax_code_id || ""}
+                            hint={item.tax_code_id && taxMeta ? `ID: ${shortId(item.tax_code_id)}` : undefined}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-3 border-t border-border-subtle pt-5 md:border-l md:border-t-0 md:pl-6 md:pt-0">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-fg-subtle">Lifecycle</p>
+                        <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2">
+                          <KeyField label="Status" value={item.is_active === false ? "Inactive" : "Active"} />
+                          <KeyField label="Track Batches" value={item.track_batches ? "On" : "Off"} />
+                          <KeyField label="Track Expiry" value={item.track_expiry ? "On" : "Off"} />
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </section>
 

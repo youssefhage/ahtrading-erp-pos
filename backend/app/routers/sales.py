@@ -10,6 +10,7 @@ import json
 import uuid
 from backend.workers import pos_processor
 from ..journal_utils import auto_balance_journal
+from ..account_defaults import ensure_company_account_defaults
 from ..validation import CurrencyCode, PaymentMethod, DocStatus
 from ..uom import load_item_uom_context, resolve_line_uom
 
@@ -238,15 +239,22 @@ def _compute_applied_from_tender(*, tender_usd: Decimal, tender_lbp: Decimal, ex
     return applied_usd, applied_lbp
 
 def _fetch_account_defaults(cur, company_id: str) -> dict:
-    cur.execute(
-        """
-        SELECT role_code, account_id
-        FROM company_account_defaults
-        WHERE company_id = %s
-        """,
-        (company_id,),
+    return ensure_company_account_defaults(
+        cur,
+        company_id,
+        roles=(
+            "AR",
+            "SALES",
+            "SALES_RETURNS",
+            "VAT_PAYABLE",
+            "INVENTORY",
+            "COGS",
+            "OPENING_BALANCE",
+            "OPENING_STOCK",
+            "INV_ADJ",
+            "ROUNDING",
+        ),
     )
-    return {r["role_code"]: r["account_id"] for r in cur.fetchall()}
 
 def _fetch_payment_method_accounts(cur, company_id: str) -> dict:
     cur.execute(
@@ -2115,15 +2123,7 @@ def create_sales_payment(data: SalesPaymentIn, company_id: str = Depends(get_com
                 )
 
                 # GL posting: Dr Cash/Bank, Cr AR
-                cur.execute(
-                    """
-                    SELECT role_code, account_id
-                    FROM company_account_defaults
-                    WHERE company_id = %s
-                    """,
-                    (company_id,),
-                )
-                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
+                defaults = _fetch_account_defaults(cur, company_id)
                 ar = defaults.get("AR")
                 if not ar:
                     raise HTTPException(status_code=400, detail="Missing AR default")

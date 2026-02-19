@@ -7,6 +7,7 @@ import json
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
+from ..account_defaults import ensure_company_account_defaults
 from ..period_locks import assert_period_open
 from ..journal_utils import q_usd, q_lbp, auto_balance_journal
 from ..validation import RateType
@@ -464,15 +465,11 @@ def post_supplier_credit(credit_id: str, company_id: str = Depends(get_company_i
                     ex = _default_exchange_rate(cur, company_id)
 
                 # Resolve account defaults.
-                cur.execute(
-                    """
-                    SELECT role_code, account_id
-                    FROM company_account_defaults
-                    WHERE company_id=%s
-                    """,
-                    (company_id,),
+                defaults = ensure_company_account_defaults(
+                    cur,
+                    company_id,
+                    roles=("AP", "PURCHASES_EXPENSE", "INVENTORY", "COGS", "INV_ADJ"),
                 )
-                defaults = {r["role_code"]: str(r["account_id"]) for r in cur.fetchall()}
                 ap = defaults.get("AP")
                 purchases_exp = defaults.get("PURCHASES_EXPENSE")
                 purchase_rebates = defaults.get("PURCHASE_REBATES")

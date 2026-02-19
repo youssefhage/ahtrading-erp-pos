@@ -3,6 +3,8 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional
 
+from .account_defaults import ensure_company_account_defaults
+
 USD_Q = Decimal("0.0001")
 LBP_Q = Decimal("0.01")
 
@@ -16,16 +18,8 @@ def q_lbp(v: Decimal) -> Decimal:
 
 
 def _get_rounding_account(cur, company_id: str) -> Optional[str]:
-    cur.execute(
-        """
-        SELECT account_id
-        FROM company_account_defaults
-        WHERE company_id = %s AND role_code = 'ROUNDING'
-        """,
-        (company_id,),
-    )
-    row = cur.fetchone()
-    return row["account_id"] if row else None
+    defaults = ensure_company_account_defaults(cur, company_id, roles=("ROUNDING", "INV_ADJ"))
+    return defaults.get("ROUNDING")
 
 
 def auto_balance_journal(
@@ -86,4 +80,3 @@ def auto_balance_journal(
         """,
         (journal_id, rounding_acc, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id, branch_id),
     )
-

@@ -10,6 +10,7 @@ from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
 from ..payment_guards import assert_not_overpaid
+from ..account_defaults import ensure_company_account_defaults
 import json
 import os
 from ..journal_utils import auto_balance_journal
@@ -352,15 +353,22 @@ def _normalize_supplier_invoice_draft_lines(cur, company_id: str, lines_in, exch
     return out, base_usd, base_lbp
 
 def _fetch_account_defaults(cur, company_id: str) -> dict:
-    cur.execute(
-        """
-        SELECT role_code, account_id
-        FROM company_account_defaults
-        WHERE company_id = %s
-        """,
-        (company_id,),
+    return ensure_company_account_defaults(
+        cur,
+        company_id,
+        roles=(
+            "AP",
+            "INVENTORY",
+            "GRNI",
+            "VAT_RECOVERABLE",
+            "PURCHASES_EXPENSE",
+            "OPENING_BALANCE",
+            "OPENING_STOCK",
+            "INV_ADJ",
+            "COGS",
+            "ROUNDING",
+        ),
     )
-    return {r["role_code"]: r["account_id"] for r in cur.fetchall()}
 
 def _fetch_payment_method_accounts(cur, company_id: str) -> dict:
     cur.execute(

@@ -123,6 +123,77 @@ FROM companies c
 JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6011'
 ON CONFLICT (company_id, role_code) DO NOTHING;
 
+-- Rounding differences (small FX/quantization balancing).
+-- Prefer inventory variance accounts if available; fallback to purchases.
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'ROUNDING', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6050'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'ROUNDING', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6150'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'ROUNDING', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6011'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+-- Shrinkage / expiry write-offs.
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'SHRINKAGE', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6050'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'SHRINKAGE', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6150'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'SHRINKAGE', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6011'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+-- Direct supplier invoices (no goods receipt).
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'PURCHASES_EXPENSE', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6011'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'PURCHASES_EXPENSE', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6010'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'PURCHASES_EXPENSE', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '6000'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+-- Intercompany defaults (reuse AR/AP by default).
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'INTERCO_AR', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '4111'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'INTERCO_AP', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '4011'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
 -- Opening stock offset (opening balances equity). Used by Inventory -> Opening Stock Import.
 INSERT INTO company_account_defaults (company_id, role_code, account_id)
 SELECT c.id, 'OPENING_STOCK', a.id
@@ -142,6 +213,12 @@ INSERT INTO company_account_defaults (company_id, role_code, account_id)
 SELECT c.id, 'GRNI', a.id
 FROM companies c
 JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '4018'
+ON CONFLICT (company_id, role_code) DO NOTHING;
+
+INSERT INTO company_account_defaults (company_id, role_code, account_id)
+SELECT c.id, 'GRNI', a.id
+FROM companies c
+JOIN company_coa_accounts a ON a.company_id = c.id AND a.account_code = '4011'
 ON CONFLICT (company_id, role_code) DO NOTHING;
 
 COMMIT;

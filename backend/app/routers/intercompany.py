@@ -6,6 +6,7 @@ from datetime import datetime
 from ..db import get_conn, get_admin_conn, set_company_context
 from ..deps import get_company_id, require_permission
 from ..deps import get_current_user
+from ..account_defaults import ensure_company_account_defaults
 
 router = APIRouter(prefix="/intercompany", tags=["intercompany"])
 
@@ -124,14 +125,7 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
                     )
 
                 # GL posting
-                cur.execute(
-                    """
-                    SELECT role_code, account_id FROM company_account_defaults
-                    WHERE company_id = %s
-                    """,
-                    (data.issue_company_id,),
-                )
-                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
+                defaults = ensure_company_account_defaults(cur, data.issue_company_id, roles=("INTERCO_AR", "INVENTORY", "AR"))
                 interco_ar = defaults.get("INTERCO_AR")
                 inventory = defaults.get("INVENTORY")
                 if not (interco_ar and inventory):
@@ -181,14 +175,7 @@ def intercompany_issue(data: IntercompanyIssueIn, company_id: str = Depends(get_
         with conn_sell.transaction():
             with conn_sell.cursor() as cur:
                 set_company_context(conn_sell, data.sell_company_id)
-                cur.execute(
-                    """
-                    SELECT role_code, account_id FROM company_account_defaults
-                    WHERE company_id = %s
-                    """,
-                    (data.sell_company_id,),
-                )
-                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
+                defaults = ensure_company_account_defaults(cur, data.sell_company_id, roles=("INTERCO_AP", "COGS", "AP"))
                 interco_ap = defaults.get("INTERCO_AP")
                 cogs = defaults.get("COGS")
                 if not (interco_ap and cogs):
@@ -273,14 +260,7 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
         with conn.transaction():
             with conn.cursor() as cur:
                 set_company_context(conn, data.from_company_id)
-                cur.execute(
-                    """
-                    SELECT role_code, account_id FROM company_account_defaults
-                    WHERE company_id = %s
-                    """,
-                    (data.from_company_id,),
-                )
-                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
+                defaults = ensure_company_account_defaults(cur, data.from_company_id, roles=("INTERCO_AP", "CASH", "BANK", "AP"))
                 interco_ap = defaults.get("INTERCO_AP")
                 pay_account = defaults.get("BANK") if method == "bank" else defaults.get("CASH")
                 if not (interco_ap and pay_account):
@@ -327,14 +307,7 @@ def intercompany_settle(data: IntercompanySettleIn, company_id: str = Depends(ge
         with conn.transaction():
             with conn.cursor() as cur:
                 set_company_context(conn, data.to_company_id)
-                cur.execute(
-                    """
-                    SELECT role_code, account_id FROM company_account_defaults
-                    WHERE company_id = %s
-                    """,
-                    (data.to_company_id,),
-                )
-                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
+                defaults = ensure_company_account_defaults(cur, data.to_company_id, roles=("INTERCO_AR", "CASH", "BANK", "AR"))
                 interco_ar = defaults.get("INTERCO_AR")
                 recv_account = defaults.get("BANK") if method == "bank" else defaults.get("CASH")
                 if not (interco_ar and recv_account):

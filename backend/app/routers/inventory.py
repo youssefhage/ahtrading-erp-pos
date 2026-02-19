@@ -8,6 +8,7 @@ import uuid
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, require_permission, get_current_user
 from ..period_locks import assert_period_open
+from ..account_defaults import ensure_company_account_defaults
 from backend.workers import pos_processor
 from ..journal_utils import auto_balance_journal
 
@@ -398,15 +399,7 @@ def stock_adjust(data: StockAdjustIn, company_id: str = Depends(get_company_id),
                 move_id = move["id"]
 
                 # GL posting: Dr/Cr INVENTORY against INV_ADJ (or another configured account).
-                cur.execute(
-                    """
-                    SELECT role_code, account_id
-                    FROM company_account_defaults
-                    WHERE company_id = %s
-                    """,
-                    (company_id,),
-                )
-                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
+                defaults = ensure_company_account_defaults(cur, company_id, roles=("INVENTORY", "INV_ADJ", "COGS"))
                 inventory = defaults.get("INVENTORY")
                 inv_adj = defaults.get("INV_ADJ")
                 if not (inventory and inv_adj):
@@ -559,15 +552,7 @@ def expiry_writeoff(data: ExpiryWriteoffIn, company_id: str = Depends(get_compan
                 )
                 move_id = cur.fetchone()["id"]
 
-                cur.execute(
-                    """
-                    SELECT role_code, account_id
-                    FROM company_account_defaults
-                    WHERE company_id = %s
-                    """,
-                    (company_id,),
-                )
-                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
+                defaults = ensure_company_account_defaults(cur, company_id, roles=("INVENTORY", "SHRINKAGE", "INV_ADJ", "COGS"))
                 inventory = defaults.get("INVENTORY")
                 shrink = defaults.get("SHRINKAGE") or defaults.get("INV_ADJ")
                 if not (inventory and shrink):
@@ -676,15 +661,11 @@ def import_opening_stock(data: OpeningStockImportIn, company_id: str = Depends(g
                     return {"ok": True, "import_id": import_id, "already_applied": True, "warnings": []}
 
                 # Account defaults for GL posting.
-                cur.execute(
-                    """
-                    SELECT role_code, account_id
-                    FROM company_account_defaults
-                    WHERE company_id = %s
-                    """,
-                    (company_id,),
+                defaults = ensure_company_account_defaults(
+                    cur,
+                    company_id,
+                    roles=("INVENTORY", "OPENING_BALANCE", "OPENING_STOCK", "INV_ADJ", "COGS"),
                 )
-                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
                 inventory = defaults.get("INVENTORY")
                 # Prefer the generic opening balance offset if configured, otherwise fall back
                 # to OPENING_STOCK (legacy) and then INV_ADJ.
@@ -1278,15 +1259,7 @@ def cycle_count(data: CycleCountIn, company_id: str = Depends(get_company_id), u
             with conn.cursor() as cur:
                 assert_period_open(cur, company_id, date.today())
                 # Fetch posting defaults once; enforce only if we actually create adjustments.
-                cur.execute(
-                    """
-                    SELECT role_code, account_id
-                    FROM company_account_defaults
-                    WHERE company_id = %s
-                    """,
-                    (company_id,),
-                )
-                defaults = {r["role_code"]: r["account_id"] for r in cur.fetchall()}
+                defaults = ensure_company_account_defaults(cur, company_id, roles=("INVENTORY", "INV_ADJ", "COGS"))
                 inventory = defaults.get("INVENTORY")
                 inv_adj = defaults.get("INV_ADJ")
 

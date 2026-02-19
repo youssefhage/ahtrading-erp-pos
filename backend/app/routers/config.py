@@ -77,7 +77,7 @@ def preflight(company_id: str = Depends(get_company_id)):
             n_rates_today = int(cur.fetchone()["n"])
             add("exchange_rate_today", "ok" if n_rates_today > 0 else "warn", f"{n_rates_today} rate(s) for today")
 
-            # Account defaults are mandatory for posting documents.
+            # Account defaults that block day-1 core posting flows.
             required_defaults = [
                 "AR",
                 "AP",
@@ -91,6 +91,9 @@ def preflight(company_id: str = Depends(get_company_id)):
                 "VAT_RECOVERABLE",
                 "OPENING_BALANCE",
                 "INV_ADJ",
+                "ROUNDING",
+                "GRNI",
+                "PURCHASES_EXPENSE",
             ]
             cur.execute(
                 "SELECT role_code FROM company_account_defaults WHERE company_id=%s",
