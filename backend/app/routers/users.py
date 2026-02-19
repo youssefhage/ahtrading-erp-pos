@@ -1349,3 +1349,85 @@ def revoke_all_company_sessions(company_id: str = Depends(get_company_id), user=
                 (company_id, user["user_id"], company_id, json.dumps({"revoked": revoked})),
             )
             return {"ok": True, "revoked": revoked}
+
+
+class DeactivateUserIn(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/{user_id}/deactivate", dependencies=[Depends(require_permission("users:write"))])
+def deactivate_user(user_id: str, data: DeactivateUserIn, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    reason = (data.reason or "").strip() or None
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM user_roles
+                    WHERE user_id = %s AND company_id = %s
+                    LIMIT 1
+                    """,
+                    (user_id, company_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="user not found")
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET is_active = false,
+                        deactivated_at = now(),
+                        deactivation_reason = %s,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (reason, user_id),
+                )
+                cur.execute("UPDATE auth_sessions SET is_active=false WHERE user_id=%s", (user_id,))
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'users.deactivate', 'user', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], user_id, json.dumps({"reason": reason})),
+                )
+                return {"ok": True}
+
+
+@router.post("/{user_id}/activate", dependencies=[Depends(require_permission("users:write"))])
+def activate_user(user_id: str, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM user_roles
+                    WHERE user_id = %s AND company_id = %s
+                    LIMIT 1
+                    """,
+                    (user_id, company_id),
+                )
+                if not cur.fetchone():
+                    raise HTTPException(status_code=404, detail="user not found")
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET is_active = true,
+                        deactivated_at = NULL,
+                        deactivation_reason = NULL,
+                        updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (user_id,),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'users.activate', 'user', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], user_id, json.dumps({})),
+                )
+                return {"ok": True}

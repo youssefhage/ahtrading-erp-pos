@@ -242,6 +242,7 @@ function iconForHref(href: string) {
     "/system/warehouse-locations": Warehouse,
     "/system/users": UserRoundCog,
     "/system/security": ShieldCheck,
+    "/system/dedup": Workflow,
     "/system/roles-permissions": ShieldCheck,
   };
 
@@ -389,6 +390,7 @@ const FULL_NAV_SECTIONS: NavSection[] = [
       { label: "Warehouse Locations", href: "/system/warehouse-locations" },
       { label: "Users", href: "/system/users" },
       { label: "Security", href: "/system/security" },
+      { label: "Dedup / Merge", href: "/system/dedup" },
       { label: "Audit Logs", href: "/system/audit-logs" },
       { label: "Roles", href: "/system/roles-permissions" }
     ]
