@@ -484,6 +484,9 @@
   let showQueueDrawer = false;
   let showAuditDrawer = false;
   let showTopMoreActions = false;
+  let topMoreActionsButtonEl = null;
+  let topMoreMenuStyle = "left: 8px; top: 56px; width: 224px;";
+  const TOP_MORE_MENU_WIDTH = 224;
   let auditLoading = false;
   let auditEvents = [];
   let queueRetryingKeys = new Set();
@@ -583,6 +586,32 @@
     const copied = document.execCommand("copy");
     document.body.removeChild(ta);
     if (!copied) throw new Error("Clipboard is not available.");
+  };
+  const _positionTopMoreActionsMenu = () => {
+    if (!showTopMoreActions) return;
+    if (!topMoreActionsButtonEl || typeof window === "undefined") return;
+    const rect = topMoreActionsButtonEl.getBoundingClientRect();
+    const viewportWidth = Math.max(0, Number(window.innerWidth) || 0);
+    const viewportHeight = Math.max(0, Number(window.innerHeight) || 0);
+    const pad = 8;
+    let left = Math.round(rect.right - TOP_MORE_MENU_WIDTH);
+    if (viewportWidth > 0) {
+      left = Math.max(pad, Math.min(left, viewportWidth - TOP_MORE_MENU_WIDTH - pad));
+    }
+    let top = Math.round(rect.bottom + 8);
+    if (viewportHeight > 0) {
+      top = Math.min(top, Math.max(pad, viewportHeight - 16));
+    }
+    topMoreMenuStyle = `left: ${left}px; top: ${top}px; width: ${TOP_MORE_MENU_WIDTH}px;`;
+  };
+  const closeTopMoreActions = () => {
+    showTopMoreActions = false;
+  };
+  const toggleTopMoreActions = () => {
+    showTopMoreActions = !showTopMoreActions;
+    if (showTopMoreActions) {
+      requestAnimationFrame(() => _positionTopMoreActionsMenu());
+    }
   };
   const _companyForStorage = (companyKey) => normalizeCompanyKey(companyKey);
   const _trimArray = (rows, maxRows) => {
@@ -2165,7 +2194,25 @@
     if (method === "POST" && pathname === "/cashiers/login") {
       const pin = String(body?.pin || "").trim();
       if (!pin) throw new Error("PIN is required.");
-      const res = await _webPosCall(companyKey, "/pos/cashiers/verify", { method: "POST", body: { pin } });
+      let res = null;
+      try {
+        res = await _webPosCall(companyKey, "/pos/cashiers/verify", { method: "POST", body: { pin } });
+      } catch (e) {
+        const status = toNum(e?.status, 0);
+        if (status === 401) {
+          try {
+            const cat = await _webPosCall(companyKey, "/pos/cashiers/catalog", { method: "GET" });
+            const count = Array.isArray(cat?.cashiers) ? cat.cashiers.length : 0;
+            if (count <= 0) {
+              throw new Error(`No active cashiers available for ${companyKey}. Assign cashiers to this device in POS settings.`);
+            }
+          } catch (inner) {
+            if (String(inner?.message || "").toLowerCase().includes("no active cashiers")) throw inner;
+          }
+          throw new Error(`Invalid PIN for ${companyKey} cashier.`);
+        }
+        throw e;
+      }
       const next = _setCfgForCompanyKey(companyKey, { cashier_id: String(res?.cashier?.id || "").trim() });
       return { ok: true, cashier: res?.cashier || null, config: next };
     }
@@ -4882,7 +4929,15 @@
         schedulePull(12000);
       }
     };
+    const onWindowResize = () => {
+      if (showTopMoreActions) _positionTopMoreActionsMenu();
+    };
+    const onWindowScroll = () => {
+      if (showTopMoreActions) _positionTopMoreActionsMenu();
+    };
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("resize", onWindowResize);
+    window.addEventListener("scroll", onWindowScroll, true);
 
     // Global barcode scan capture (keyboard-wedge scanners often type fast chars + Enter).
     // This intentionally works without requiring focus on the dedicated scan field.
@@ -5003,6 +5058,8 @@
         _customerRemoteTimer = null;
       }
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("resize", onWindowResize);
+      window.removeEventListener("scroll", onWindowScroll, true);
       document.removeEventListener("focusin", onFocusIn, true);
       document.removeEventListener("click", onClickCapture, true);
       document.removeEventListener("keydown", onKeyDown, true);
@@ -5110,8 +5167,9 @@
 
     <div class="relative">
       <button
+        bind:this={topMoreActionsButtonEl}
         class={`${topBtnBase} ${showTopMoreActions ? topBtnActive : ""}`}
-        on:click={() => { showTopMoreActions = !showTopMoreActions; }}
+        on:click={toggleTopMoreActions}
         title="More actions"
         type="button"
       >
@@ -5122,9 +5180,9 @@
           class="fixed inset-0 z-[80] bg-transparent"
           type="button"
           aria-label="Close more actions menu"
-          on:click={() => { showTopMoreActions = false; }}
+          on:click={closeTopMoreActions}
         ></button>
-        <div class="absolute right-0 top-full mt-2 z-[81] w-56 rounded-2xl border border-ink/10 bg-surface shadow-2xl p-2 space-y-1">
+        <div class="fixed z-[81] rounded-2xl border border-ink/10 bg-surface shadow-2xl p-2 space-y-1" style={topMoreMenuStyle}>
           <button
             class={`w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors ${queuedEventsTotal > 0 ? "border-amber-500/40 bg-amber-500/10" : ""}`}
             on:click={() => { showTopMoreActions = false; syncPush(); }}

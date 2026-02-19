@@ -2800,6 +2800,25 @@ def _eligible_cashiers_for_device(cur, company_id: str, device_id: str):
     if has_employee_assignments and not has_cashier_user_id_column:
         return []
 
+    # Safety net: if employee assignments are enabled but no active cashier in this
+    # company is linked to a user yet, do not block login entirely.
+    if has_employee_assignments and has_cashier_user_id_column:
+        cur.execute(
+            """
+            SELECT EXISTS (
+              SELECT 1
+              FROM pos_cashiers c
+              WHERE c.company_id = %s
+                AND c.is_active = true
+                AND c.user_id IS NOT NULL
+            ) AS ok
+            """,
+            (company_id,),
+        )
+        has_any_linked_cashier = bool((cur.fetchone() or {}).get("ok"))
+        if not has_any_linked_cashier:
+            has_employee_assignments = False
+
     user_id_select = "c.user_id" if has_cashier_user_id_column else "NULL::uuid AS user_id"
     joins = []
     params = []
@@ -2836,39 +2855,79 @@ def _eligible_cashiers_for_device(cur, company_id: str, device_id: str):
         """,
         params,
     )
+    rows = cur.fetchall()
+    if rows:
+        return rows
+
+    # Safety net: if assignment joins produced no rows, avoid a hard cashier lockout.
+    # Fallback order: explicit cashier assignments, then all active cashiers.
+    if has_cashier_assignments:
+        cur.execute(
+            """
+            SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at, c.user_id
+            FROM pos_cashiers c
+            JOIN pos_device_cashiers dc
+              ON dc.company_id = c.company_id
+             AND dc.cashier_id = c.id
+             AND dc.device_id = %s
+            WHERE c.company_id = %s
+              AND c.is_active = true
+            ORDER BY c.name
+            """,
+            (device_id, company_id),
+        )
+        rows = cur.fetchall()
+        if rows:
+            return rows
+
+    cur.execute(
+        """
+        SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at, c.user_id
+        FROM pos_cashiers c
+        WHERE c.company_id = %s
+          AND c.is_active = true
+        ORDER BY c.name
+        """,
+        (company_id,),
+    )
     return cur.fetchall()
 
 
 def _cashier_manager_meta(cur, company_id: str, user_id: Optional[str]) -> dict:
+    fallback = {
+        "role": None,
+        "roles": [],
+        "permissions": [],
+        "can_manager_approve": False,
+        "is_manager": False,
+        "is_admin": False,
+    }
     normalized_user_id = str(user_id or "").strip()
     if not normalized_user_id:
-        return {
-            "role": None,
-            "roles": [],
-            "permissions": [],
-            "can_manager_approve": False,
-            "is_manager": False,
-            "is_admin": False,
-        }
-    cur.execute(
-        """
-        SELECT
-          COALESCE(array_remove(array_agg(DISTINCT lower(trim(r.name))), NULL), ARRAY[]::text[]) AS roles,
-          COALESCE(array_remove(array_agg(DISTINCT lower(trim(p.code))), NULL), ARRAY[]::text[]) AS permissions
-        FROM user_roles ur
-        JOIN roles r
-          ON r.id = ur.role_id
-         AND r.company_id = ur.company_id
-        LEFT JOIN role_permissions rp
-          ON rp.role_id = ur.role_id
-        LEFT JOIN permissions p
-          ON p.id = rp.permission_id
-        WHERE ur.company_id = %s
-          AND ur.user_id = %s
-        """,
-        (company_id, normalized_user_id),
-    )
-    row = cur.fetchone() or {}
+        return fallback
+    try:
+        cur.execute(
+            """
+            SELECT
+              COALESCE(array_remove(array_agg(DISTINCT lower(trim(r.name))), NULL), ARRAY[]::text[]) AS roles,
+              COALESCE(array_remove(array_agg(DISTINCT lower(trim(p.code))), NULL), ARRAY[]::text[]) AS permissions
+            FROM user_roles ur
+            JOIN roles r
+              ON r.id = ur.role_id
+             AND r.company_id = ur.company_id
+            LEFT JOIN role_permissions rp
+              ON rp.role_id = ur.role_id
+            LEFT JOIN permissions p
+              ON p.id = rp.permission_id
+            WHERE ur.company_id = %s
+              AND ur.user_id = %s
+            """,
+            (company_id, normalized_user_id),
+        )
+        row = cur.fetchone() or {}
+    except Exception:
+        # Never fail cashier PIN verification because role metadata is unavailable.
+        return fallback
     roles = [str(v or "").strip().lower() for v in list(row.get("roles") or []) if str(v or "").strip()]
     permissions = [str(v or "").strip().lower() for v in list(row.get("permissions") or []) if str(v or "").strip()]
     role_set = set(roles)
