@@ -5163,10 +5163,10 @@
   </svelte:fragment>
 
   <svelte:fragment slot="top-actions">
-    {#if !webSetupFirstTime}
     {@const topBtnBase = "h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm disabled:opacity-60"}
     {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
     {@const topBtnWarn = "border-amber-500/40 bg-amber-500/15 text-ink hover:bg-amber-500/25"}
+    {#if !webSetupFirstTime}
     <button
       class={topBtnBase}
       on:click={syncPull}
