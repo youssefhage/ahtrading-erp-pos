@@ -14,6 +14,7 @@
   export let testSyncFor = async (companyKey) => {};
   export let syncPullFor = async (companyKey) => {};
   export let syncPushFor = async (companyKey) => {};
+  export let openPrintingSettings = async () => {};
   export let runStressBenchmark = async (lineCount) => null;
   export let vatDisplayMode = "both";
   export let onVatDisplayModeChange = (mode) => {};
@@ -688,6 +689,23 @@
             </div>
           </div>
         {/if}
+
+        <div class="pt-4 border-t border-white/5">
+          <div class="text-xs font-bold text-muted uppercase tracking-wide mb-2">Device & Printing</div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              class="px-4 py-2 rounded-xl bg-accent/20 text-accent border border-accent/30 text-xs font-bold hover:bg-accent/30 hover:border-accent/40 transition-colors disabled:opacity-60"
+              on:click={openPrintingSettings}
+              disabled={busy}
+            >
+              Open Printing Settings
+            </button>
+            <span class="text-[10px] text-muted/70">
+              Printer mapping now lives under Settings.
+            </span>
+          </div>
+        </div>
       </div>
 
       <div class="glass-panel rounded-xl p-5 border border-white/5 bg-surface/20">

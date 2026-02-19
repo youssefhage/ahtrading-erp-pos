@@ -2231,7 +2231,15 @@
         res = await _webPosCall(companyKey, "/pos/cashiers/verify", { method: "POST", body: { pin } });
       } catch (e) {
         const status = toNum(e?.status, 0);
+        const message = String(e?.message || "").trim();
+        const lowerMessage = message.toLowerCase();
+        if (status === 403 && lowerMessage.includes("not assigned")) {
+          throw new Error(`Cashier is not assigned to this ${companyKey} device. Update device cashier/employee assignments in Admin.`);
+        }
         if (status === 401) {
+          if (lowerMessage.includes("device token") || lowerMessage.includes("device is not connected") || lowerMessage.includes("missing device")) {
+            throw new Error(`Device credentials are invalid for ${companyKey}. Open Settings and reconnect this company device.`);
+          }
           try {
             const cat = await _webPosCall(companyKey, "/pos/cashiers/catalog", { method: "GET" });
             const count = Array.isArray(cat?.cashiers) ? cat.cashiers.length : 0;
@@ -2239,7 +2247,11 @@
               throw new Error(`No active cashiers available for ${companyKey}. Assign cashiers to this device in POS settings.`);
             }
           } catch (inner) {
-            if (String(inner?.message || "").toLowerCase().includes("no active cashiers")) throw inner;
+            const innerLower = String(inner?.message || "").toLowerCase();
+            if (innerLower.includes("device token") || innerLower.includes("device is not connected") || innerLower.includes("missing device")) {
+              throw new Error(`Device credentials are invalid for ${companyKey}. Open Settings and reconnect this company device.`);
+            }
+            if (innerLower.includes("no active cashiers")) throw inner;
           }
           throw new Error(`Invalid PIN for ${companyKey} cashier.`);
         }
@@ -3457,12 +3469,6 @@
   const onShowPriceDisplayControlsChange = (value) => {
     showPriceDisplayControls = value !== false;
     try { localStorage.setItem(PRICE_DISPLAY_CONTROLS_STORAGE_KEY, showPriceDisplayControls ? "1" : "0"); } catch (_) {}
-  };
-
-  const configureOtherAgent = async () => {
-    // Legacy entry point; keep for now but route to Settings.
-    otherAgentDraftUrl = otherAgentUrl || DEFAULT_OTHER_AGENT_URL;
-    setActiveScreen("settings");
   };
 
   const configurePrinting = async () => {
@@ -5252,24 +5258,6 @@
           </button>
           <button
             class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
-            on:click={() => { showTopMoreActions = false; configurePrinting(); }}
-            disabled={loading}
-            title="Detect printers and map each company to a printer"
-            type="button"
-          >
-            Printing
-          </button>
-          <button
-            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
-            on:click={() => { showTopMoreActions = false; configureOtherAgent(); }}
-            disabled={loading}
-            title="Open config/settings"
-            type="button"
-          >
-            Config
-          </button>
-          <button
-            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
             on:click={() => { showTopMoreActions = false; toggleTheme(); }}
             title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
             type="button"
@@ -5483,6 +5471,7 @@
       testSyncFor={testSyncFor}
       syncPullFor={syncPullFor}
       syncPushFor={syncPushFor}
+      openPrintingSettings={configurePrinting}
       runStressBenchmark={runStressBenchmark}
       vatDisplayMode={vatDisplayMode}
       onVatDisplayModeChange={onVatDisplayModeChange}

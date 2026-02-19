@@ -3241,6 +3241,25 @@ def verify_cashier(data: CashierVerifyIn, device=Depends(require_device)):
                             "is_admin": bool(meta.get("is_admin")),
                         }
                     }
+            # Better operator UX: if PIN is valid for an active cashier but that cashier
+            # is filtered out by device assignments, return a specific error.
+            eligible_ids = {str(r.get("id")) for r in rows if r.get("id")}
+            cur.execute(
+                """
+                SELECT id, pin_hash
+                FROM pos_cashiers
+                WHERE company_id = %s
+                  AND is_active = true
+                ORDER BY updated_at DESC
+                """,
+                (device["company_id"],),
+            )
+            for row in cur.fetchall():
+                row_id = str(row.get("id") or "").strip()
+                if row_id and row_id in eligible_ids:
+                    continue
+                if verify_pin(pin, row.get("pin_hash")):
+                    raise HTTPException(status_code=403, detail="cashier is not assigned to this device")
     raise HTTPException(status_code=401, detail="invalid pin")
 
 @router.get("/cash-movements/admin", dependencies=[Depends(require_permission("pos:manage"))])

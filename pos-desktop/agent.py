@@ -2077,33 +2077,50 @@ def verify_cashier_pin_online(pin: str, cfg: dict):
     - Used as a fallback when the local cashier cache is empty/outdated.
     - If online verification succeeds, refresh the local cashiers cache so
       subsequent logins work fully offline.
-    Returns: cashier dict on success, None on failure.
+    Returns: (cashier dict | None, error_code string).
+    error_code: "", "not_assigned", "invalid_device", "invalid_pin"
     """
     pin = (pin or "").strip()
     if not pin:
-        return None
+        return None, ""
     if not (cfg.get("device_id") and cfg.get("device_token")):
-        return None
+        return None, "invalid_device"
     try:
         base = _require_api_base(cfg)
     except Exception:
         base = ""
     if not base:
-        return None
+        return None, "invalid_device"
     try:
         res = post_json(f"{base}/pos/cashiers/verify", {"pin": pin}, headers=device_headers(cfg))
         cashier = (res or {}).get("cashier") or None
         if not cashier:
-            return None
+            return None, "invalid_pin"
         # Refresh cache so we can verify offline next time.
         try:
             cashiers = fetch_json(f"{base}/pos/cashiers/catalog", headers=device_headers(cfg))
             upsert_cashiers(cashiers.get("cashiers", []))
         except URLError:
             pass
-        return {"id": cashier.get("id"), "name": cashier.get("name")}
+        return {"id": cashier.get("id"), "name": cashier.get("name")}, ""
+    except HTTPError as ex:
+        detail = ""
+        try:
+            raw = ex.read().decode("utf-8")
+            payload = json.loads(raw) if raw else {}
+            detail = str((payload or {}).get("detail") or (payload or {}).get("error") or "").strip().lower()
+        except Exception:
+            detail = ""
+        if int(getattr(ex, "code", 0) or 0) == 403 and "not assigned" in detail:
+            return None, "not_assigned"
+        if int(getattr(ex, "code", 0) or 0) == 401:
+            if "device token" in detail or "missing device" in detail:
+                return None, "invalid_device"
+            if "invalid pin" in detail:
+                return None, "invalid_pin"
+        return None, ""
     except URLError:
-        return None
+        return None, ""
 
 
 def upsert_catalog(items):
@@ -3936,10 +3953,31 @@ class Handler(BaseHTTPRequestHandler):
             pin = (data.get("pin") or "").strip()
             cfg = load_config()
             cashier = verify_cashier_pin(pin)
+            online_error = ""
             if not cashier:
                 # Fallback: if the local cache is empty/outdated, try verifying online.
-                cashier = verify_cashier_pin_online(pin, cfg)
+                cashier, online_error = verify_cashier_pin_online(pin, cfg)
             if not cashier:
+                if online_error == "invalid_device":
+                    json_response(
+                        self,
+                        {
+                            "error": "device credentials invalid",
+                            "hint": "Reconnect this POS device from Settings (device token may be expired).",
+                        },
+                        status=401,
+                    )
+                    return
+                if online_error == "not_assigned":
+                    json_response(
+                        self,
+                        {
+                            "error": "cashier not assigned to this device",
+                            "hint": "Assign this cashier (or linked employee) to the POS device in Admin.",
+                        },
+                        status=403,
+                    )
+                    return
                 cached = get_cashiers() or []
                 if not cached:
                     json_response(
