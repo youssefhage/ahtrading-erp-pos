@@ -19,6 +19,7 @@ type InvoiceRow = {
   customer_id: string | null;
   customer_name?: string | null;
   status: string;
+  sales_channel?: string | null;
   total_usd: string | number;
   total_lbp: string | number;
   warehouse_id?: string | null;
@@ -32,6 +33,28 @@ function fmtIso(iso?: string | null) {
   return String(iso || "").slice(0, 10) || "-";
 }
 
+function normalizeSalesChannel(value: unknown) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "pos" || raw === "admin" || raw === "import" || raw === "api") return raw;
+  return "admin";
+}
+
+function salesChannelLabel(value: unknown) {
+  const channel = normalizeSalesChannel(value);
+  if (channel === "pos") return "POS";
+  if (channel === "import") return "Import";
+  if (channel === "api") return "API";
+  return "Admin";
+}
+
+function salesChannelTone(value: unknown) {
+  const channel = normalizeSalesChannel(value);
+  if (channel === "pos") return "ui-chip-primary";
+  if (channel === "import") return "ui-chip-warning";
+  if (channel === "api") return "ui-chip-success";
+  return "ui-chip-default";
+}
+
 function SalesInvoicesListInner() {
   const router = useRouter();
 
@@ -40,6 +63,7 @@ function SalesInvoicesListInner() {
 
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [salesChannelFilter, setSalesChannelFilter] = useState<string>("");
 
   const [pageSize, setPageSize] = useState(25);
   const [page, setPage] = useState(0);
@@ -49,7 +73,10 @@ function SalesInvoicesListInner() {
 
   const offset = page * pageSize;
 
-  const query = useMemo(() => ({ q: q.trim(), status: statusFilter, limit: pageSize, offset }), [q, statusFilter, pageSize, offset]);
+  const query = useMemo(
+    () => ({ q: q.trim(), status: statusFilter, sales_channel: salesChannelFilter, limit: pageSize, offset }),
+    [q, statusFilter, salesChannelFilter, pageSize, offset]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,6 +86,7 @@ function SalesInvoicesListInner() {
       params.set("offset", String(query.offset));
       if (query.q) params.set("q", query.q);
       if (query.status) params.set("status", query.status);
+      if (query.sales_channel) params.set("sales_channel", query.sales_channel);
 
       const res = await apiGet<{ invoices: InvoiceRow[]; total?: number }>(`/sales/invoices?${params.toString()}`);
       setInvoices(res.invoices || []);
@@ -70,12 +98,12 @@ function SalesInvoicesListInner() {
     } finally {
       setLoading(false);
     }
-  }, [query.limit, query.offset, query.q, query.status]);
+  }, [query.limit, query.offset, query.q, query.status, query.sales_channel]);
 
   // Reset to page 1 whenever filters change.
   useEffect(() => {
     setPage(0);
-  }, [q, statusFilter, pageSize]);
+  }, [q, statusFilter, salesChannelFilter, pageSize]);
 
   // Debounce typing for server search.
   useEffect(() => {
@@ -126,6 +154,16 @@ function SalesInvoicesListInner() {
         header: "Status",
         accessor: (inv) => inv.status,
         cell: (inv) => <StatusChip value={inv.status} />,
+      },
+      {
+        id: "source",
+        header: "Source",
+        accessor: (inv) => normalizeSalesChannel(inv.sales_channel),
+        cell: (inv) => (
+          <span className={`ui-chip px-2 py-0.5 text-xs uppercase tracking-wide ${salesChannelTone(inv.sales_channel)}`}>
+            {salesChannelLabel(inv.sales_channel)}
+          </span>
+        ),
       },
       {
         id: "dates",
@@ -207,16 +245,30 @@ function SalesInvoicesListInner() {
             emptyText="No invoices."
             isLoading={loading}
             headerSlot={
-              <DataTableTabs
-                value={statusFilter || "all"}
-                onChange={(v) => setStatusFilter(v === "all" ? "" : v)}
-                tabs={[
-                  { value: "all", label: "All" },
-                  { value: "draft", label: "Draft" },
-                  { value: "posted", label: "Posted" },
-                  { value: "canceled", label: "Canceled" },
-                ]}
-              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <DataTableTabs
+                  value={statusFilter || "all"}
+                  onChange={(v) => setStatusFilter(v === "all" ? "" : v)}
+                  tabs={[
+                    { value: "all", label: "All" },
+                    { value: "draft", label: "Draft" },
+                    { value: "posted", label: "Posted" },
+                    { value: "canceled", label: "Canceled" },
+                  ]}
+                />
+                <select
+                  className="ui-select h-9 min-w-[140px]"
+                  value={salesChannelFilter || "all"}
+                  onChange={(e) => setSalesChannelFilter(e.target.value === "all" ? "" : e.target.value)}
+                  title="Invoice source"
+                >
+                  <option value="all">All Sources</option>
+                  <option value="pos">POS</option>
+                  <option value="admin">Admin</option>
+                  <option value="import">Import</option>
+                  <option value="api">API</option>
+                </select>
+              </div>
             }
             globalFilterPlaceholder="Search invoice / customer / warehouse..."
             globalFilterValue={q}

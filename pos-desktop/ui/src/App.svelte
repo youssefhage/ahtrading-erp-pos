@@ -36,10 +36,13 @@
   const WEB_CONFIG_UNOFFICIAL_STORAGE_KEY = "pos_web_config_unofficial";
   const WEB_LOCAL_OUTBOX_STORAGE_KEY = "pos_web_local_outbox_v1";
   const WEB_LOCAL_AUDIT_STORAGE_KEY = "pos_web_local_audit_v1";
+  const CART_DRAFTS_STORAGE_KEY = "pos_ui_cart_drafts_v1";
+  const CART_DRAFT_KEEP_COPY_STORAGE_KEY = "pos_ui_cart_drafts_keep_copy_on_resume";
   const DEFAULT_API_BASE = "/api";
   const DEFAULT_OTHER_AGENT_URL = "http://localhost:7072";
   const WEB_LOCAL_OUTBOX_MAX = 800;
   const WEB_LOCAL_AUDIT_MAX = 500;
+  const CART_DRAFTS_MAX = 50;
   const MANAGER_APPROVAL_TTL_MS = 2 * 60 * 1000;
 
   // These are seeded in backend/db/seeds/seed_companies.sql and used in sample POS configs.
@@ -511,6 +514,7 @@
   let showPrintingModal = false;
   let showQueueDrawer = false;
   let showAuditDrawer = false;
+  let showCartDraftsDrawer = false;
   let showTopMoreActions = false;
   let topMoreActionsButtonEl = null;
   let topMoreMenuEl = null;
@@ -524,6 +528,9 @@
   let queuePayloadError = "";
   let queuePayloadEvent = null;
   let queuePayloadText = "";
+  let cartDraftName = "";
+  let cartDrafts = [];
+  let keepDraftCopyOnResume = false;
   let printersOfficial = [];
   let printersUnofficial = [];
   let printingStatus = "";
@@ -3917,6 +3924,251 @@
     checkoutIntentId = "";
   };
 
+  const _draftNameOrDefault = (value, fallback = "") => {
+    const v = String(value || "").trim().replace(/\s+/g, " ");
+    if (!v) return fallback;
+    return v.slice(0, 80);
+  };
+
+  const _defaultDraftName = () => {
+    const d = new Date();
+    const pad2 = (n) => String(n).padStart(2, "0");
+    return `Draft ${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  };
+
+  const _normalizeSaleMode = (value) => (String(value || "").trim().toLowerCase() === "return" ? "return" : "sale");
+  const _normalizeInvoiceMode = (value) => {
+    const v = String(value || "").trim().toLowerCase();
+    return v === "official" || v === "unofficial" ? v : "auto";
+  };
+
+  const _snapshotDraftCustomer = (value) => {
+    if (!value || typeof value !== "object") return null;
+    const id = String(value?.id || "").trim();
+    if (!id) return null;
+    return {
+      id,
+      name: String(value?.name || "").trim() || id,
+      phone: String(value?.phone || "").trim() || "",
+      email: String(value?.email || "").trim() || "",
+      membership_no: String(value?.membership_no || "").trim() || "",
+      customer_type: String(value?.customer_type || "").trim() || "",
+      party_type: String(value?.party_type || "").trim() || "",
+    };
+  };
+
+  const _sanitizeDraftLines = (lines = []) => {
+    const merged = new Map();
+    for (const src of lines || []) {
+      const id = String(src?.id || "").trim();
+      if (!id) continue;
+      const companyKey = normalizeCompanyKey(src?.companyKey);
+      const qtyFactor = Math.max(1e-9, toNum(src?.qty_factor, 1) || 1);
+      const qtyEnteredRaw = src?.qty_entered ?? (toNum(src?.qty, 0) / qtyFactor);
+      const qtyEntered = Math.max(0, toNum(qtyEnteredRaw, 0));
+      if (qtyEntered <= 0) continue;
+      const uom = String(src?.uom || src?.unit_of_measure || "pcs").trim() || "pcs";
+      const key = _cartLineKey(companyKey, id, qtyFactor, uom);
+
+      const existing = merged.get(key);
+      if (existing) {
+        const nextQtyEntered = Math.max(0, toNum(existing.qty_entered, 0) + qtyEntered);
+        const next = {
+          ...existing,
+          qty_entered: nextQtyEntered,
+          qty: nextQtyEntered * qtyFactor,
+        };
+        merged.set(key, applyPromotionToLine(next));
+        continue;
+      }
+
+      const line = {
+        key,
+        companyKey,
+        id,
+        sku: String(src?.sku || "").trim(),
+        name: String(src?.name || "").trim() || "Item",
+        unit_of_measure: String(src?.unit_of_measure || uom || "pcs").trim() || "pcs",
+        list_price_usd: toNum(src?.list_price_usd, toNum(src?.price_usd, 0)),
+        list_price_lbp: toNum(src?.list_price_lbp, toNum(src?.price_lbp, 0)),
+        price_usd: toNum(src?.price_usd, 0),
+        price_lbp: toNum(src?.price_lbp, 0),
+        qty_factor: qtyFactor,
+        qty_entered: qtyEntered,
+        qty: qtyEntered * qtyFactor,
+        uom,
+        tax_code_id: src?.tax_code_id || null,
+        batch_no: src?.batch_no || null,
+        expiry_date: src?.expiry_date || null,
+        pre_discount_unit_price_usd: toNum(src?.pre_discount_unit_price_usd, 0),
+        pre_discount_unit_price_lbp: toNum(src?.pre_discount_unit_price_lbp, 0),
+        discount_pct: toNum(src?.discount_pct, 0),
+        discount_amount_usd: toNum(src?.discount_amount_usd, 0),
+        discount_amount_lbp: toNum(src?.discount_amount_lbp, 0),
+        applied_promotion_id: src?.applied_promotion_id || null,
+        applied_promotion_item_id: src?.applied_promotion_item_id || null,
+      };
+      merged.set(key, applyPromotionToLine(line));
+    }
+    return Array.from(merged.values());
+  };
+
+  const _normalizeCartDraftRecord = (value) => {
+    if (!value || typeof value !== "object") return null;
+    const lines = _sanitizeDraftLines(value?.cart || value?.lines || []);
+    if (!lines.length) return null;
+
+    const createdRaw = String(value?.created_at || value?.createdAt || "").trim();
+    const updatedRaw = String(value?.updated_at || value?.updatedAt || "").trim();
+    const createdAt = Number.isFinite(Date.parse(createdRaw)) ? new Date(createdRaw).toISOString() : new Date().toISOString();
+    const updatedAt = Number.isFinite(Date.parse(updatedRaw))
+      ? new Date(updatedRaw).toISOString()
+      : createdAt;
+
+    return {
+      id: String(value?.id || "").trim() || makeUuid(),
+      name: _draftNameOrDefault(value?.name, _defaultDraftName()),
+      created_at: createdAt,
+      updated_at: updatedAt,
+      cart: lines,
+      customer: _snapshotDraftCustomer(value?.customer),
+      sale_mode: _normalizeSaleMode(value?.sale_mode),
+      invoice_company_mode: _normalizeInvoiceMode(value?.invoice_company_mode),
+      flag_official: !!value?.flag_official,
+    };
+  };
+
+  const _sortCartDrafts = (rows = []) => {
+    const copy = [...(rows || [])];
+    copy.sort((a, b) => (Date.parse(String(b?.updated_at || "")) || 0) - (Date.parse(String(a?.updated_at || "")) || 0));
+    return copy;
+  };
+
+  const _persistCartDrafts = (rows = cartDrafts) => {
+    try {
+      const drafts = _trimArray(_sortCartDrafts(rows || []), CART_DRAFTS_MAX);
+      localStorage.setItem(CART_DRAFTS_STORAGE_KEY, JSON.stringify({ version: 1, drafts }));
+    } catch (_) {}
+  };
+
+  const _loadCartDrafts = () => {
+    const raw = _readJsonStorage(CART_DRAFTS_STORAGE_KEY, { version: 1, drafts: [] });
+    const rows = Array.isArray(raw) ? raw : (Array.isArray(raw?.drafts) ? raw.drafts : []);
+    return _trimArray(
+      _sortCartDrafts(rows.map((row) => _normalizeCartDraftRecord(row)).filter(Boolean)),
+      CART_DRAFTS_MAX,
+    );
+  };
+
+  const _draftTotalUsd = (draft) => {
+    let total = 0;
+    for (const line of draft?.cart || []) {
+      const qty = Math.max(0, toNum(line?.qty, 0));
+      const baseUsd = toNum(line?.price_usd, 0) * qty;
+      const taxUsd = baseUsd * Math.max(0, toNum(vatRateForLine(line), 0));
+      total += (baseUsd + taxUsd);
+    }
+    return total;
+  };
+
+  const openCartDrafts = () => {
+    showTopMoreActions = false;
+    showCartDraftsDrawer = true;
+  };
+
+  const setKeepDraftCopyMode = (value) => {
+    keepDraftCopyOnResume = !!value;
+    try { localStorage.setItem(CART_DRAFT_KEEP_COPY_STORAGE_KEY, keepDraftCopyOnResume ? "1" : "0"); } catch (_) {}
+  };
+
+  const saveCurrentCartAsDraft = ({ name = "", clearCurrent = true } = {}) => {
+    const lines = _sanitizeDraftLines(cart);
+    if (!lines.length) {
+      reportError("Add items before saving a draft.");
+      return false;
+    }
+    const nowIso = new Date().toISOString();
+    const draft = {
+      id: makeUuid(),
+      name: _draftNameOrDefault(name, _defaultDraftName()),
+      created_at: nowIso,
+      updated_at: nowIso,
+      cart: lines,
+      customer: _snapshotDraftCustomer(activeCustomer),
+      sale_mode: _normalizeSaleMode(saleMode),
+      invoice_company_mode: _normalizeInvoiceMode(invoiceCompanyMode),
+      flag_official: !!flagOfficial,
+    };
+    cartDrafts = _trimArray(_sortCartDrafts([draft, ...(cartDrafts || [])]), CART_DRAFTS_MAX);
+    _persistCartDrafts();
+    if (clearCurrent) {
+      cart = [];
+      activeCustomer = null;
+      checkoutIntentId = "";
+      saleMode = "sale";
+    }
+    reportNotice(`Saved draft: ${draft.name}`);
+    return true;
+  };
+
+  const restoreCartDraft = (draftId) => {
+    const target = (cartDrafts || []).find((row) => String(row?.id || "") === String(draftId || ""));
+    if (!target) {
+      reportError("Draft not found.");
+      return;
+    }
+    if (loading || checkoutInFlight) {
+      reportError("Please wait until current actions finish.");
+      return;
+    }
+    if ((cart || []).length > 0) {
+      const ok = typeof window === "undefined"
+        ? true
+        : window.confirm("Replace the current cart with this draft? Current unsaved cart will be lost.");
+      if (!ok) return;
+    }
+    const lines = _sanitizeDraftLines(target?.cart || []);
+    if (!lines.length) {
+      reportError("This draft is empty.");
+      return;
+    }
+
+    cart = lines;
+    activeCustomer = _snapshotDraftCustomer(target?.customer);
+    saleMode = _normalizeSaleMode(target?.sale_mode);
+    onInvoiceCompanyModeChange(_normalizeInvoiceMode(target?.invoice_company_mode));
+    onFlagOfficialChange(!!target?.flag_official);
+    checkoutIntentId = "";
+    setActiveScreen("pos");
+
+    if (keepDraftCopyOnResume) {
+      // Keep a reusable copy and bump recency.
+      const nowIso = new Date().toISOString();
+      cartDrafts = _sortCartDrafts((cartDrafts || []).map((row) => (
+        String(row?.id || "") === String(target.id) ? { ...(row || {}), updated_at: nowIso } : row
+      )));
+    } else {
+      // Move draft out of the list once resumed to prevent duplicate checkouts by accident.
+      cartDrafts = _sortCartDrafts((cartDrafts || []).filter((row) => String(row?.id || "") !== String(target.id)));
+    }
+    _persistCartDrafts();
+
+    showCartDraftsDrawer = false;
+    reportNotice(`Resumed draft: ${target.name}`);
+  };
+
+  const deleteCartDraft = (draftId) => {
+    const target = (cartDrafts || []).find((row) => String(row?.id || "") === String(draftId || ""));
+    if (!target) return;
+    const ok = typeof window === "undefined"
+      ? true
+      : window.confirm(`Delete draft "${target.name}"?`);
+    if (!ok) return;
+    cartDrafts = _sortCartDrafts((cartDrafts || []).filter((row) => String(row?.id || "") !== String(target.id)));
+    _persistCartDrafts();
+    reportNotice(`Deleted draft: ${target.name}`);
+  };
+
   const _benchmarkRng = (seedValue) => {
     let seed = (Number(seedValue) >>> 0) || 1;
     return () => {
@@ -4927,6 +5179,7 @@
 
     const storedScreen = _readStorage(SCREEN_STORAGE_KEY, "pos");
     activeScreen = (storedScreen === "items") ? "items" : "pos";
+    keepDraftCopyOnResume = _readStorage(CART_DRAFT_KEEP_COPY_STORAGE_KEY, "") === "1";
 
     try {
       const offRaw = _readStorage(WEB_CONFIG_OFFICIAL_STORAGE_KEY, "");
@@ -4938,6 +5191,7 @@
     } catch (_) {}
     webLocalOutboxByCompany = _readJsonStorage(WEB_LOCAL_OUTBOX_STORAGE_KEY, { official: [], unofficial: [] });
     webAuditByCompany = _readJsonStorage(WEB_LOCAL_AUDIT_STORAGE_KEY, { official: [], unofficial: [] });
+    cartDrafts = _loadCartDrafts();
     cashierCompanyKey = originCompanyKey;
     shiftCompanyKey = originCompanyKey;
 
@@ -5046,6 +5300,11 @@
       if (e.key === "Escape" && showTopMoreActions) {
         e.preventDefault();
         closeTopMoreActions();
+        return;
+      }
+      if (e.key === "Escape" && showCartDraftsDrawer) {
+        e.preventDefault();
+        showCartDraftsDrawer = false;
         return;
       }
 
@@ -5216,6 +5475,14 @@
       >
         {saleMode === "sale" ? "Sale" : "Return"}
       </button>
+      <button
+        class={`${topBtnBase} ${cartDrafts.length > 0 ? topBtnActive : ""}`}
+        on:click={openCartDrafts}
+        title="Save and resume draft carts"
+        type="button"
+      >
+        Drafts{cartDrafts.length > 0 ? ` (${cartDrafts.length})` : ""}
+      </button>
     {/if}
 
     <div class="relative">
@@ -5256,6 +5523,28 @@
           >
             Receipt
           </button>
+          {#if activeScreen === "pos"}
+            <button
+              class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+              on:click={() => { showTopMoreActions = false; openCartDrafts(); }}
+              title="Open cart drafts"
+              type="button"
+            >
+              Drafts{cartDrafts.length > 0 ? ` (${cartDrafts.length})` : ""}
+            </button>
+            <button
+              class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors disabled:opacity-60"
+              on:click={() => {
+                showTopMoreActions = false;
+                if (saveCurrentCartAsDraft({ name: "", clearCurrent: true })) cartDraftName = "";
+              }}
+              disabled={(cart || []).length === 0}
+              title={(cart || []).length === 0 ? "Add items before saving draft" : "Save current cart to drafts"}
+              type="button"
+            >
+              Save Current As Draft
+            </button>
+          {/if}
           <button
             class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
             on:click={() => { showTopMoreActions = false; toggleTheme(); }}
@@ -5529,6 +5818,116 @@
   onConfirm={handleProcessSale}
   onCancel={() => showPaymentModal = false}
 />
+
+{#if showCartDraftsDrawer}
+  <div class="fixed inset-0 z-[71]">
+    <button
+      class="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      type="button"
+      aria-label="Close cart drafts drawer"
+      on:click={() => showCartDraftsDrawer = false}
+    ></button>
+    <aside class="absolute right-0 top-0 h-full w-full max-w-2xl bg-surface border-l border-ink/10 shadow-2xl overflow-hidden flex flex-col">
+      <header class="p-5 border-b border-ink/10 flex items-center justify-between gap-3">
+        <div>
+          <h2 class="text-xl font-bold text-ink">Cart Drafts</h2>
+          <p class="text-sm text-muted mt-1">Save current cart and resume later.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors disabled:opacity-60"
+            on:click={() => {
+              if (saveCurrentCartAsDraft({ name: cartDraftName, clearCurrent: true })) cartDraftName = "";
+            }}
+            disabled={(cart || []).length === 0 || loading || checkoutInFlight}
+            title={(cart || []).length === 0 ? "Add items before saving a draft" : "Save current cart and start a new one"}
+            type="button"
+          >
+            Save Current Cart
+          </button>
+          <button
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+            on:click={() => showCartDraftsDrawer = false}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+      </header>
+
+      <div class="px-5 py-4 border-b border-ink/10 space-y-2">
+        <label class="text-xs text-muted uppercase tracking-wide font-semibold" for="cart-draft-name">Draft Name (Optional)</label>
+        <input
+          id="cart-draft-name"
+          class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none"
+          placeholder="Draft for customer / order note"
+          bind:value={cartDraftName}
+          on:keydown={(e) => {
+            if (e.key !== "Enter") return;
+            if (saveCurrentCartAsDraft({ name: cartDraftName, clearCurrent: true })) cartDraftName = "";
+          }}
+        />
+        <div class="text-[11px] text-muted">
+          Current cart: {(cart || []).length} line{(cart || []).length === 1 ? "" : "s"}.
+        </div>
+        <label class="inline-flex items-center gap-2 text-xs text-muted cursor-pointer select-none">
+          <input
+            type="checkbox"
+            class="accent-accent w-3.5 h-3.5 rounded border-white/10 bg-surface/50"
+            checked={keepDraftCopyOnResume}
+            on:change={(e) => setKeepDraftCopyMode(!!e?.target?.checked)}
+          />
+          Keep a copy after resume
+        </label>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-5 space-y-3">
+        {#if (cartDrafts || []).length === 0}
+          <div class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-5 text-sm text-muted">
+            No saved drafts yet. Build a cart, then click <span class="font-semibold text-ink">Save Current Cart</span>.
+          </div>
+        {:else}
+          {#each cartDrafts as draft}
+            {@const lineCount = (draft?.cart || []).length}
+            {@const customerName = String(draft?.customer?.name || "").trim()}
+            {@const totalUsd = _draftTotalUsd(draft)}
+            <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm font-bold text-ink truncate">{draft?.name || "Draft"}</div>
+                  <div class="text-[11px] text-muted mt-1">
+                    Updated {_queueAgeText(draft?.updated_at)} · {lineCount} line{lineCount === 1 ? "" : "s"}
+                    {#if customerName}
+                      {" · "}Customer: <span class="text-ink">{customerName}</span>
+                    {/if}
+                  </div>
+                </div>
+                <div class="text-xs font-mono text-ink whitespace-nowrap">{totalUsd.toFixed(2)} USD</div>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-accent/40 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
+                  type="button"
+                  on:click={() => restoreCartDraft(draft?.id)}
+                  disabled={loading || checkoutInFlight}
+                >
+                  Resume
+                </button>
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors"
+                  type="button"
+                  on:click={() => deleteCartDraft(draft?.id)}
+                >
+                  Delete
+                </button>
+              </div>
+            </article>
+          {/each}
+        {/if}
+      </div>
+    </aside>
+  </div>
+{/if}
 
 {#if showQueueDrawer}
   <div class="fixed inset-0 z-[70]">

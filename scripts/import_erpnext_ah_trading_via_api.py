@@ -19,6 +19,7 @@ import argparse
 import csv
 import json
 import os
+import socket
 import sys
 import time
 from dataclasses import dataclass
@@ -133,10 +134,12 @@ def _paths(data_dir: Path) -> ImportPaths:
 
 
 class ApiClient:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, timeout_s: int = 90, max_retries: int = 4):
         self.base_url = base_url.rstrip("/") + "/"
         self.jar = http.cookiejar.CookieJar()
         self.opener = build_opener(HTTPCookieProcessor(self.jar))
+        self.timeout_s = int(timeout_s)
+        self.max_retries = int(max_retries)
 
     def _req(self, method: str, path: str, body: Optional[dict] = None, headers: Optional[dict] = None) -> Any:
         url = urljoin(self.base_url, path.lstrip("/"))
@@ -146,24 +149,34 @@ class ApiClient:
             hdrs.update(headers)
         if body is not None:
             data = json.dumps(body, default=str).encode("utf-8")
-        req = Request(url=url, method=method.upper(), data=data, headers=hdrs)
-        try:
-            with self.opener.open(req, timeout=30) as resp:
-                raw = resp.read().decode("utf-8") if resp is not None else ""
-                return json.loads(raw) if raw else {}
-        except HTTPError as e:
-            raw = ""
+        attempt = 0
+        while True:
+            req = Request(url=url, method=method.upper(), data=data, headers=hdrs)
             try:
-                raw = e.read().decode("utf-8")
-            except Exception:
+                with self.opener.open(req, timeout=self.timeout_s) as resp:
+                    raw = resp.read().decode("utf-8") if resp is not None else ""
+                    return json.loads(raw) if raw else {}
+            except HTTPError as e:
                 raw = ""
-            try:
-                detail = json.loads(raw).get("detail") if raw else None
-            except Exception:
-                detail = raw or None
-            raise RuntimeError(f"{method} {url} -> HTTP {e.code}: {detail}") from None
-        except URLError as e:
-            raise RuntimeError(f"{method} {url} -> network error: {e}") from None
+                try:
+                    raw = e.read().decode("utf-8")
+                except Exception:
+                    raw = ""
+                try:
+                    detail = json.loads(raw).get("detail") if raw else None
+                except Exception:
+                    detail = raw or None
+                if e.code in {429, 500, 502, 503, 504} and attempt < self.max_retries:
+                    time.sleep(min(2 ** attempt, 10))
+                    attempt += 1
+                    continue
+                raise RuntimeError(f"{method} {url} -> HTTP {e.code}: {detail}") from None
+            except (URLError, socket.timeout, TimeoutError) as e:
+                if attempt < self.max_retries:
+                    time.sleep(min(2 ** attempt, 10))
+                    attempt += 1
+                    continue
+                raise RuntimeError(f"{method} {url} -> network error: {e}") from None
 
     def login(self, email: str, password: str) -> None:
         self._req("POST", "/auth/login", {"email": email, "password": password})
@@ -209,6 +222,14 @@ class ApiClient:
         return self._req(
             "POST",
             "/items/barcodes/bulk",
+            {"lines": lines},
+            headers={"X-Company-Id": company_id},
+        )
+
+    def post_bulk_uom_conversions(self, company_id: str, lines: list[dict]) -> dict:
+        return self._req(
+            "POST",
+            "/items/uom-conversions/bulk",
             {"lines": lines},
             headers={"X-Company-Id": company_id},
         )
@@ -350,11 +371,12 @@ def main() -> int:
         imported = _post_with_isolation(lambda b: api.post_bulk_suppliers(official_id, b), suppliers, int(args.chunk or 1000), "suppliers/official")
         print(f"  - suppliers imported: {imported}/{len(suppliers)}")
 
-    print("[5/7] Import items + prices + barcode factors...")
+    print("[5/7] Import items + prices + UOM conversions + barcode factors...")
     # Note: ERPNext exports can place company/price/cost in child-table rows where the ID cell is blank.
     # We treat those as continuation rows for the last-seen SKU.
     items_by_company: dict[str, dict[str, dict]] = {official_id: {}, unofficial_id: {}}
     prices_by_company: dict[str, dict[str, dict]] = {official_id: {}, unofficial_id: {}}
+    uoms_by_company: dict[str, dict[tuple[str, str], dict]] = {official_id: {}, unofficial_id: {}}
     opening_by_company: dict[str, dict[str, dict]] = {official_id: {}, unofficial_id: {}}
     barcodes_by_company: dict[str, list[dict]] = {official_id: [], unofficial_id: []}
 
@@ -429,6 +451,13 @@ def main() -> int:
                         "standard_cost_usd": None,
                         "standard_cost_lbp": None,
                     }
+                    # Ensure base conversion exists for all imported items.
+                    uoms_by_company[current_company][(current_sku, current_base_uom)] = {
+                        "sku": current_sku,
+                        "uom_code": current_base_uom,
+                        "to_base_factor": "1",
+                        "is_active": True,
+                    }
 
             # Continuation rows: import price/cost/opening stock using the last-seen SKU.
             if not current_sku:
@@ -465,6 +494,12 @@ def main() -> int:
                 f = _to_decimal(row[c_conv_factor])
                 if u and f > 0:
                     conv_map_by_sku.setdefault(current_sku, {})[u] = f
+                    uoms_by_company[current_company][(current_sku, u)] = {
+                        "sku": current_sku,
+                        "uom_code": u,
+                        "to_base_factor": str(f),
+                        "is_active": True,
+                    }
 
             # Collect barcodes + their UOM (barcode section).
             if c_bc is not None and c_bc < len(row):
@@ -533,6 +568,33 @@ def main() -> int:
             sample = sorted(skipped_skus)[:10]
             print(f"  - [warn] skipped {skipped_barcodes} barcode rows with missing SKU in both companies: {sample}")
 
+        # Normalize UOM conversion ownership to the company where the SKU exists.
+        normalized_uoms: dict[str, dict[tuple[str, str], dict]] = {official_id: {}, unofficial_id: {}}
+        rerouted_uoms = 0
+        skipped_uoms = 0
+        for src_cid, rows_by_key in uoms_by_company.items():
+            for key, row in rows_by_key.items():
+                sku = str(row.get("sku") or "").strip()
+                if not sku:
+                    continue
+                if sku in items_by_company.get(src_cid, {}):
+                    cid = src_cid
+                elif sku in items_by_company.get(official_id, {}):
+                    cid = official_id
+                    rerouted_uoms += 1
+                elif sku in items_by_company.get(unofficial_id, {}):
+                    cid = unofficial_id
+                    rerouted_uoms += 1
+                else:
+                    skipped_uoms += 1
+                    continue
+                normalized_uoms[cid][key] = row
+        uoms_by_company = normalized_uoms
+        if rerouted_uoms:
+            print(f"  - [warn] rerouted {rerouted_uoms} uom rows to the company where the SKU exists")
+        if skipped_uoms:
+            print(f"  - [warn] skipped {skipped_uoms} uom rows with missing SKU in both companies")
+
     # Upsert items first (needed before prices/opening stock).
     for cid, label in [(official_id, "official"), (unofficial_id, "unofficial")]:
         items = list(items_by_company[cid].values())
@@ -543,6 +605,15 @@ def main() -> int:
             f"items/{label}",
         )
         print(f"  - items upserted ({label}): {imported_items}/{len(items)}")
+
+        uoms = list(uoms_by_company[cid].values())
+        imported_uoms = _post_with_isolation(
+            lambda batch, _cid=cid: api.post_bulk_uom_conversions(_cid, batch),
+            uoms,
+            5000,
+            f"uoms/{label}",
+        )
+        print(f"  - uom conversions upserted ({label}): {imported_uoms}/{len(uoms)}")
 
         prices = list(prices_by_company[cid].values())
         imported_prices = _post_with_isolation(

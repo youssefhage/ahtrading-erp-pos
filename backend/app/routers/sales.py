@@ -19,6 +19,7 @@ router = APIRouter(prefix="/sales", tags=["sales"])
 USD_Q = Decimal("0.0001")
 LBP_Q = Decimal("0.01")
 SALES_INVOICE_PDF_TEMPLATES = {"official_classic", "official_compact", "standard"}
+SALES_INVOICE_CHANNELS = {"pos", "admin", "import", "api"}
 
 
 def q_usd(v: Decimal) -> Decimal:
@@ -127,6 +128,13 @@ def _normalize_sales_invoice_pdf_template(value) -> Optional[str]:
     if not raw:
         return None
     return raw if raw in SALES_INVOICE_PDF_TEMPLATES else None
+
+
+def _normalize_sales_invoice_channel(value) -> Optional[str]:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return None
+    return raw if raw in SALES_INVOICE_CHANNELS else None
 
 
 def _load_print_policy(cur, company_id: str) -> dict:
@@ -448,6 +456,7 @@ def list_sales_invoices(
     offset: int = 0,
     q: Optional[str] = None,
     status: Optional[DocStatus] = None,
+    sales_channel: Optional[str] = None,
     customer_id: Optional[str] = None,
     warehouse_id: Optional[str] = None,
     date_from: Optional[date] = None,
@@ -489,6 +498,12 @@ def list_sales_invoices(
             if status:
                 base_sql += " AND i.status = %s"
                 params.append(status)
+            channel = _normalize_sales_invoice_channel(sales_channel)
+            if sales_channel and not channel:
+                raise HTTPException(status_code=400, detail="invalid sales_channel (expected pos/admin/import/api)")
+            if channel:
+                base_sql += " AND i.sales_channel = %s"
+                params.append(channel)
             if customer_id:
                 base_sql += " AND i.customer_id = %s"
                 params.append(customer_id)
@@ -571,6 +586,7 @@ def list_sales_invoices(
             select_sql = f"""
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name,
                        i.status, i.total_usd, i.total_lbp, i.warehouse_id, w.name AS warehouse_name,
+                       i.sales_channel,
                        i.reserve_stock,
                        i.branch_id,
                        i.receipt_no, i.receipt_seq, i.receipt_printer, i.receipt_printed_at,
@@ -600,6 +616,7 @@ def get_sales_invoice(invoice_id: str, company_id: str = Depends(get_company_id)
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name, i.status,
                        i.subtotal_usd, i.subtotal_lbp, i.discount_total_usd, i.discount_total_lbp,
                        i.total_usd, i.total_lbp, i.exchange_rate, i.warehouse_id, w.name AS warehouse_name,
+                       i.sales_channel,
                        i.reserve_stock,
                        i.pricing_currency, i.settlement_currency,
                        i.branch_id,
@@ -974,9 +991,10 @@ def create_sales_invoice_draft(data: SalesInvoiceDraftIn, company_id: str = Depe
                       (id, company_id, invoice_no, customer_id, status,
                        subtotal_usd, subtotal_lbp, discount_total_usd, discount_total_lbp,
                        total_usd, total_lbp,
-                       warehouse_id, reserve_stock, exchange_rate, pricing_currency, settlement_currency, invoice_date, due_date)
+                       warehouse_id, reserve_stock, exchange_rate, pricing_currency, settlement_currency, invoice_date, due_date,
+                       sales_channel)
                     VALUES
-                      (gen_random_uuid(), %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                      (gen_random_uuid(), %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'admin')
                     RETURNING id
                     """,
                     (

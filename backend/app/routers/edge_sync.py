@@ -183,6 +183,9 @@ def import_sales_invoice_bundle(
     inv_id = str(inv.get("id") or "").strip()
     if not inv_id:
         raise HTTPException(status_code=400, detail="invoice.id is required")
+    sales_channel = str(inv.get("sales_channel") or "").strip().lower()
+    if sales_channel not in {"pos", "admin", "import", "api"}:
+        sales_channel = "pos" if (inv.get("source_event_id") or inv.get("device_id")) else "admin"
 
     # Defensive: ensure the invoice belongs to the declared company.
     if str(inv.get("company_id") or "").strip() and str(inv.get("company_id")).strip() != company_id:
@@ -203,6 +206,7 @@ def import_sales_invoice_bundle(
                        total_usd, total_lbp, subtotal_usd, subtotal_lbp, discount_total_usd, discount_total_lbp,
                        exchange_rate, pricing_currency, settlement_currency,
                        warehouse_id, doc_subtype, reserve_stock,
+                       sales_channel,
                        source_event_id, device_id, shift_id, cashier_id,
                        invoice_date, due_date,
                        branch_id,
@@ -214,7 +218,7 @@ def import_sales_invoice_bundle(
                        %s, %s, %s, %s, %s, %s,
                        %s, %s, %s,
                        %s::uuid, %s, %s,
-                       %s::uuid, %s::uuid, %s::uuid, %s::uuid,
+                       %s, %s::uuid, %s::uuid, %s::uuid, %s::uuid,
                        %s, %s,
                        %s::uuid,
                        %s, %s, %s, %s, %s::jsonb,
@@ -240,6 +244,7 @@ def import_sales_invoice_bundle(
                         inv.get("warehouse_id"),
                         inv.get("doc_subtype") or "standard",
                         bool(inv.get("reserve_stock") or False),
+                        sales_channel,
                         inv.get("source_event_id"),
                         inv.get("device_id"),
                         inv.get("shift_id"),

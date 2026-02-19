@@ -1415,6 +1415,7 @@ def import_opening_ar(
                                 settlement_currency='USD',
                                 invoice_date=%s,
                                 due_date=%s,
+                                sales_channel='import',
                                 total_usd=%s,
                                 total_lbp=%s
                             WHERE company_id=%s AND id=%s
@@ -1427,9 +1428,9 @@ def import_opening_ar(
                             """
                             INSERT INTO sales_invoices
                               (id, company_id, invoice_no, customer_id, status, total_usd, total_lbp,
-                               warehouse_id, exchange_rate, pricing_currency, settlement_currency, invoice_date, due_date, doc_subtype)
+                               warehouse_id, exchange_rate, pricing_currency, settlement_currency, invoice_date, due_date, doc_subtype, sales_channel)
                             VALUES
-                              (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, NULL, %s, 'USD', 'USD', %s, %s, 'opening_balance')
+                              (gen_random_uuid(), %s, %s, %s, 'posted', %s, %s, NULL, %s, 'USD', 'USD', %s, %s, 'opening_balance', 'import')
                             RETURNING id
                             """,
                             (company_id, inv_no, customer_id, amount_usd, amount_lbp, rate, r.invoice_date, due),

@@ -39,6 +39,7 @@ type InvoiceRow = {
   customer_id: string | null;
   customer_name?: string | null;
   status: string;
+  sales_channel?: string | null;
   total_usd: string | number;
   total_lbp: string | number;
   subtotal_usd?: string | number;
@@ -151,6 +152,28 @@ function formatMethodLabel(method: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function normalizeSalesChannel(value: unknown) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "pos" || raw === "admin" || raw === "import" || raw === "api") return raw;
+  return "admin";
+}
+
+function salesChannelLabel(value: unknown) {
+  const channel = normalizeSalesChannel(value);
+  if (channel === "pos") return "POS";
+  if (channel === "import") return "Import";
+  if (channel === "api") return "API";
+  return "Admin";
+}
+
+function salesChannelTone(value: unknown) {
+  const channel = normalizeSalesChannel(value);
+  if (channel === "pos") return "ui-chip-primary";
+  if (channel === "import") return "ui-chip-warning";
+  if (channel === "api") return "ui-chip-success";
+  return "ui-chip-default";
 }
 
 function SalesInvoiceShowInner() {
@@ -1134,6 +1157,11 @@ function SalesInvoiceShowInner() {
             <div className="ui-detail-meta">
               <span className="ui-detail-meta-id">{id}</span>
               {detail ? <StatusChip value={detail.invoice.status} /> : null}
+              {detail ? (
+                <span className={`ui-chip px-2 py-0.5 text-xs uppercase tracking-wide ${salesChannelTone(detail.invoice.sales_channel)}`}>
+                  {salesChannelLabel(detail.invoice.sales_channel)}
+                </span>
+              ) : null}
             </div>
           </div>
           <div className="ui-detail-actions">
@@ -1159,6 +1187,9 @@ function SalesInvoiceShowInner() {
                   <div className="flex flex-wrap items-center gap-2">
                     <CardTitle className="text-lg">Sales Invoice Overview</CardTitle>
                     <StatusChip value={detail.invoice.status} className="translate-y-[1px]" />
+                    <span className={`ui-chip px-2 py-0.5 text-xs uppercase tracking-wide ${salesChannelTone(detail.invoice.sales_channel)}`}>
+                      {salesChannelLabel(detail.invoice.sales_channel)}
+                    </span>
                   </div>
                   <CardDescription className="mt-1 text-sm">
                     <span className="font-mono">{detail.invoice.invoice_no || "(draft)"}</span>

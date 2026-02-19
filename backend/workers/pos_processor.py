@@ -1032,10 +1032,11 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
            discount_total_usd, discount_total_lbp, warehouse_id,
            exchange_rate, pricing_currency, settlement_currency, source_event_id, device_id, shift_id,
            invoice_date, due_date, cashier_id,
+           sales_channel,
            branch_id,
            receipt_no, receipt_seq, receipt_printer, receipt_printed_at, receipt_meta)
         VALUES
-          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+          (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
            %s,
            %s, %s, %s, %s, %s::jsonb)
         RETURNING id
@@ -1061,6 +1062,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             invoice_date,
             due_date,
             cashier_id,
+            "pos",
             branch_id,
             receipt_no,
             receipt_seq,
