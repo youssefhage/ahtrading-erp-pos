@@ -219,10 +219,10 @@
 
     <!-- Checkout Action -->
     <button
-      class={`w-full py-4 rounded-2xl font-bold text-lg tracking-wide transition-all relative overflow-hidden border border-accent/40 bg-gradient-to-br from-accent to-accent-hover text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 ${
+      class={`w-full py-4 rounded-2xl font-bold text-lg tracking-wide transition-all relative overflow-hidden border ${
         canCheckout
-          ? "hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] group/btn"
-          : "opacity-55 cursor-not-allowed"
+          ? "border-accent/40 bg-gradient-to-br from-accent to-accent-hover text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] group/btn"
+          : "border-border/60 bg-surface-highlight/90 text-ink/70 shadow-sm cursor-not-allowed"
       }`}
       disabled={!canCheckout}
       on:click={onCheckout}

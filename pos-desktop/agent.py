@@ -2433,12 +2433,17 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
     total_usd = base_usd + tax_usd
     total_lbp = base_lbp + tax_lbp
 
+    settlement_currency = (pricing_currency or 'USD').upper()
     payments = []
     if payment_method == 'credit':
         payments.append({'method': 'credit', 'amount_usd': 0, 'amount_lbp': 0})
     else:
-        # Store both USD + LBP equivalents for dual-ledger balancing.
-        payments.append({'method': payment_method or 'cash', 'amount_usd': total_usd, 'amount_lbp': total_lbp})
+        # `pos_processor` treats USD/LBP values as tender buckets. Sending both full totals
+        # doubles the applied payment and can trigger overpayment guards on cloud processing.
+        if settlement_currency == 'LBP':
+            payments.append({'method': payment_method or 'cash', 'amount_usd': 0, 'amount_lbp': total_lbp})
+        else:
+            payments.append({'method': payment_method or 'cash', 'amount_usd': total_usd, 'amount_lbp': 0})
 
     loyalty_rate = float(config.get('loyalty_rate') or 0)
     loyalty_points = base_usd * loyalty_rate if loyalty_rate > 0 else 0
@@ -2447,7 +2452,7 @@ def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_i
         'invoice_no': None,
         'exchange_rate': exchange_rate,
         'pricing_currency': pricing_currency,
-        'settlement_currency': pricing_currency,
+        'settlement_currency': settlement_currency,
         'customer_id': customer_id,
         'warehouse_id': config.get('warehouse_id'),
         'shift_id': shift_id,

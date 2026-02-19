@@ -1053,9 +1053,14 @@
     const totalUsd = baseUsd + taxUsd;
     const totalLbp = baseLbp + taxLbp;
     const paymentMethod = String(payload.payment_method || "cash").trim().toLowerCase();
+    const settledInLbp = settlementCurrency === "LBP";
     const payments = paymentMethod === "credit"
       ? [{ method: "credit", amount_usd: 0, amount_lbp: 0 }]
-      : [{ method: paymentMethod || "cash", amount_usd: totalUsd, amount_lbp: totalLbp }];
+      : [{
+          method: paymentMethod || "cash",
+          amount_usd: settledInLbp ? 0 : totalUsd,
+          amount_lbp: settledInLbp ? totalLbp : 0,
+        }];
 
     return {
       invoice_no: null,
@@ -3396,10 +3401,6 @@
           }
         };
 
-        // Pre-open receipt window to reduce popup blocking.
-        let receiptWin = null;
-        try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
-
         const cfg = cfgFor(invoiceCompany);
         const res = await apiCallFor(invoiceCompany, "/sale", {
           method: "POST",
@@ -3424,6 +3425,8 @@
         checkoutIntentId = "";
         fetchData();
         reportNotice(`Sale queued (official): ${res.event_id || "ok"}`);
+        let receiptWin = null;
+        try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
         await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
         return;
       }
@@ -3443,11 +3446,6 @@
           for (const k of companiesInOrder) customerByCompany[k] = await resolveCustomerId(k);
           const missing = companiesInOrder.filter((k) => !customerByCompany[k]);
           if (missing.length) reportNotice(`Customer not found on: ${missing.join(", ")}. Those invoices will be walk-in.`);
-        }
-
-        const receiptWins = {};
-        for (const k of companiesInOrder) {
-          try { receiptWins[k] = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
         }
 
         const done = [];
@@ -3494,14 +3492,11 @@
 
             // Remove only the successfully invoiced lines.
             cart = cart.filter((c) => c.companyKey !== companyKey);
-            const w = receiptWins[companyKey];
-            await printAfterSale(companyKey, res?.event_id || "", w);
+            let receiptWin = null;
+            try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
+            await printAfterSale(companyKey, res?.event_id || "", receiptWin);
           } catch (e) {
             failed.push({ companyKey, error: e?.message || String(e) });
-            try {
-              const w = receiptWins[companyKey];
-              if (w && w.close) w.close();
-            } catch (_) {}
           }
         }
 
@@ -3551,9 +3546,6 @@
         }
       };
 
-      let receiptWin = null;
-      try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
-
       const cfg = cfgFor(invoiceCompany);
       const res = await apiCallFor(invoiceCompany, "/sale", {
         method: "POST",
@@ -3578,6 +3570,8 @@
       activeCustomer = null;
       checkoutIntentId = "";
       fetchData();
+      let receiptWin = null;
+      try { receiptWin = window.open("about:blank", "_blank", "noopener,noreferrer"); } catch (_) {}
       await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
     } catch(e) {
       const p = e?.payload;

@@ -9,7 +9,7 @@ ARG NEXT_PUBLIC_API_BASE_URL=/api
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 
 # Optional: server-side rewrite target for same-origin /api proxy.
-ARG API_PROXY_TARGET=https://app.melqard.com/api
+ARG API_PROXY_TARGET=http://api_melqard:8000
 ENV API_PROXY_TARGET=$API_PROXY_TARGET
 
 COPY apps/admin/package.json apps/admin/package-lock.json /app/
