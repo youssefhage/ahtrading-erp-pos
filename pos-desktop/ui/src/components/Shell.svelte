@@ -40,7 +40,7 @@
   $: outboxCompactText = outboxKind === "ok" ? "SYNCED" : (outboxKind === "warn" ? "SYNCING" : "OFFLINE");
 </script>
 
-<div class="h-screen bg-bg text-ink font-sans selection:bg-accent/20 selection:text-accent flex flex-col relative overflow-hidden">
+<div class="h-screen bg-bg text-ink font-sans flex flex-col relative overflow-hidden">
   <!-- Background Glows -->
   {#if !plainBackground}
     <div class="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-accent/5 rounded-full blur-[120px] pointer-events-none"></div>

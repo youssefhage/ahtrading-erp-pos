@@ -193,8 +193,22 @@
   const _normalizeCloudApiBase = (value) => {
     const v = String(value || "").trim();
     if (!v) return "";
+    if (v.startsWith("/")) {
+      return normalizeApiBase(v);
+    }
     const raw = _isAbsoluteHttpUrl(v) ? v : `https://${v}`;
-    return raw.endsWith("/") ? raw.slice(0, -1) : raw;
+    try {
+      const u = new URL(raw);
+      let path = String(u.pathname || "/").replace(/\/+$/, "");
+      // Most operators type only the host; default to the API prefix.
+      if (!path || path === "/") path = "/api";
+      u.pathname = path;
+      u.search = "";
+      u.hash = "";
+      return u.toString().replace(/\/+$/, "");
+    } catch (_) {
+      return raw.endsWith("/") ? raw.slice(0, -1) : raw;
+    }
   };
 
   const _cloudSetupCall = async (
@@ -1208,7 +1222,7 @@
   const _webPosApiBaseFor = (companyKey) => {
     const cfg = cfgForCompanyKey(companyKey) || {};
     const candidate = String(cfg.cloud_api_base_url || cfg.api_base_url || apiBase || "").trim();
-    const normalized = normalizeApiBase(candidate || apiBase || "/api");
+    const normalized = _normalizeCloudApiBase(candidate || apiBase || "/api");
     return normalized || "/api";
   };
 
@@ -3549,6 +3563,7 @@
 
   const setActiveScreen = (scr) => {
     const v = (scr === "items" || scr === "settings") ? scr : "pos";
+    showTopMoreActions = false;
     activeScreen = v;
     try { localStorage.setItem(SCREEN_STORAGE_KEY, v); } catch (_) {}
     if (v === "items") {

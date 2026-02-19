@@ -84,8 +84,23 @@
 
   /* Tailwind v4 doesn't reliably support `selection:*` inside `@apply`. */
   ::selection {
-    background: rgb(var(--color-accent) / 0.20);
-    color: rgb(var(--color-ink));
+    background: rgb(var(--color-accent) / 0.45);
+    color: rgb(var(--color-bg));
+  }
+
+  ::-moz-selection {
+    background: rgb(var(--color-accent) / 0.45);
+    color: rgb(var(--color-bg));
+  }
+
+  :root[data-theme="light"] ::selection {
+    background: rgb(var(--color-accent) / 0.65);
+    color: rgb(255 255 255);
+  }
+
+  :root[data-theme="light"] ::-moz-selection {
+    background: rgb(var(--color-accent) / 0.65);
+    color: rgb(255 255 255);
   }
 
   h1,
