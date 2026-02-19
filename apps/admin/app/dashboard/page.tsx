@@ -405,62 +405,66 @@ export default function DashboardPage() {
   const outboxFailed = Number(outboxSummary?.by_status?.failed || 0) + Number(outboxSummary?.by_status?.dead || 0);
   const outboxQueued = Number(outboxSummary?.by_status?.processed || 0);
   const outboxTotal = Number(outboxSummary?.total || 0);
+  const summaryText = useMemo(() => {
+    if (isLoading) return "Loading latest operating signals...";
+    const parts: string[] = [];
+    const salesUsd = Number(metrics?.sales_today_usd || 0);
+    const purchasesUsd = Number(metrics?.purchases_today_usd || 0);
+    const lowStock = Number(metrics?.low_stock_count || 0);
+
+    if (salesUsd >= purchasesUsd) {
+      parts.push("Sales are currently pacing ahead of purchases.");
+    } else {
+      parts.push("Purchases are currently pacing ahead of sales.");
+    }
+    if (lowStock > 0) {
+      parts.push(`${fmtNumber(lowStock)} low-stock item(s) need review.`);
+    } else {
+      parts.push("No low-stock pressure detected.");
+    }
+    if (canManagePos) {
+      if (outboxFailed > 0) parts.push(`${fmtNumber(outboxFailed)} POS outbox item(s) failed.`);
+      else if (outboxPending > 0) parts.push(`${fmtNumber(outboxPending)} POS outbox item(s) pending.`);
+      else parts.push("POS outbox is clear.");
+    }
+    return parts.join(" ");
+  }, [isLoading, metrics, canManagePos, outboxFailed, outboxPending]);
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Dashboard</h1>
-          <p className="text-sm text-fg-subtle">
-            Overview of your business metrics and activity
-            {apiHealth?.version ? ` · v${apiHealth.version}` : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {lastUpdatedAt && (
-            <span className="text-xs text-fg-subtle">
-              Last updated{" "}
-              <time className="tabular-nums text-fg-muted">
-                {lastUpdatedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
-              </time>
-            </span>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={refresh}
-            disabled={refreshing}
-            className="gap-2"
-          >
-            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-            {refreshing ? "Refreshing..." : "Refresh"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Error State */}
-      {status && status !== "Loading..." && (
-        <Banner
-          variant="danger"
-          title="Error loading metrics"
-          description={lastErrorRequestId ? `${status} (request ${lastErrorRequestId})` : status}
-          actions={
-            <Button variant="secondary" size="sm" onClick={refresh} disabled={refreshing} className="gap-2">
-              <RefreshCw className={refreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-              Retry
-            </Button>
-          }
-        />
-      )}
-
-      {/* Quick actions (compact, top) */}
-        <div className="rounded-xl border border-border-subtle bg-bg-sunken/20 p-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-foreground">Quick Actions</div>
-            <div className="text-xs text-fg-subtle">Common tasks</div>
+      <div className="ui-module-head">
+        <div className="ui-module-head-row">
+          <div>
+            <p className="ui-module-kicker">Operations Overview</p>
+            <h1 className="ui-module-title">Dashboard</h1>
+            <p className="ui-module-subtitle">
+              Live business health, exposure, and activity in one place
+              {apiHealth?.version ? ` · v${apiHealth.version}` : ""}
+            </p>
           </div>
+          <div className="ui-module-actions">
+            {lastUpdatedAt ? (
+              <span className="text-xs text-fg-subtle">
+                Updated{" "}
+                <time className="tabular-nums text-fg-muted">
+                  {lastUpdatedAt.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+                </time>
+              </span>
+            ) : null}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refresh}
+              disabled={refreshing}
+              className="gap-2"
+            >
+              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-4 border-t border-border-subtle pt-3">
           <div className="flex flex-wrap items-center gap-2">
             {canWriteSales ? (
               <QuickActionCompact icon={ShoppingCart} label="Sales Invoice" onClick={() => router.push("/sales/invoices")} />
@@ -481,305 +485,331 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Top Section: Metrics + System Status */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 lg:col-span-3">
-
-        <MetricCard
-          title="Today's Sales"
-          description="USD revenue today"
-          value={metrics ? fmtCurrency(metrics.sales_today_usd, "USD") : "$0.00"}
-          secondaryValue={metrics ? fmtCurrency(metrics.sales_today_lbp, "LBP") : undefined}
-          icon={DollarSign}
-          trend="up"
-          trendValue="+12% vs yesterday"
-          loading={isLoading}
-          onClick={() => router.push("/sales/invoices")}
+      {status && status !== "Loading..." && (
+        <Banner
+          variant="danger"
+          title="Error loading metrics"
+          description={lastErrorRequestId ? `${status} (request ${lastErrorRequestId})` : status}
+          actions={
+            <Button variant="secondary" size="sm" onClick={refresh} disabled={refreshing} className="gap-2">
+              <RefreshCw className={refreshing ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
+              Retry
+            </Button>
+          }
         />
+      )}
 
-        <MetricCard
-          title="Today's Purchases"
-          description="USD spent today"
-          value={metrics ? fmtCurrency(metrics.purchases_today_usd, "USD") : "$0.00"}
-          secondaryValue={metrics ? fmtCurrency(metrics.purchases_today_lbp, "LBP") : undefined}
-          icon={Truck}
-          trend="neutral"
-          trendValue="Same as yesterday"
-          loading={isLoading}
-          onClick={() => router.push("/purchasing/purchase-orders")}
-        />
-
-        <MetricCard
-          title="Stock Value"
-          description="Total inventory value"
-          value={metrics ? fmtCurrency(metrics.stock_value_usd, "USD") : "$0.00"}
-          secondaryValue={metrics ? fmtCurrency(metrics.stock_value_lbp, "LBP") : undefined}
-          icon={Package}
-          trend="up"
-          trendValue="+3.2% this week"
-          loading={isLoading}
-          onClick={() => router.push("/inventory/stock")}
-        />
-
-        <MetricCard
-          title="Accounts Receivable"
-          description="Outstanding customer balances"
-          value={metrics ? fmtCurrency(metrics.ar_usd, "USD") : "$0.00"}
-          secondaryValue={metrics ? fmtCurrency(metrics.ar_lbp, "LBP") : undefined}
-          icon={CreditCard}
-          trend="down"
-          trendValue="-5% collected"
-          loading={isLoading}
-          onClick={() => router.push("/accounting/reports/ar-aging")}
-        />
-
-        <MetricCard
-          title="Accounts Payable"
-          description="Outstanding supplier balances"
-          value={metrics ? fmtCurrency(metrics.ap_usd, "USD") : "$0.00"}
-          secondaryValue={metrics ? fmtCurrency(metrics.ap_lbp, "LBP") : undefined}
-          icon={Activity}
-          loading={isLoading}
-          onClick={() => router.push("/accounting/reports/ap-aging")}
-        />
-
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between">
-              <div className="flex flex-col gap-1">
-                <CardTitle className="text-sm font-medium text-fg-muted">Catalog & Partners</CardTitle>
-                <CardDescription className="text-xs">Entity counts</CardDescription>
-              </div>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-sunken text-fg-muted">
-                <Users className="h-4 w-4" />
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_350px]">
+        <div className="space-y-5">
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">Flow Metrics</p>
+                <p className="text-sm text-fg-muted">Sales, purchasing, stock, and exposure snapshots</p>
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {isLoading ? (
-              <>
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-              </>
-            ) : (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">Items</span>
-                  <span className="text-sm font-medium tabular-nums text-foreground">
-                    {fmtNumber(metrics?.items_count || 0)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">Customers</span>
-                  <span className="text-sm font-medium tabular-nums text-foreground">
-                    {fmtNumber(metrics?.customers_count || 0)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">Suppliers</span>
-                  <span className="text-sm font-medium tabular-nums text-foreground">
-                    {fmtNumber(metrics?.suppliers_count || 0)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">Low Stock Alerts</span>
-                  <span
-                    className={cn(
-                      "text-sm font-medium tabular-nums",
-                      (metrics?.low_stock_count || 0) > 0 ? "text-danger" : "text-foreground"
-                    )}
-                  >
-                    {fmtNumber(metrics?.low_stock_count || 0)}
-                  </span>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+              <MetricCard
+                title="Today's Sales"
+                description="Revenue posted today"
+                value={metrics ? fmtCurrency(metrics.sales_today_usd, "USD") : "$0.00"}
+                secondaryValue={metrics ? fmtCurrency(metrics.sales_today_lbp, "LBP") : undefined}
+                icon={DollarSign}
+                loading={isLoading}
+                onClick={() => router.push("/sales/invoices")}
+              />
 
-        <Card className="transition-all duration-200 hover:border-border-strong hover:bg-bg-sunken/60">
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between">
-              <div className="flex flex-col gap-1">
-                <CardTitle className="text-sm font-medium text-fg-muted">AI Insights</CardTitle>
-                <CardDescription className="text-xs">
-                  {canReadAi ? "Pending recommendations" : "Read-only: no AI permission"}
-                </CardDescription>
-              </div>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-sunken text-fg-muted">
-                <AlertTriangle className="h-4 w-4" />
-              </div>
+              <MetricCard
+                title="Today's Purchases"
+                description="Spend posted today"
+                value={metrics ? fmtCurrency(metrics.purchases_today_usd, "USD") : "$0.00"}
+                secondaryValue={metrics ? fmtCurrency(metrics.purchases_today_lbp, "LBP") : undefined}
+                icon={Truck}
+                loading={isLoading}
+                onClick={() => router.push("/purchasing/purchase-orders")}
+              />
+
+              <MetricCard
+                title="Stock Value"
+                description="Current inventory valuation"
+                value={metrics ? fmtCurrency(metrics.stock_value_usd, "USD") : "$0.00"}
+                secondaryValue={metrics ? fmtCurrency(metrics.stock_value_lbp, "LBP") : undefined}
+                icon={Package}
+                loading={isLoading}
+                onClick={() => router.push("/inventory/stock")}
+              />
+
+              <MetricCard
+                title="Accounts Receivable"
+                description="Outstanding customer balance"
+                value={metrics ? fmtCurrency(metrics.ar_usd, "USD") : "$0.00"}
+                secondaryValue={metrics ? fmtCurrency(metrics.ar_lbp, "LBP") : undefined}
+                icon={CreditCard}
+                loading={isLoading}
+                onClick={() => router.push("/accounting/reports/ar-aging")}
+              />
+
+              <MetricCard
+                title="Accounts Payable"
+                description="Outstanding supplier balance"
+                value={metrics ? fmtCurrency(metrics.ap_usd, "USD") : "$0.00"}
+                secondaryValue={metrics ? fmtCurrency(metrics.ap_lbp, "LBP") : undefined}
+                icon={Activity}
+                loading={isLoading}
+                onClick={() => router.push("/accounting/reports/ap-aging")}
+              />
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-start justify-between">
+                    <div className="flex flex-col gap-1">
+                      <CardTitle className="text-sm font-medium text-fg-muted">Catalog & Partners</CardTitle>
+                      <CardDescription className="text-xs">Entity counts and pressure points</CardDescription>
+                    </div>
+                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-sunken text-fg-muted">
+                      <Users className="h-4 w-4" />
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {isLoading ? (
+                    <>
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-full" />
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-fg-muted">Items</span>
+                        <span className="text-sm font-medium tabular-nums text-foreground">
+                          {fmtNumber(metrics?.items_count || 0)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-fg-muted">Customers</span>
+                        <span className="text-sm font-medium tabular-nums text-foreground">
+                          {fmtNumber(metrics?.customers_count || 0)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-fg-muted">Suppliers</span>
+                        <span className="text-sm font-medium tabular-nums text-foreground">
+                          {fmtNumber(metrics?.suppliers_count || 0)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-fg-muted">Low Stock Alerts</span>
+                        <span
+                          className={cn(
+                            "text-sm font-medium tabular-nums",
+                            (metrics?.low_stock_count || 0) > 0 ? "text-danger" : "text-foreground"
+                          )}
+                        >
+                          {fmtNumber(metrics?.low_stock_count || 0)}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
             </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {isLoading ? (
-              <>
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-              </>
-            ) : (
-              <>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">Data Hygiene</span>
-                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_DATA_HYGIENE") > 0 ? "text-warning" : "text-foreground")}>
-                    {aiCount("AI_DATA_HYGIENE")}
-                  </span>
+          </section>
+
+          <section className="space-y-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">AI & Alerts</p>
+              <p className="text-sm text-fg-muted">Outstanding recommendations requiring attention</p>
+            </div>
+            <Card className="transition-all duration-200 hover:border-border-strong hover:bg-bg-sunken/60">
+              <CardHeader className="pb-2">
+                <div className="flex items-start justify-between">
+                  <div className="flex flex-col gap-1">
+                    <CardTitle className="text-sm font-medium text-fg-muted">AI Insights</CardTitle>
+                    <CardDescription className="text-xs">
+                      {canReadAi ? "Pending recommendations by agent" : "Read-only: no AI permission"}
+                    </CardDescription>
+                  </div>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-bg-sunken text-fg-muted">
+                    <AlertTriangle className="h-4 w-4" />
+                  </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">AP Guard</span>
-                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_AP_GUARD") > 0 ? "text-warning" : "text-foreground")}>
-                    {aiCount("AI_AP_GUARD")}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-fg-muted">Expiry Ops</span>
-                  <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_EXPIRY_OPS") > 0 ? "text-warning" : "text-foreground")}>
-                    {aiCount("AI_EXPIRY_OPS")}
-                  </span>
-                </div>
-                <div className="pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => router.push("/automation/ai-hub")}
-                    disabled={!canReadAi}
-                  >
-                    Open AI Hub
-                  </Button>
-                  {!canReadAi ? (
-                    <div className="pt-1 text-center text-sm text-fg-subtle">Ask your admin for ai:read</div>
-                  ) : null}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {isLoading ? (
+                  <>
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-full" />
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-fg-muted">Data Hygiene</span>
+                      <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_DATA_HYGIENE") > 0 ? "text-warning" : "text-foreground")}>
+                        {aiCount("AI_DATA_HYGIENE")}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-fg-muted">AP Guard</span>
+                      <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_AP_GUARD") > 0 ? "text-warning" : "text-foreground")}>
+                        {aiCount("AI_AP_GUARD")}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-fg-muted">Expiry Ops</span>
+                      <span className={cn("text-sm font-medium tabular-nums", aiCount("AI_EXPIRY_OPS") > 0 ? "text-warning" : "text-foreground")}>
+                        {aiCount("AI_EXPIRY_OPS")}
+                      </span>
+                    </div>
+                    <div className="pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => router.push("/automation/ai-hub")}
+                        disabled={!canReadAi}
+                      >
+                        Open AI Hub
+                      </Button>
+                      {!canReadAi ? (
+                        <div className="pt-1 text-center text-sm text-fg-subtle">Ask your admin for ai:read</div>
+                      ) : null}
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </section>
         </div>
 
-        {/* System Status (top-right) */}
-        <Card className="lg:col-span-1">
+        <Card className="h-fit xl:sticky xl:top-4">
           <CardHeader>
             <CardTitle className="text-base">System Status</CardTitle>
-            <CardDescription>Health indicators</CardDescription>
+            <CardDescription>Platform health and operational signals</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
-            <StatusIndicator
-              label="API"
-              value={apiHealth ? apiHealth.status : "checking"}
-              status={apiHealth?.status === "ok" || apiHealth?.status === "ready" ? "good" : "warning"}
-            />
-            <StatusIndicator
-              label="Database"
-              value={apiHealth ? apiHealth.db : "-"}
-              status={apiHealth?.db === "ok" ? "good" : "critical"}
-            />
-            <StatusIndicator
-              label="Data Freshness"
-              value={dataIsStale ? "stale" : "fresh"}
-              status={dataIsStale ? "warning" : "good"}
-            />
-            <StatusIndicator
-              label="POS Integration"
-              value={canManagePos ? "Active" : "No permission"}
-              status={canManagePos ? "good" : "warning"}
-            />
-            <StatusIndicator
-              label="Outbox Queue"
-              value={canManagePos ? `${outboxFailed} failed / ${outboxPending} pending` : "-"}
-              status={
-                !canManagePos ? "warning" : outboxFailed > 0 ? "critical" : outboxPending > 0 ? "warning" : "good"
-              }
-            />
-            {outboxSummary ? (
-            <StatusIndicator
-              label="Outbox Total"
-              value={fmtNumber(outboxTotal)}
-              status={outboxTotal >= 500 ? "critical" : outboxTotal > 150 ? "warning" : "good"}
-            />
-            ) : null}
-            <StatusIndicator
-              label="Low Stock Items"
-              value={metrics ? fmtNumber(metrics.low_stock_count) : "-"}
-              status={metrics && metrics.low_stock_count > 0 ? "warning" : "good"}
-            />
+          <CardContent className="space-y-3">
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">Platform</p>
+              <StatusIndicator
+                label="API"
+                value={apiHealth ? apiHealth.status : "checking"}
+                status={apiHealth?.status === "ok" || apiHealth?.status === "ready" ? "good" : "warning"}
+              />
+              <StatusIndicator
+                label="Database"
+                value={apiHealth ? apiHealth.db : "-"}
+                status={apiHealth?.db === "ok" ? "good" : "critical"}
+              />
+              <StatusIndicator
+                label="Data Freshness"
+                value={dataIsStale ? "stale" : "fresh"}
+                status={dataIsStale ? "warning" : "good"}
+              />
+            </div>
 
-            {/* Compact FX rate control (reference-only but editable) */}
-            <div className="mt-3 rounded-md border border-border-subtle bg-bg-elevated/60 px-3 py-2">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-fg-muted">Default FX (USD→LL)</div>
-                  {fxLoading ? (
-                    <div className="mt-1">
-                      <Skeleton className="h-7 w-24" />
-                    </div>
-                  ) : (
-                    <div className="mt-1 font-mono text-sm tabular-nums text-foreground">{usdToLbp}</div>
-                  )}
+            <div className="border-t border-border-subtle pt-3 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">POS Sync</p>
+              <StatusIndicator
+                label="POS Integration"
+                value={canManagePos ? "Active" : "No permission"}
+                status={canManagePos ? "good" : "warning"}
+              />
+              <StatusIndicator
+                label="Outbox Queue"
+                value={canManagePos ? `${outboxFailed} failed / ${outboxPending} pending` : "-"}
+                status={
+                  !canManagePos ? "warning" : outboxFailed > 0 ? "critical" : outboxPending > 0 ? "warning" : "good"
+                }
+              />
+              {outboxSummary ? (
+                <StatusIndicator
+                  label="Outbox Total"
+                  value={fmtNumber(outboxTotal)}
+                  status={outboxTotal >= 500 ? "critical" : outboxTotal > 150 ? "warning" : "good"}
+                />
+              ) : null}
+              <StatusIndicator
+                label="Low Stock Items"
+                value={metrics ? fmtNumber(metrics.low_stock_count) : "-"}
+                status={metrics && metrics.low_stock_count > 0 ? "warning" : "good"}
+              />
+            </div>
+
+            <div className="border-t border-border-subtle pt-3 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">Default FX</p>
+              <div className="rounded-md border border-border-subtle bg-bg-elevated/60 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-fg-muted">USD → LL</div>
+                    {fxLoading ? (
+                      <div className="mt-1">
+                        <Skeleton className="h-7 w-24" />
+                      </div>
+                    ) : (
+                      <div className="mt-1 font-mono text-sm tabular-nums text-foreground">{usdToLbp}</div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={usdToLbp}
+                      onChange={(e) => setUsdToLbp(e.target.value)}
+                      inputMode="decimal"
+                      className="h-8 w-[120px] text-right font-mono text-sm"
+                      disabled={fxLoading || savingFx}
+                      aria-label="Default exchange rate USD to LBP"
+                    />
+                    <Button
+                      variant="outline"
+                      className="h-8 px-3"
+                      disabled={fxLoading || savingFx}
+                      onClick={async () => {
+                        const n = Number(usdToLbp || 0);
+                        if (!Number.isFinite(n) || n <= 0) {
+                          setFxStatus("Rate must be > 0");
+                          return;
+                        }
+                        setSavingFx(true);
+                        setFxStatus("");
+                        try {
+                          await upsertFxRateUsdToLbp({ usdToLbp: n });
+                          setFxStatus("Saved");
+                        } catch (err) {
+                          const msg = err instanceof Error ? err.message : String(err);
+                          setFxStatus(msg);
+                        } finally {
+                          setSavingFx(false);
+                          window.setTimeout(() => setFxStatus(""), 2500);
+                        }
+                      }}
+                    >
+                      Save
+                    </Button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={usdToLbp}
-                    onChange={(e) => setUsdToLbp(e.target.value)}
-                    inputMode="decimal"
-                    className="h-8 w-[120px] text-right font-mono text-sm"
-                    disabled={fxLoading || savingFx}
-                    aria-label="Default exchange rate USD to LBP"
-                  />
-                  <Button
-                    variant="outline"
-                    className="h-8 px-3"
-                    disabled={fxLoading || savingFx}
-                    onClick={async () => {
-                      const n = Number(usdToLbp || 0);
-                      if (!Number.isFinite(n) || n <= 0) {
-                        setFxStatus("Rate must be > 0");
-                        return;
-                      }
-                      setSavingFx(true);
-                      setFxStatus("");
-                      try {
-                        await upsertFxRateUsdToLbp({ usdToLbp: n });
-                        setFxStatus("Saved");
-                      } catch (err) {
-                        const msg = err instanceof Error ? err.message : String(err);
-                        setFxStatus(msg);
-                      } finally {
-                        setSavingFx(false);
-                        window.setTimeout(() => setFxStatus(""), 2500);
-                      }
-                    }}
+                <div className="mt-2 flex items-center justify-between text-sm">
+                  <button
+                    type="button"
+                    className="ui-link text-sm"
+                    onClick={() => router.push("/system/config")}
+                    title="Open Admin -> Config -> Exchange Rates"
                   >
-                    Save
-                  </Button>
+                    Manage exchange rates
+                  </button>
+                  {fxStatus ? <span className="text-fg-subtle">{fxStatus}</span> : <span />}
                 </div>
-              </div>
-
-              <div className="mt-2 flex items-center justify-between text-sm">
-                <button
-                  type="button"
-                  className="ui-link text-sm"
-                  onClick={() => router.push("/system/config")}
-                  title="Open Admin -> Config -> Exchange Rates"
-                >
-                  Manage exchange rates
-                </button>
-                {fxStatus ? <span className="text-fg-subtle">{fxStatus}</span> : <span />}
               </div>
             </div>
 
-            <div className="mt-4 rounded-md border border-primary/20 bg-primary/10 p-3">
+            <div className="rounded-md border border-primary/20 bg-primary/10 p-3">
               <div className="flex items-start gap-2">
                 <Activity className="mt-0.5 h-4 w-4 text-primary" />
                 <div>
                   <p className="text-sm font-medium text-primary">Daily Summary</p>
-                  <p className="text-sm text-fg-muted">
-                    Sales are up 12% compared to yesterday. Consider reviewing stock levels for fast-moving items.
-                  </p>
+                  <p className="text-sm text-fg-muted">{summaryText}</p>
                 </div>
               </div>
             </div>
