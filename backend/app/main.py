@@ -5,7 +5,6 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from psycopg import errors as pg_errors
 import json
-import os
 import sys
 import time
 import uuid
@@ -47,9 +46,6 @@ from .config import settings
 from .routers.inventory_locations import router as inventory_locations_router
 from .routers.inventory_warehouses_locations import router as inventory_warehouses_locations_router
 from .routers.devtools import router as devtools_router
-from .routers.edge_sync import router as edge_sync_router
-from .routers.edge_masterdata import router as edge_masterdata_router
-from .routers.edge_nodes import router as edge_nodes_router
 from .routers.auth import router as auth_router
 from .deps import require_company_access
 from .db import get_admin_conn, close_pools
@@ -83,35 +79,6 @@ def _json_log(level: str, event: str, **fields):
     rec = {"ts": datetime.now(timezone.utc).isoformat(), "level": level, "event": event, **fields}
     print(json.dumps(rec, default=str), file=sys.stderr)
 
-
-def _truthy(raw: str) -> bool:
-    return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _edge_cloud_authoritative_enabled() -> bool:
-    # Explicit override wins.
-    if (os.getenv("EDGE_CLOUD_AUTHORITATIVE") or "").strip():
-        return _truthy(os.getenv("EDGE_CLOUD_AUTHORITATIVE", ""))
-    # Safe default: only enable implicitly for explicit edge roles.
-    role = (os.getenv("APP_ROLE") or os.getenv("NODE_ROLE") or "").strip().lower()
-    if role in {"cloud", "cloud-api"}:
-        return False
-    if role in {"edge", "edge-api", "onprem", "on-prem"}:
-        return bool((os.getenv("EDGE_SYNC_TARGET_URL") or "").strip())
-    # Unknown role: fail open to avoid accidental write lock on cloud.
-    return False
-
-
-def _edge_write_allowed_path(path: str) -> bool:
-    p = str(path or "")
-    if p == "/health":
-        return True
-    allowed_prefixes = (
-        "/auth/",
-        "/pos/",
-        "/edge-sync/",
-    )
-    return any(p.startswith(x) for x in allowed_prefixes)
 
 # Map common DB constraint/cast errors to 4xx so clients get actionable responses
 # instead of generic 500s.
@@ -181,16 +148,6 @@ async def _request_logging(request: Request, call_next):
     path = request.url.path
     method = request.method
     client_ip = (request.client.host if request.client else None)
-
-    if _edge_cloud_authoritative_enabled() and method in {"POST", "PUT", "PATCH", "DELETE"}:
-        if not _edge_write_allowed_path(path):
-            return JSONResponse(
-                status_code=409,
-                content={
-                    "detail": "cloud_authoritative_edge_read_only",
-                    "hint": "This edge node is read-only for admin/master-data writes. Apply this change on cloud; edge accepts POS operations and sync only.",
-                },
-            )
 
     try:
         response = await call_next(request)
@@ -269,9 +226,6 @@ app.include_router(fx_router, dependencies=[Depends(require_company_access)])
 app.include_router(telegram_router)
 app.include_router(whatsapp_router)
 app.include_router(updates_router)
-app.include_router(edge_sync_router)
-app.include_router(edge_masterdata_router)
-app.include_router(edge_nodes_router, dependencies=[Depends(require_company_access)])
 app.include_router(landed_costs_router, dependencies=[Depends(require_company_access)])
 app.include_router(stock_transfers_router, dependencies=[Depends(require_company_access)])
 app.include_router(inventory_locations_router, dependencies=[Depends(require_company_access)])

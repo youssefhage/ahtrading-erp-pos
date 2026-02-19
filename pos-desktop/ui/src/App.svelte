@@ -1485,8 +1485,15 @@
     if (method === "GET" && pathname === "/health") {
       return { ok: true, mode: "cloud-setup" };
     }
-    if (method === "GET" && pathname === "/edge/status") {
-      return { ok: true, edge_ok: true, edge_auth_ok: true, mode: "cloud-setup" };
+    if (method === "GET" && (pathname === "/sync/status" || pathname === "/edge/status")) {
+      return {
+        ok: true,
+        sync_ok: true,
+        sync_auth_ok: true,
+        edge_ok: true,
+        edge_auth_ok: true,
+        mode: "cloud-setup",
+      };
     }
 
     if (method === "POST" && pathname === "/config") {
@@ -2784,10 +2791,18 @@
     return { ok: true, device_id: deviceId, device_token: deviceToken };
   };
 
-  const testEdgeFor = async (companyKey) => {
-    if (_companyUsesCloudTransport(companyKey)) return { edge_ok: true, edge_auth_ok: true, mode: "cloud-setup" };
+  const testSyncFor = async (companyKey) => {
+    if (_companyUsesCloudTransport(companyKey)) {
+      return { sync_ok: true, sync_auth_ok: true, edge_ok: true, edge_auth_ok: true, mode: "cloud-setup" };
+    }
     const health = await apiCallFor(companyKey, "/health", { method: "GET" });
-    return { edge_ok: !!health?.ok, edge_auth_ok: !!health?.ok, mode: "local-agent" };
+    return {
+      sync_ok: !!health?.ok,
+      sync_auth_ok: !!health?.ok,
+      edge_ok: !!health?.ok,
+      edge_auth_ok: !!health?.ok,
+      mode: "local-agent",
+    };
   };
 
   const syncPullFor = async (companyKey) => {
@@ -4319,7 +4334,7 @@
       bind:otherAgentDraftUrl={otherAgentDraftUrl}
       saveOtherAgent={saveOtherAgent}
       saveConfigFor={saveConfigFor}
-      testEdgeFor={testEdgeFor}
+      testSyncFor={testSyncFor}
       syncPullFor={syncPullFor}
       syncPushFor={syncPushFor}
       runStressBenchmark={runStressBenchmark}

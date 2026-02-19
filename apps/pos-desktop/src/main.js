@@ -557,46 +557,63 @@ async function waitForAgent(port, timeoutMs = 8000) {
   return false;
 }
 
-async function fetchEdgeStatus(port) {
-  const url = `http://127.0.0.1:${port}/api/edge/status`;
+async function fetchSyncStatus(port) {
   const started = Date.now();
-  try {
-    const res = await fetch(url, { method: "GET" });
-    const data = await res.json().catch(() => ({}));
-    const ms = Date.now() - started;
-    if (!res.ok) return { ok: false, ms, error: data?.error || data?.detail || `HTTP ${res.status}` };
-    return { ok: true, ms, data };
-  } catch (e) {
-    const ms = Date.now() - started;
-    return { ok: false, ms, error: e instanceof Error ? e.message : String(e) };
+  const base = `http://127.0.0.1:${port}`;
+  const urls = [`${base}/api/sync/status`, `${base}/api/edge/status`];
+  for (let i = 0; i < urls.length; i += 1) {
+    const url = urls[i];
+    const isLast = i === urls.length - 1;
+    try {
+      const res = await fetch(url, { method: "GET" });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 404 && !isLast) continue;
+      const ms = Date.now() - started;
+      if (!res.ok) return { ok: false, ms, error: data?.error || data?.detail || `HTTP ${res.status}` };
+      return { ok: true, ms, data };
+    } catch (e) {
+      if (!isLast) continue;
+      const ms = Date.now() - started;
+      return { ok: false, ms, error: e instanceof Error ? e.message : String(e) };
+    }
   }
+  const ms = Date.now() - started;
+  return { ok: false, ms, error: "status endpoint unavailable" };
 }
 
-function fmtEdgeDiag(label, res) {
+function fmtSyncDiag(label, res) {
   if (!res) return `${label}: (no data)`;
   if (!res.ok) return `${label}: local agent error (${res.ms}ms) ${res.error || ""}`.trim();
   const d = res.data || {};
-  const serverOk = !!d.edge_ok;
-  const authOk = d.edge_auth_ok == null ? null : !!d.edge_auth_ok;
+  const serverOk = !!(d.sync_ok ?? d.edge_ok);
+  const authRaw = d.sync_auth_ok ?? d.edge_auth_ok;
+  const authOk = authRaw == null ? null : !!authRaw;
   const pend = Number(d.outbox_pending || 0);
+  const latency = d.sync_latency_ms ?? d.edge_latency_ms;
+  const authStatus = d.sync_auth_status ?? d.edge_auth_status;
+  const authError = d.sync_auth_error ?? d.edge_auth_error;
+  const syncError = d.sync_error ?? d.edge_error;
   if (serverOk && (authOk === true || authOk == null)) {
-    return `${label}: server OK${d.edge_latency_ms ? ` (${d.edge_latency_ms}ms)` : ""} · auth OK · queued ${pend}`;
+    return `${label}: server OK${latency ? ` (${latency}ms)` : ""} · auth OK · queued ${pend}`;
   }
   if (serverOk && authOk === false) {
-    const code = d.edge_auth_status ? ` (${d.edge_auth_status})` : "";
-    const err = d.edge_auth_error ? ` - ${d.edge_auth_error}` : "";
+    const code = authStatus ? ` (${authStatus})` : "";
+    const err = authError ? ` - ${authError}` : "";
     return `${label}: server OK · auth FAILED${code}${err} · queued ${pend}`;
   }
-  const err = d.edge_error ? ` - ${d.edge_error}` : "";
+  const err = syncError ? ` - ${syncError}` : "";
   return `${label}: OFFLINE${err} · queued ${pend}`;
 }
 
-function edgeAuthNotice(label, res) {
+function syncAuthNotice(label, res) {
   if (!res || !res.ok) return null;
   const d = res.data || {};
-  if (d.edge_auth_ok !== false) return null;
-  const code = d.edge_auth_status ? ` (${d.edge_auth_status})` : "";
-  const rawErr = String(d.edge_auth_error || "").trim() || "Device token is missing or invalid.";
+  const authOk = d.sync_auth_ok ?? d.edge_auth_ok;
+  if (authOk !== false) return null;
+  const authStatus = d.sync_auth_status ?? d.edge_auth_status;
+  const authError = d.sync_auth_error ?? d.edge_auth_error;
+  const code = authStatus ? ` (${authStatus})` : "";
+  const rawErr = String(authError || "").trim() || "Device token is missing or invalid.";
   const isSecondary = String(label || "").trim().toLowerCase().includes("secondary");
   const cfgPart = isSecondary
     ? "secondary device token or company mapping"
@@ -1830,11 +1847,11 @@ async function start() {
   }
 
   const [stA, stB] = await Promise.all([
-    fetchEdgeStatus(portOfficial),
-    fetchEdgeStatus(portUnofficial),
+    fetchSyncStatus(portOfficial),
+    fetchSyncStatus(portUnofficial),
   ]);
-  const diagLines = [fmtEdgeDiag("Primary", stA), fmtEdgeDiag("Secondary", stB)];
-  const authWarnings = [edgeAuthNotice("Primary", stA), edgeAuthNotice("Secondary", stB)].filter(Boolean);
+  const diagLines = [fmtSyncDiag("Primary", stA), fmtSyncDiag("Secondary", stB)];
+  const authWarnings = [syncAuthNotice("Primary", stA), syncAuthNotice("Secondary", stB)].filter(Boolean);
   if (authWarnings.length > 0) {
     diagLines.push("", "AUTH warning:", ...authWarnings);
   }
@@ -1981,11 +1998,11 @@ async function runDiagnostics() {
     return;
   }
   const [stA, stB] = await Promise.all([
-    fetchEdgeStatus(portOfficial),
-    fetchEdgeStatus(portUnofficial),
+    fetchSyncStatus(portOfficial),
+    fetchSyncStatus(portUnofficial),
   ]);
-  const diagLines = [fmtEdgeDiag("Primary", stA), fmtEdgeDiag("Secondary", stB)];
-  const authWarnings = [edgeAuthNotice("Primary", stA), edgeAuthNotice("Secondary", stB)].filter(Boolean);
+  const diagLines = [fmtSyncDiag("Primary", stA), fmtSyncDiag("Secondary", stB)];
+  const authWarnings = [syncAuthNotice("Primary", stA), syncAuthNotice("Secondary", stB)].filter(Boolean);
   if (authWarnings.length > 0) {
     diagLines.push("", "AUTH warning:", ...authWarnings);
   }

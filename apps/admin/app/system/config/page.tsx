@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, getCompanyId } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmButton } from "@/components/confirm-button";
@@ -29,6 +29,18 @@ type CoaAccount = { id: string; account_code: string; name_en: string; is_postab
 type AccountDefaultRow = { role_code: string; account_code: string; name_en: string };
 type PaymentMethodRow = { method: string; role_code: string; created_at: string };
 type CompanySettingRow = { key: string; value_json: any; updated_at: string };
+type CompanyProfile = {
+  id: string;
+  name: string;
+  legal_name: string | null;
+  registration_no: string | null;
+  vat_no: string | null;
+  base_currency: string;
+  vat_currency: string;
+  default_rate_type: string;
+  created_at?: string;
+  updated_at?: string;
+};
 
 function todayISO() {
   const d = new Date();
@@ -66,6 +78,18 @@ export default function ConfigPage() {
   const [defaults, setDefaults] = useState<AccountDefaultRow[]>([]);
   const [methods, setMethods] = useState<PaymentMethodRow[]>([]);
   const [settings, setSettings] = useState<CompanySettingRow[]>([]);
+  const [company, setCompany] = useState<CompanyProfile | null>(null);
+
+  // Company profile
+  const [companyEditName, setCompanyEditName] = useState("");
+  const [companyEditLegalName, setCompanyEditLegalName] = useState("");
+  const [companyEditRegistrationNo, setCompanyEditRegistrationNo] = useState("");
+  const [companyEditVatNo, setCompanyEditVatNo] = useState("");
+  const [companyEditBaseCurrency, setCompanyEditBaseCurrency] = useState("USD");
+  const [companyEditVatCurrency, setCompanyEditVatCurrency] = useState("LBP");
+  const [companyEditRateType, setCompanyEditRateType] = useState("market");
+  const [companyOpen, setCompanyOpen] = useState(false);
+  const [savingCompany, setSavingCompany] = useState(false);
 
   // Loyalty settings (company_settings.key='loyalty')
   const [pointsPerUsd, setPointsPerUsd] = useState("0");
@@ -339,14 +363,19 @@ export default function ConfigPage() {
   async function load() {
     setStatus("Loading...");
     try {
-      const [tc, er, ar, ca, ad, pm, cs] = await Promise.all([
+      const companyId = String(getCompanyId() || "").trim();
+      const companyReq = companyId
+        ? apiGet<{ company: CompanyProfile }>(`/companies/${encodeURIComponent(companyId)}`).catch(() => null)
+        : Promise.resolve(null);
+      const [tc, er, ar, ca, ad, pm, cs, co] = await Promise.all([
         apiGet<{ tax_codes: TaxCode[] }>("/config/tax-codes"),
         apiGet<{ rates: ExchangeRateRow[] }>("/config/exchange-rates"),
         apiGet<{ roles: AccountRole[] }>("/config/account-roles"),
         apiGet<{ accounts: CoaAccount[] }>("/coa/accounts"),
         apiGet<{ defaults: AccountDefaultRow[] }>("/config/account-defaults"),
         apiGet<{ methods: PaymentMethodRow[] }>("/config/payment-methods"),
-        apiGet<{ settings: CompanySettingRow[] }>("/pricing/company-settings")
+        apiGet<{ settings: CompanySettingRow[] }>("/pricing/company-settings"),
+        companyReq,
       ]);
       setTaxCodes(tc.tax_codes || []);
       setRates(er.rates || []);
@@ -355,6 +384,7 @@ export default function ConfigPage() {
       setDefaults(ad.defaults || []);
       setMethods(pm.methods || []);
       setSettings(cs.settings || []);
+      setCompany(co?.company || null);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -420,6 +450,50 @@ export default function ConfigPage() {
     if (!defaultRole && roles.length) setDefaultRole(roles[0]?.code || "");
     if (!methodRole && roles.length) setMethodRole(roles[0]?.code || "");
   }, [roles, defaultRole, methodRole]);
+
+  useEffect(() => {
+    setCompanyEditName(String(company?.name || ""));
+    setCompanyEditLegalName(String(company?.legal_name || ""));
+    setCompanyEditRegistrationNo(String(company?.registration_no || ""));
+    setCompanyEditVatNo(String(company?.vat_no || ""));
+    setCompanyEditBaseCurrency(String(company?.base_currency || "USD"));
+    setCompanyEditVatCurrency(String(company?.vat_currency || "LBP"));
+    setCompanyEditRateType(String(company?.default_rate_type || "market"));
+  }, [company]);
+
+  async function saveCompany(e: React.FormEvent): Promise<boolean> {
+    e.preventDefault();
+    if (!company?.id) {
+      setStatus("company is not selected");
+      return false;
+    }
+    if (!companyEditName.trim()) {
+      setStatus("company name is required");
+      return false;
+    }
+    setSavingCompany(true);
+    setStatus("Saving company profile...");
+    try {
+      await apiPatch<{ company: CompanyProfile }>(`/companies/${encodeURIComponent(company.id)}`, {
+        name: companyEditName.trim(),
+        legal_name: companyEditLegalName.trim() || null,
+        registration_no: companyEditRegistrationNo.trim() || null,
+        vat_no: companyEditVatNo.trim() || null,
+        base_currency: companyEditBaseCurrency || "USD",
+        vat_currency: companyEditVatCurrency || "LBP",
+        default_rate_type: companyEditRateType || "market",
+      });
+      await load();
+      setStatus("");
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+      return false;
+    } finally {
+      setSavingCompany(false);
+    }
+  }
 
   async function createTaxCode(e: React.FormEvent) {
     e.preventDefault();
@@ -752,6 +826,7 @@ export default function ConfigPage() {
         meta={
           <TabBar
             tabs={[
+              { label: "Company", href: "/system/config?tab=company", activeQuery: { key: "tab", value: "company" } },
               { label: "Policies", href: "/system/config?tab=policies", activeQuery: { key: "tab", value: "policies" } },
               { label: "Accounting", href: "/system/config?tab=accounting", activeQuery: { key: "tab", value: "accounting" } },
               { label: "Tax & FX", href: "/system/config?tab=tax", activeQuery: { key: "tab", value: "tax" } },
@@ -761,6 +836,118 @@ export default function ConfigPage() {
           />
         }
       />
+
+      {tab === "company" ? (
+        <Section
+          title="Company Profile"
+          description="Edit legal and operational company information used across ERP and POS."
+          actions={
+            <Dialog open={companyOpen} onOpenChange={setCompanyOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" disabled={!company?.id}>
+                  Edit
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Company Profile</DialogTitle>
+                  <DialogDescription>Update company identity, tax and currency defaults.</DialogDescription>
+                </DialogHeader>
+                <form
+                  onSubmit={async (e) => {
+                    const ok = await saveCompany(e);
+                    if (ok) setCompanyOpen(false);
+                  }}
+                  className="grid grid-cols-1 gap-3 md:grid-cols-2"
+                >
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-medium text-fg-muted">Company Name</label>
+                    <Input value={companyEditName} onChange={(e) => setCompanyEditName(e.target.value)} placeholder="AH Trading Official" />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-medium text-fg-muted">Legal Name</label>
+                    <Input value={companyEditLegalName} onChange={(e) => setCompanyEditLegalName(e.target.value)} placeholder="AH Trading S.A.R.L." />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Registration No</label>
+                    <Input
+                      value={companyEditRegistrationNo}
+                      onChange={(e) => setCompanyEditRegistrationNo(e.target.value)}
+                      placeholder="123456"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">VAT No</label>
+                    <Input value={companyEditVatNo} onChange={(e) => setCompanyEditVatNo(e.target.value)} placeholder="VAT-001122" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">Base Currency</label>
+                    <select className="ui-select" value={companyEditBaseCurrency} onChange={(e) => setCompanyEditBaseCurrency(e.target.value)}>
+                      <option value="USD">USD</option>
+                      <option value="LBP">LBP</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg-muted">VAT Currency</label>
+                    <select className="ui-select" value={companyEditVatCurrency} onChange={(e) => setCompanyEditVatCurrency(e.target.value)}>
+                      <option value="USD">USD</option>
+                      <option value="LBP">LBP</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <label className="text-xs font-medium text-fg-muted">Default FX Rate Type</label>
+                    <select className="ui-select" value={companyEditRateType} onChange={(e) => setCompanyEditRateType(e.target.value)}>
+                      <option value="market">market</option>
+                      <option value="official">official</option>
+                      <option value="internal">internal</option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-2 flex justify-end">
+                    <Button type="submit" disabled={savingCompany}>
+                      {savingCompany ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          }
+        >
+          {company ? (
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+                <div className="text-xs font-medium text-fg-muted">Company Name</div>
+                <div className="mt-1 text-sm text-foreground">{company.name || "-"}</div>
+              </div>
+              <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+                <div className="text-xs font-medium text-fg-muted">Legal Name</div>
+                <div className="mt-1 text-sm text-foreground">{company.legal_name || "-"}</div>
+              </div>
+              <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+                <div className="text-xs font-medium text-fg-muted">Registration No</div>
+                <div className="mt-1 text-sm text-foreground">{company.registration_no || "-"}</div>
+              </div>
+              <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+                <div className="text-xs font-medium text-fg-muted">VAT No</div>
+                <div className="mt-1 text-sm text-foreground">{company.vat_no || "-"}</div>
+              </div>
+              <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+                <div className="text-xs font-medium text-fg-muted">Base Currency</div>
+                <div className="mt-1 text-sm text-foreground">{company.base_currency || "-"}</div>
+              </div>
+              <div className="rounded-md border border-border bg-bg-sunken/10 p-3">
+                <div className="text-xs font-medium text-fg-muted">VAT Currency</div>
+                <div className="mt-1 text-sm text-foreground">{company.vat_currency || "-"}</div>
+              </div>
+              <div className="rounded-md border border-border bg-bg-sunken/10 p-3 md:col-span-2">
+                <div className="text-xs font-medium text-fg-muted">Default FX Rate Type</div>
+                <div className="mt-1 text-sm text-foreground">{company.default_rate_type || "-"}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-fg-muted">No company selected.</div>
+          )}
+        </Section>
+      ) : null}
 
       {tab === "policies" ? (
         <>

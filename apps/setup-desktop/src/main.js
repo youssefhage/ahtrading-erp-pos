@@ -278,11 +278,11 @@ async function runSetup() {
   const updateEnv = el("updateEnv").value === "yes";
 
   if (!edgeApiUrlForPos) {
-    setStatus("Missing POS Edge API URL.");
+    setStatus("Missing POS API URL.");
     return;
   }
   if (mode === "pos" && !apiBaseUrl) {
-    setStatus("POS-only mode requires Remote Edge API base URL.");
+    setStatus("POS-only mode requires a remote API base URL.");
     return;
   }
   if (syncEnabled && !edgeSyncKey) {

@@ -127,6 +127,12 @@ type InvoiceDetail = {
   tax_lines: TaxLine[];
 };
 
+type SupplierAccountSnapshot = {
+  closing_usd: string | number;
+  closing_lbp: string | number;
+  end_date?: string | null;
+};
+
 type PaymentDraft = { method: string; amount_usd: string; amount_lbp: string };
 
 function todayIso() {
@@ -146,6 +152,16 @@ function hasTender(p: SupplierPayment) {
   return n((p as any).tender_usd) !== 0 || n((p as any).tender_lbp) !== 0;
 }
 
+function formatMethodLabel(method: string) {
+  const s = String(method || "").trim();
+  if (!s) return "";
+  return s
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function SupplierInvoiceShowInner() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -154,6 +170,7 @@ function SupplierInvoiceShowInner() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
+  const [supplierAccount, setSupplierAccount] = useState<SupplierAccountSnapshot | null>(null);
   const [aiInsight, setAiInsight] = useState<AiRecRow | null>(null);
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodMapping[]>([]);
@@ -163,7 +180,7 @@ function SupplierInvoiceShowInner() {
   const [postOpen, setPostOpen] = useState(false);
   const [postSubmitting, setPostSubmitting] = useState(false);
   const [postPostingDate, setPostPostingDate] = useState(() => todayIso());
-  const [postPayments, setPostPayments] = useState<PaymentDraft[]>([{ method: "bank", amount_usd: "0", amount_lbp: "0" }]);
+  const [postPayments, setPostPayments] = useState<PaymentDraft[]>([{ method: "", amount_usd: "0", amount_lbp: "0" }]);
   const [postPreview, setPostPreview] = useState<{ base_usd: number; base_lbp: number; tax_usd: number; tax_lbp: number; total_usd: number; total_lbp: number } | null>(
     null
   );
@@ -181,12 +198,12 @@ function SupplierInvoiceShowInner() {
   const [holdBusy, setHoldBusy] = useState(false);
 
   const methodChoices = useMemo(() => {
-    const base = ["cash", "bank", "card", "transfer", "other"];
-    const fromConfig = paymentMethods.map((m) => m.method);
-    const merged = Array.from(new Set([...base, ...fromConfig])).filter(Boolean);
+    const fromConfig = paymentMethods.map((m) => String(m.method || "").trim().toLowerCase()).filter(Boolean);
+    const merged = Array.from(new Set(fromConfig));
     merged.sort();
     return merged;
   }, [paymentMethods]);
+  const hasPaymentMethodMappings = methodChoices.length > 0;
   const invoiceLineColumns = useMemo((): Array<DataTableColumn<InvoiceLine>> => {
     return [
       {
@@ -322,6 +339,7 @@ function SupplierInvoiceShowInner() {
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
+    setSupplierAccount(null);
     try {
       const [det, pm] = await Promise.all([
         apiGet<InvoiceDetail>(`/purchases/invoices/${id}`),
@@ -329,6 +347,19 @@ function SupplierInvoiceShowInner() {
       ]);
       setDetail(det);
       setPaymentMethods(pm.methods || []);
+      const supplierId = String(det?.invoice?.supplier_id || "").trim();
+      if (supplierId) {
+        const soa = await apiGet<{ closing_usd: string | number; closing_lbp: string | number; end_date?: string }>(
+          `/reports/supplier-soa?supplier_id=${encodeURIComponent(supplierId)}`
+        ).catch(() => null);
+        if (soa) {
+          setSupplierAccount({
+            closing_usd: soa.closing_usd,
+            closing_lbp: soa.closing_lbp,
+            end_date: soa.end_date || null,
+          });
+        }
+      }
 
       // AI insights are optional; don't block if ai:read is missing.
       try {
@@ -349,6 +380,7 @@ function SupplierInvoiceShowInner() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setDetail(null);
+      setSupplierAccount(null);
       setStatus(message);
     } finally {
       setLoading(false);
@@ -358,6 +390,20 @@ function SupplierInvoiceShowInner() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!methodChoices.length) {
+      setPostPayments((prev) => prev.map((p) => ({ ...p, method: "" })));
+      return;
+    }
+    setPostPayments((prev) =>
+      prev.map((p) => {
+        const key = String(p.method || "").trim().toLowerCase();
+        if (!key || !methodChoices.includes(key)) return { ...p, method: methodChoices[0] };
+        return key === p.method ? p : { ...p, method: key };
+      })
+    );
+  }, [methodChoices]);
 
   useEffect(() => {
     function isTypingTarget(t: EventTarget | null) {
@@ -514,6 +560,60 @@ function SupplierInvoiceShowInner() {
     };
   }, [detail]);
 
+  const supplierAccountOverview = useMemo(() => {
+    if (!supplierOverview) return null;
+    const hasSupplier = Boolean(String(detail?.invoice?.supplier_id || "").trim());
+    if (!hasSupplier) {
+      return {
+        hasSupplier: false,
+        hasBalance: false,
+        overallUsd: 0,
+        overallLbp: 0,
+        excludingInvoiceUsd: 0,
+        excludingInvoiceLbp: 0,
+        includingInvoiceUsd: 0,
+        includingInvoiceLbp: 0,
+        invoiceIncludedNow: false,
+      };
+    }
+    if (!supplierAccount) {
+      return {
+        hasSupplier: true,
+        hasBalance: false,
+        overallUsd: 0,
+        overallLbp: 0,
+        excludingInvoiceUsd: 0,
+        excludingInvoiceLbp: 0,
+        includingInvoiceUsd: 0,
+        includingInvoiceLbp: 0,
+        invoiceIncludedNow: detail?.invoice?.status === "posted",
+      };
+    }
+
+    const overallUsd = n(supplierAccount.closing_usd);
+    const overallLbp = n(supplierAccount.closing_lbp);
+    const invoiceDueUsd = n(supplierOverview.balUsd);
+    const invoiceDueLbp = n(supplierOverview.balLbp);
+    const invoiceIncludedNow = detail?.invoice?.status === "posted";
+
+    const excludingInvoiceUsd = invoiceIncludedNow ? overallUsd - invoiceDueUsd : overallUsd;
+    const excludingInvoiceLbp = invoiceIncludedNow ? overallLbp - invoiceDueLbp : overallLbp;
+    const includingInvoiceUsd = invoiceIncludedNow ? overallUsd : overallUsd + invoiceDueUsd;
+    const includingInvoiceLbp = invoiceIncludedNow ? overallLbp : overallLbp + invoiceDueLbp;
+
+    return {
+      hasSupplier: true,
+      hasBalance: true,
+      overallUsd,
+      overallLbp,
+      excludingInvoiceUsd,
+      excludingInvoiceLbp,
+      includingInvoiceUsd,
+      includingInvoiceLbp,
+      invoiceIncludedNow,
+    };
+  }, [detail?.invoice?.status, detail?.invoice?.supplier_id, supplierAccount, supplierOverview]);
+
   async function openPostDialog() {
     if (!detail) return;
     if (detail.invoice.status !== "draft") return;
@@ -526,7 +626,7 @@ function SupplierInvoiceShowInner() {
       return;
     }
     setPostPostingDate(todayIso());
-    setPostPayments([{ method: "bank", amount_usd: "0", amount_lbp: "0" }]);
+    setPostPayments([{ method: methodChoices[0] || "", amount_usd: "0", amount_lbp: "0" }]);
     setPostPreview(null);
     try {
       const prev = await apiGet<{
@@ -560,7 +660,12 @@ function SupplierInvoiceShowInner() {
       if (!lbpRes.ok && lbpRes.reason === "invalid") return setStatus(`Invalid LL amount on payment row ${i + 1}.`);
       const usd = usdRes.ok ? usdRes.value : 0;
       const lbp = lbpRes.ok ? lbpRes.value : 0;
-      if (usd !== 0 || lbp !== 0) paymentsOut.push({ method: p.method, amount_usd: usd, amount_lbp: lbp });
+      if (usd !== 0 || lbp !== 0) {
+        const methodKey = String(p.method || "").trim().toLowerCase();
+        if (!methodKey) return setStatus(`Method is required on payment row ${i + 1}.`);
+        if (!methodChoices.includes(methodKey)) return setStatus(`Invalid method on payment row ${i + 1}.`);
+        paymentsOut.push({ method: methodKey, amount_usd: usd, amount_lbp: lbp });
+      }
     }
 
     setPostSubmitting(true);
@@ -869,27 +974,121 @@ function SupplierInvoiceShowInner() {
 
                     <div className="ui-panel p-5 md:col-span-4">
                       <p className="ui-panel-title">Totals</p>
-                      <div className="mt-3">
-                        <div className="text-sm text-fg-muted">Total</div>
-                        <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${supplierOverview?.primaryTone || "ui-tone-usd"}`}>
-                          {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryTotal) : fmtUsd(0)}
-                        </div>
-                        <div className="data-mono mt-1 text-sm text-fg-muted">
-                          {supplierOverview ? supplierOverview.secondaryFmt(supplierOverview.secondaryTotal) : fmtLbp(0)}
-                        </div>
-                      </div>
-                      <div className="mt-4 space-y-2">
-                        <div className="ui-kv ui-kv-strong">
-                          <span className="ui-kv-label">Balance</span>
-                          <span className="ui-kv-value">
+                      <div className="mt-3 space-y-3">
+                        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                          <p className="ui-panel-title">This Invoice</p>
+                          <p className="mt-1 text-xs text-fg-subtle">Only this invoice.</p>
+                          <div className="mt-2 text-sm text-fg-muted">Amount due now</div>
+                          <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${supplierOverview?.primaryTone || "ui-tone-usd"}`}>
                             {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryBal) : fmtUsd(0)}
-                          </span>
-                        </div>
-                        <div className="ui-kv ui-kv-sub">
-                          <span className="ui-kv-label">Balance (other)</span>
-                          <span className="ui-kv-value">
+                          </div>
+                          <div className="data-mono mt-1 text-sm text-fg-muted">
                             {supplierOverview ? supplierOverview.secondaryFmt(supplierOverview.secondaryBal) : fmtLbp(0)}
-                          </span>
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="ui-panel-title">Supplier Account</p>
+                            <span
+                              className="text-xs text-fg-subtle"
+                              title="Includes other unpaid invoices, credits, unapplied payments."
+                            >
+                              What is this?
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-fg-subtle">All open invoices/credits.</p>
+                          {supplierAccountOverview?.hasBalance ? (
+                            <div className="mt-2 space-y-1">
+                              <div className="ui-kv ui-kv-strong">
+                                <span className="ui-kv-label">Account balance (overall)</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsdLbp(supplierAccountOverview.overallUsd, supplierAccountOverview.overallLbp)}
+                                </span>
+                              </div>
+                              <div className="ui-kv ui-kv-sub">
+                                <span className="ui-kv-label">Excluding this invoice</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsdLbp(supplierAccountOverview.excludingInvoiceUsd, supplierAccountOverview.excludingInvoiceLbp)}
+                                </span>
+                              </div>
+                              <div className="ui-kv ui-kv-sub">
+                                <span className="ui-kv-label">
+                                  {supplierAccountOverview.invoiceIncludedNow ? "Including this invoice (current)" : "Including this invoice (once posted)"}
+                                </span>
+                                <span className="ui-kv-value">
+                                  {fmtUsdLbp(supplierAccountOverview.includingInvoiceUsd, supplierAccountOverview.includingInvoiceLbp)}
+                                </span>
+                              </div>
+                              <p className="mt-2 text-xs text-fg-subtle">
+                                Includes other unpaid invoices, credits, unapplied payments.
+                              </p>
+                            </div>
+                          ) : supplierAccountOverview?.hasSupplier ? (
+                            <p className="mt-2 text-xs text-fg-subtle">Supplier account balance unavailable.</p>
+                          ) : (
+                            <p className="mt-2 text-xs text-fg-subtle">No supplier selected for this invoice.</p>
+                          )}
+                        </div>
+
+                        <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                          <p className="ui-panel-title">Details</p>
+                          <div className="mt-2 space-y-1">
+                            <div className="ui-kv ui-kv-strong">
+                              <span className="ui-kv-label">Invoice total</span>
+                              <span className="ui-kv-value">
+                                {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryTotal) : fmtUsd(0)}
+                              </span>
+                            </div>
+                            <div className="ui-kv ui-kv-sub">
+                              <span className="ui-kv-label">Invoice total (other)</span>
+                              <span className="ui-kv-value">
+                                {supplierOverview ? supplierOverview.secondaryFmt(supplierOverview.secondaryTotal) : fmtLbp(0)}
+                              </span>
+                            </div>
+                            <div className="section-divider my-2" />
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Applied to this invoice</span>
+                              <span className="ui-kv-value">
+                                {supplierOverview ? supplierOverview.primaryFmt(supplierOverview.primaryPaid) : fmtUsd(0)}
+                              </span>
+                            </div>
+                            <div className="ui-kv ui-kv-sub">
+                              <span className="ui-kv-label">Applied to this invoice (other)</span>
+                              <span className="ui-kv-value">
+                                {supplierOverview ? supplierOverview.secondaryFmt(supplierOverview.secondaryPaid) : fmtLbp(0)}
+                              </span>
+                            </div>
+                            {supplierOverview?.hasAnyTender ? (
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Amount paid</span>
+                                <span className="ui-kv-value">{fmtUsdLbp(supplierOverview.tenderUsd, supplierOverview.tenderLbp)}</span>
+                              </div>
+                            ) : null}
+                            {(detail.tax_lines || []).length ? (
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">VAT</span>
+                                <span className="ui-kv-value">{fmtUsdLbp(supplierOverview?.vatUsd || 0, supplierOverview?.vatLbp || 0)}</span>
+                              </div>
+                            ) : null}
+                          </div>
+                          <details className="mt-3 rounded-lg border border-border-subtle bg-bg-elevated/40 p-3">
+                            <summary className="cursor-pointer text-sm font-medium text-fg-muted">Breakdown</summary>
+                            <div className="mt-2 space-y-2">
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Subtotal</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsdLbp(supplierOverview?.subUsd || 0, supplierOverview?.subLbp || 0)}
+                                </span>
+                              </div>
+                              <div className="ui-kv">
+                                <span className="ui-kv-label">Discount</span>
+                                <span className="ui-kv-value">
+                                  {fmtUsdLbp(supplierOverview?.discUsd || 0, supplierOverview?.discLbp || 0)}
+                                </span>
+                              </div>
+                            </div>
+                          </details>
                         </div>
                       </div>
                     </div>
@@ -915,7 +1114,7 @@ function SupplierInvoiceShowInner() {
                         {detail.payments.map((p) => (
                           <div key={p.id} className="flex items-center justify-between gap-2">
                             <span className="data-mono">
-                              {p.method}
+                              {formatMethodLabel(p.method)}
                               {p.reference ? <span className="text-fg-subtle"> · {p.reference}</span> : null}
                             </span>
                             <span className="data-mono">{fmtUsdLbp(p.amount_usd, p.amount_lbp)}</span>
@@ -1261,11 +1460,17 @@ function SupplierInvoiceShowInner() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => setPostPayments((prev) => [...prev, { method: "bank", amount_usd: "0", amount_lbp: "0" }])}
+                      onClick={() => setPostPayments((prev) => [...prev, { method: methodChoices[0] || "", amount_usd: "0", amount_lbp: "0" }])}
+                      disabled={!hasPaymentMethodMappings}
                     >
                       Add
                     </Button>
                   </div>
+                  {!hasPaymentMethodMappings ? (
+                    <div className="mt-2 text-xs text-warning">
+                      No payment methods are configured. Add at least one in System Config before posting with payments.
+                    </div>
+                  ) : null}
                   <div className="mt-3 space-y-2">
                     {postPayments.map((p, idx) => (
                       <div key={idx} className="grid grid-cols-1 gap-2 md:grid-cols-12">
@@ -1276,16 +1481,18 @@ function SupplierInvoiceShowInner() {
                             onChange={(e) =>
                               setPostPayments((prev) => prev.map((x, i) => (i === idx ? { ...x, method: e.target.value } : x)))
                             }
+                            disabled={!hasPaymentMethodMappings}
                           >
+                            {!methodChoices.length ? <option value="">(no methods)</option> : null}
                             {methodChoices.map((m) => (
                               <option key={m} value={m}>
-                                {m}
+                                {formatMethodLabel(m)}
                               </option>
                             ))}
                           </select>
                         </div>
                         <MoneyInput
-                          label="Amount"
+                          label="Amount Paid"
                           currency="USD"
                           value={p.amount_usd}
                           onChange={(next) => setPostPayments((prev) => prev.map((x, i) => (i === idx ? { ...x, amount_usd: next } : x)))}
@@ -1293,8 +1500,9 @@ function SupplierInvoiceShowInner() {
                           className="md:col-span-3"
                         />
                         <MoneyInput
-                          label="Amount"
+                          label="Amount Paid"
                           currency="LBP"
+                          displayCurrency="LL"
                           value={p.amount_lbp}
                           onChange={(next) => setPostPayments((prev) => prev.map((x, i) => (i === idx ? { ...x, amount_lbp: next } : x)))}
                           quick={[0]}

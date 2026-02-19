@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 export function MoneyInput(props: {
   label: string;
   currency: "USD" | "LBP";
+  displayCurrency?: string;
   value: string;
   onChange: (next: string) => void;
   placeholder?: string;
@@ -22,7 +23,7 @@ export function MoneyInput(props: {
       <label className="text-sm font-medium text-fg-muted">{props.label}</label>
       <div className="flex">
         <span className="inline-flex h-10 items-center rounded-l-md border border-border bg-bg-sunken px-2 text-sm font-semibold text-fg-muted">
-          {props.currency}
+          {props.displayCurrency || props.currency}
         </span>
         <Input
           value={props.value}

@@ -78,12 +78,6 @@ type FlatNavItem = NavItem & { section: string };
 
 type BranchRow = { id: string; name: string };
 type WarehouseRow = { id: string; name: string };
-type EdgeNodeStatusRow = {
-  node_id: string;
-  last_seen_at?: string | null;
-  last_ping_at?: string | null;
-  last_import_at?: string | null;
-};
 
 type WorkerHeartbeatRow = {
   worker_name: string;
@@ -613,8 +607,8 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const [health, setHealth] = useState<"checking" | "online" | "offline">("checking");
   const [healthDetail, setHealthDetail] = useState("");
 
-  const [edgeHealth, setEdgeHealth] = useState<"checking" | "online" | "offline">("checking");
-  const [edgeHealthDetail, setEdgeHealthDetail] = useState("");
+  const [syncHealth, setSyncHealth] = useState<"checking" | "online" | "offline">("checking");
+  const [syncHealthDetail, setSyncHealthDetail] = useState("");
 
   const [companyId, setCompanyId] = useState(() => getCompanyId());
   const [companyName, setCompanyName] = useState<string>("");
@@ -808,7 +802,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
   const cloudApiBaseUrl = useMemo(() => {
     // In cloud deployments, publicApiBaseUrl is the right cloud base.
     if (!onPremAdmin && publicApiBaseUrl) return publicApiBaseUrl;
-    // In edge deployments, the Admin origin is LAN:3000; default cloud base for ops.
+    // In LAN-hosted admin deployments, default to cloud API for generated setup payloads.
     return "https://app.melqard.com/api";
   }, [onPremAdmin, publicApiBaseUrl]);
 
@@ -819,7 +813,6 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     const payload = {
       // Cloud-first: one control plane + local POS cache/outbox for offline resilience.
       api_base_url: cloudBase,
-      edge_api_base_url: "",
       cloud_api_base_url: cloudBase,
       company_id: cid,
       device_code: "POS-01",
@@ -1079,89 +1072,46 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
     let cancelled = false;
     let timer: number | undefined;
 
-    async function checkEdge() {
+    async function checkSync() {
       if (!companyId) {
-        setEdgeHealth("checking");
-        setEdgeHealthDetail("Select a company to view edge status.");
+        setSyncHealth("checking");
+        setSyncHealthDetail("Select a company to view sync status.");
         return;
       }
       try {
-        if (onPremAdmin) {
-          // On edge: show Cloud Sync worker health (edge -> cloud).
-          const hb = await apiGet<{ heartbeats: WorkerHeartbeatRow[] }>("/config/worker-heartbeats");
-          if (cancelled) return;
-          const rows = hb?.heartbeats || [];
-          const syncTargets = rows.filter((r) =>
-            ["EDGE_CLOUD_SYNC", "EDGE_CLOUD_MASTERDATA_PULL"].includes(String(r?.worker_name || ""))
-          );
-          const fallbackWorker = rows.find((r) => String(r?.worker_name || "") === "outbox-worker");
-          const targets = syncTargets.length ? syncTargets : (fallbackWorker ? [fallbackWorker] : []);
-          if (!targets.length) {
-            setEdgeHealth("offline");
-            setEdgeHealthDetail("Cloud Sync workers not running yet.");
-            return;
-          }
-          const now = Date.now();
-          const freshMs = 120_000; // allow some jitter on bad internet
-          const ok = targets.every((r) => {
-            const ts = r?.last_seen_at ? Date.parse(String(r.last_seen_at)) : NaN;
-            if (!Number.isFinite(ts)) return false;
-            return now - ts < freshMs;
-          });
-          setEdgeHealth(ok ? "online" : "offline");
-          const details = targets
-            .map((r) => {
-              const ts = r?.last_seen_at ? formatDateLike(r.last_seen_at) : "";
-              return `${r.worker_name}${ts ? ` (${ts})` : ""}`;
-            })
-            .join(" · ");
-          const mode = syncTargets.length ? "named" : "compat";
-          setEdgeHealthDetail(
-            `Cloud Sync: ${ok ? "OK" : "Stale"} · ${details}${mode === "compat" ? " · heartbeat mode: compatibility" : ""}`
-          );
-        } else {
-          // On cloud: show edge node heartbeat (cloud <- edge).
-          const res = await apiGet<{ nodes: EdgeNodeStatusRow[] }>("/edge-nodes/status");
-          if (cancelled) return;
-          const nodes = res?.nodes || [];
-          if (!nodes.length) {
-            setEdgeHealth("offline");
-            setEdgeHealthDetail("No edge nodes have pinged yet.");
-            return;
-          }
-          const now = Date.now();
-          const freshMs = 120_000;
-          const online = nodes.some((n) => {
-            const ts = n?.last_seen_at ? Date.parse(String(n.last_seen_at)) : NaN;
-            if (!Number.isFinite(ts)) return false;
-            return now - ts < freshMs;
-          });
-          setEdgeHealth(online ? "online" : "offline");
-
-          const top = nodes[0];
-          const lastSeen = top?.last_seen_at ? formatDateLike(top.last_seen_at) : "";
-          const lastImport = top?.last_import_at ? formatDateLike(top.last_import_at) : "";
-          const details = [
-            `Nodes: ${nodes.length}`,
-            top?.node_id ? `Latest: ${top.node_id}` : "",
-            lastSeen ? `Last seen: ${lastSeen}` : "",
-            lastImport ? `Last import: ${lastImport}` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          setEdgeHealthDetail(details || "Edge status");
+        const hb = await apiGet<{ heartbeats: WorkerHeartbeatRow[] }>("/config/worker-heartbeats");
+        if (cancelled) return;
+        const rows = hb?.heartbeats || [];
+        const worker = rows.find((r) => String(r?.worker_name || "") === "outbox-worker");
+        if (!worker) {
+          setSyncHealth("offline");
+          setSyncHealthDetail("Outbox worker heartbeat not available yet.");
+          return;
         }
+        const ts = worker?.last_seen_at ? Date.parse(String(worker.last_seen_at)) : NaN;
+        const freshMs = 120_000;
+        const healthy = Number.isFinite(ts) && Date.now() - ts < freshMs;
+        setSyncHealth(healthy ? "online" : "offline");
+        const details = worker?.details && typeof worker.details === "object" ? worker.details : {};
+        const outboxErr = details?.outbox_error ? `Outbox error: ${String(details.outbox_error)}` : "";
+        const jobsErr = details?.jobs_error ? `Jobs error: ${String(details.jobs_error)}` : "";
+        const lastSeen = worker?.last_seen_at ? formatDateLike(worker.last_seen_at) : "";
+        setSyncHealthDetail(
+          [healthy ? "Sync worker OK" : "Sync worker stale", lastSeen ? `Last seen: ${lastSeen}` : "", outboxErr, jobsErr]
+            .filter(Boolean)
+            .join(" · ")
+        );
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
-        setEdgeHealth("offline");
-        setEdgeHealthDetail(message);
+        setSyncHealth("offline");
+        setSyncHealthDetail(message);
       }
     }
 
-    checkEdge();
+    checkSync();
     if (uiVariant !== "lite") {
-      timer = window.setInterval(checkEdge, 30000);
+      timer = window.setInterval(checkSync, 30000);
     }
     return () => {
       cancelled = true;
@@ -1723,22 +1673,21 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
               )}
             </div>
 
-            {/* Edge indicator */}
+            {/* Sync indicator */}
             <div
               className={cn(
                 "flex h-8 items-center gap-2 rounded-md border px-2.5 text-xs font-medium",
-                edgeHealth === "online"
+                syncHealth === "online"
                   ? "border-success/20 bg-success/10 text-success"
-                  : edgeHealth === "offline"
+                  : syncHealth === "offline"
                     ? "border-border bg-bg-elevated text-fg-subtle"
                     : "border-border bg-bg-elevated text-fg-subtle"
               )}
-              title={edgeHealthDetail || "Edge status"}
+              title={syncHealthDetail || "Sync status"}
             >
-              <Zap className={cn("h-3.5 w-3.5", edgeHealth === "online" ? "animate-pulse" : "")} />
+              <Zap className={cn("h-3.5 w-3.5", syncHealth === "online" ? "animate-pulse" : "")} />
               <span className="hidden sm:inline">
-                {onPremAdmin ? "Cloud Sync" : "Edge"}{" "}
-                {edgeHealth === "online" ? (onPremAdmin ? "OK" : "Live") : edgeHealth === "offline" ? (onPremAdmin ? "Stale" : "Off") : "..."}
+                Sync {syncHealth === "online" ? "OK" : syncHealth === "offline" ? "Stale" : "..."}
               </span>
             </div>
 

@@ -1,6 +1,6 @@
 # On-Prem + POS Onboarding (Automated)
 
-This repo includes a guided onboarding runner that sets up the on-prem EDGE stack and provisions POS devices, without touching your cloud/Dokploy deployment.
+This repo includes a guided onboarding runner that sets up the on-prem local-node stack and provisions POS devices, without touching your cloud/Dokploy deployment.
 
 ## Installer (recommended)
 
@@ -10,7 +10,7 @@ Use the installer launcher:
 ./scripts/setup_installer.sh
 ```
 
-Or (recommended for stores) install **Setup Desktop** from the downloads page and run it. Setup Desktop can run without a repo clone (it ships a bundled Edge stack that pulls prebuilt images).
+Or (recommended for stores) install **Setup Desktop** from the downloads page and run it. Setup Desktop can run without a repo clone (it ships a bundled local-node stack that pulls prebuilt images).
 
 ## Windows Prereqs (If Using The Zip Runner)
 
@@ -38,7 +38,7 @@ From the repo root:
 
 The script will:
 1. Generate `deploy/edge/.env.edge` (with strong random secrets).
-2. Start the EDGE stack via Docker Compose.
+2. Start the local-node stack via Docker Compose.
 3. Wait for the API to become healthy.
 4. Login as the bootstrap admin.
 5. Register POS devices automatically.
@@ -81,11 +81,14 @@ Example:
 ./scripts/onboard_onprem_pos.sh --compose-mode images
 ```
 
-## Edge -> Cloud Sync
+## Node -> Cloud Sync
 
 If you enable sync during onboarding, the script will set:
 - `EDGE_SYNC_TARGET_URL` (cloud API base URL)
 - `EDGE_SYNC_KEY` (shared secret)
 - `EDGE_SYNC_NODE_ID` (store identifier)
 
-Cloud-side enablement can be done later by setting the same `EDGE_SYNC_KEY` on the cloud API.
+Cloud-side enablement must be tenant-scoped:
+- Single-tenant cloud: set `EDGE_SYNC_KEY` and `EDGE_SYNC_COMPANY_ID` (same company as the store).
+- Multi-tenant cloud: set `EDGE_SYNC_KEY_BY_COMPANY` with per-company secrets.
+- Optional hardening: set `EDGE_SYNC_NODE_COMPANY_MAP` to pin each node id to one company id.

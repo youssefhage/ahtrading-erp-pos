@@ -5,7 +5,7 @@ installer isn't available yet.
 
 This pack contains:
 - onboard_onprem_pos.py (the guided runner)
-- docker-compose.edge.images.yml (pulls prebuilt Edge images)
+- docker-compose.edge.images.yml (pulls prebuilt local-node images)
 - .env.edge.example
 - convenience launchers for Windows/macOS
 """
@@ -45,7 +45,7 @@ def main() -> int:
         Melqard Setup Runner (v{args.version})
 
         This is a fallback for Windows/macOS when "Setup Desktop" installers are not available yet.
-        It provisions the on-prem Edge server and exports POS device packs.
+        It provisions the on-prem local server and exports POS device packs.
 
         Requirements (install once on the server machine):
         - Docker Desktop (Windows/macOS)
@@ -53,7 +53,7 @@ def main() -> int:
         - macOS: Python 3 is recommended (Homebrew: `brew install python`)
 
         Quick Start
-        1) Extract this zip into a folder (e.g. C:\\MelqardEdgeSetup or ~/MelqardEdgeSetup).
+        1) Extract this zip into a folder (e.g. C:\\MelqardSetup or ~/MelqardSetup).
         2) Run:
            - Windows (PowerShell):   .\\run_setup.ps1
            - macOS (Terminal):      ./run_setup.sh

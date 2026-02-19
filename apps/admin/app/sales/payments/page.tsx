@@ -10,7 +10,7 @@ import { parseNumberInput } from "@/lib/numbers";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { MoneyInput } from "@/components/money-input";
-import { SearchableSelect } from "@/components/searchable-select";
+import { SearchableSelect, type SearchableSelectOption } from "@/components/searchable-select";
 import { ShortcutLink } from "@/components/shortcut-link";
 import { useToast } from "@/components/toast-provider";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,8 @@ type InvoiceRow = {
   id: string;
   invoice_no: string;
   customer_id: string | null;
+  customer_name?: string | null;
+  status?: string;
   total_usd: string | number;
   total_lbp: string | number;
   exchange_rate?: string | number;
@@ -48,6 +50,22 @@ type SalesPaymentRow = {
   created_at: string;
 };
 
+type SalesPaymentsListResponse = {
+  payments: SalesPaymentRow[];
+  total?: number;
+  limit?: number;
+  offset?: number;
+  totals?: {
+    applied_usd?: string | number | null;
+    applied_lbp?: string | number | null;
+    tender_usd?: string | number | null;
+    tender_lbp?: string | number | null;
+    has_tender?: boolean | null;
+  };
+};
+
+const PAYMENTS_PAGE_SIZE = 200;
+
 function toNum(v: string) {
   const r = parseNumberInput(v);
   return r.ok ? r.value : 0;
@@ -60,6 +78,32 @@ function n(v: unknown) {
 
 function hasTender(p: SalesPaymentRow) {
   return n(p.tender_usd) !== 0 || n(p.tender_lbp) !== 0;
+}
+
+function formatMethodLabel(method: string) {
+  const s = String(method || "").trim();
+  if (!s) return "";
+  return s
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function SummaryMoneyCard(props: { title: string; usd: number; lbp: number }) {
+  return (
+    <div className="rounded-xl border border-border-subtle bg-bg-elevated/70 px-3 py-2">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-subtle">{props.title}</div>
+      <div className="mt-1 flex items-center justify-between gap-3">
+        <span className="text-xs text-fg-subtle">USD</span>
+        <span className="data-mono text-sm ui-tone-usd">{props.usd.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
+      </div>
+      <div className="mt-0.5 flex items-center justify-between gap-3">
+        <span className="text-xs text-fg-subtle">LL</span>
+        <span className="data-mono text-sm ui-tone-lbp">{props.lbp.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
+      </div>
+    </div>
+  );
 }
 
 function SalesPaymentsPageInner() {
@@ -75,6 +119,15 @@ function SalesPaymentsPageInner() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodMapping[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [payments, setPayments] = useState<SalesPaymentRow[]>([]);
+  const [totalRows, setTotalRows] = useState(0);
+  const [page, setPage] = useState(1);
+  const [totals, setTotals] = useState({
+    applied_usd: 0,
+    applied_lbp: 0,
+    tender_usd: 0,
+    tender_lbp: 0,
+    has_tender: false,
+  });
 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [customerId, setCustomerId] = useState("");
@@ -90,17 +143,32 @@ function SalesPaymentsPageInner() {
   const [tenderLbp, setTenderLbp] = useState("");
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [bankAccountId, setBankAccountId] = useState("");
+  const [payableInvoices, setPayableInvoices] = useState<InvoiceRow[]>([]);
+  const [payInvoiceOptions, setPayInvoiceOptions] = useState<SearchableSelectOption[]>([{ value: "", label: "Select invoice..." }]);
+  const [payInvoicesLoading, setPayInvoicesLoading] = useState(false);
 
   const customerById = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
   const invoiceById = useMemo(() => new Map(invoices.map((i) => [i.id, i])), [invoices]);
+  const payableInvoiceById = useMemo(() => new Map(payableInvoices.map((i) => [i.id, i])), [payableInvoices]);
 
   const methodChoices = useMemo(() => {
-    const base = ["cash", "bank", "card", "transfer", "other"];
-    const fromConfig = paymentMethods.map((m) => m.method);
-    const merged = Array.from(new Set([...base, ...fromConfig])).filter(Boolean);
+    const fromConfig = paymentMethods.map((m) => String(m.method || "").trim().toLowerCase()).filter(Boolean);
+    const merged = Array.from(new Set(fromConfig));
     merged.sort();
     return merged;
   }, [paymentMethods]);
+  const methodRoleByMethod = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const m of paymentMethods) {
+      const methodKey = String(m.method || "").trim().toLowerCase();
+      const roleCode = String(m.role_code || "").trim().toUpperCase();
+      if (methodKey) out.set(methodKey, roleCode);
+    }
+    return out;
+  }, [paymentMethods]);
+  const hasPaymentMethodMappings = methodChoices.length > 0;
+  const normalizedMethod = method.trim().toLowerCase();
+  const showBankAccount = methodRoleByMethod.get(normalizedMethod) === "BANK";
 
   const loadBase = useCallback(async () => {
     const [cust, inv, pm] = await Promise.all([
@@ -127,22 +195,49 @@ function SalesPaymentsPageInner() {
       if (customerId) qs.set("customer_id", customerId);
       if (dateFrom) qs.set("date_from", dateFrom);
       if (dateTo) qs.set("date_to", dateTo);
-      qs.set("limit", "500");
-      const res = await apiGet<{ payments: SalesPaymentRow[] }>(`/sales/payments?${qs.toString()}`);
+      qs.set("limit", String(PAYMENTS_PAGE_SIZE));
+      qs.set("offset", String((page - 1) * PAYMENTS_PAGE_SIZE));
+      const res = await apiGet<SalesPaymentsListResponse>(`/sales/payments?${qs.toString()}`);
       setPayments(res.payments || []);
+      setTotalRows(Number(res.total ?? (res.payments || []).length));
+      if (res.totals) {
+        setTotals({
+          applied_usd: n(res.totals.applied_usd),
+          applied_lbp: n(res.totals.applied_lbp),
+          tender_usd: n(res.totals.tender_usd),
+          tender_lbp: n(res.totals.tender_lbp),
+          has_tender: Boolean(res.totals.has_tender),
+        });
+      } else {
+        const fallback = {
+          applied_usd: 0,
+          applied_lbp: 0,
+          tender_usd: 0,
+          tender_lbp: 0,
+          has_tender: false,
+        };
+        for (const p of res.payments || []) {
+          fallback.applied_usd += n(p.amount_usd);
+          fallback.applied_lbp += n(p.amount_lbp);
+          if (hasTender(p)) {
+            fallback.has_tender = true;
+            fallback.tender_usd += n(p.tender_usd);
+            fallback.tender_lbp += n(p.tender_lbp);
+          }
+        }
+        setTotals(fallback);
+      }
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }, [invoiceId, customerId, dateFrom, dateTo]);
+  }, [invoiceId, customerId, dateFrom, dateTo, page]);
 
-  const loadAll = useCallback(async () => {
-    setStatus("Loading...");
+  const refreshAll = useCallback(async () => {
     try {
       await loadBase();
       await loadPayments();
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
@@ -150,8 +245,8 @@ function SalesPaymentsPageInner() {
   }, [loadBase, loadPayments]);
 
   useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+    loadBase().catch((err) => setStatus(err instanceof Error ? err.message : String(err)));
+  }, [loadBase]);
 
   useEffect(() => {
     // Allow deep-linking from invoice detail into payments.
@@ -164,16 +259,94 @@ function SalesPaymentsPageInner() {
   }, [qsInvoiceId, qsCustomerId, qsRecord]);
 
   useEffect(() => {
+    setPage(1);
+  }, [invoiceId, customerId, dateFrom, dateTo]);
+  useEffect(() => {
     loadPayments();
   }, [loadPayments]);
+  useEffect(() => {
+    if (!methodChoices.length) {
+      if (method) setMethod("");
+      return;
+    }
+    if (!methodChoices.includes(normalizedMethod)) {
+      setMethod(methodChoices[0]);
+    }
+  }, [methodChoices, normalizedMethod, method]);
+  useEffect(() => {
+    if (!showBankAccount && bankAccountId) setBankAccountId("");
+  }, [showBankAccount, bankAccountId]);
+
+  const searchPayableInvoices = useCallback(
+    async (query: string) => {
+      setPayInvoicesLoading(true);
+      try {
+        const qs = new URLSearchParams();
+        qs.set("limit", "120");
+        qs.set("offset", "0");
+        qs.set("status", "posted");
+        qs.set("payable_only", "true");
+        const trimmed = query.trim();
+        if (trimmed) qs.set("q", trimmed);
+        const res = await apiGet<{ invoices: InvoiceRow[] }>(`/sales/invoices?${qs.toString()}`);
+        const rows = res.invoices || [];
+        setPayableInvoices(rows);
+        const opts: SearchableSelectOption[] = [
+          { value: "", label: "Select invoice..." },
+          ...rows.map((inv) => {
+            const customerName = inv.customer_name || (inv.customer_id ? customerById.get(inv.customer_id)?.name || inv.customer_id : "Walk-in");
+            return {
+              value: inv.id,
+              label: `${inv.invoice_no} · ${customerName} · ${fmtUsd(inv.total_usd)}`,
+              keywords: `${inv.invoice_no} ${inv.id} ${customerName}`.trim(),
+            };
+          }),
+        ];
+        if (payInvoiceId && !opts.some((o) => o.value === payInvoiceId)) {
+          let selected = invoiceById.get(payInvoiceId);
+          if (!selected) {
+            const selectedQs = new URLSearchParams();
+            selectedQs.set("limit", "5");
+            selectedQs.set("offset", "0");
+            selectedQs.set("status", "posted");
+            selectedQs.set("payable_only", "true");
+            selectedQs.set("q", payInvoiceId);
+            const selectedRes = await apiGet<{ invoices: InvoiceRow[] }>(`/sales/invoices?${selectedQs.toString()}`);
+            selected = (selectedRes.invoices || []).find((inv) => inv.id === payInvoiceId);
+          }
+          if (selected) {
+            const selectedCustomer =
+              selected.customer_name || (selected.customer_id ? customerById.get(selected.customer_id)?.name || selected.customer_id : "Walk-in");
+            opts.push({
+              value: selected.id,
+              label: `${selected.invoice_no} · ${selectedCustomer} · ${fmtUsd(selected.total_usd)}`,
+              keywords: `${selected.invoice_no} ${selected.id} ${selectedCustomer}`.trim(),
+            });
+          }
+        }
+        setPayInvoiceOptions(opts);
+      } catch (err) {
+        setStatus(err instanceof Error ? err.message : String(err));
+      } finally {
+        setPayInvoicesLoading(false);
+      }
+    },
+    [customerById, invoiceById, payInvoiceId]
+  );
+
+  useEffect(() => {
+    if (!createOpen) return;
+    void searchPayableInvoices("");
+  }, [createOpen, searchPayableInvoices]);
 
   async function createPayment(e: React.FormEvent) {
     e.preventDefault();
     if (!payInvoiceId) return setStatus("Invoice is required.");
+    if (!hasPaymentMethodMappings) return setStatus("Configure payment methods first in System Config.");
     if (!method.trim()) return setStatus("Method is required.");
     const usd = toNum(tenderUsd);
     const lbp = toNum(tenderLbp);
-    if (usd === 0 && lbp === 0) return setStatus("Tender is required.");
+    if (usd === 0 && lbp === 0) return setStatus("Amount received is required.");
 
     setCreating(true);
     setStatus("Posting...");
@@ -189,7 +362,7 @@ function SalesPaymentsPageInner() {
       toast.success("Payment recorded", "Customer payment posted successfully.");
       setCreateOpen(false);
       setPayInvoiceId("");
-      setMethod("cash");
+      setMethod(methodChoices[0] || "");
       setTenderUsd("");
       setTenderLbp("");
       setBankAccountId("");
@@ -203,33 +376,12 @@ function SalesPaymentsPageInner() {
     }
   }
 
-  const selectedInvoice = payInvoiceId ? invoiceById.get(payInvoiceId) : null;
+  const selectedInvoice = payInvoiceId ? payableInvoiceById.get(payInvoiceId) || invoiceById.get(payInvoiceId) : null;
   const selectedRate = Number(selectedInvoice?.exchange_rate || 0);
   const tenderUsdN = toNum(tenderUsd);
   const tenderLbpN = toNum(tenderLbp);
   const appliedUsdPreview = selectedRate ? tenderUsdN + tenderLbpN / selectedRate : tenderUsdN;
   const appliedLbpPreview = selectedRate ? appliedUsdPreview * selectedRate : tenderLbpN;
-
-  const totals = useMemo(() => {
-    const out = {
-      rows: payments.length,
-      applied_usd: 0,
-      applied_lbp: 0,
-      tender_usd: 0,
-      tender_lbp: 0,
-      has_tender: false
-    };
-    for (const p of payments) {
-      out.applied_usd += n(p.amount_usd);
-      out.applied_lbp += n(p.amount_lbp);
-      if (hasTender(p)) {
-        out.has_tender = true;
-        out.tender_usd += n(p.tender_usd);
-        out.tender_lbp += n(p.tender_lbp);
-      }
-    }
-    return out;
-  }, [payments]);
 
   const columns = useMemo((): Array<DataTableColumn<SalesPaymentRow>> => {
     return [
@@ -259,7 +411,14 @@ function SalesPaymentsPageInner() {
             "Walk-in"
           ),
       },
-      { id: "method", header: "Method", accessor: (p) => p.method, sortable: true, mono: true, cell: (p) => <span className="text-xs">{p.method}</span> },
+      {
+        id: "method",
+        header: "Method",
+        accessor: (p) => formatMethodLabel(p.method),
+        sortable: true,
+        mono: true,
+        cell: (p) => <span className="text-xs">{formatMethodLabel(p.method)}</span>,
+      },
       {
         id: "usd",
         header: "USD",
@@ -314,7 +473,7 @@ function SalesPaymentsPageInner() {
           </div>
         </div>
       </div>
-        {status ? <ErrorBanner error={status} onRetry={loadPayments} /> : null}
+        {status ? <ErrorBanner error={status} onRetry={refreshAll} /> : null}
 
         <Card>
           <CardHeader>
@@ -326,7 +485,7 @@ function SalesPaymentsPageInner() {
               <Button variant="outline" onClick={() => setFiltersOpen((v) => !v)}>
                 {filtersOpen ? "Hide Filters" : "Show Filters"}
               </Button>
-              <Button variant="outline" onClick={loadAll}>
+              <Button variant="outline" onClick={refreshAll}>
                 Refresh
               </Button>
               <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -343,20 +502,16 @@ function SalesPaymentsPageInner() {
                   <form onSubmit={createPayment} className="ui-form-grid-6">
                     <div className="space-y-1 md:col-span-4">
                       <label className="text-xs font-medium text-fg-muted">Invoice</label>
-                      <select
-                        className="ui-select"
+                      <SearchableSelect
                         value={payInvoiceId}
-                        onChange={(e) => setPayInvoiceId(e.target.value)}
-                      >
-                        <option value="">Select invoice...</option>
-                        {invoices.map((inv) => (
-                          <option key={inv.id} value={inv.id}>
-                            {inv.invoice_no} ·{" "}
-                            {inv.customer_id ? customerById.get(inv.customer_id)?.name || inv.customer_id : "Walk-in"} ·{" "}
-                            {fmtUsd(inv.total_usd)}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={setPayInvoiceId}
+                        placeholder="Select invoice..."
+                        searchPlaceholder="Search invoices..."
+                        maxOptions={120}
+                        loading={payInvoicesLoading}
+                        onSearchQueryChange={searchPayableInvoices}
+                        options={payInvoiceOptions}
+                      />
                     </div>
                 <div className="space-y-1 md:col-span-2">
                   <label className="text-xs font-medium text-fg-muted">Method</label>
@@ -364,36 +519,45 @@ function SalesPaymentsPageInner() {
                         className="ui-select"
                         value={method}
                         onChange={(e) => setMethod(e.target.value)}
+                        disabled={!hasPaymentMethodMappings}
                       >
+                        {!methodChoices.length ? <option value="">(no methods)</option> : null}
                         {methodChoices.map((m) => (
                           <option key={m} value={m}>
-                            {m}
+                            {formatMethodLabel(m)}
                           </option>
                         ))}
                   </select>
                 </div>
+                {!hasPaymentMethodMappings ? (
+                  <div className="md:col-span-6 text-xs text-warning">
+                    No payment methods are configured. Add at least one in System Config before posting payments.
+                  </div>
+                ) : null}
                 <div className="space-y-1 md:col-span-3">
                   <label className="text-xs font-medium text-fg-muted">Payment Date</label>
                   <Input value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} type="date" />
                 </div>
-                <div className="space-y-1 md:col-span-3">
-                  <label className="text-xs font-medium text-fg-muted">Bank Account (optional)</label>
-                  <select
-                    className="ui-select"
-                    value={bankAccountId}
-                    onChange={(e) => setBankAccountId(e.target.value)}
-                  >
-                    <option value="">(none)</option>
-                    {bankAccounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name} ({a.currency})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {showBankAccount ? (
+                  <div className="space-y-1 md:col-span-3">
+                    <label className="text-xs font-medium text-fg-muted">Bank Account (optional)</label>
+                    <select
+                      className="ui-select"
+                      value={bankAccountId}
+                      onChange={(e) => setBankAccountId(e.target.value)}
+                    >
+                      <option value="">(none)</option>
+                      {bankAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name} ({a.currency})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
                 <MoneyInput
                   className="md:col-span-3"
-                  label="Tender"
+                  label="Amount Received"
                   currency="USD"
                   value={tenderUsd}
                   onChange={setTenderUsd}
@@ -403,8 +567,9 @@ function SalesPaymentsPageInner() {
                 />
                 <MoneyInput
                   className="md:col-span-3"
-                  label="Tender"
+                  label="Amount Received"
                   currency="LBP"
+                  displayCurrency="LL"
                   value={tenderLbp}
                   onChange={setTenderLbp}
                   placeholder="0"
@@ -427,11 +592,11 @@ function SalesPaymentsPageInner() {
                       LL.
                     </>
                   ) : (
-                    "Tip: Enter USD and/or LL tender. The system applies the payment using the invoice exchange rate."
+                    "Tip: Enter USD and/or LL amount received. The system applies the payment using the invoice exchange rate."
                   )}
                 </div>
                     <div className="flex justify-end md:col-span-6">
-                      <Button type="submit" disabled={creating}>
+                      <Button type="submit" disabled={creating || !hasPaymentMethodMappings}>
                         {creating ? "..." : "Post Payment"}
                       </Button>
                     </div>
@@ -483,49 +648,22 @@ function SalesPaymentsPageInner() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
+          <CardHeader className="space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
                 <CardTitle>Payments</CardTitle>
                 <CardDescription>
-                  {payments.length} rows
-                  {totals.rows ? (
-                    <>
-                      {" "}
-                      · Applied: <span className="data-mono ui-tone-usd">{Number(totals.applied_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>{" "}
-                      <span className="text-fg-subtle">/</span>{" "}
-                      <span className="data-mono ui-tone-lbp">{Number(totals.applied_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
-                      {totals.has_tender ? (
-                        <>
-                          {" "}
-                          · Tender: <span className="data-mono ui-tone-usd">{Number(totals.tender_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>{" "}
-                          <span className="text-fg-subtle">/</span>{" "}
-                          <span className="data-mono ui-tone-lbp">{Number(totals.tender_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
-                        </>
-                      ) : null}
-                    </>
-                  ) : null}
+                  Showing {payments.length.toLocaleString("en-US")} of {totalRows.toLocaleString("en-US")} matching rows.
                 </CardDescription>
               </div>
-
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                <div className="ui-panel px-3 py-2">
-                  <div className="ui-panel-title">Rows</div>
-                  <div className="data-mono text-sm">{totals.rows.toLocaleString("en-US")}</div>
-                </div>
-                <div className="ui-panel px-3 py-2">
-                  <div className="ui-panel-title">Applied</div>
-                  <div className="data-mono text-sm ui-tone-usd">{Number(totals.applied_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
-                  <div className="data-mono text-xs text-fg-muted ui-tone-lbp">{Number(totals.applied_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
-                </div>
-                {totals.has_tender ? (
-                  <div className="ui-panel px-3 py-2">
-                    <div className="ui-panel-title">Tender</div>
-                    <div className="data-mono text-sm ui-tone-usd">{Number(totals.tender_usd).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
-                    <div className="data-mono text-xs text-fg-muted ui-tone-lbp">{Number(totals.tender_lbp).toLocaleString("en-US", { maximumFractionDigits: 2 })}</div>
-                  </div>
-                ) : null}
+              <div className="min-w-[110px] rounded-xl border border-border-subtle bg-bg-elevated/70 px-3 py-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-subtle">Rows</div>
+                <div className="mt-1 data-mono text-lg leading-none text-foreground">{totalRows.toLocaleString("en-US")}</div>
               </div>
+            </div>
+            <div className={`grid gap-2 ${totals.has_tender ? "md:grid-cols-2" : "md:grid-cols-1"} lg:max-w-2xl`}>
+              <SummaryMoneyCard title="Applied" usd={totals.applied_usd} lbp={totals.applied_lbp} />
+              {totals.has_tender ? <SummaryMoneyCard title="Amount Received" usd={totals.tender_usd} lbp={totals.tender_lbp} /> : null}
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -537,6 +675,24 @@ function SalesPaymentsPageInner() {
               globalFilterPlaceholder="Search invoice / customer / method..."
               initialSort={{ columnId: "created_at", dir: "desc" }}
             />
+            <div className="flex items-center justify-between pt-1">
+              <p className="text-xs text-fg-muted">
+                Page {page.toLocaleString("en-US")} · {payments.length.toLocaleString("en-US")} rows loaded
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={page * PAYMENTS_PAGE_SIZE >= totalRows}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>);

@@ -1,6 +1,5 @@
 {
-  "api_base_url": "http://192.168.1.7:8001",
-  "edge_api_base_url": "http://192.168.1.7:8001",
+  "api_base_url": "https://app.melqard.com/api",
   "cloud_api_base_url": "https://app.melqard.com/api",
   "company_id": "00000000-0000-0000-0000-000000000001",
   "branch_id": "00000000-0000-0000-0000-000000000011",

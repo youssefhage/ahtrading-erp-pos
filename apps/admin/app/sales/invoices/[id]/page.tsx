@@ -20,6 +20,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { StatusChip } from "@/components/ui/status-chip";
+import {
+  VatBreakdownPanel,
+  buildVatSharePct,
+  type VatItemAttributionRow,
+  type VatRateRow,
+  type VatRawTaxLine,
+  type VatSummaryModel,
+} from "../_components/vat-breakdown-panel";
 
 type PaymentMethodMapping = { method: string; role_code: string; created_at: string };
 
@@ -99,6 +107,12 @@ type InvoiceDetail = {
   tax_lines: TaxLine[];
 };
 
+type CustomerAccountSnapshot = {
+  id: string;
+  credit_balance_usd: string | number;
+  credit_balance_lbp: string | number;
+};
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -128,6 +142,16 @@ function hasTender(p: SalesPayment) {
   return n(p.tender_usd) !== 0 || n(p.tender_lbp) !== 0;
 }
 
+function formatMethodLabel(method: string) {
+  const s = String(method || "").trim();
+  if (!s) return "";
+  return s
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function SalesInvoiceShowInner() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -136,6 +160,7 @@ function SalesInvoiceShowInner() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
+  const [customerAccount, setCustomerAccount] = useState<CustomerAccountSnapshot | null>(null);
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodMapping[]>([]);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
@@ -173,12 +198,12 @@ function SalesInvoiceShowInner() {
   const searchParams = useSearchParams();
 
   const methodChoices = useMemo(() => {
-    const base = ["cash", "bank", "card", "transfer", "other"];
-    const fromConfig = paymentMethods.map((m) => m.method);
-    const merged = Array.from(new Set([...base, ...fromConfig])).filter(Boolean);
+    const fromConfig = paymentMethods.map((m) => String(m.method || "").trim().toLowerCase()).filter(Boolean);
+    const merged = Array.from(new Set(fromConfig));
     merged.sort();
     return merged;
   }, [paymentMethods]);
+  const hasPaymentMethodMappings = methodChoices.length > 0;
 
   const activeTab = (() => {
     const t = String(searchParams.get("tab") || "overview").toLowerCase();
@@ -262,6 +287,60 @@ function SalesInvoiceShowInner() {
       primaryTone
     };
   }, [detail]);
+
+  const customerAccountOverview = useMemo(() => {
+    if (!salesOverview) return null;
+    const hasCustomer = Boolean(String(detail?.invoice?.customer_id || "").trim());
+    if (!hasCustomer) {
+      return {
+        hasCustomer: false,
+        hasBalance: false,
+        overallUsd: 0,
+        overallLbp: 0,
+        excludingInvoiceUsd: 0,
+        excludingInvoiceLbp: 0,
+        includingInvoiceUsd: 0,
+        includingInvoiceLbp: 0,
+        invoiceIncludedNow: false,
+      };
+    }
+    if (!customerAccount) {
+      return {
+        hasCustomer: true,
+        hasBalance: false,
+        overallUsd: 0,
+        overallLbp: 0,
+        excludingInvoiceUsd: 0,
+        excludingInvoiceLbp: 0,
+        includingInvoiceUsd: 0,
+        includingInvoiceLbp: 0,
+        invoiceIncludedNow: detail?.invoice?.status === "posted",
+      };
+    }
+
+    const overallUsd = n(customerAccount.credit_balance_usd);
+    const overallLbp = n(customerAccount.credit_balance_lbp);
+    const invoiceDueUsd = n(salesOverview.balUsd);
+    const invoiceDueLbp = n(salesOverview.balLbp);
+    const invoiceIncludedNow = detail?.invoice?.status === "posted";
+
+    const excludingInvoiceUsd = invoiceIncludedNow ? overallUsd - invoiceDueUsd : overallUsd;
+    const excludingInvoiceLbp = invoiceIncludedNow ? overallLbp - invoiceDueLbp : overallLbp;
+    const includingInvoiceUsd = invoiceIncludedNow ? overallUsd : overallUsd + invoiceDueUsd;
+    const includingInvoiceLbp = invoiceIncludedNow ? overallLbp : overallLbp + invoiceDueLbp;
+
+    return {
+      hasCustomer: true,
+      hasBalance: true,
+      overallUsd,
+      overallLbp,
+      excludingInvoiceUsd,
+      excludingInvoiceLbp,
+      includingInvoiceUsd,
+      includingInvoiceLbp,
+      invoiceIncludedNow,
+    };
+  }, [customerAccount, detail?.invoice?.customer_id, detail?.invoice?.status, salesOverview]);
 
   const taxById = useMemo(() => {
     return new Map((taxCodes || []).map((t) => [String(t.id), t]));
@@ -396,6 +475,163 @@ function SalesInvoiceShowInner() {
     }
     return { base_usd, base_lbp, tax_usd, tax_lbp };
   }, [draftTaxBreakdown]);
+
+  const taxSettlementCurrency = useMemo(() => {
+    return String(detail?.invoice?.settlement_currency || "USD").toUpperCase() === "LBP" ? "LBP" : "USD";
+  }, [detail?.invoice?.settlement_currency]);
+
+  const activeTaxBreakdown = detail?.invoice?.status === "draft" ? draftTaxBreakdown : taxBreakdown;
+  const activeTaxBreakdownTotals = detail?.invoice?.status === "draft" ? draftTaxBreakdownTotals : taxBreakdownTotals;
+
+  const taxPanelRateRows = useMemo((): VatRateRow[] => {
+    const totalTax = { usd: n(activeTaxBreakdownTotals.tax_usd), lbp: n(activeTaxBreakdownTotals.tax_lbp) };
+    const rows = activeTaxBreakdown.map((r) => {
+      const effectivePctUsd = r.base_usd > 0 ? (r.tax_usd / r.base_usd) * 100 : null;
+      const effectivePctLbp = r.base_lbp > 0 ? (r.tax_lbp / r.base_lbp) * 100 : null;
+      const effectiveRatePct = Number.isFinite(Number(effectivePctUsd))
+        ? effectivePctUsd
+        : Number.isFinite(Number(effectivePctLbp))
+          ? effectivePctLbp
+          : null;
+      const tax = { usd: n(r.tax_usd), lbp: n(r.tax_lbp) };
+      return {
+        id: r.tax_code_id,
+        label: r.label,
+        ratePct: r.ratePct,
+        effectiveRatePct,
+        taxableBase: { usd: n(r.base_usd), lbp: n(r.base_lbp) },
+        tax,
+        shareOfTotalTaxPct: buildVatSharePct(tax, totalTax, taxSettlementCurrency),
+      };
+    });
+    rows.sort((a, b) => {
+      const aRef = taxSettlementCurrency === "LBP" ? (Math.abs(a.tax.lbp) > 0 ? a.tax.lbp : a.tax.usd) : (Math.abs(a.tax.usd) > 0 ? a.tax.usd : a.tax.lbp);
+      const bRef = taxSettlementCurrency === "LBP" ? (Math.abs(b.tax.lbp) > 0 ? b.tax.lbp : b.tax.usd) : (Math.abs(b.tax.usd) > 0 ? b.tax.usd : b.tax.lbp);
+      return Math.abs(bRef) - Math.abs(aRef);
+    });
+    return rows;
+  }, [activeTaxBreakdown, activeTaxBreakdownTotals.tax_lbp, activeTaxBreakdownTotals.tax_usd, taxSettlementCurrency]);
+
+  const taxPanelItemRows = useMemo((): VatItemAttributionRow[] => {
+    if (!detail) return [];
+    const exchangeRate = n(detail.invoice.exchange_rate);
+    const vatApplied = detail.invoice.status === "draft" ? true : (detail.tax_lines || []).length > 0;
+    const baseRows = detail.lines
+      .map((l) => {
+        const itemLabel = String(l.item_name || "").trim() || String(l.item_sku || "").trim() || String(l.item_id || "").trim() || String(l.id);
+        const tcidRaw = String((l as any).item_tax_code_id || defaultVatTaxCodeId || "").trim();
+
+        if (!vatApplied || !tcidRaw) {
+          return {
+            id: String(l.id),
+            itemLabel,
+            qty: n(l.qty_entered ?? l.qty),
+            net: { usd: n(l.line_total_usd), lbp: n(l.line_total_lbp) },
+            vatRatePct: null,
+            vat: { usd: 0, lbp: 0 },
+            shareOfTotalTaxPct: null,
+          };
+        }
+
+        const tc = taxById.get(tcidRaw);
+        if (!tc || String(tc.tax_type || "").toLowerCase() !== "vat") {
+          return {
+            id: String(l.id),
+            itemLabel,
+            qty: n(l.qty_entered ?? l.qty),
+            net: { usd: n(l.line_total_usd), lbp: n(l.line_total_lbp) },
+            vatRatePct: null,
+            vat: { usd: 0, lbp: 0 },
+            shareOfTotalTaxPct: null,
+          };
+        }
+
+        const rateFrac = taxRateToFraction(tc.rate);
+        const vatRatePct = taxRateToPercent(tc.rate);
+        const baseLbp = n((l as any).line_total_lbp);
+        const vatLbp = baseLbp * rateFrac;
+        const vatUsd = exchangeRate ? vatLbp / exchangeRate : n((l as any).line_total_usd) * rateFrac;
+
+        return {
+          id: String(l.id),
+          itemLabel,
+          qty: n(l.qty_entered ?? l.qty),
+          net: { usd: n(l.line_total_usd), lbp: n(l.line_total_lbp) },
+          vatRatePct,
+          vat: { usd: vatUsd, lbp: vatLbp },
+          shareOfTotalTaxPct: null,
+        };
+      })
+      .filter((r) => r.vatRatePct !== null || n(r.vat.usd) !== 0 || n(r.vat.lbp) !== 0);
+
+    const total = baseRows.reduce<{ usd: number; lbp: number }>(
+      (acc, r) => ({ usd: acc.usd + n(r.vat.usd), lbp: acc.lbp + n(r.vat.lbp) }),
+      { usd: 0, lbp: 0 }
+    );
+
+    const rowsWithShare = baseRows.map((r) => ({
+      ...r,
+      shareOfTotalTaxPct: buildVatSharePct(r.vat, total, taxSettlementCurrency),
+    }));
+
+    rowsWithShare.sort((a, b) => {
+      const aRef =
+        taxSettlementCurrency === "LBP"
+          ? (Math.abs(a.vat.lbp) > 0 ? a.vat.lbp : a.vat.usd)
+          : (Math.abs(a.vat.usd) > 0 ? a.vat.usd : a.vat.lbp);
+      const bRef =
+        taxSettlementCurrency === "LBP"
+          ? (Math.abs(b.vat.lbp) > 0 ? b.vat.lbp : b.vat.usd)
+          : (Math.abs(b.vat.usd) > 0 ? b.vat.usd : b.vat.lbp);
+      return Math.abs(bRef) - Math.abs(aRef);
+    });
+
+    return rowsWithShare;
+  }, [defaultVatTaxCodeId, detail, taxById, taxSettlementCurrency]);
+
+  const taxPanelRawTaxLines = useMemo((): VatRawTaxLine[] => {
+    if (!detail || detail.invoice.status === "draft") return [];
+    return detail.tax_lines.map((t) => {
+      const tc = taxById.get(String(t.tax_code_id));
+      return {
+        id: String(t.id),
+        label: tc?.name ? String(tc.name) : String(t.tax_code_id),
+        ratePct: tc ? taxRateToPercent(tc.rate) : null,
+        base: { usd: n((t as any).base_usd), lbp: n((t as any).base_lbp) },
+        tax: { usd: n((t as any).tax_usd), lbp: n((t as any).tax_lbp) },
+      };
+    });
+  }, [detail, taxById]);
+
+  const taxPanelSummary = useMemo((): VatSummaryModel => {
+    const nonZeroRates = taxPanelRateRows.filter((r) => Number(r.ratePct || 0) > 0);
+    const singleRateNote =
+      nonZeroRates.length === 1 && nonZeroRates[0]?.ratePct !== null
+        ? `All taxable items use ${nonZeroRates[0].ratePct!.toFixed(2)}% VAT`
+        : null;
+    return {
+      totalTax: { usd: n(activeTaxBreakdownTotals.tax_usd), lbp: n(activeTaxBreakdownTotals.tax_lbp) },
+      taxableBase: { usd: n(activeTaxBreakdownTotals.base_usd), lbp: n(activeTaxBreakdownTotals.base_lbp) },
+      taxCodesCount: taxPanelRateRows.length,
+      singleRateNote,
+    };
+  }, [
+    activeTaxBreakdownTotals.base_lbp,
+    activeTaxBreakdownTotals.base_usd,
+    activeTaxBreakdownTotals.tax_lbp,
+    activeTaxBreakdownTotals.tax_usd,
+    taxPanelRateRows,
+  ]);
+
+  const taxPanelPreviewNote =
+    detail?.invoice?.status === "draft"
+      ? "Preview is calculated per item (item tax code or default VAT). Tax entries are recorded when you post."
+      : null;
+
+  const taxPanelEmptyText =
+    detail?.invoice?.status === "draft"
+      ? "No tax preview (missing VAT tax code, or items have no tax code and no default VAT)."
+      : "No tax lines.";
 
   const invoiceLineColumns = useMemo((): Array<DataTableColumn<InvoiceLine>> => {
     const exchangeRate = n(detail?.invoice?.exchange_rate);
@@ -570,6 +806,7 @@ function SalesInvoiceShowInner() {
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
+    setCustomerAccount(null);
     try {
       const [det, pm, tc] = await Promise.all([
         apiGet<InvoiceDetail>(`/sales/invoices/${id}`),
@@ -580,6 +817,11 @@ function SalesInvoiceShowInner() {
       setPaymentMethods(pm.methods || []);
       setTaxCodes(tc.tax_codes || []);
       setTaxPreview(null);
+      const customerId = String(det?.invoice?.customer_id || "").trim();
+      if (customerId) {
+        const cust = await apiGet<{ customer: CustomerAccountSnapshot }>(`/customers/${encodeURIComponent(customerId)}`).catch(() => null);
+        setCustomerAccount(cust?.customer || null);
+      }
       if (det?.invoice?.status === "draft") {
         const prev = await apiGet<{
           base_usd: string | number;
@@ -616,6 +858,7 @@ function SalesInvoiceShowInner() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setDetail(null);
+      setCustomerAccount(null);
       setStatus(message);
     } finally {
       setLoading(false);
@@ -662,7 +905,7 @@ function SalesInvoiceShowInner() {
     setPostApplyingVat(true);
     setPostVatAdvancedOpen(false);
     setPostRecordPayment(false);
-    setPostMethod("cash");
+    setPostMethod(methodChoices[0] || "");
     setPostUsd("0");
     setPostLbp("0");
     setPostPreview(null);
@@ -683,7 +926,18 @@ function SalesInvoiceShowInner() {
       setPostPreview(null);
     }
     setPostOpen(true);
-  }, [detail]);
+  }, [detail, methodChoices]);
+
+  useEffect(() => {
+    if (!methodChoices.length) {
+      if (postRecordPayment) setPostRecordPayment(false);
+      if (postMethod) setPostMethod("");
+      return;
+    }
+    if (!methodChoices.includes(String(postMethod || "").trim().toLowerCase())) {
+      setPostMethod(methodChoices[0]);
+    }
+  }, [methodChoices, postMethod, postRecordPayment]);
 
   useEffect(() => {
     function isTypingTarget(t: EventTarget | null) {
@@ -748,6 +1002,9 @@ function SalesInvoiceShowInner() {
 
     if (zeroPrice) warnings.push(`${zeroPrice} line(s) have zero unit price.`);
     if (postRecordPayment) {
+      if (!hasPaymentMethodMappings) {
+        blocking.push("Payment methods are not configured.");
+      }
       const usd = parseNumberInput(postUsd);
       const lbp = parseNumberInput(postLbp);
       if ((!usd.ok && usd.reason === "invalid") || (!lbp.ok && lbp.reason === "invalid")) {
@@ -760,7 +1017,7 @@ function SalesInvoiceShowInner() {
     }
 
     return { blocking, warnings };
-  }, [detail, postRecordPayment, postUsd, postLbp]);
+  }, [detail, hasPaymentMethodMappings, postRecordPayment, postUsd, postLbp]);
 
   async function refreshPostPreview(applyVat: boolean) {
     if (!detail) return;
@@ -1059,65 +1316,108 @@ function SalesInvoiceShowInner() {
 
                   <div className="ui-panel p-5 md:col-span-4">
                     <p className="ui-panel-title">Totals</p>
-                    <div className="mt-3">
-                      <div className="text-sm text-fg-muted">Balance</div>
-                      <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${salesOverview.primaryTone}`}>{salesOverview.primaryFmt(salesOverview.primaryBal)}</div>
-                      <div className="data-mono mt-1 text-sm text-fg-muted">{salesOverview.secondaryFmt(salesOverview.secondaryBal)}</div>
-                    </div>
-                    <div className="mt-4 space-y-2">
-                      <div className="ui-kv ui-kv-strong">
-                        <span className="ui-kv-label">Total</span>
-                        <span className="ui-kv-value">{salesOverview.primaryFmt(salesOverview.primaryTotal)}</span>
-                      </div>
-                      <div className="ui-kv ui-kv-sub">
-                        <span className="ui-kv-label">Total (other)</span>
-                        <span className="ui-kv-value">{salesOverview.secondaryFmt(salesOverview.secondaryTotal)}</span>
-                      </div>
-
-                      <div className="section-divider my-3" />
-                      <div className="ui-kv">
-                        <span className="ui-kv-label">Applied (settles)</span>
-                        <span className="ui-kv-value">{salesOverview.primaryFmt(salesOverview.primaryPaid)}</span>
-                      </div>
-                      <div className="ui-kv ui-kv-sub">
-                        <span className="ui-kv-label">Applied (other)</span>
-                        <span className="ui-kv-value">{salesOverview.secondaryFmt(salesOverview.secondaryPaid)}</span>
-                      </div>
-
-                      {salesOverview.hasAnyTender ? (
-                        <>
-                          <div className="section-divider my-3" />
-                          <div className="ui-kv">
-                            <span className="ui-kv-label">Tender received</span>
-                            <span className="ui-kv-value">{fmtUsdLbp(salesOverview.tenderUsd, salesOverview.tenderLbp)}</span>
-                          </div>
-                        </>
-                      ) : null}
-
-                      {(detail.tax_lines || []).length ? (
-                        <>
-                          <div className="section-divider my-3" />
-                          <div className="ui-kv">
-                            <span className="ui-kv-label">VAT</span>
-                            <span className="ui-kv-value">{fmtUsdLbp(salesOverview.vatUsd, salesOverview.vatLbp)}</span>
-                          </div>
-                        </>
-                      ) : null}
-
-                      <div className="section-divider my-3" />
-                      <details className="mt-3 rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
-                        <summary className="cursor-pointer text-sm font-medium text-fg-muted">Breakdown</summary>
-                        <div className="mt-2 space-y-2">
-                          <div className="ui-kv">
-                            <span className="ui-kv-label">Subtotal</span>
-                            <span className="ui-kv-value">{fmtUsdLbp(salesOverview.subUsd, salesOverview.subLbp)}</span>
-                          </div>
-                          <div className="ui-kv">
-                            <span className="ui-kv-label">Discount</span>
-                            <span className="ui-kv-value">{fmtUsdLbp(salesOverview.discUsd, salesOverview.discLbp)}</span>
-                          </div>
+                    <div className="mt-3 space-y-3">
+                      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                        <p className="ui-panel-title">This Invoice</p>
+                        <p className="mt-1 text-xs text-fg-subtle">Only this invoice.</p>
+                        <div className="mt-2 text-sm text-fg-muted">Amount due now</div>
+                        <div className={`data-mono mt-1 text-3xl font-semibold leading-none ${salesOverview.primaryTone}`}>
+                          {salesOverview.primaryFmt(salesOverview.primaryBal)}
                         </div>
-                      </details>
+                        <div className="data-mono mt-1 text-sm text-fg-muted">{salesOverview.secondaryFmt(salesOverview.secondaryBal)}</div>
+                      </div>
+
+                      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="ui-panel-title">Customer Account</p>
+                          <span
+                            className="text-xs text-fg-subtle"
+                            title="Includes other unpaid invoices, credits, unapplied payments."
+                          >
+                            What is this?
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-fg-subtle">All open invoices/credits.</p>
+                        {customerAccountOverview?.hasBalance ? (
+                          <div className="mt-2 space-y-1">
+                            <div className="ui-kv ui-kv-strong">
+                              <span className="ui-kv-label">Account balance (overall)</span>
+                              <span className="ui-kv-value">
+                                {fmtUsdLbp(customerAccountOverview.overallUsd, customerAccountOverview.overallLbp)}
+                              </span>
+                            </div>
+                            <div className="ui-kv ui-kv-sub">
+                              <span className="ui-kv-label">Excluding this invoice</span>
+                              <span className="ui-kv-value">
+                                {fmtUsdLbp(customerAccountOverview.excludingInvoiceUsd, customerAccountOverview.excludingInvoiceLbp)}
+                              </span>
+                            </div>
+                            <div className="ui-kv ui-kv-sub">
+                              <span className="ui-kv-label">
+                                {customerAccountOverview.invoiceIncludedNow ? "Including this invoice (current)" : "Including this invoice (once posted)"}
+                              </span>
+                              <span className="ui-kv-value">
+                                {fmtUsdLbp(customerAccountOverview.includingInvoiceUsd, customerAccountOverview.includingInvoiceLbp)}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-xs text-fg-subtle">
+                              Includes other unpaid invoices, credits, unapplied payments.
+                            </p>
+                          </div>
+                        ) : customerAccountOverview?.hasCustomer ? (
+                          <p className="mt-2 text-xs text-fg-subtle">Customer account balance unavailable.</p>
+                        ) : (
+                          <p className="mt-2 text-xs text-fg-subtle">No customer selected for this invoice.</p>
+                        )}
+                      </div>
+
+                      <div className="rounded-lg border border-border-subtle bg-bg-sunken/25 p-3">
+                        <p className="ui-panel-title">Details</p>
+                        <div className="mt-2 space-y-1">
+                          <div className="ui-kv ui-kv-strong">
+                            <span className="ui-kv-label">Invoice total</span>
+                            <span className="ui-kv-value">{salesOverview.primaryFmt(salesOverview.primaryTotal)}</span>
+                          </div>
+                          <div className="ui-kv ui-kv-sub">
+                            <span className="ui-kv-label">Invoice total (other)</span>
+                            <span className="ui-kv-value">{salesOverview.secondaryFmt(salesOverview.secondaryTotal)}</span>
+                          </div>
+                          <div className="section-divider my-2" />
+                          <div className="ui-kv">
+                            <span className="ui-kv-label">Applied to this invoice</span>
+                            <span className="ui-kv-value">{salesOverview.primaryFmt(salesOverview.primaryPaid)}</span>
+                          </div>
+                          <div className="ui-kv ui-kv-sub">
+                            <span className="ui-kv-label">Applied to this invoice (other)</span>
+                            <span className="ui-kv-value">{salesOverview.secondaryFmt(salesOverview.secondaryPaid)}</span>
+                          </div>
+                          {salesOverview.hasAnyTender ? (
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Amount received</span>
+                              <span className="ui-kv-value">{fmtUsdLbp(salesOverview.tenderUsd, salesOverview.tenderLbp)}</span>
+                            </div>
+                          ) : null}
+                          {(detail.tax_lines || []).length ? (
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">VAT</span>
+                              <span className="ui-kv-value">{fmtUsdLbp(salesOverview.vatUsd, salesOverview.vatLbp)}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                        <details className="mt-3 rounded-lg border border-border-subtle bg-bg-elevated/40 p-3">
+                          <summary className="cursor-pointer text-sm font-medium text-fg-muted">Breakdown</summary>
+                          <div className="mt-2 space-y-2">
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Subtotal</span>
+                              <span className="ui-kv-value">{fmtUsdLbp(salesOverview.subUsd, salesOverview.subLbp)}</span>
+                            </div>
+                            <div className="ui-kv">
+                              <span className="ui-kv-label">Discount</span>
+                              <span className="ui-kv-value">{fmtUsdLbp(salesOverview.discUsd, salesOverview.discLbp)}</span>
+                            </div>
+                          </div>
+                        </details>
+                      </div>
                     </div>
                   </div>
 
@@ -1125,7 +1425,7 @@ function SalesInvoiceShowInner() {
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="ui-panel-title">Payments</p>
-                        <p className="mt-1 text-sm text-fg-subtle">Applied and tender amounts (if any).</p>
+                        <p className="mt-1 text-sm text-fg-subtle">Applied and amount received (if any).</p>
                       </div>
                       {detail.invoice.status === "posted" ? (
                         <Button asChild variant="outline" size="sm">
@@ -1145,12 +1445,12 @@ function SalesInvoiceShowInner() {
                     <div className="mt-3 space-y-1 text-sm text-fg-muted">
                       {detail.payments.map((p) => (
                         <div key={p.id} className="flex items-center justify-between gap-2">
-                          <span className="data-mono">{p.method}</span>
+                          <span className="data-mono">{formatMethodLabel(p.method)}</span>
                           <div className="flex items-center gap-2">
                             <span className="data-mono text-right">
                               {hasTender(p) ? (
                                 <>
-                                  <span className="text-foreground">Tender {fmtUsdLbp(n(p.tender_usd), n(p.tender_lbp))}</span>
+                                  <span className="text-foreground">Amount Received {fmtUsdLbp(n(p.tender_usd), n(p.tender_lbp))}</span>
                                   <span className="text-fg-subtle"> · </span>
                                   <span className="text-fg-muted">Applied {fmtUsdLbp(n(p.amount_usd), n(p.amount_lbp))}</span>
                                 </>
@@ -1207,143 +1507,16 @@ function SalesInvoiceShowInner() {
                     <CardTitle className="text-base">Tax</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-1 text-xs text-fg-muted">
-                      {detail.invoice.status === "draft" && draftTaxBreakdown.length ? (
-                        <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Tax breakdown (preview)</span>
-                            <span className="text-xs text-fg-subtle">{draftTaxBreakdown.length} code(s)</span>
-                          </div>
-                          <div className="mt-2 space-y-1">
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-xs text-fg-subtle">
-                              <span>Code</span>
-                              <span className="text-right">Tax</span>
-                            </div>
-                            {draftTaxBreakdown.map((r) => {
-                              const effectivePctUsd = r.base_usd > 0 ? (r.tax_usd / r.base_usd) * 100 : null;
-                              const effectivePctLbp = r.base_lbp > 0 ? (r.tax_lbp / r.base_lbp) * 100 : null;
-                              const effectivePct = Number.isFinite(Number(effectivePctUsd))
-                                ? effectivePctUsd
-                                : Number.isFinite(Number(effectivePctLbp))
-                                  ? effectivePctLbp
-                                  : null;
-
-                              return (
-                                <div key={r.tax_code_id} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
-                                  <div className="min-w-0">
-                                    <div className="truncate data-mono text-foreground">
-                                      {r.label}
-                                      {r.ratePct !== null ? <span className="text-fg-subtle"> · {r.ratePct.toFixed(2)}%</span> : null}
-                                      {effectivePct !== null ? <span className="text-fg-subtle"> · eff {effectivePct.toFixed(2)}%</span> : null}
-                                    </div>
-                                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-muted">
-                                      <span className="text-fg-subtle">Base</span>
-                                      <span className="data-mono">{fmtUsdLbp(r.base_usd, r.base_lbp)}</span>
-                                    </div>
-                                  </div>
-                                  <div className="text-right data-mono text-foreground">{fmtUsdLbp(r.tax_usd, r.tax_lbp)}</div>
-                                </div>
-                              );
-                            })}
-
-                            <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-xs">
-                              <span className="text-fg-subtle">Total</span>
-                              <span className="text-right data-mono text-foreground">{fmtUsdLbp(draftTaxBreakdownTotals.tax_usd, draftTaxBreakdownTotals.tax_lbp)}</span>
-                            </div>
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-xs text-fg-muted">
-                              <span className="text-fg-subtle">Taxable base</span>
-                              <span className="text-right data-mono">{fmtUsdLbp(draftTaxBreakdownTotals.base_usd, draftTaxBreakdownTotals.base_lbp)}</span>
-                            </div>
-                          </div>
-
-                          <div className="mt-2 text-xs text-fg-subtle">
-                            Preview is calculated per item (item tax code or default VAT). Tax entries are recorded when you post.
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {detail.invoice.status !== "draft" && taxBreakdown.length ? (
-                        <div className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-medium uppercase tracking-wider text-fg-subtle">Tax breakdown</span>
-                            <span className="text-xs text-fg-subtle">{taxBreakdown.length} code(s)</span>
-                          </div>
-                          <div className="mt-2 space-y-1">
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-xs text-fg-subtle">
-                              <span>Code</span>
-                              <span className="text-right">Tax</span>
-                            </div>
-                            {taxBreakdown.map((r) => {
-                              const effectivePctUsd = r.base_usd > 0 ? (r.tax_usd / r.base_usd) * 100 : null;
-                              const effectivePctLbp = r.base_lbp > 0 ? (r.tax_lbp / r.base_lbp) * 100 : null;
-                              const effectivePct = Number.isFinite(Number(effectivePctUsd))
-                                ? effectivePctUsd
-                                : Number.isFinite(Number(effectivePctLbp))
-                                  ? effectivePctLbp
-                                  : null;
-
-                              return (
-                                <div key={r.tax_code_id} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
-                                  <div className="min-w-0">
-                                    <div className="truncate data-mono text-foreground">
-                                      {r.label}
-                                      {r.ratePct !== null ? <span className="text-fg-subtle"> · {r.ratePct.toFixed(2)}%</span> : null}
-                                      {effectivePct !== null ? <span className="text-fg-subtle"> · eff {effectivePct.toFixed(2)}%</span> : null}
-                                    </div>
-                                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-fg-muted">
-                                      <span className="text-fg-subtle">Base</span>
-                                      <span className="data-mono">{fmtUsdLbp(r.base_usd, r.base_lbp)}</span>
-                                    </div>
-                                  </div>
-                                  <div className="text-right data-mono text-foreground">{fmtUsdLbp(r.tax_usd, r.tax_lbp)}</div>
-                                </div>
-                              );
-                            })}
-
-                            <div className="mt-1 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 pt-1 text-xs">
-                              <span className="text-fg-subtle">Total</span>
-                              <span className="text-right data-mono text-foreground">{fmtUsdLbp(taxBreakdownTotals.tax_usd, taxBreakdownTotals.tax_lbp)}</span>
-                            </div>
-                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 px-1 text-xs text-fg-muted">
-                              <span className="text-fg-subtle">Taxable base</span>
-                              <span className="text-right data-mono">{fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}</span>
-                            </div>
-                          </div>
-
-                          <details className="mt-2">
-                            <summary className="cursor-pointer text-xs font-medium text-fg-subtle">Raw tax lines</summary>
-                            <div className="mt-2 space-y-1">
-                              {detail.tax_lines.map((t) => {
-                                const tc = taxById.get(String(t.tax_code_id));
-                                const label = tc?.name ? `${tc.name}` : t.tax_code_id;
-                                const ratePct = tc ? taxRateToPercent(tc.rate) : null;
-                                return (
-                                  <div key={t.id} className="rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="data-mono">
-                                        {label}
-                                        {ratePct !== null ? <span className="text-fg-subtle"> · {ratePct.toFixed(2)}%</span> : null}
-                                      </span>
-                                      <span className="data-mono text-foreground">{fmtUsdLbp(t.tax_usd, t.tax_lbp)}</span>
-                                    </div>
-                                    <div className="mt-1 flex items-center justify-between gap-2">
-                                      <span className="text-xs text-fg-subtle">Base</span>
-                                      <span className="data-mono text-xs text-fg-muted">{fmtUsdLbp(t.base_usd, t.base_lbp)}</span>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </details>
-                        </div>
-                      ) : null}
-
-                      {detail.invoice.status === "draft" && draftTaxBreakdown.length === 0 ? (
-                        <p className="text-fg-subtle">No tax preview (missing VAT tax code, or items have no tax code and no default VAT).</p>
-                      ) : null}
-
-                      {detail.invoice.status === "posted" && detail.tax_lines.length === 0 ? <p className="text-fg-subtle">No tax lines.</p> : null}
-                    </div>
+                    <VatBreakdownPanel
+                      summary={taxPanelSummary}
+                      rateRows={taxPanelRateRows}
+                      itemRows={taxPanelItemRows}
+                      rawTaxLines={taxPanelRawTaxLines}
+                      settlementCurrency={taxSettlementCurrency}
+                      defaultItemAttributionOpen={taxPanelRateRows.filter((r) => Number(r.ratePct || 0) > 0).length > 1}
+                      previewNote={taxPanelPreviewNote}
+                      emptyText={taxPanelEmptyText}
+                    />
                   </CardContent>
                 </Card>
               ) : null}
@@ -1427,13 +1600,14 @@ function SalesInvoiceShowInner() {
                     type="checkbox"
                     className="ui-checkbox"
                     checked={postRecordPayment}
+                    disabled={!hasPaymentMethodMappings}
                     onChange={(e) => {
                       const next = e.target.checked;
                       setPostRecordPayment(next);
                       if (!next) {
                         setPostUsd("0");
                         setPostLbp("0");
-                        setPostMethod("cash");
+                        setPostMethod(methodChoices[0] || "");
                       }
                     }}
                   />
@@ -1463,16 +1637,30 @@ function SalesInvoiceShowInner() {
                   <>
                     <div className="space-y-1 md:col-span-3">
                       <label className="text-xs font-medium text-fg-muted">Payment Method</label>
-                      <select className="ui-select" value={postMethod} onChange={(e) => setPostMethod(e.target.value)}>
+                      <select className="ui-select" value={postMethod} onChange={(e) => setPostMethod(e.target.value)} disabled={!hasPaymentMethodMappings}>
+                        {!methodChoices.length ? <option value="">(no methods)</option> : null}
                         {methodChoices.map((m) => (
                           <option key={m} value={m}>
-                            {m}
+                            {formatMethodLabel(m)}
                           </option>
                         ))}
                       </select>
                     </div>
+                    {!hasPaymentMethodMappings ? (
+                      <div className="md:col-span-6 text-xs text-warning">
+                        No payment methods are configured. Add one in System Config to record payment at posting.
+                      </div>
+                    ) : null}
                     <MoneyInput label="Amount" currency="USD" value={postUsd} onChange={setPostUsd} quick={[0, 1, 10, 100]} className="md:col-span-3" />
-                    <MoneyInput label="Amount" currency="LBP" value={postLbp} onChange={setPostLbp} quick={[0, 100000, 500000, 1000000]} className="md:col-span-3" />
+                    <MoneyInput
+                      label="Amount"
+                      currency="LBP"
+                      displayCurrency="LL"
+                      value={postLbp}
+                      onChange={setPostLbp}
+                      quick={[0, 100000, 500000, 1000000]}
+                      className="md:col-span-3"
+                    />
                   </>
                 ) : null}
                 <div className="md:col-span-6 flex justify-end">

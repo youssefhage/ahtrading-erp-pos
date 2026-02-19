@@ -37,7 +37,7 @@ Official invoices are printed as PDFs rendered by the Admin app export route, th
 
 - Resolve invoice from a POS outbox event (sync + process):
   - `POST /api/invoices/resolve-by-event`
-  - (Agent calls edge `/pos/outbox/submit` then `/pos/outbox/process-one`)
+  - (Agent calls backend `/pos/outbox/submit` then `/pos/outbox/process-one`)
 - Print:
   - `POST /api/invoices/print-by-event`
 

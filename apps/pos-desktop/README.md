@@ -42,7 +42,7 @@ Tip: generate this with the installer launcher:
 
 In POS Desktop, paste this JSON into the **Setup Pack** box and click **Apply Pack**.
 This auto-fills:
-- Edge API URL
+- API URL
 - Official/Unofficial company IDs
 - Device IDs + tokens
 

@@ -5,7 +5,7 @@ Initial backend foundation for AH Trading ERP/POS, focused on the database schem
 
 ## Requirements
 - PostgreSQL 13+ (with pgcrypto extension)
-- Python 3.9+ (for seed generation)
+- Python 3.11+ (matches repo `.python-version` and backend syntax)
 - Python dependencies: `backend/requirements.txt`
 
 ## Initialize DB (manual)

@@ -441,124 +441,122 @@ export function DataTable<T>(props: DataTableProps<T>) {
   };
   const hasToolbarLeft = Boolean(toolbarLeft);
   const hasActions = Boolean(actions);
-  const showToolbar = enableGlobalFilter || hasToolbarLeft || hasActions;
 
   return (
     <div className={cn("space-y-3", className)}>
       {headerSlot ? <div>{headerSlot}</div> : null}
 
-      {showToolbar ? (
-        <div className="ui-table-toolbar flex flex-wrap items-center justify-between gap-2">
-          {enableGlobalFilter ? (
-            <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
-              <div className="w-full md:w-96">
-                <Input value={effectiveGlobalFilter} onChange={(e) => handleGlobalFilterChange(e.target.value)} placeholder={globalFilterPlaceholder} />
-              </div>
+      <div className="ui-table-wrap">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border-subtle bg-bg-sunken/10 px-2 py-1.5 md:px-3">
+          {enableGlobalFilter || hasToolbarLeft ? (
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              {enableGlobalFilter ? (
+                <div className="w-full md:w-96">
+                  <Input value={effectiveGlobalFilter} onChange={(e) => handleGlobalFilterChange(e.target.value)} placeholder={globalFilterPlaceholder} />
+                </div>
+              ) : null}
               {toolbarLeft}
             </div>
           ) : (
-            <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">{toolbarLeft}</div>
+            <div className="flex-1" />
           )}
 
-          <div className="flex w-full items-center justify-end gap-2 md:w-auto">{actions}</div>
-        </div>
-      ) : null}
+          <div className="ml-auto flex w-full items-center justify-end gap-2 sm:w-auto">
+            {hasActions ? actions : null}
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-fg-muted hover:text-foreground"
+                  aria-label="Customize columns"
+                  title="Customize columns"
+                >
+                  <Settings2 className="h-4 w-4" />
+                  <span className="sr-only">Columns</span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Customize Columns</DialogTitle>
+                  <DialogDescription>Hide or show columns. Saved for this device.</DialogDescription>
+                </DialogHeader>
 
-      <div className="ui-table-wrap">
-        <div className="flex items-center justify-end border-b border-border-subtle bg-bg-sunken/10 px-2 py-1.5">
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-fg-muted hover:text-foreground"
-                aria-label="Customize columns"
-                title="Customize columns"
-              >
-                <Settings2 className="h-4 w-4" />
-                <span className="sr-only">Columns</span>
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Customize Columns</DialogTitle>
-                <DialogDescription>Hide or show columns. Saved for this device.</DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-2">
-                <div>
-                  <Input value={columnPickerSearch} onChange={(e) => setColumnPickerSearch(e.target.value)} placeholder="Search columns or fields..." />
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setColumnVisibility(Object.fromEntries(allColumns.map((c) => [c.id, true])) as ColumnVisibility)}
-                  >
-                    Show all
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setColumnVisibility(Object.fromEntries(allColumns.map((c) => [c.id, c.defaultHidden ? false : true])) as ColumnVisibility)
-                    }
-                  >
-                    Reset
-                  </Button>
-                </div>
-
-                <div className="max-h-[50vh] space-y-2 overflow-auto rounded-md border border-border-subtle bg-bg-sunken/20 p-3">
-                  {filteredColumnPickerColumns.map((c) => {
-                    const checked = columnVisibility[c.id] !== false;
-                    const disableUncheck = checked && visibleCount <= 1;
-                    const isDynamic = dynamicColumns.includes(c.id);
-                    return (
-                      <label key={c.id} className={cn("flex items-center justify-between gap-3 text-sm", disableUncheck && "opacity-70")}>
-                        <span className="min-w-0 text-foreground">
-                          <span className="truncate">{c.header}</span>
-                          {isDynamic ? <span className="ml-2 text-xs uppercase tracking-wider text-fg-subtle">Field</span> : null}
-                        </span>
-                        <span className="flex items-center gap-2">
-                          {isDynamic ? (
-                            <Button variant="outline" size="sm" onClick={() => removeDynamicColumn(c.id)} disabled={disableUncheck}>
-                              Remove
-                            </Button>
-                          ) : null}
-                          <input
-                            className="ui-checkbox"
-                            type="checkbox"
-                            checked={checked}
-                            disabled={disableUncheck}
-                            onChange={(e) => setColumnVisibility((prev) => ({ ...prev, [c.id]: e.target.checked }))}
-                          />
-                        </span>
-                      </label>
-                    );
-                  })}
-                  {filteredColumnPickerColumns.length === 0 ? <div className="text-xs text-fg-subtle">No matching columns.</div> : null}
-                </div>
-
-                {filteredRawFieldKeys.length ? (
-                  <div className="space-y-2">
-                    <div className="text-xs font-medium text-fg-muted">Add fields from data</div>
-                    <div className="max-h-[30vh] space-y-1 overflow-auto rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
-                      {filteredRawFieldKeys.slice(0, 250).map((k) => (
-                        <div key={k} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-sunken/20 px-2 py-1">
-                          <span className="min-w-0 truncate data-mono text-xs text-fg-muted">{k}</span>
-                          <Button variant="outline" size="sm" onClick={() => addDynamicColumn(k)}>
-                            Add
-                          </Button>
-                        </div>
-                      ))}
-                      {filteredRawFieldKeys.length > 250 ? <div className="text-xs text-fg-subtle">Showing first 250 fields.</div> : null}
-                    </div>
+                <div className="space-y-2">
+                  <div>
+                    <Input value={columnPickerSearch} onChange={(e) => setColumnPickerSearch(e.target.value)} placeholder="Search columns or fields..." />
                   </div>
-                ) : null}
-              </div>
-            </DialogContent>
-          </Dialog>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setColumnVisibility(Object.fromEntries(allColumns.map((c) => [c.id, true])) as ColumnVisibility)}
+                    >
+                      Show all
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setColumnVisibility(Object.fromEntries(allColumns.map((c) => [c.id, c.defaultHidden ? false : true])) as ColumnVisibility)
+                      }
+                    >
+                      Reset
+                    </Button>
+                  </div>
+
+                  <div className="max-h-[50vh] space-y-2 overflow-auto rounded-md border border-border-subtle bg-bg-sunken/20 p-3">
+                    {filteredColumnPickerColumns.map((c) => {
+                      const checked = columnVisibility[c.id] !== false;
+                      const disableUncheck = checked && visibleCount <= 1;
+                      const isDynamic = dynamicColumns.includes(c.id);
+                      return (
+                        <label key={c.id} className={cn("flex items-center justify-between gap-3 text-sm", disableUncheck && "opacity-70")}>
+                          <span className="min-w-0 text-foreground">
+                            <span className="truncate">{c.header}</span>
+                            {isDynamic ? <span className="ml-2 text-xs uppercase tracking-wider text-fg-subtle">Field</span> : null}
+                          </span>
+                          <span className="flex items-center gap-2">
+                            {isDynamic ? (
+                              <Button variant="outline" size="sm" onClick={() => removeDynamicColumn(c.id)} disabled={disableUncheck}>
+                                Remove
+                              </Button>
+                            ) : null}
+                            <input
+                              className="ui-checkbox"
+                              type="checkbox"
+                              checked={checked}
+                              disabled={disableUncheck}
+                              onChange={(e) => setColumnVisibility((prev) => ({ ...prev, [c.id]: e.target.checked }))}
+                            />
+                          </span>
+                        </label>
+                      );
+                    })}
+                    {filteredColumnPickerColumns.length === 0 ? <div className="text-xs text-fg-subtle">No matching columns.</div> : null}
+                  </div>
+
+                  {filteredRawFieldKeys.length ? (
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-fg-muted">Add fields from data</div>
+                      <div className="max-h-[30vh] space-y-1 overflow-auto rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                        {filteredRawFieldKeys.slice(0, 250).map((k) => (
+                          <div key={k} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-sunken/20 px-2 py-1">
+                            <span className="min-w-0 truncate data-mono text-xs text-fg-muted">{k}</span>
+                            <Button variant="outline" size="sm" onClick={() => addDynamicColumn(k)}>
+                              Add
+                            </Button>
+                          </div>
+                        ))}
+                        {filteredRawFieldKeys.length > 250 ? <div className="text-xs text-fg-subtle">Showing first 250 fields.</div> : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
         <table className="ui-table">
           <thead className="ui-thead">

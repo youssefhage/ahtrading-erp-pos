@@ -366,19 +366,17 @@ def list_sales_payments(
     date_to: Optional[date] = None,
     include_voided: bool = False,
     limit: int = 500,
+    offset: int = 0,
     company_id: str = Depends(get_company_id),
 ):
     if limit <= 0 or limit > 2000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            sql = """
-                SELECT p.id, p.invoice_id, i.invoice_no, i.customer_id,
-                       c.name AS customer_name,
-                       p.method, p.amount_usd, p.amount_lbp,
-                       p.tender_usd, p.tender_lbp,
-                       p.created_at
+            base_sql = """
                 FROM sales_payments p
                 JOIN sales_invoices i ON i.id = p.invoice_id
                 LEFT JOIN customers c ON c.id = i.customer_id
@@ -386,23 +384,62 @@ def list_sales_payments(
             """
             params: list = [company_id]
             if not include_voided:
-                sql += " AND p.voided_at IS NULL"
+                base_sql += " AND p.voided_at IS NULL"
             if invoice_id:
-                sql += " AND p.invoice_id = %s"
+                base_sql += " AND p.invoice_id = %s"
                 params.append(invoice_id)
             if customer_id:
-                sql += " AND i.customer_id = %s"
+                base_sql += " AND i.customer_id = %s"
                 params.append(customer_id)
             if date_from:
-                sql += " AND p.created_at::date >= %s"
+                base_sql += " AND p.created_at::date >= %s"
                 params.append(date_from)
             if date_to:
-                sql += " AND p.created_at::date <= %s"
+                base_sql += " AND p.created_at::date <= %s"
                 params.append(date_to)
-            sql += " ORDER BY p.created_at DESC LIMIT %s"
-            params.append(limit)
-            cur.execute(sql, params)
-            return {"payments": cur.fetchall()}
+
+            cur.execute(
+                f"""
+                SELECT
+                    COUNT(*)::int AS total_rows,
+                    COALESCE(SUM(p.amount_usd), 0) AS applied_usd,
+                    COALESCE(SUM(p.amount_lbp), 0) AS applied_lbp,
+                    COALESCE(SUM(CASE WHEN (COALESCE(p.tender_usd, 0) <> 0 OR COALESCE(p.tender_lbp, 0) <> 0) THEN COALESCE(p.tender_usd, 0) ELSE 0 END), 0) AS tender_usd,
+                    COALESCE(SUM(CASE WHEN (COALESCE(p.tender_usd, 0) <> 0 OR COALESCE(p.tender_lbp, 0) <> 0) THEN COALESCE(p.tender_lbp, 0) ELSE 0 END), 0) AS tender_lbp,
+                    COALESCE(BOOL_OR(COALESCE(p.tender_usd, 0) <> 0 OR COALESCE(p.tender_lbp, 0) <> 0), false) AS has_tender
+                {base_sql}
+                """,
+                params,
+            )
+            agg = cur.fetchone() or {}
+
+            cur.execute(
+                f"""
+                SELECT p.id, p.invoice_id, i.invoice_no, i.customer_id,
+                       c.name AS customer_name,
+                       p.method, p.amount_usd, p.amount_lbp,
+                       p.tender_usd, p.tender_lbp,
+                       p.created_at
+                {base_sql}
+                ORDER BY p.created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                params + [limit, offset],
+            )
+            rows = cur.fetchall()
+            return {
+                "payments": rows,
+                "total": int(agg.get("total_rows") or 0),
+                "limit": limit,
+                "offset": offset,
+                "totals": {
+                    "applied_usd": agg.get("applied_usd") or 0,
+                    "applied_lbp": agg.get("applied_lbp") or 0,
+                    "tender_usd": agg.get("tender_usd") or 0,
+                    "tender_lbp": agg.get("tender_lbp") or 0,
+                    "has_tender": bool(agg.get("has_tender")),
+                },
+            }
 
 @router.get("/invoices", dependencies=[Depends(require_permission("sales:read"))])
 def list_sales_invoices(
@@ -418,6 +455,7 @@ def list_sales_invoices(
     sort: Optional[str] = None,
     dir: Optional[str] = None,
     flagged_for_adjustment: Optional[bool] = None,
+    payable_only: bool = False,
 ):
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -483,6 +521,52 @@ def list_sales_invoices(
                   AND COALESCE((i.receipt_meta->'pilot'->>'flagged_for_adjustment')::boolean, false) = %s
                 """
                 params.append(bool(flagged_for_adjustment))
+            if payable_only:
+                # Payable invoices for customer-payment flow:
+                # - posted
+                # - receivable-backed (has customer)
+                # - still has positive outstanding (after payments + posted credit refunds)
+                base_sql += """
+                  AND i.status = 'posted'
+                  AND i.customer_id IS NOT NULL
+                  AND (
+                    (
+                      COALESCE(i.total_usd, 0)
+                      - COALESCE((
+                        SELECT SUM(p2.amount_usd)
+                        FROM sales_payments p2
+                        WHERE p2.invoice_id = i.id AND p2.voided_at IS NULL
+                      ), 0)
+                      - COALESCE((
+                        SELECT SUM(rf2.amount_usd)
+                        FROM sales_refunds rf2
+                        JOIN sales_returns sr2 ON sr2.id = rf2.sales_return_id
+                        WHERE sr2.company_id = i.company_id
+                          AND sr2.invoice_id = i.id
+                          AND sr2.status = 'posted'
+                          AND lower(coalesce(rf2.method, '')) = 'credit'
+                      ), 0)
+                    ) > 0.00005
+                    OR
+                    (
+                      COALESCE(i.total_lbp, 0)
+                      - COALESCE((
+                        SELECT SUM(p3.amount_lbp)
+                        FROM sales_payments p3
+                        WHERE p3.invoice_id = i.id AND p3.voided_at IS NULL
+                      ), 0)
+                      - COALESCE((
+                        SELECT SUM(rf3.amount_lbp)
+                        FROM sales_refunds rf3
+                        JOIN sales_returns sr3 ON sr3.id = rf3.sales_return_id
+                        WHERE sr3.company_id = i.company_id
+                          AND sr3.invoice_id = i.id
+                          AND sr3.status = 'posted'
+                          AND lower(coalesce(rf3.method, '')) = 'credit'
+                      ), 0)
+                    ) > 0.005
+                  )
+                """
 
             select_sql = f"""
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name,

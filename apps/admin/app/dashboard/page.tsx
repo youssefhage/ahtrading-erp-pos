@@ -14,7 +14,8 @@ import {
   Activity,
   CreditCard,
   ShoppingCart,
-  Truck
+  Truck,
+  ChevronDown
 } from "lucide-react";
 
 import { ApiError, apiGet } from "@/lib/api";
@@ -240,6 +241,7 @@ function StatusIndicator({
 }
 
 export default function DashboardPage() {
+  const operationalSignalsStorageKey = "dashboard.systemStatus.operationalSignalsExpanded";
   const router = useRouter();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [aiSummary, setAiSummary] = useState<Record<string, number>>({});
@@ -259,6 +261,7 @@ export default function DashboardPage() {
   const [usdToLbp, setUsdToLbp] = useState("90000");
   const [savingFx, setSavingFx] = useState(false);
   const [fxStatus, setFxStatus] = useState("");
+  const [showOperationalSignals, setShowOperationalSignals] = useState(false);
 
   function aiCount(agentCode: string) {
     return Number(aiSummary[agentCode] || 0);
@@ -384,6 +387,15 @@ export default function DashboardPage() {
   }, [loadFx]);
 
   useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(operationalSignalsStorageKey);
+      setShowOperationalSignals(saved === "1");
+    } catch {
+      // ignore localStorage access issues
+    }
+  }, [operationalSignalsStorageKey]);
+
+  useEffect(() => {
     const id = window.setInterval(() => {
       if (document.hidden || refreshingRef.current) return;
       void refresh();
@@ -405,6 +417,10 @@ export default function DashboardPage() {
   const outboxFailed = Number(outboxSummary?.by_status?.failed || 0) + Number(outboxSummary?.by_status?.dead || 0);
   const outboxQueued = Number(outboxSummary?.by_status?.processed || 0);
   const outboxTotal = Number(outboxSummary?.total || 0);
+  const lowStockCount = Number(metrics?.low_stock_count || 0);
+  const apiIssue = apiHealth ? !(apiHealth.status === "ok" || apiHealth.status === "ready") : false;
+  const dbIssue = apiHealth ? apiHealth.db !== "ok" : false;
+  const systemAttentionCount = [apiIssue, dbIssue, dataIsStale, canManagePos && outboxFailed > 0, canManagePos && outboxPending > 0, lowStockCount > 0].filter(Boolean).length;
   const summaryText = useMemo(() => {
     if (isLoading) return "Loading latest operating signals...";
     const parts: string[] = [];
@@ -691,53 +707,6 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">Platform</p>
-              <StatusIndicator
-                label="API"
-                value={apiHealth ? apiHealth.status : "checking"}
-                status={apiHealth?.status === "ok" || apiHealth?.status === "ready" ? "good" : "warning"}
-              />
-              <StatusIndicator
-                label="Database"
-                value={apiHealth ? apiHealth.db : "-"}
-                status={apiHealth?.db === "ok" ? "good" : "critical"}
-              />
-              <StatusIndicator
-                label="Data Freshness"
-                value={dataIsStale ? "stale" : "fresh"}
-                status={dataIsStale ? "warning" : "good"}
-              />
-            </div>
-
-            <div className="border-t border-border-subtle pt-3 space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">POS Sync</p>
-              <StatusIndicator
-                label="POS Integration"
-                value={canManagePos ? "Active" : "No permission"}
-                status={canManagePos ? "good" : "warning"}
-              />
-              <StatusIndicator
-                label="Outbox Queue"
-                value={canManagePos ? `${outboxFailed} failed / ${outboxPending} pending` : "-"}
-                status={
-                  !canManagePos ? "warning" : outboxFailed > 0 ? "critical" : outboxPending > 0 ? "warning" : "good"
-                }
-              />
-              {outboxSummary ? (
-                <StatusIndicator
-                  label="Outbox Total"
-                  value={fmtNumber(outboxTotal)}
-                  status={outboxTotal >= 500 ? "critical" : outboxTotal > 150 ? "warning" : "good"}
-                />
-              ) : null}
-              <StatusIndicator
-                label="Low Stock Items"
-                value={metrics ? fmtNumber(metrics.low_stock_count) : "-"}
-                status={metrics && metrics.low_stock_count > 0 ? "warning" : "good"}
-              />
-            </div>
-
-            <div className="border-t border-border-subtle pt-3 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">Default FX</p>
               <div className="rounded-md border border-border-subtle bg-bg-elevated/60 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
@@ -812,6 +781,94 @@ export default function DashboardPage() {
                   <p className="text-sm text-fg-muted">{summaryText}</p>
                 </div>
               </div>
+            </div>
+
+            <div className="rounded-md border border-border-subtle bg-bg-elevated/30">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                onClick={() =>
+                  setShowOperationalSignals((current) => {
+                    const next = !current;
+                    try {
+                      window.localStorage.setItem(operationalSignalsStorageKey, next ? "1" : "0");
+                    } catch {
+                      // ignore localStorage access issues
+                    }
+                    return next;
+                  })
+                }
+                aria-expanded={showOperationalSignals}
+              >
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">Operational Checks</p>
+                  <p className="text-sm text-fg-muted">
+                    {systemAttentionCount > 0 ? `${systemAttentionCount} signal(s) need attention` : "All platform and POS checks are nominal"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "rounded-md border px-2 py-0.5 text-xs font-medium",
+                      systemAttentionCount > 0 ? "border-danger/40 bg-danger/15 text-danger" : "border-success/30 bg-success/20 text-success"
+                    )}
+                  >
+                    {systemAttentionCount > 0 ? "attention" : "ok"}
+                  </span>
+                  <ChevronDown className={cn("h-4 w-4 text-fg-subtle transition-transform", showOperationalSignals ? "rotate-180" : "")} />
+                </div>
+              </button>
+
+              {showOperationalSignals ? (
+                <div className="space-y-3 border-t border-border-subtle px-3 py-3">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">Platform</p>
+                    <StatusIndicator
+                      label="API"
+                      value={apiHealth ? apiHealth.status : "checking"}
+                      status={apiHealth?.status === "ok" || apiHealth?.status === "ready" ? "good" : "warning"}
+                    />
+                    <StatusIndicator
+                      label="Database"
+                      value={apiHealth ? apiHealth.db : "-"}
+                      status={apiHealth?.db === "ok" ? "good" : "critical"}
+                    />
+                    <StatusIndicator
+                      label="Data Freshness"
+                      value={dataIsStale ? "stale" : "fresh"}
+                      status={dataIsStale ? "warning" : "good"}
+                    />
+                  </div>
+
+                  <div className="space-y-2 border-t border-border-subtle pt-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-fg-subtle">POS Sync</p>
+                    <StatusIndicator
+                      label="POS Integration"
+                      value={canManagePos ? "Active" : "No permission"}
+                      status={canManagePos ? "good" : "warning"}
+                    />
+                    <StatusIndicator
+                      label="Outbox Queue"
+                      value={canManagePos ? `${outboxFailed} failed / ${outboxPending} pending` : "-"}
+                      status={
+                        !canManagePos ? "warning" : outboxFailed > 0 ? "critical" : outboxPending > 0 ? "warning" : "good"
+                      }
+                    />
+                    {outboxSummary ? (
+                      <StatusIndicator
+                        label="Outbox Total"
+                        value={fmtNumber(outboxTotal)}
+                        status={outboxTotal >= 500 ? "critical" : outboxTotal > 150 ? "warning" : "good"}
+                      />
+                    ) : null}
+                    <StatusIndicator
+                      label="Low Stock Items"
+                      value={metrics ? fmtNumber(metrics.low_stock_count) : "-"}
+                      status={metrics && metrics.low_stock_count > 0 ? "warning" : "good"}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </CardContent>
         </Card>

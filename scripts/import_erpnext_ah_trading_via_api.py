@@ -4,7 +4,7 @@ Import ERPNext CSV exports into a running Melqard (cloud) API via HTTPS.
 
 Why this exists:
 - When you're not at the office, you can still import realistic data into the cloud pilot
-  without needing DB access or an on-prem Edge PC.
+  without needing DB access or an on-prem local server PC.
 - Uses existing bulk endpoints for customers/items/suppliers + opening-stock import.
 
 Expected folder structure (default: ./Data AH Trading):

@@ -1380,19 +1380,17 @@ def list_supplier_payments(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     limit: int = 500,
+    offset: int = 0,
     company_id: str = Depends(get_company_id),
 ):
     if limit <= 0 or limit > 2000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    if offset < 0:
+        raise HTTPException(status_code=400, detail="offset must be >= 0")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            sql = """
-                SELECT p.id, p.supplier_invoice_id, i.invoice_no, i.supplier_id,
-                       s.name AS supplier_name,
-                       p.method, p.amount_usd, p.amount_lbp,
-                       p.payment_date, p.bank_account_id,
-                       p.created_at
+            base_sql = """
                 FROM supplier_payments p
                 JOIN supplier_invoices i ON i.id = p.supplier_invoice_id
                 LEFT JOIN suppliers s ON s.company_id = i.company_id AND s.id = i.supplier_id
@@ -1400,21 +1398,52 @@ def list_supplier_payments(
             """
             params: list = [company_id]
             if supplier_invoice_id:
-                sql += " AND p.supplier_invoice_id = %s"
+                base_sql += " AND p.supplier_invoice_id = %s"
                 params.append(supplier_invoice_id)
             if supplier_id:
-                sql += " AND i.supplier_id = %s"
+                base_sql += " AND i.supplier_id = %s"
                 params.append(supplier_id)
             if date_from:
-                sql += " AND COALESCE(p.payment_date, p.created_at::date) >= %s"
+                base_sql += " AND COALESCE(p.payment_date, p.created_at::date) >= %s"
                 params.append(date_from)
             if date_to:
-                sql += " AND COALESCE(p.payment_date, p.created_at::date) <= %s"
+                base_sql += " AND COALESCE(p.payment_date, p.created_at::date) <= %s"
                 params.append(date_to)
-            sql += " ORDER BY COALESCE(p.payment_date, p.created_at::date) DESC, p.created_at DESC LIMIT %s"
-            params.append(limit)
-            cur.execute(sql, params)
-            return {"payments": cur.fetchall()}
+            cur.execute(
+                f"""
+                SELECT
+                    COUNT(*)::int AS total_rows,
+                    COALESCE(SUM(p.amount_usd), 0) AS amount_usd,
+                    COALESCE(SUM(p.amount_lbp), 0) AS amount_lbp
+                {base_sql}
+                """,
+                params,
+            )
+            agg = cur.fetchone() or {}
+
+            cur.execute(
+                f"""
+                SELECT p.id, p.supplier_invoice_id, i.invoice_no, i.supplier_id,
+                       s.name AS supplier_name,
+                       p.method, p.amount_usd, p.amount_lbp,
+                       p.payment_date, p.bank_account_id,
+                       p.created_at
+                {base_sql}
+                ORDER BY COALESCE(p.payment_date, p.created_at::date) DESC, p.created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                params + [limit, offset],
+            )
+            return {
+                "payments": cur.fetchall(),
+                "total": int(agg.get("total_rows") or 0),
+                "limit": limit,
+                "offset": offset,
+                "totals": {
+                    "amount_usd": agg.get("amount_usd") or 0,
+                    "amount_lbp": agg.get("amount_lbp") or 0,
+                },
+            }
 
 
 @router.get("/receipts", dependencies=[Depends(require_permission("purchases:read"))])
@@ -1519,6 +1548,7 @@ def list_supplier_invoices(
     date_to: Optional[date] = None,
     sort: Optional[str] = None,
     dir: Optional[str] = None,
+    payable_only: bool = False,
 ):
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -1586,6 +1616,36 @@ def list_supplier_invoices(
                   )
                 """
                 params.extend([needle, needle, needle, needle, needle])
+            if payable_only:
+                # Payable invoices for supplier-payment flow:
+                # - posted
+                # - not on hold
+                # - AP-backed (supplier assigned)
+                # - outstanding > 0 after payments
+                base_sql += """
+                  AND i.status = 'posted'
+                  AND COALESCE(i.is_on_hold, false) = false
+                  AND i.supplier_id IS NOT NULL
+                  AND (
+                    (
+                      COALESCE(i.total_usd, 0)
+                      - COALESCE((
+                        SELECT SUM(p2.amount_usd)
+                        FROM supplier_payments p2
+                        WHERE p2.supplier_invoice_id = i.id
+                      ), 0)
+                    ) > 0.00005
+                    OR
+                    (
+                      COALESCE(i.total_lbp, 0)
+                      - COALESCE((
+                        SELECT SUM(p3.amount_lbp)
+                        FROM supplier_payments p3
+                        WHERE p3.supplier_invoice_id = i.id
+                      ), 0)
+                    ) > 0.005
+                  )
+                """
 
             select_sql = f"""
                 SELECT i.id, i.invoice_no, i.supplier_ref, i.supplier_id, s.name AS supplier_name,

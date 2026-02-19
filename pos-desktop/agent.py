@@ -46,11 +46,10 @@ def _served_ui_root():
 
 DEFAULT_CONFIG = {
     'api_base_url': 'http://localhost:8001',
-    # Hybrid mode (Edge-first with Cloud fallback):
-    # - edge_api_base_url: LAN/on-prem Edge base (preferred when reachable)
-    # - cloud_api_base_url: Cloud backend base (fallback when Edge is down)
-    #
-    # If these are empty, the agent falls back to api_base_url behavior.
+    # Cloud mode:
+    # - cloud_api_base_url: preferred backend base URL
+    # - api_base_url: legacy fallback
+    # - edge_api_base_url: legacy alias accepted for backward compatibility
     'edge_api_base_url': '',
     'cloud_api_base_url': '',
     # Base URL of the Admin web app that serves /exports/.../pdf routes.
@@ -201,13 +200,14 @@ def load_config():
     # Allow Docker/ops to override without rewriting the on-disk config.
     if os.environ.get("POS_API_BASE_URL"):
         cfg["api_base_url"] = os.environ["POS_API_BASE_URL"]
-        # Back-compat: if hybrid URLs are not provided, seed them with POS_API_BASE_URL.
-        if not (cfg.get("edge_api_base_url") or "").strip():
-            cfg["edge_api_base_url"] = os.environ["POS_API_BASE_URL"]
+        # Back-compat: if cloud URL is not provided, seed it from POS_API_BASE_URL.
         if not (cfg.get("cloud_api_base_url") or "").strip():
             cfg["cloud_api_base_url"] = os.environ["POS_API_BASE_URL"]
     if os.environ.get("POS_EDGE_API_BASE_URL"):
         cfg["edge_api_base_url"] = os.environ["POS_EDGE_API_BASE_URL"]
+        # Legacy env name: use it as cloud base if cloud is still missing.
+        if not (cfg.get("cloud_api_base_url") or "").strip():
+            cfg["cloud_api_base_url"] = os.environ["POS_EDGE_API_BASE_URL"]
     if os.environ.get("POS_CLOUD_API_BASE_URL"):
         cfg["cloud_api_base_url"] = os.environ["POS_CLOUD_API_BASE_URL"]
     if os.environ.get("POS_COMPANY_ID"):
@@ -831,13 +831,14 @@ _ACTIVE_API_CACHE = {
 _ACTIVE_API_TTL_S = 3.0
 
 
-def _configured_edge_base(cfg: dict) -> str:
-    # Prefer explicit edge_api_base_url; fall back to api_base_url for backwards compatibility.
-    return _normalize_api_base_url(cfg.get("edge_api_base_url") or cfg.get("api_base_url"))
+def _configured_legacy_edge_base(cfg: dict) -> str:
+    return _normalize_api_base_url(cfg.get("edge_api_base_url") or "")
 
 
 def _configured_cloud_base(cfg: dict) -> str:
-    return _normalize_api_base_url(cfg.get("cloud_api_base_url") or "")
+    return _normalize_api_base_url(
+        cfg.get("cloud_api_base_url") or cfg.get("api_base_url") or cfg.get("edge_api_base_url") or ""
+    )
 
 
 def _probe_health(base: str, timeout_s: float = 0.6) -> dict:
@@ -881,9 +882,8 @@ def _probe_auth(base: str, cfg: dict, timeout_s: float = 1.0) -> dict:
 
 def _resolve_active_api_base(cfg: dict, *, force: bool = False) -> tuple[str, str, str]:
     """
-    Returns (base_url, mode, detail) where mode is 'edge' or 'cloud'.
-    Prefers edge when it is reachable and auth works, otherwise falls back to cloud.
-    Uses a short TTL cache to avoid probing on every request.
+    Returns (base_url, mode, detail). In cloud mode we use a single API base.
+    Uses a short TTL cache to avoid recomputing on every request.
     """
     now = time.time()
     if not force:
@@ -891,43 +891,11 @@ def _resolve_active_api_base(cfg: dict, *, force: bool = False) -> tuple[str, st
         if cached.get("base") and (now - float(cached.get("checked_at") or 0)) < _ACTIVE_API_TTL_S:
             return str(cached["base"]), str(cached.get("mode") or ""), str(cached.get("detail") or "")
 
-    edge = _configured_edge_base(cfg)
     cloud = _configured_cloud_base(cfg)
-    if edge and not cloud:
-        base, mode, detail = edge, "edge", "only edge configured"
-    elif cloud and not edge:
-        base, mode, detail = cloud, "cloud", "only cloud configured"
-    elif not edge and not cloud:
-        base, mode, detail = "", "", "missing api base urls"
+    if cloud:
+        base, mode, detail = cloud, "cloud", "cloud api configured"
     else:
-        # Both configured: try edge first, then cloud.
-        detail_parts: list[str] = []
-
-        edge_auth = _probe_auth(edge, cfg, timeout_s=0.8)
-        if edge_auth.get("ok"):
-            base, mode, detail = edge, "edge", "edge auth ok"
-        else:
-            detail_parts.append(f"edge auth failed ({edge_auth.get('status')}): {edge_auth.get('error')}")
-            cloud_auth = _probe_auth(cloud, cfg, timeout_s=1.3)
-            if cloud_auth.get("ok"):
-                base, mode, detail = cloud, "cloud", "cloud auth ok"
-            else:
-                detail_parts.append(f"cloud auth failed ({cloud_auth.get('status')}): {cloud_auth.get('error')}")
-                # Last resort: pick whichever responds to /health.
-                edge_h = _probe_health(edge, timeout_s=0.6)
-                if edge_h.get("ok"):
-                    base, mode = edge, "edge"
-                    detail_parts.append("picked edge by /health")
-                else:
-                    cloud_h = _probe_health(cloud, timeout_s=1.0)
-                    if cloud_h.get("ok"):
-                        base, mode = cloud, "cloud"
-                        detail_parts.append("picked cloud by /health")
-                    else:
-                        # If both are down, prefer edge (LAN) to keep retrying fast.
-                        base, mode = edge, "edge"
-                        detail_parts.append("both offline; defaulted to edge")
-                detail = " · ".join([p for p in detail_parts if p]) or "resolved by health"
+        base, mode, detail = "", "", "missing cloud_api_base_url/api_base_url"
 
     _ACTIVE_API_CACHE["checked_at"] = now
     _ACTIVE_API_CACHE["base"] = base
@@ -966,7 +934,8 @@ def edge_health(cfg: dict, timeout_s: float = 0.8) -> dict:
     out["mode"] = mode
     out["detail"] = detail
     out["active_base_url"] = base
-    out["edge_api_base_url"] = _configured_edge_base(cfg)
+    out["sync_api_base_url"] = base
+    out["edge_api_base_url"] = _configured_legacy_edge_base(cfg)
     out["cloud_api_base_url"] = _configured_cloud_base(cfg)
     return out
 
@@ -981,7 +950,8 @@ def edge_auth_check(cfg: dict, timeout_s: float = 1.2) -> dict:
     out["mode"] = mode
     out["detail"] = detail
     out["active_base_url"] = base
-    out["edge_api_base_url"] = _configured_edge_base(cfg)
+    out["sync_api_base_url"] = base
+    out["edge_api_base_url"] = _configured_legacy_edge_base(cfg)
     out["cloud_api_base_url"] = _configured_cloud_base(cfg)
     return out
 
@@ -995,9 +965,8 @@ def submit_single_event(
     idempotency_key: str | None = None,
 ) -> tuple[bool, dict]:
     """
-    Submit a single outbox event immediately to the edge server.
-    Used for higher-risk ops like credit sales and returns so we don't print a receipt
-    unless the edge accepted the document for posting.
+    Submit a single outbox event immediately to the cloud API.
+    Used as best-effort fast-path for higher-risk ops like credit sales and returns.
     """
     try:
         base = _require_api_base(cfg)
@@ -1006,7 +975,7 @@ def submit_single_event(
     company_id = (cfg.get("company_id") or "").strip()
     device_id = (cfg.get("device_id") or "").strip()
     if not base or not company_id or not device_id:
-        return False, {"error": "missing edge configuration"}
+        return False, {"error": "missing sync configuration"}
     if not (cfg.get("device_token") or "").strip():
         return False, {"error": "missing device token"}
     idem = str(idempotency_key or "").strip() or None
@@ -1985,8 +1954,8 @@ def _fetch_invoice_pdf(cfg: dict, invoice_id: str, template: Optional[str] = Non
 
 def _resolve_sales_invoice_from_event(cfg: dict, event_id: str) -> dict:
     """
-    Ensure the event exists on the edge, process it now, and return invoice identifiers.
-    Returns: {invoice_id, invoice_no, edge}
+    Ensure the event exists on the cloud API, process it now, and return invoice identifiers.
+    Returns: {invoice_id, invoice_no, sync}
     """
     base = _require_api_base(cfg)
     company_id = (cfg.get("company_id") or "").strip()
@@ -1998,7 +1967,7 @@ def _resolve_sales_invoice_from_event(cfg: dict, event_id: str) -> dict:
     if not ev:
         raise ValueError("event not found in local outbox")
 
-    # Ensure the edge has this event (idempotent).
+    # Ensure the API has this event (idempotent).
     bundle = {
         "company_id": company_id,
         "device_id": device_id,
@@ -2014,7 +1983,8 @@ def _resolve_sales_invoice_from_event(cfg: dict, event_id: str) -> dict:
     inv_no = str(res.get("invoice_no") or "").strip()
     if not inv_id:
         raise ValueError("event processed but invoice_id was not returned")
-    return {"invoice_id": inv_id, "invoice_no": (inv_no or None), "edge": res}
+    # Keep "edge" as an alias for older callers.
+    return {"invoice_id": inv_id, "invoice_no": (inv_no or None), "sync": res, "edge": res}
 
 
 def _compute_totals(
@@ -2717,27 +2687,48 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/printers":
             json_response(self, list_system_printers())
             return
-        if parsed.path == "/api/edge/status":
+        if parsed.path in {"/api/sync/status", "/api/edge/status"}:
             st = edge_health(cfg, timeout_s=0.8)
             auth = edge_auth_check(cfg, timeout_s=1.2)
+            sync_ok = bool(st.get("ok"))
+            sync_latency_ms = st.get("latency_ms")
+            sync_url = (st.get("url") or "")
+            sync_error = st.get("error")
+            sync_auth_ok = bool(auth.get("ok"))
+            sync_auth_status = auth.get("status")
+            sync_auth_latency_ms = auth.get("latency_ms")
+            sync_auth_url = (auth.get("url") or "")
+            sync_auth_error = auth.get("error")
             json_response(
                 self,
                 {
                     "ok": True,
                     "mode": st.get("mode") or auth.get("mode") or None,
                     "active_base_url": st.get("active_base_url") or auth.get("active_base_url") or None,
+                    "sync_api_base_url": st.get("sync_api_base_url") or auth.get("sync_api_base_url") or None,
                     "edge_api_base_url": st.get("edge_api_base_url") or None,
                     "cloud_api_base_url": st.get("cloud_api_base_url") or None,
                     "resolve_detail": st.get("detail") or auth.get("detail") or None,
-                    "edge_ok": bool(st.get("ok")),
-                    "edge_latency_ms": st.get("latency_ms"),
-                    "edge_url": (st.get("url") or ""),
-                    "edge_error": st.get("error"),
-                    "edge_auth_ok": bool(auth.get("ok")),
-                    "edge_auth_status": auth.get("status"),
-                    "edge_auth_latency_ms": auth.get("latency_ms"),
-                    "edge_auth_url": (auth.get("url") or ""),
-                    "edge_auth_error": auth.get("error"),
+                    # New sync-* keys.
+                    "sync_ok": sync_ok,
+                    "sync_latency_ms": sync_latency_ms,
+                    "sync_url": sync_url,
+                    "sync_error": sync_error,
+                    "sync_auth_ok": sync_auth_ok,
+                    "sync_auth_status": sync_auth_status,
+                    "sync_auth_latency_ms": sync_auth_latency_ms,
+                    "sync_auth_url": sync_auth_url,
+                    "sync_auth_error": sync_auth_error,
+                    # Legacy edge-* keys kept for launcher compatibility.
+                    "edge_ok": sync_ok,
+                    "edge_latency_ms": sync_latency_ms,
+                    "edge_url": sync_url,
+                    "edge_error": sync_error,
+                    "edge_auth_ok": sync_auth_ok,
+                    "edge_auth_status": sync_auth_status,
+                    "edge_auth_latency_ms": sync_auth_latency_ms,
+                    "edge_auth_url": sync_auth_url,
+                    "edge_auth_error": sync_auth_error,
                     "outbox_pending": count_outbox_pending(),
                 },
             )
@@ -3433,11 +3424,14 @@ class Handler(BaseHTTPRequestHandler):
             if idempotency_key:
                 existing = get_outbox_event_by_idempotency("sale.completed", idempotency_key)
                 if existing and existing.get("event_id"):
+                    was_acked = str(existing.get("status") or "") == "acked"
                     json_response(
                         self,
                         {
                             "event_id": str(existing.get("event_id")),
-                            "edge_accepted": True if pm == "credit" and str(existing.get("status") or "") == "acked" else None,
+                            "sync_accepted": (was_acked if pm == "credit" else None),
+                            "sync_deferred": ((not was_acked) if pm == "credit" else None),
+                            "edge_accepted": (was_acked if pm == "credit" else None),
                             "idempotent_replay": True,
                         },
                     )
@@ -3476,19 +3470,13 @@ class Handler(BaseHTTPRequestHandler):
             created_at = datetime.utcnow().isoformat()
             event_id = str(uuid.uuid4())
             outbox_status = "pending"
+            sync_accepted = None
+            sync_deferred = None
+            sync_error = None
 
-            # Higher-risk rule:
-            # - Credit sales should only be allowed when the register can reach the edge AND the edge accepts the event.
-            # Otherwise we risk printing a receipt for a sale that will later be rejected (credit limits, customer missing, etc).
+            # For credit sales we try a fast online submission first, but do not hard-fail
+            # the checkout on transient sync issues so offline mode can continue.
             if pm == "credit":
-                st = edge_health(cfg, timeout_s=0.8)
-                if not st.get("ok"):
-                    json_response(
-                        self,
-                        {"error": "edge_offline", "hint": "Credit is disabled when the edge server is unreachable."},
-                        status=503,
-                    )
-                    return
                 ok, res = submit_single_event(
                     cfg,
                     event_id,
@@ -3497,18 +3485,14 @@ class Handler(BaseHTTPRequestHandler):
                     created_at,
                     idempotency_key=idempotency_key,
                 )
-                if not ok:
-                    json_response(
-                        self,
-                        {
-                            "error": "edge_rejected",
-                            "hint": "Credit requires edge acceptance. Try again when edge is reachable, or use cash/card.",
-                            "detail": res,
-                        },
-                        status=409,
-                    )
-                    return
-                outbox_status = "acked"
+                if ok:
+                    outbox_status = "acked"
+                    sync_accepted = True
+                    sync_deferred = False
+                else:
+                    sync_accepted = False
+                    sync_deferred = True
+                    sync_error = res
 
             event_id, inserted = add_outbox_event_record(
                 event_id,
@@ -3520,11 +3504,14 @@ class Handler(BaseHTTPRequestHandler):
             )
             if not inserted:
                 existing = get_outbox_event_by_idempotency("sale.completed", idempotency_key) if idempotency_key else None
+                was_acked = str((existing or {}).get("status") or "") == "acked"
                 json_response(
                     self,
                     {
                         "event_id": str((existing or {}).get("event_id") or event_id),
-                        "edge_accepted": True if pm == "credit" and str((existing or {}).get("status") or "") == "acked" else None,
+                        "sync_accepted": (was_acked if pm == "credit" else None),
+                        "sync_deferred": ((not was_acked) if pm == "credit" else None),
+                        "edge_accepted": (was_acked if pm == "credit" else None),
                         "idempotent_replay": True,
                     },
                 )
@@ -3577,7 +3564,16 @@ class Handler(BaseHTTPRequestHandler):
                 ),
             }
             save_receipt("sale", receipt)
-            json_response(self, {'event_id': event_id, "edge_accepted": True if pm == "credit" else None, "idempotent_replay": False})
+            resp = {
+                "event_id": event_id,
+                "sync_accepted": (sync_accepted if pm == "credit" else None),
+                "sync_deferred": (sync_deferred if pm == "credit" else None),
+                "edge_accepted": (sync_accepted if pm == "credit" else None),
+                "idempotent_replay": False,
+            }
+            if pm == "credit" and sync_error:
+                resp["sync_error"] = sync_error
+            json_response(self, resp)
             return
 
         if parsed.path == '/api/return':
@@ -3595,11 +3591,14 @@ class Handler(BaseHTTPRequestHandler):
             if idempotency_key:
                 existing = get_outbox_event_by_idempotency("sale.returned", idempotency_key)
                 if existing and existing.get("event_id"):
+                    was_acked = str(existing.get("status") or "") == "acked"
                     json_response(
                         self,
                         {
                             "event_id": str(existing.get("event_id")),
-                            "edge_accepted": True,
+                            "sync_accepted": was_acked,
+                            "sync_deferred": (not was_acked),
+                            "edge_accepted": was_acked,
                             "idempotent_replay": True,
                         },
                     )
@@ -3627,16 +3626,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             created_at = datetime.utcnow().isoformat()
             event_id = str(uuid.uuid4())
+            outbox_status = "pending"
+            sync_accepted = False
+            sync_deferred = True
+            sync_error = None
 
-            # Returns are also high-risk: do not print a refund receipt unless the edge accepts it.
-            st = edge_health(cfg, timeout_s=0.8)
-            if not st.get("ok"):
-                json_response(
-                    self,
-                    {"error": "edge_offline", "hint": "Returns are disabled when the edge server is unreachable."},
-                    status=503,
-                )
-                return
+            # Best-effort fast path: if online and accepted, mark acked immediately.
             ok, res = submit_single_event(
                 cfg,
                 event_id,
@@ -3645,32 +3640,30 @@ class Handler(BaseHTTPRequestHandler):
                 created_at,
                 idempotency_key=idempotency_key,
             )
-            if not ok:
-                json_response(
-                    self,
-                    {
-                        "error": "edge_rejected",
-                        "hint": "Return requires edge acceptance. Reconnect to edge and try again.",
-                        "detail": res,
-                    },
-                    status=409,
-                )
-                return
+            if ok:
+                outbox_status = "acked"
+                sync_accepted = True
+                sync_deferred = False
+            else:
+                sync_error = res
             event_id, inserted = add_outbox_event_record(
                 event_id,
                 "sale.returned",
                 payload,
                 created_at,
-                status="acked",
+                status=outbox_status,
                 idempotency_key=idempotency_key,
             )
             if not inserted:
                 existing = get_outbox_event_by_idempotency("sale.returned", idempotency_key) if idempotency_key else None
+                was_acked = str((existing or {}).get("status") or "") == "acked"
                 json_response(
                     self,
                     {
                         "event_id": str((existing or {}).get("event_id") or event_id),
-                        "edge_accepted": True,
+                        "sync_accepted": was_acked,
+                        "sync_deferred": (not was_acked),
+                        "edge_accepted": was_acked,
                         "idempotent_replay": True,
                     },
                 )
@@ -3722,7 +3715,16 @@ class Handler(BaseHTTPRequestHandler):
                 "invoice_id": invoice_id,
             }
             save_receipt("return", receipt)
-            json_response(self, {'event_id': event_id, "edge_accepted": True, "idempotent_replay": False})
+            resp = {
+                "event_id": event_id,
+                "sync_accepted": sync_accepted,
+                "sync_deferred": sync_deferred,
+                "edge_accepted": sync_accepted,
+                "idempotent_replay": False,
+            }
+            if sync_error:
+                resp["sync_error"] = sync_error
+            json_response(self, resp)
             return
 
         if parsed.path == '/api/cashiers/login':

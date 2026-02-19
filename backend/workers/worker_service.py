@@ -38,8 +38,6 @@ try:
     from .supplier_invoice_import_job import run_supplier_invoice_import_job
     from .cycle_count_scheduler import run_cycle_count_scheduler
     from .recurring_journal_scheduler import run_recurring_journal_scheduler
-    from .edge_cloud_sync import run_edge_cloud_sync
-    from .edge_cloud_masterdata_pull import run_edge_cloud_masterdata_pull
 except ImportError:  # pragma: no cover
     # Allow running as a script: `python3 backend/workers/worker_service.py`
     from pos_processor import process_events, DB_URL_DEFAULT, MAX_ATTEMPTS_DEFAULT, set_company_context
@@ -58,8 +56,6 @@ except ImportError:  # pragma: no cover
     from supplier_invoice_import_job import run_supplier_invoice_import_job
     from cycle_count_scheduler import run_cycle_count_scheduler
     from recurring_journal_scheduler import run_recurring_journal_scheduler
-    from edge_cloud_sync import run_edge_cloud_sync
-    from edge_cloud_masterdata_pull import run_edge_cloud_masterdata_pull
 
 
 DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
@@ -84,10 +80,6 @@ DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
     "CYCLE_COUNT_SCHEDULER": {"interval_seconds": 3600, "options_json": {"limit_plans": 50}},
     # Accounting v2: recurring journals from templates.
     "RECURRING_JOURNAL_SCHEDULER": {"interval_seconds": 3600, "options_json": {"limit_rules": 25}},
-    # Edge -> Cloud replication (phase 1): push posted docs to cloud when internet is available.
-    "EDGE_CLOUD_SYNC": {"interval_seconds": 15, "options_json": {"limit": 5}},
-    # Cloud -> Edge replication (phase 1): pull master data so edge can run offline.
-    "EDGE_CLOUD_MASTERDATA_PULL": {"interval_seconds": 60, "options_json": {"limit": 500}},
 }
 
 WORKER_NAME = "outbox-worker"
@@ -280,25 +272,10 @@ def execute_job(db_url: str, company_id: str, job_code: str, options: dict):
         limit_rules = int(options.get("limit_rules") or 25)
         run_recurring_journal_scheduler(db_url, company_id, limit_rules=limit_rules)
         return
-    if job_code == "EDGE_CLOUD_SYNC":
-        limit = int(options.get("limit") or 5)
-        processed = run_edge_cloud_sync(db_url, company_id, limit=limit)
-        record_worker_heartbeat(
-            db_url,
-            company_id,
-            {"edge_cloud_sync": {"processed": int(processed or 0), "limit": limit}},
-            worker_name="EDGE_CLOUD_SYNC",
-        )
-        return
-    if job_code == "EDGE_CLOUD_MASTERDATA_PULL":
-        limit = int(options.get("limit") or 500)
-        summary = run_edge_cloud_masterdata_pull(db_url, company_id, limit=limit)
-        record_worker_heartbeat(
-            db_url,
-            company_id,
-            {"edge_cloud_masterdata_pull": {"limit": limit, "summary": summary}},
-            worker_name="EDGE_CLOUD_MASTERDATA_PULL",
-        )
+    # Backward compatibility: old edge-sync jobs may still exist in DB schedules.
+    # In cloud-only mode we skip them instead of failing the worker loop.
+    if job_code in {"EDGE_CLOUD_SYNC", "EDGE_CLOUD_MASTERDATA_PULL"}:
+        _json_log("info", "worker.job.deprecated_skipped", company_id=company_id, job_code=job_code)
         return
     raise ValueError(f"unknown job_code: {job_code}")
 

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api";
+import { ConfirmButton } from "@/components/confirm-button";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ErrorBanner } from "@/components/error-banner";
 import { Page, PageHeader, Section } from "@/components/page";
@@ -80,6 +81,20 @@ export default function UomsPage() {
     [load]
   );
 
+  const remove = useCallback(
+    async (code: string) => {
+      setStatus("Deleting...");
+      try {
+        await apiDelete(`/items/uoms/${encodeURIComponent(code)}`);
+        await load();
+        setStatus("");
+      } catch (e) {
+        setStatus(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [load]
+  );
+
   const columns = useMemo((): Array<DataTableColumn<UomRow>> => {
     return [
       { id: "code", header: "Code", accessor: (r) => r.code, mono: true, sortable: true, cell: (r) => <span className="text-xs">{r.code}</span> },
@@ -112,8 +127,31 @@ export default function UomsPage() {
           </Button>
         ),
       },
+      {
+        id: "actions",
+        header: "Actions",
+        accessor: () => "",
+        globalSearch: false,
+        align: "right",
+        cell: (r) => (
+          <div className="flex justify-end">
+            <ConfirmButton
+              variant="outline"
+              size="sm"
+              title={`Delete UOM "${r.code}"?`}
+              description="Delete is only allowed when this UOM has zero references."
+              confirmText="Delete"
+              confirmVariant="destructive"
+              onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
+              onConfirm={() => remove(r.code)}
+            >
+              Delete
+            </ConfirmButton>
+          </div>
+        ),
+      },
     ];
-  }, [rename, toggleActive]);
+  }, [remove, rename, toggleActive]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -179,7 +217,7 @@ export default function UomsPage() {
         }
       />
 
-      <Section title="List" description="Deactivate instead of deleting (so historical items/invoices remain valid).">
+      <Section title="List" description="Delete is allowed only when unused; otherwise deactivate. Historical document lines keep their stored UOM text.">
         <DataTable<UomRow>
           tableId="system.uoms"
           rows={rows}

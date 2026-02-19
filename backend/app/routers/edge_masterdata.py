@@ -1,5 +1,3 @@
-import os
-import hmac
 from datetime import datetime, timezone
 from typing import Any, Optional, Literal
 
@@ -7,19 +5,10 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 from ..db import get_admin_conn, set_company_context
-from .edge_sync import _upsert_edge_node_seen
+from .edge_sync import _upsert_edge_node_seen, _require_edge_auth
 
 
 router = APIRouter(prefix="/edge-sync/masterdata", tags=["edge-masterdata"])
-
-
-def _require_edge_key(x_edge_sync_key: Optional[str]) -> None:
-    expected = (os.getenv("EDGE_SYNC_KEY") or "").strip()
-    if not expected:
-        # Fail closed: do not allow edge export unless explicitly configured.
-        raise HTTPException(status_code=403, detail="edge sync not configured")
-    if not x_edge_sync_key or not hmac.compare_digest(x_edge_sync_key.strip(), expected):
-        raise HTTPException(status_code=403, detail="forbidden")
 
 
 EntityCode = Literal[
@@ -90,11 +79,11 @@ def export_masterdata(
     - Idempotency is handled on the edge via upserts by primary key.
     - Deletions are not yet propagated (prefer soft-delete flags like is_active).
     """
-    _require_edge_key(x_edge_sync_key)
-
     company_id = (data.company_id or "").strip()
     if not company_id:
         raise HTTPException(status_code=400, detail="company_id is required")
+    node_id = (x_edge_node_id or "").strip()
+    _require_edge_auth(company_id, x_edge_sync_key, node_id=node_id)
 
     since_ts = _since_ts_or_epoch(data.since_ts)
     since_id = _since_id_or_zero(data.since_id)
@@ -300,7 +289,6 @@ def export_masterdata(
             set_company_context(conn, company_id)
             with conn.cursor() as cur:
                 # Optional: treat exports as "edge node seen" for visibility.
-                node_id = (x_edge_node_id or "").strip()
                 if node_id:
                     _upsert_edge_node_seen(cur, company_id, node_id, ping=True, imported=False)
                 cur.execute(sql, params)

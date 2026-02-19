@@ -10,7 +10,7 @@
   export let saveOtherAgent = async () => {};
 
   export let saveConfigFor = async (companyKey, payload) => {};
-  export let testEdgeFor = async (companyKey) => {};
+  export let testSyncFor = async (companyKey) => {};
   export let syncPullFor = async (companyKey) => {};
   export let syncPushFor = async (companyKey) => {};
   export let runStressBenchmark = async (lineCount) => null;
@@ -61,8 +61,8 @@
 
   let testOff = null;
   let testUn = null;
-  $: edgeOff = summarizeEdge(testOff);
-  $: edgeUn = summarizeEdge(testUn);
+  $: syncOff = summarizeSync(testOff);
+  $: syncUn = summarizeSync(testUn);
 
   const normalizeUrl = (v) => {
     const t = String(v || "").trim();
@@ -105,11 +105,11 @@
     return "bg-white/5 border-white/10 text-muted";
   };
 
-  const summarizeEdge = (st) => {
+  const summarizeSync = (st) => {
     if (!st) return { kind: "neutral", text: "Not tested" };
     if (st.error) return { kind: "bad", text: st.error };
-    const ok = !!st.edge_ok;
-    const auth = !!st.edge_auth_ok;
+    const ok = !!(st.sync_ok ?? st.edge_ok);
+    const auth = !!(st.sync_auth_ok ?? st.edge_auth_ok);
     if (!ok) return { kind: "bad", text: "Offline" };
     if (ok && !auth) return { kind: "warn", text: "Online (auth failed)" };
     return { kind: "ok", text: "Online" };
@@ -155,7 +155,7 @@
     busy = true;
     err = "";
     try {
-      const st = await testEdgeFor(companyKey);
+      const st = await testSyncFor(companyKey);
       if (companyKey === "official") testOff = st;
       else testUn = st;
     } catch (e) {
@@ -948,7 +948,7 @@
             <h3 class="text-sm font-bold uppercase tracking-widest text-emerald-400">Official</h3>
           </div>
           <div class="flex gap-2">
-            <span class={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border ${pillTone(edgeOff.kind)}`}>{edgeOff.text}</span>
+            <span class={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border ${pillTone(syncOff.kind)}`}>{syncOff.text}</span>
             <button class="text-xs text-muted hover:text-white underline underline-offset-2 transition-colors" on:click={() => runTest('official')} disabled={busy}>Check Connectivity</button>
           </div>
         </div>
@@ -1015,7 +1015,7 @@
             <h3 class="text-sm font-bold uppercase tracking-widest text-amber-400">Unofficial</h3>
           </div>
           <div class="flex gap-2">
-            <span class={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border ${pillTone(edgeUn.kind)}`}>{edgeUn.text}</span>
+            <span class={`px-2.5 py-1 rounded text-[10px] font-bold uppercase border ${pillTone(syncUn.kind)}`}>{syncUn.text}</span>
             <button class="text-xs text-muted hover:text-white underline underline-offset-2 transition-colors" on:click={() => runTest('unofficial')} disabled={busy}>Check Connectivity</button>
           </div>
         </div>

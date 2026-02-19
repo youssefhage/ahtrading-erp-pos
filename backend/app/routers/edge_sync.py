@@ -32,13 +32,84 @@ def _upsert_edge_node_seen(cur, company_id: str, node_id: str, *, ping: bool = F
     )
 
 
-def _require_edge_key(x_edge_sync_key: Optional[str]) -> None:
-    expected = (os.getenv("EDGE_SYNC_KEY") or "").strip()
-    if not expected:
-        # Fail closed: do not allow edge import unless explicitly configured.
-        raise HTTPException(status_code=403, detail="edge sync not configured")
-    if not x_edge_sync_key or not hmac.compare_digest(x_edge_sync_key.strip(), expected):
+def _parse_env_map(raw: str, *, env_name: str) -> dict[str, str]:
+    """
+    Parse either:
+    - JSON object: {"key":"value"}
+    - CSV pairs: key=value,key2=value2
+    """
+    text = (raw or "").strip()
+    if not text:
+        return {}
+
+    if text.startswith("{"):
+        try:
+            obj = json.loads(text)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"invalid {env_name} json") from e
+        if not isinstance(obj, dict):
+            raise HTTPException(status_code=500, detail=f"invalid {env_name} (must be object)")
+        pairs = obj.items()
+    else:
+        items: dict[str, str] = {}
+        for part in [p.strip() for p in text.split(",") if p.strip()]:
+            if "=" not in part:
+                raise HTTPException(status_code=500, detail=f"invalid {env_name} pair")
+            k, v = part.split("=", 1)
+            items[k] = v
+        pairs = items.items()
+
+    out: dict[str, str] = {}
+    for k, v in pairs:
+        key = str(k or "").strip()
+        val = str(v or "").strip()
+        if key and val:
+            out[key] = val
+    return out
+
+
+def _require_edge_auth(company_id: str, x_edge_sync_key: Optional[str], *, node_id: Optional[str] = None) -> None:
+    """
+    Security model:
+    - Preferred: EDGE_SYNC_KEY_BY_COMPANY map (company_id -> key)
+    - Fallback: EDGE_SYNC_KEY + EDGE_SYNC_COMPANY_ID (single-tenant cloud)
+    - Optional hardening: EDGE_SYNC_NODE_COMPANY_MAP (node_id -> company_id)
+    """
+    cid = (company_id or "").strip()
+    presented = (x_edge_sync_key or "").strip()
+
+    key_map = _parse_env_map(
+        os.getenv("EDGE_SYNC_KEY_BY_COMPANY") or "",
+        env_name="EDGE_SYNC_KEY_BY_COMPANY",
+    )
+    if key_map:
+        expected = (key_map.get(cid) or "").strip()
+        if not expected:
+            raise HTTPException(status_code=403, detail="forbidden")
+    else:
+        expected = (os.getenv("EDGE_SYNC_KEY") or "").strip()
+        scoped_company = (os.getenv("EDGE_SYNC_COMPANY_ID") or "").strip()
+        if not expected or not scoped_company:
+            # Fail closed: do not allow edge sync unless auth is tenant-scoped.
+            raise HTTPException(status_code=403, detail="edge sync not configured")
+        if scoped_company != cid:
+            raise HTTPException(status_code=403, detail="forbidden")
+
+    if not presented or not hmac.compare_digest(presented, expected):
         raise HTTPException(status_code=403, detail="forbidden")
+
+    node_map = _parse_env_map(
+        os.getenv("EDGE_SYNC_NODE_COMPANY_MAP") or "",
+        env_name="EDGE_SYNC_NODE_COMPANY_MAP",
+    )
+    if node_map:
+        node = (node_id or "").strip()
+        # When node binding is configured, node id becomes mandatory.
+        if not node:
+            raise HTTPException(status_code=403, detail="forbidden")
+        bound_company = (node_map.get(node) or "").strip()
+        if not bound_company or bound_company != cid:
+            raise HTTPException(status_code=403, detail="forbidden")
 
 
 class SalesInvoiceBundle(BaseModel):
@@ -75,12 +146,11 @@ def ping(
     Cloud-side endpoint: edge nodes call this frequently to report they are online,
     even when there are no documents to import.
     """
-    _require_edge_key(x_edge_sync_key)
-
     company_id = (data.company_id or "").strip()
     if not company_id:
         raise HTTPException(status_code=400, detail="company_id is required")
     node_id = (x_edge_node_id or data.source_node_id or "").strip()
+    _require_edge_auth(company_id, x_edge_sync_key, node_id=node_id)
 
     with get_admin_conn() as conn:
         with conn.transaction():
@@ -103,11 +173,11 @@ def import_sales_invoice_bundle(
     - Inserts by primary keys (UUIDs) and uses ON CONFLICT DO NOTHING.
     - Assumes the edge is the operational source of truth for these documents.
     """
-    _require_edge_key(x_edge_sync_key)
-
     company_id = (data.company_id or "").strip()
     if not company_id:
         raise HTTPException(status_code=400, detail="company_id is required")
+    node_id = (x_edge_node_id or data.source_node_id or "").strip()
+    _require_edge_auth(company_id, x_edge_sync_key, node_id=node_id)
 
     inv = data.invoice or {}
     inv_id = str(inv.get("id") or "").strip()
@@ -123,7 +193,6 @@ def import_sales_invoice_bundle(
             set_company_context(conn, company_id)
             with conn.cursor() as cur:
                 # Update edge node heartbeat for visibility in Admin.
-                node_id = (x_edge_node_id or data.source_node_id or "").strip()
                 _upsert_edge_node_seen(cur, company_id, node_id, ping=False, imported=True)
 
                 # Sales invoice header (include all known operational fields; rely on defaults for the rest).
@@ -465,11 +534,11 @@ def import_customer_bundle(
     - If membership_no is present and matches an existing cloud customer, update that record.
     - Otherwise, upsert by id.
     """
-    _require_edge_key(x_edge_sync_key)
-
     company_id = (data.company_id or "").strip()
     if not company_id:
         raise HTTPException(status_code=400, detail="company_id is required")
+    node_id = (x_edge_node_id or data.source_node_id or "").strip()
+    _require_edge_auth(company_id, x_edge_sync_key, node_id=node_id)
 
     cust = data.customer or {}
     cust_id = str(cust.get("id") or "").strip()
@@ -477,8 +546,6 @@ def import_customer_bundle(
         raise HTTPException(status_code=400, detail="customer.id is required")
 
     membership_no = (str(cust.get("membership_no") or "").strip() or None)
-    node_id = (x_edge_node_id or data.source_node_id or "").strip()
-
     with get_admin_conn() as conn:
         with conn.transaction():
             set_company_context(conn, company_id)

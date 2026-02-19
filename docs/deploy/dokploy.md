@@ -26,6 +26,10 @@ POS registers run **locally** (POS agent + local SQLite) and sync to the backend
    - `APP_DB_PASSWORD` (strong password)
    - `APP_ENV=prod`
    - `BOOTSTRAP_ADMIN=0` (recommended)
+   - If using node->cloud sync:
+     - Single-tenant: `EDGE_SYNC_KEY`, `EDGE_SYNC_COMPANY_ID`
+     - Multi-tenant: `EDGE_SYNC_KEY_BY_COMPANY`
+     - Optional hardening: `EDGE_SYNC_NODE_COMPANY_MAP`
 5. Domains:
    - Admin UI: map to service `admin` port `3000`
    - API: map to service `api` port `8000`

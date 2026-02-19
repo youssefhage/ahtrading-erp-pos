@@ -30,6 +30,9 @@ export function SearchableSelect(props: {
   className?: string;
   controlClassName?: string; // applied to the trigger (defaults to ui-select)
   maxOptions?: number;
+  loading?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onSearchQueryChange?: (query: string) => void;
 }) {
   const {
     value,
@@ -41,6 +44,9 @@ export function SearchableSelect(props: {
     className,
     controlClassName,
     maxOptions = 80,
+    loading = false,
+    onOpenChange,
+    onSearchQueryChange,
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -74,6 +80,16 @@ export function SearchableSelect(props: {
     const t = window.setTimeout(() => searchRef.current?.focus(), 30);
     return () => window.clearTimeout(t);
   }, [open]);
+
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
+
+  useEffect(() => {
+    if (!open || !onSearchQueryChange) return;
+    const t = window.setTimeout(() => onSearchQueryChange(q), 180);
+    return () => window.clearTimeout(t);
+  }, [q, open, onSearchQueryChange]);
 
   useEffect(() => {
     if (!open) return;
@@ -239,6 +255,8 @@ export function SearchableSelect(props: {
                       </button>
                     );
                   })
+                ) : loading ? (
+                  <div className="px-3 py-3 text-sm text-fg-subtle">Loading...</div>
                 ) : (
                   <div className="px-3 py-3 text-sm text-fg-subtle">No matches.</div>
                 )}

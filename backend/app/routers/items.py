@@ -438,19 +438,66 @@ def list_uoms_manage(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                WITH usage AS (
+                WITH base_usage AS (
                   SELECT unit_of_measure AS code, COUNT(*)::int AS n
                   FROM items
                   WHERE company_id = %s AND COALESCE(unit_of_measure, '') <> ''
                   GROUP BY unit_of_measure
+                ),
+                purchase_usage AS (
+                  SELECT purchase_uom_code AS code, COUNT(*)::int AS n
+                  FROM items
+                  WHERE company_id = %s AND COALESCE(purchase_uom_code, '') <> ''
+                  GROUP BY purchase_uom_code
+                ),
+                sales_usage AS (
+                  SELECT sales_uom_code AS code, COUNT(*)::int AS n
+                  FROM items
+                  WHERE company_id = %s AND COALESCE(sales_uom_code, '') <> ''
+                  GROUP BY sales_uom_code
+                ),
+                conversion_usage AS (
+                  SELECT uom_code AS code, COUNT(*)::int AS n
+                  FROM item_uom_conversions
+                  WHERE company_id = %s AND COALESCE(uom_code, '') <> ''
+                  GROUP BY uom_code
+                ),
+                barcode_usage AS (
+                  SELECT uom_code AS code, COUNT(*)::int AS n
+                  FROM item_barcodes
+                  WHERE company_id = %s AND COALESCE(uom_code, '') <> ''
+                  GROUP BY uom_code
                 )
-                SELECT u.code, u.name, u.is_active, COALESCE(us.n, 0)::int AS usage_count
+                SELECT
+                  u.code,
+                  u.name,
+                  u.is_active,
+                  (
+                    COALESCE(bu.n, 0)
+                    + COALESCE(pu.n, 0)
+                    + COALESCE(su.n, 0)
+                    + COALESCE(cu.n, 0)
+                    + COALESCE(bcu.n, 0)
+                  )::int AS usage_count
                 FROM unit_of_measures u
-                LEFT JOIN usage us ON us.code = u.code
+                LEFT JOIN base_usage bu ON bu.code = u.code
+                LEFT JOIN purchase_usage pu ON pu.code = u.code
+                LEFT JOIN sales_usage su ON su.code = u.code
+                LEFT JOIN conversion_usage cu ON cu.code = u.code
+                LEFT JOIN barcode_usage bcu ON bcu.code = u.code
                 WHERE u.company_id = %s
-                ORDER BY u.is_active DESC, COALESCE(us.n, 0) DESC, u.code ASC
+                ORDER BY
+                  u.is_active DESC,
+                  (
+                    COALESCE(bu.n, 0)
+                    + COALESCE(pu.n, 0)
+                    + COALESCE(su.n, 0)
+                    + COALESCE(cu.n, 0)
+                    + COALESCE(bcu.n, 0)
+                  ) DESC,
+                  u.code ASC
                 """,
-                (company_id, company_id),
+                (company_id, company_id, company_id, company_id, company_id, company_id),
             )
             return {"uoms": cur.fetchall()}
 
@@ -536,6 +583,76 @@ def update_uom(code: str, data: UomUpdateIn, company_id: str = Depends(get_compa
                     (company_id, user["user_id"], updated["id"], json.dumps(patch)),
                 )
                 return {"ok": True}
+
+
+@router.delete("/uoms/{code}", dependencies=[Depends(require_permission("config:write"))])
+def delete_uom(code: str, company_id: str = Depends(get_company_id), user=Depends(get_current_user)):
+    ucode = _norm_uom(code)
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id
+                    FROM unit_of_measures
+                    WHERE company_id = %s AND code = %s
+                    """,
+                    (company_id, ucode),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="uom not found")
+                uom_id = row["id"]
+
+                cur.execute(
+                    """
+                    SELECT
+                      (SELECT COUNT(*)::int FROM items WHERE company_id = %s AND unit_of_measure = %s) AS items_base,
+                      (SELECT COUNT(*)::int FROM items WHERE company_id = %s AND purchase_uom_code = %s) AS items_purchase,
+                      (SELECT COUNT(*)::int FROM items WHERE company_id = %s AND sales_uom_code = %s) AS items_sales,
+                      (SELECT COUNT(*)::int FROM item_uom_conversions WHERE company_id = %s AND uom_code = %s) AS conversions,
+                      (SELECT COUNT(*)::int FROM item_barcodes WHERE company_id = %s AND uom_code = %s) AS barcodes
+                    """,
+                    (company_id, ucode, company_id, ucode, company_id, ucode, company_id, ucode, company_id, ucode),
+                )
+                refs = cur.fetchone() or {}
+                items_base = int(refs.get("items_base") or 0)
+                items_purchase = int(refs.get("items_purchase") or 0)
+                items_sales = int(refs.get("items_sales") or 0)
+                conversions = int(refs.get("conversions") or 0)
+                barcodes = int(refs.get("barcodes") or 0)
+                ref_total = items_base + items_purchase + items_sales + conversions + barcodes
+                if ref_total > 0:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"cannot delete UOM '{ucode}': still referenced "
+                            f"(base={items_base}, purchase={items_purchase}, sales={items_sales}, "
+                            f"conversions={conversions}, barcodes={barcodes})"
+                        ),
+                    )
+
+                try:
+                    cur.execute(
+                        """
+                        DELETE FROM unit_of_measures
+                        WHERE company_id = %s AND code = %s
+                        """,
+                        (company_id, ucode),
+                    )
+                except pg_errors.ForeignKeyViolation:
+                    raise HTTPException(status_code=409, detail=f"cannot delete UOM '{ucode}': still referenced")
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'uom_delete', 'uom', %s, %s::jsonb)
+                    """,
+                    (company_id, user["user_id"], uom_id, json.dumps({"code": ucode})),
+                )
+                return {"ok": True}
+
 
 @router.get("/barcodes", dependencies=[Depends(require_permission("items:read"))])
 def list_all_barcodes(company_id: str = Depends(get_company_id)):

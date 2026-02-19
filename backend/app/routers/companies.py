@@ -18,6 +18,16 @@ class CompanyIn(BaseModel):
     default_rate_type: RateType = "market"
 
 
+class CompanyUpdateIn(BaseModel):
+    name: Optional[str] = None
+    legal_name: Optional[str] = None
+    registration_no: Optional[str] = None
+    vat_no: Optional[str] = None
+    base_currency: Optional[CurrencyCode] = None
+    vat_currency: Optional[CurrencyCode] = None
+    default_rate_type: Optional[RateType] = None
+
+
 @router.get("")
 def list_companies(user=Depends(get_current_user)):
     # Note: `companies` table is not RLS-restricted. We only return companies the user
@@ -65,6 +75,76 @@ def get_company(company_id: str, user=Depends(get_current_user)):
                 WHERE id = %s
                 """,
                 (company_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="company not found")
+            return {"company": row}
+
+
+@router.patch(
+    "/{company_id}",
+    dependencies=[Depends(require_company_access), Depends(require_permission("config:write"))],
+)
+def update_company(
+    company_id: str,
+    data: CompanyUpdateIn,
+    active_company_id: str = Depends(get_company_id),
+):
+    if str(active_company_id).strip().lower() != str(company_id).strip().lower():
+        raise HTTPException(status_code=400, detail="company id mismatch")
+
+    payload = data.model_dump(exclude_unset=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="no fields to update")
+
+    set_parts: list[str] = []
+    params: list[object] = []
+
+    if "name" in payload:
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="name is required")
+        set_parts.append("name = %s")
+        params.append(name)
+
+    for key in ("legal_name", "registration_no", "vat_no"):
+        if key in payload:
+            raw = payload.get(key)
+            val = None
+            if raw is not None:
+                txt = str(raw).strip()
+                val = txt or None
+            set_parts.append(f"{key} = %s")
+            params.append(val)
+
+    if "base_currency" in payload:
+        set_parts.append("base_currency = %s::currency_code")
+        params.append(payload.get("base_currency"))
+
+    if "vat_currency" in payload:
+        set_parts.append("vat_currency = %s::currency_code")
+        params.append(payload.get("vat_currency"))
+
+    if "default_rate_type" in payload:
+        set_parts.append("default_rate_type = %s::rate_type")
+        params.append(payload.get("default_rate_type"))
+
+    if not set_parts:
+        raise HTTPException(status_code=400, detail="no fields to update")
+
+    with get_admin_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE companies
+                SET {", ".join(set_parts)}, updated_at = now()
+                WHERE id = %s
+                RETURNING id, name, legal_name, registration_no, vat_no,
+                          base_currency, vat_currency, default_rate_type,
+                          created_at, updated_at
+                """,
+                (*params, company_id),
             )
             row = cur.fetchone()
             if not row:
