@@ -40,6 +40,7 @@
   $: routePreview = (() => {
     if (flagOfficial) return "Flagged -> Official (single invoice)";
     if (mixedCart && invoiceCompanyMode === "auto") return "Auto Split -> Official + Unofficial";
+    if (invoiceCompanyMode === "auto") return `Auto Split -> ${companyLabel(resolvedInvoiceCompany)} (single company)`;
     if (mixedCart) return `Forced -> ${companyLabel(resolvedInvoiceCompany)} (cross-company)`;
     return `${companyLabel(resolvedInvoiceCompany)} invoice`;
   })();

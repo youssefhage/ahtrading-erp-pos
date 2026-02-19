@@ -58,6 +58,52 @@
     { id: "official_compact", label: "Official Compact", desc: "Condensed official A4 for faster reading." },
     { id: "standard", label: "Standard", desc: "General invoice layout (non-official style)." },
   ];
+  const SHORTCUT_GUIDE_SECTIONS = [
+    {
+      title: "Global",
+      items: [
+        { keys: "Esc", action: "Close open menus/drawers (More, Drafts, Shortcuts)." },
+        { keys: "Barcode scan + Enter/Tab", action: "Auto-detect scanner input and add item / fill Item Lookup." },
+      ],
+    },
+    {
+      title: "POS Catalog Search",
+      items: [
+        { keys: "Arrow Down / Arrow Up", action: "Move highlighted search result." },
+        { keys: "Enter / Numpad Enter / Tab", action: "Add highlighted item to cart." },
+        { keys: "Alt+U", action: "Cycle UOM forward for highlighted item." },
+        { keys: "Alt+Shift+U", action: "Cycle UOM backward for highlighted item." },
+        { keys: "Alt+1..9", action: "Select UOM option index 1..9." },
+        { keys: "Enter / Space (on focused item row)", action: "Add focused result row to cart." },
+      ],
+    },
+    {
+      title: "Item Lookup Screen",
+      items: [
+        { keys: "Arrow Down / Arrow Up", action: "Move highlighted result." },
+        { keys: "Enter", action: "Select highlighted item." },
+        { keys: "Escape", action: "Clear lookup query." },
+      ],
+    },
+    {
+      title: "Customer Search",
+      items: [
+        { keys: "Arrow Down / Arrow Up", action: "Move highlighted customer result." },
+        { keys: "Enter", action: "Select highlighted customer (or run immediate search if none highlighted)." },
+        { keys: "Escape", action: "Clear customer highlight." },
+      ],
+    },
+    {
+      title: "Quick Form Actions",
+      items: [
+        { keys: "Enter (Cart Draft name)", action: "Save current cart as draft." },
+        { keys: "Enter (Cashier PIN)", action: "Sign in cashier." },
+        { keys: "Enter (Admin PIN)", action: "Unlock / approve with admin PIN." },
+        { keys: "Enter (Other Agent URL)", action: "Save and reconnect." },
+        { keys: "Enter (Cart qty field)", action: "Commit qty edit and blur field." },
+      ],
+    },
+  ];
 
   // Utility functions
   const toNum = (value, fallback = 0) => {
@@ -515,6 +561,7 @@
   let showQueueDrawer = false;
   let showAuditDrawer = false;
   let showCartDraftsDrawer = false;
+  let showShortcutsGuide = false;
   let showTopMoreActions = false;
   let topMoreActionsButtonEl = null;
   let topMoreMenuEl = null;
@@ -601,6 +648,12 @@
     if (!eventId) return "";
     return `${_queueCompanyKey(ev)}:${eventId}`;
   };
+  const _queueStatus = (ev) => String(ev?.status || "pending").trim().toLowerCase();
+  const _isQueueLocalEvent = (ev) => {
+    const source = String(ev?.source || "").trim().toLowerCase();
+    return source === "local" || _queueEventId(ev).startsWith("local-");
+  };
+  const _queueNeedsAdminRequeue = (ev) => _queueStatus(ev) === "dead" && !_isQueueLocalEvent(ev);
   const _isQueueRetrying = (ev) => {
     const key = _queueRetryKey(ev);
     return !!key && queueRetryingKeys.has(key);
@@ -790,6 +843,9 @@
   })();
   $: queueOfficialCount = (outbox || []).length;
   $: queueUnofficialCount = (unofficialOutbox || []).length;
+  $: queueFailedCount = queueEvents.filter((ev) => _queueStatus(ev) === "failed").length;
+  $: queueDeadCount = queueEvents.filter((ev) => _queueStatus(ev) === "dead").length;
+  $: queueManualRequeueCount = queueEvents.filter((ev) => _queueNeedsAdminRequeue(ev)).length;
   $: allCompaniesConnected = _isReadyStatus(status) && _isReadyStatus(unofficialStatus);
   $: syncNeedsAttention = (!allCompaniesConnected) || queuedEventsTotal > 0 || outboxOldestMinutes >= outboxWarnMinutes;
   $: syncPullHint = "Auto refresh runs in background. Use this only when you need immediate updates after catalog/customer changes.";
@@ -2745,8 +2801,70 @@
   const apiCall = (path, options = {}) => apiCallFor(originCompanyKey, path, options);
 
   // Actions
+  const _adminBaseFromApiBase = (value) => {
+    const v = String(value || "").trim();
+    if (!v) return "";
+    if (v.startsWith("/")) {
+      try {
+        const origin = String(window?.location?.origin || "").trim();
+        if (!origin) return "";
+        const rel = normalizeApiBase(v).replace(/\/api(?:\/.*)?$/i, "");
+        return _normalizeOriginUrl(`${origin}${rel}`);
+      } catch (_) {
+        return "";
+      }
+    }
+    const raw = _isAbsoluteHttpUrl(v) ? v : `https://${v}`;
+    try {
+      const u = new URL(raw);
+      const path = String(u.pathname || "").replace(/\/+$/, "");
+      const withoutApi = path.replace(/\/api(?:\/.*)?$/i, "");
+      u.pathname = withoutApi || "/";
+      u.search = "";
+      u.hash = "";
+      return _normalizeOriginUrl(u.toString());
+    } catch (_) {
+      return _normalizeOriginUrl(raw);
+    }
+  };
+  const _adminOutboxLinks = () => {
+    const set = new Set();
+    const add = (base) => {
+      const b = _normalizeOriginUrl(base);
+      if (!b) return;
+      try {
+        const u = new URL("/system/outbox", `${b}/`);
+        set.add(_normalizeOriginUrl(u.toString()));
+      } catch (_) {}
+    };
+    add(String(cfgForCompanyKey("official")?.print_base_url || "").trim());
+    add(_adminBaseFromApiBase(_webPosApiBaseFor("official")));
+    add(_adminBaseFromApiBase(_webPosApiBaseFor("unofficial")));
+    try { add(String(window?.location?.origin || "").trim()); } catch (_) {}
+    return Array.from(set);
+  };
   const reportNotice = (msg) => { notice = msg; setTimeout(() => notice = "", 3000); };
   const reportError = (msg) => { alert(msg); error = msg; }; // Simple alert for now, can be improved
+  const openAdminOutbox = () => {
+    const links = _adminOutboxLinks();
+    const target = links[0] || "/system/outbox";
+    try {
+      window.open(target, "_blank", "noopener,noreferrer");
+      reportNotice("Opened Admin Outbox. If you get Access Denied, ask for POS manage permission.");
+    } catch (_) {
+      reportError(`Open Admin Outbox manually: ${target}`);
+    }
+  };
+  const copyAdminOutboxLink = async () => {
+    const links = _adminOutboxLinks();
+    const target = links[0] || "/system/outbox";
+    try {
+      await _copyText(target);
+      reportNotice("Copied Admin Outbox link.");
+    } catch (e) {
+      reportError(e?.message || "Unable to copy Admin Outbox link.");
+    }
+  };
   const closeQueuePayloadModal = () => {
     showQueuePayloadModal = false;
     queuePayloadLoading = false;
@@ -4075,6 +4193,13 @@
     showTopMoreActions = false;
     showCartDraftsDrawer = true;
   };
+  const saveCurrentCartToDraft = () => {
+    if (saveCurrentCartAsDraft({ name: "", clearCurrent: true })) cartDraftName = "";
+  };
+  const openShortcutsGuide = () => {
+    showTopMoreActions = false;
+    showShortcutsGuide = true;
+  };
 
   const setKeepDraftCopyMode = (value) => {
     keepDraftCopyOnResume = !!value;
@@ -5307,6 +5432,11 @@
         showCartDraftsDrawer = false;
         return;
       }
+      if (e.key === "Escape" && showShortcutsGuide) {
+        e.preventDefault();
+        showShortcutsGuide = false;
+        return;
+      }
 
       const active = document.activeElement;
       const isScanField = !!active?.getAttribute?.("data-scan-input");
@@ -5475,13 +5605,23 @@
       >
         {saleMode === "sale" ? "Sale" : "Return"}
       </button>
+      {@const draftCount = (cartDrafts || []).length}
       <button
-        class={`${topBtnBase} ${cartDrafts.length > 0 ? topBtnActive : ""}`}
+        class={`${topBtnBase} w-8 px-0 inline-flex items-center justify-center relative ${draftCount > 0 ? topBtnActive : ""}`}
         on:click={openCartDrafts}
         title="Save and resume draft carts"
+        aria-label={`Draft carts${draftCount > 0 ? ` (${draftCount})` : ""}`}
         type="button"
       >
-        Drafts{cartDrafts.length > 0 ? ` (${cartDrafts.length})` : ""}
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+          <path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M3 7V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        {#if draftCount > 0}
+          <span class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-accent text-[10px] leading-4 text-[rgb(var(--color-accent-content))] font-bold text-center">
+            {draftCount > 99 ? "99+" : draftCount}
+          </span>
+        {/if}
       </button>
     {/if}
 
@@ -5523,6 +5663,14 @@
           >
             Receipt
           </button>
+          <button
+            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            on:click={openShortcutsGuide}
+            title="Show keyboard shortcuts"
+            type="button"
+          >
+            Shortcuts
+          </button>
           {#if activeScreen === "pos"}
             <button
               class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
@@ -5536,7 +5684,7 @@
               class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors disabled:opacity-60"
               on:click={() => {
                 showTopMoreActions = false;
-                if (saveCurrentCartAsDraft({ name: "", clearCurrent: true })) cartDraftName = "";
+                saveCurrentCartToDraft();
               }}
               disabled={(cart || []).length === 0}
               title={(cart || []).length === 0 ? "Add items before saving draft" : "Save current cart to drafts"}
@@ -5658,6 +5806,7 @@
           updateUom={updateLineUom}
           removeLine={removeLine}
           clearCart={clearCartAll}
+          saveDraft={saveCurrentCartToDraft}
           companyLabelForLine={companyLabel}
           companyToneForLine={companyTone}
         />
@@ -5819,6 +5968,49 @@
   onCancel={() => showPaymentModal = false}
 />
 
+{#if showShortcutsGuide}
+  <div class="fixed inset-0 z-[75] flex items-center justify-center p-4">
+    <button
+      class="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      type="button"
+      aria-label="Close shortcuts guide"
+      on:click={() => showShortcutsGuide = false}
+    ></button>
+    <div class="relative z-10 w-full max-w-4xl max-h-[88vh] bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <header class="px-5 py-4 border-b border-ink/10 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <h3 class="text-base font-bold text-ink">POS Shortcuts Guide</h3>
+          <p class="text-xs text-muted mt-1">All available keyboard shortcuts in this POS UI.</p>
+        </div>
+        <button
+          class="px-3 py-1.5 rounded-lg text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+          type="button"
+          on:click={() => showShortcutsGuide = false}
+        >
+          Close
+        </button>
+      </header>
+      <div class="p-5 overflow-auto flex-1 space-y-4">
+        {#each SHORTCUT_GUIDE_SECTIONS as section}
+          <section class="rounded-xl border border-ink/10 bg-ink/5 overflow-hidden">
+            <div class="px-4 py-2.5 border-b border-ink/10 text-xs font-bold uppercase tracking-wide text-muted">
+              {section.title}
+            </div>
+            <div class="divide-y divide-ink/10">
+              {#each section.items as row}
+                <div class="px-4 py-2.5 grid grid-cols-1 md:grid-cols-[220px_1fr] gap-2 items-start">
+                  <div class="text-[11px] font-mono font-semibold text-accent">{row.keys}</div>
+                  <div class="text-[12px] text-ink/90">{row.action}</div>
+                </div>
+              {/each}
+            </div>
+          </section>
+        {/each}
+      </div>
+    </div>
+  </div>
+{/if}
+
 {#if showCartDraftsDrawer}
   <div class="fixed inset-0 z-[71]">
     <button
@@ -5941,7 +6133,7 @@
       <header class="p-5 border-b border-ink/10 flex items-center justify-between gap-3">
         <div>
           <h2 class="text-xl font-bold text-ink">Queue Inspector</h2>
-          <p class="text-sm text-muted mt-1">Pending/failed events waiting to sync.</p>
+          <p class="text-sm text-muted mt-1">Pending/failed events waiting to sync. Dead cloud events need Admin requeue first.</p>
         </div>
         <div class="flex items-center gap-2">
           <button
@@ -5951,6 +6143,14 @@
             type="button"
           >
             Refresh
+          </button>
+          <button
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+            on:click={openAdminOutbox}
+            type="button"
+            title="Open Admin > System > Outbox"
+          >
+            Open Admin Outbox
           </button>
           <button
             class="px-3 py-2 rounded-xl text-xs font-semibold border border-amber-500/35 bg-amber-500/15 text-ink hover:bg-amber-500/25 transition-colors disabled:opacity-60"
@@ -5970,7 +6170,7 @@
         </div>
       </header>
 
-      <div class="px-5 py-4 border-b border-ink/10 grid grid-cols-3 gap-3 text-xs">
+      <div class="px-5 py-4 border-b border-ink/10 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
         <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2">
           <div class="text-muted uppercase tracking-wide">Total</div>
           <div class="text-ink font-bold mt-0.5">{queuedEventsTotal}</div>
@@ -5983,7 +6183,51 @@
           <div class="text-muted uppercase tracking-wide">Unofficial</div>
           <div class="text-ink font-bold mt-0.5">{queueUnofficialCount}</div>
         </div>
+        <div class="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2">
+          <div class="text-muted uppercase tracking-wide">Failed</div>
+          <div class="text-ink font-bold mt-0.5">{queueFailedCount}</div>
+        </div>
+        <div class="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2">
+          <div class="text-muted uppercase tracking-wide">Dead</div>
+          <div class="text-ink font-bold mt-0.5">{queueDeadCount}</div>
+        </div>
       </div>
+
+      {#if queueManualRequeueCount > 0}
+        <div class="px-5 py-4 border-b border-ink/10">
+          <div class="rounded-xl border border-red-500/35 bg-red-500/10 px-4 py-3">
+            <div class="text-xs font-bold text-ink">Dead means manual requeue required.</div>
+            <div class="text-[11px] text-muted mt-1">
+              {queueManualRequeueCount} cloud event{queueManualRequeueCount === 1 ? "" : "s"} in dead state. Requeue in Admin, then return here and click Send Queue.
+            </div>
+            <div class="mt-2 rounded-lg border border-ink/10 bg-ink/5 px-3 py-2">
+              <div class="text-[10px] font-bold uppercase tracking-wide text-muted">How to recover dead events</div>
+              <ol class="mt-1.5 space-y-1 text-[11px] text-ink list-decimal list-inside">
+                <li>Open Admin Outbox and filter status to dead or failed.</li>
+                <li>Requeue the affected events in Admin.</li>
+                <li>Return to POS Queue and click Send Queue.</li>
+                <li>Confirm queue count drops and invoices/returns appear.</li>
+              </ol>
+            </div>
+            <div class="flex items-center gap-2 pt-2">
+              <button
+                class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-ink/15 bg-ink/5 text-ink hover:bg-ink/10 transition-colors"
+                type="button"
+                on:click={openAdminOutbox}
+              >
+                Open Admin Outbox
+              </button>
+              <button
+                class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-ink/15 bg-ink/5 text-ink hover:bg-ink/10 transition-colors"
+                type="button"
+                on:click={copyAdminOutboxLink}
+              >
+                Copy Link
+              </button>
+            </div>
+          </div>
+        </div>
+      {/if}
 
       <div class="flex-1 overflow-y-auto p-5 space-y-3">
         {#if queueEvents.length === 0}
@@ -6010,20 +6254,35 @@
               </div>
               <div class="text-xs font-mono text-ink/90">{_shortQueueEventId(eventId)}</div>
               <div class="text-xs text-muted">{eventType}</div>
+              {#if _queueNeedsAdminRequeue(ev)}
+                <div class="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[11px] text-ink">
+                  Dead cloud event. Requeue it in Admin Outbox before retrying from POS.
+                </div>
+              {/if}
               {#if errorText}
                 <div class="queue-error-msg rounded-lg px-3 py-2 text-[11px] break-words">
                   {errorText}
                 </div>
               {/if}
               <div class="flex flex-wrap items-center gap-2 pt-1">
-                <button
-                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-accent/40 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
-                  type="button"
-                  on:click={() => retryQueueEvent(ev)}
-                  disabled={loading || _isQueueRetrying(ev)}
-                >
-                  {_isQueueRetrying(ev) ? "Retrying..." : "Retry"}
-                </button>
+                {#if _queueNeedsAdminRequeue(ev)}
+                  <button
+                    class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-ink/15 bg-ink/5 text-ink hover:bg-ink/10 transition-colors"
+                    type="button"
+                    on:click={openAdminOutbox}
+                  >
+                    Open Admin Outbox
+                  </button>
+                {:else}
+                  <button
+                    class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-accent/40 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
+                    type="button"
+                    on:click={() => retryQueueEvent(ev)}
+                    disabled={loading || _isQueueRetrying(ev)}
+                  >
+                    {_isQueueRetrying(ev) ? "Retrying..." : "Retry"}
+                  </button>
+                {/if}
                 <button
                   class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-ink/15 bg-ink/5 text-ink hover:bg-ink/10 transition-colors"
                   type="button"

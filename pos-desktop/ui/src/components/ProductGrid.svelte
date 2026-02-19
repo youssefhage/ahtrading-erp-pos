@@ -124,6 +124,7 @@
 
   const onSearchKeyDown = (e) => {
     if (!e) return;
+    const uomShortcutMode = !!e.altKey && !e.ctrlKey && !e.metaKey;
 
     if (e.key === "ArrowDown") {
       if (visible.length === 0) return;
@@ -137,14 +138,14 @@
       activeIndex = Math.max(0, activeIndex - 1);
       return;
     }
-    if (e.key === "u" || e.key === "U") {
+    if (uomShortcutMode && (e.key === "u" || e.key === "U")) {
       if (visible.length === 0) return;
       e.preventDefault();
       const it = visible[activeIndex];
       cycleUom(it, e.key === "U" ? -1 : 1);
       return;
     }
-    if (e.key && e.key.length === 1 && e.key >= "1" && e.key <= String(MAX_UOM_KEYS)) {
+    if (uomShortcutMode && e.key && e.key.length === 1 && e.key >= "1" && e.key <= String(MAX_UOM_KEYS)) {
       if (visible.length === 0) return;
       // 1..9 selects UOM index
       e.preventDefault();
@@ -317,7 +318,7 @@
                   <button
                     type="button"
                     class="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider border bg-surface-highlight/50 border-white/5 hover:border-accent/30 hover:text-accent transition-colors"
-                    title={opts.length > 1 ? "UOM (tap to toggle, U to cycle, 1-9 to select)" : "UOM"}
+                    title={opts.length > 1 ? "UOM (tap to toggle, Alt+U to cycle, Alt+1..9 to select)" : "UOM"}
                     on:click|stopPropagation={() => cycleUom(item, 1)}
                   >
                     {sel.label || sel.uom}
