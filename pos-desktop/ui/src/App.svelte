@@ -5548,7 +5548,7 @@
           <path d="M3 7V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
         {#if draftCount > 0}
-          <span class="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-accent text-[10px] leading-4 text-[rgb(var(--color-accent-content))] font-bold text-center">
+          <span class="absolute top-0.5 right-0.5 inline-flex min-w-[16px] h-4 px-1 items-center justify-center rounded-full bg-accent text-[10px] leading-none text-[rgb(var(--color-accent-content))] font-bold text-center">
             {draftCount > 99 ? "99+" : draftCount}
           </span>
         {/if}
