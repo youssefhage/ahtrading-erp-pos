@@ -140,6 +140,7 @@ def resolve_line_uom(
         # If a non-base uom is specified, the factor is derived from conversions.
         pass
 
+    qe_in: Optional[Decimal] = None
     if qty_entered is not None:
         try:
             qe_in = q6(Decimal(str(qty_entered or 0)))
@@ -156,8 +157,13 @@ def resolve_line_uom(
                 detail=f"{line_label}: qty and qty_entered do not match qty_factor (qty={qty_base}, qty_entered={qe_in}, factor={factor_for_consistency})",
             )
 
-    # Always store a consistent entered qty (even if client omitted it).
-    qe = q6(qty_base / expected) if expected else q6(qty_base)
+    # Preserve client-entered qty when provided and validated.
+    # If omitted, derive from the accepted consistency factor (legacy 4dp-safe path).
+    if qe_in is not None:
+        qe = qe_in
+    else:
+        denom = factor_for_consistency if factor_for_consistency > 0 else expected
+        qe = q6(qty_base / denom) if denom else q6(qty_base)
 
     return {
         "base_uom": base_uom,

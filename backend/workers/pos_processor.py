@@ -201,6 +201,7 @@ def _resolve_line_uom(
         else:
             factor_for_consistency = f_in
 
+    qe_in = None
     if qty_entered is not None:
         qe_in = _q6(Decimal(str(qty_entered or 0)))
         if qe_in <= 0:
@@ -211,7 +212,11 @@ def _resolve_line_uom(
                 f"{line_label}: qty and qty_entered mismatch (qty={qty_base}, qty_entered={qe_in}, factor={factor_for_consistency})"
             )
 
-    qe = _q6(qty_base / expected) if expected else _q6(qty_base)
+    if qe_in is not None:
+        qe = qe_in
+    else:
+        denom = factor_for_consistency if factor_for_consistency > 0 else expected
+        qe = _q6(qty_base / denom) if denom else _q6(qty_base)
     return u, expected, qe
 
 
