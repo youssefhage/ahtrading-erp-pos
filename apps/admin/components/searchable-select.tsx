@@ -98,6 +98,8 @@ export function SearchableSelect(props: {
       const menu = menuRef.current;
       if (!el) return;
       if (e.target instanceof Node && (el.contains(e.target) || (menu && menu.contains(e.target)))) return;
+      const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+      if (path.includes(el) || (menu && path.includes(menu))) return;
       setOpen(false);
     }
     function onDocKeyDown(e: KeyboardEvent) {
@@ -244,9 +246,14 @@ export function SearchableSelect(props: {
                           "border-b border-border-subtle last:border-b-0",
                           isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
                         )}
-                        onMouseDown={(e) => e.preventDefault()}
+                        onMouseDown={(e) => {
+                          // Commit on mousedown so selection still applies even when
+                          // outside-interaction handlers close the popup before click.
+                          e.preventDefault();
+                          commit(opt);
+                        }}
                         onMouseEnter={() => setActive(idx)}
-                        onClick={() => commit(opt)}
+                        onClick={(e) => e.preventDefault()}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="min-w-0 truncate">{opt.label}</span>
