@@ -84,9 +84,11 @@ services:
           "UNDIP-001", "UNFAR-001", "UNNES-005", "UNSPA-003", "UNTMO-001",
         ]
 
-        db_url = os.environ.get("APP_DATABASE_URL") or os.environ.get("DATABASE_URL")
+        db_url = os.environ.get("DATABASE_URL")
         if not db_url:
           raise SystemExit("cleanup: missing DB URL")
+
+        logs = []
 
         try:
           with psycopg.connect(db_url) as conn:
@@ -103,7 +105,9 @@ services:
                 (official_id, targets),
               )
               cur.execute("SELECT COUNT(*) FROM target_items")
-              print(f"cleanup target_items={cur.fetchone()[0]}", flush=True)
+              target_count = cur.fetchone()[0]
+              logs.append(f"target_items={target_count}")
+              print(f"cleanup target_items={target_count}", flush=True)
 
               cur.execute(
                 """
@@ -135,11 +139,19 @@ services:
                 cur.execute(q)
 
               cur.execute("DELETE FROM items i USING target_items t WHERE i.id = t.id")
+              logs.append(f"deleted_items={cur.rowcount}")
               print(f"cleanup deleted_items={cur.rowcount}", flush=True)
             conn.commit()
         except Exception as exc:
           # Never block API startup if cleanup fails; we'll verify and handle separately.
+          logs.append(f"error={exc}")
           print(f"cleanup error={exc}", flush=True)
+        finally:
+          try:
+            with open("/updates/cleanup-unofficial-delete.log", "w", encoding="utf-8") as f:
+              f.write("\\n".join(logs) + "\\n")
+          except Exception as file_exc:
+            print(f"cleanup file_write_error={file_exc}", flush=True)
         PY
         # Run migrations/seeds in the background so the API can boot and become routable
         # (Dokploy/compose deployments may fail if we block on init_db).
