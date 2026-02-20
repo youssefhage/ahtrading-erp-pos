@@ -719,6 +719,15 @@
   $: cashierOfficialName = activeCashierOfficial ? activeCashierOfficial.name : (config.cashier_id ? "Unknown" : "Not Signed In");
   $: cashierUnofficialName = activeCashierUnofficial ? activeCashierUnofficial.name : (unofficialConfig.cashier_id ? "Unknown" : "Not Signed In");
   $: cashierName = `O:${cashierOfficialName} · U:${cashierUnofficialName}`;
+  $: selectedCashierCompanyKey = normalizeCompanyKey(cashierCompanyKey || originCompanyKey);
+  $: selectedCashierId = selectedCashierCompanyKey === otherCompanyKey
+    ? String(unofficialConfig?.cashier_id || "").trim()
+    : String(config?.cashier_id || "").trim();
+  $: selectedCashierName = selectedCashierCompanyKey === otherCompanyKey ? cashierUnofficialName : cashierOfficialName;
+  $: selectedCashierSignedIn = !!selectedCashierId;
+  $: cashierModalSubtitle = selectedCashierSignedIn
+    ? `${selectedCashierName} is signed in for selected company. Enter PIN to switch cashier, or sign out current.`
+    : "No cashier is signed in for selected company. Enter PIN to sign in.";
   const _normalizeCashierManagerMeta = (value) => {
     if (!value || typeof value !== "object") return null;
     const cashier_id = String(value?.cashier_id || "").trim();
@@ -3277,6 +3286,7 @@
   const openCashierModal = async (companyKey = originCompanyKey) => {
     cashierCompanyKey = normalizeCompanyKey(companyKey);
     showCashierModal = true;
+    void fetchData({ background: true }).catch(() => {});
     await tick();
     try { cashierPinEl?.focus(); } catch (_) {}
   };
@@ -6701,8 +6711,8 @@
     ></button>
     <div class="relative w-full max-w-sm bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
       <div class="p-6 border-b border-ink/10 text-center">
-        <h2 class="text-xl font-bold text-ink">Cashier Access</h2>
-        <p class="text-sm text-muted mt-1">Sign in with PIN or sign out the current cashier for selected company</p>
+        <h2 class="text-xl font-bold text-ink">Cashier Session</h2>
+        <p class="text-sm text-muted mt-1">{cashierModalSubtitle}</p>
       </div>
       <div class="p-6 space-y-4">
         <label class="text-xs text-muted uppercase tracking-wider font-bold" for="cashier-company">Company</label>
@@ -6710,6 +6720,7 @@
           id="cashier-company"
           class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-accent/50 focus:outline-none"
           bind:value={cashierCompanyKey}
+          on:change={() => { void fetchData({ background: true }); }}
           disabled={loading}
         >
           <option value="official">Official ({cashierOfficialName}{cashierOfficialManager ? " · Manager" : ""})</option>
@@ -6717,9 +6728,7 @@
         </select>
         <div class="text-xs text-muted">
           Current cashier:
-          <span class="font-semibold text-ink/80">
-            {normalizeCompanyKey(cashierCompanyKey || originCompanyKey) === "unofficial" ? cashierUnofficialName : cashierOfficialName}
-          </span>
+          <span class="font-semibold text-ink/80">{selectedCashierName}</span>
         </div>
         <label class="sr-only" for="cashier-pin">PIN</label>
         <input
@@ -6742,7 +6751,7 @@
           <button
             class="flex-[1.4] py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
             on:click={() => cashierLogout(cashierCompanyKey || originCompanyKey)}
-            disabled={loading || !cashierIdForCompany(cashierCompanyKey || originCompanyKey)}
+            disabled={loading || !selectedCashierSignedIn}
             type="button"
             title="Sign out current cashier for selected company"
           >
@@ -6752,9 +6761,10 @@
             class="flex-[2] py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
             on:click={cashierLogin}
             disabled={loading}
+            title={selectedCashierSignedIn ? "Switch cashier with PIN" : "Sign in cashier with PIN"}
             type="button"
           >
-            Sign In
+            {selectedCashierSignedIn ? "Switch Cashier" : "Sign In"}
           </button>
         </div>
       </div>
