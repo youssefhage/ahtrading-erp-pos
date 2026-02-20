@@ -213,12 +213,18 @@ export function SearchableSelect(props: {
             <div
               ref={menuRef}
               data-dialog-keepopen="true"
+              data-searchable-select-menu="true"
               className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
               style={{
                 position: "fixed",
                 left: menuPos.left,
                 width: menuPos.width,
                 ...(typeof menuPos.top === "number" ? { top: menuPos.top } : { bottom: menuPos.bottom }),
+              }}
+              onPointerDownCapture={(e) => {
+                // Keep portal interactions local; avoid global pointerdown listeners
+                // (dialog/document outside handlers) from racing the selection commit.
+                e.stopPropagation();
               }}
             >
               <div className="border-b border-border-subtle p-2">
@@ -246,10 +252,11 @@ export function SearchableSelect(props: {
                           "border-b border-border-subtle last:border-b-0",
                           isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
                         )}
-                        onMouseDown={(e) => {
-                          // Commit on mousedown so selection still applies even when
-                          // outside-interaction handlers close the popup before click.
+                        onPointerDown={(e) => {
+                          // Commit on pointerdown so selection applies before any
+                          // outside-close handlers that listen on pointerdown.
                           e.preventDefault();
+                          e.stopPropagation();
                           commit(opt);
                         }}
                         onMouseEnter={() => setActive(idx)}
