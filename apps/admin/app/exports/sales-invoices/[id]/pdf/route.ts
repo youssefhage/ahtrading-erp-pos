@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { createElement } from "react";
 
 import { BackendHttpError, backendGetJson, backendGetJsonWithHeaders } from "@/lib/server/backend";
 import { pdfResponse } from "@/lib/server/pdf";
@@ -69,15 +70,29 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         ? templateFromPolicy
         : "";
 
-    return pdfResponse({
-      element: SalesInvoicePdf({ detail, company, customer, addresses, template: effectiveTemplate || undefined }),
-      filename,
-      inline
-    });
+    const renderInvoicePdf = async (selectedTemplate?: string) =>
+      pdfResponse({
+        element: createElement(SalesInvoicePdf, { detail, company, customer, addresses, template: selectedTemplate }),
+        filename,
+        inline
+      });
+
+    try {
+      return await renderInvoicePdf(effectiveTemplate || undefined);
+    } catch (renderErr) {
+      // If a custom/official template fails for a specific invoice payload, fall back to standard.
+      if ((effectiveTemplate || "").toLowerCase() !== "standard") {
+        try {
+          return await renderInvoicePdf("standard");
+        } catch {}
+      }
+      throw renderErr;
+    }
   } catch (err) {
     if (err instanceof BackendHttpError) {
       return new Response(err.bodyText || err.message, { status: err.status });
     }
-    throw err;
+    console.error("sales invoice pdf render failed", err);
+    return new Response("Failed to render sales invoice PDF", { status: 500 });
   }
 }
