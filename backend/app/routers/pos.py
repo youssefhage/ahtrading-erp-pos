@@ -3413,6 +3413,7 @@ def list_shifts(company_id: str = Depends(get_company_id), _auth=Depends(require
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            _cash_methods, cash_methods_norm = _load_cash_methods(cur, company_id)
             cur.execute(
                 """
                 SELECT id, device_id, status, opened_at, closed_at,
@@ -3427,4 +3428,20 @@ def list_shifts(company_id: str = Depends(get_company_id), _auth=Depends(require
                 """,
                 (company_id,),
             )
-            return {"shifts": cur.fetchall()}
+            rows = cur.fetchall() or []
+            for row in rows:
+                if str(row.get("status") or "").lower() != "open":
+                    continue
+                expected_usd, expected_lbp = _expected_cash(
+                    cur,
+                    company_id,
+                    str(row.get("device_id") or ""),
+                    str(row.get("id") or ""),
+                    row.get("opened_at"),
+                    row.get("opening_cash_usd"),
+                    row.get("opening_cash_lbp"),
+                    cash_methods_norm=cash_methods_norm,
+                )
+                row["expected_cash_usd"] = expected_usd
+                row["expected_cash_lbp"] = expected_lbp
+            return {"shifts": rows}

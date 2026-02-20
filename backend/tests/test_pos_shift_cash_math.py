@@ -192,3 +192,112 @@ def test_close_shift_uses_cash_method_normalization(monkeypatch):
 
     assert captured["cash_methods_norm"] == ["cash"]
     assert (res.get("shift") or {}).get("status") == "closed"
+
+
+def test_list_shifts_computes_live_expected_for_open_shifts(monkeypatch):
+    captured = {"calls": []}
+
+    class _FakeCursorForListShifts:
+        def __init__(self):
+            self._rows = []
+
+        def execute(self, sql, params=None):
+            text = " ".join(str(sql or "").lower().split())
+            if "from payment_method_mappings" in text:
+                self._rows = [{"method": "cash"}]
+                return
+            if "from pos_shifts" in text and "order by opened_at desc" in text:
+                self._rows = [
+                    {
+                        "id": "open-shift",
+                        "device_id": "device-1",
+                        "status": "open",
+                        "opened_at": datetime(2026, 2, 19, 19, 18, 0),
+                        "closed_at": None,
+                        "opening_cash_usd": Decimal("250"),
+                        "opening_cash_lbp": Decimal("0"),
+                        "closing_cash_usd": None,
+                        "closing_cash_lbp": None,
+                        "expected_cash_usd": None,
+                        "expected_cash_lbp": None,
+                        "variance_usd": None,
+                        "variance_lbp": None,
+                    },
+                    {
+                        "id": "closed-shift",
+                        "device_id": "device-1",
+                        "status": "closed",
+                        "opened_at": datetime(2026, 2, 18, 10, 0, 0),
+                        "closed_at": datetime(2026, 2, 18, 18, 0, 0),
+                        "opening_cash_usd": Decimal("100"),
+                        "opening_cash_lbp": Decimal("0"),
+                        "closing_cash_usd": Decimal("120"),
+                        "closing_cash_lbp": Decimal("0"),
+                        "expected_cash_usd": Decimal("120"),
+                        "expected_cash_lbp": Decimal("0"),
+                        "variance_usd": Decimal("0"),
+                        "variance_lbp": Decimal("0"),
+                    },
+                ]
+                return
+            raise AssertionError(f"unexpected SQL in test cursor: {text}")
+
+        def fetchall(self):
+            return list(self._rows)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeConnForListShifts:
+        def __init__(self):
+            self._cursor = _FakeCursorForListShifts()
+
+        def cursor(self):
+            return self._cursor
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_expected_cash(
+        cur,
+        company_id,
+        device_id,
+        shift_id,
+        opened_at,
+        opening_cash_usd,
+        opening_cash_lbp,
+        cash_methods_norm=None,
+    ):
+        captured["calls"].append(
+            {
+                "company_id": company_id,
+                "device_id": device_id,
+                "shift_id": shift_id,
+                "cash_methods_norm": list(cash_methods_norm or []),
+            }
+        )
+        return Decimal("506.1"), Decimal("0")
+
+    monkeypatch.setattr(pos_router, "get_conn", lambda: _FakeConnForListShifts())
+    monkeypatch.setattr(pos_router, "set_company_context", lambda conn, company_id: None)
+    monkeypatch.setattr(pos_router, "_expected_cash", _fake_expected_cash)
+
+    res = pos_router.list_shifts(company_id="company-1", _auth=None)
+    rows = list(res.get("shifts") or [])
+
+    open_shift = next((r for r in rows if r.get("id") == "open-shift"), None)
+    closed_shift = next((r for r in rows if r.get("id") == "closed-shift"), None)
+
+    assert open_shift is not None
+    assert closed_shift is not None
+    assert Decimal(str(open_shift.get("expected_cash_usd"))) == Decimal("506.1")
+    assert Decimal(str(closed_shift.get("expected_cash_usd"))) == Decimal("120")
+    assert len(captured["calls"]) == 1
+    assert captured["calls"][0]["shift_id"] == "open-shift"
+    assert captured["calls"][0]["cash_methods_norm"] == ["cash"]

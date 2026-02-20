@@ -699,6 +699,10 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
                         (uid,),
                     )
 
+            # psycopg returns UUID objects for uuid columns; normalize before json.dumps.
+            uid_json = str(uid)
+            role_id_json = str(role_id) if role_id else None
+
             cur.execute(
                 """
                 INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
@@ -712,7 +716,7 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
                     json.dumps(
                         {
                             "email": email,
-                            "assigned_role_id": role_id,
+                            "assigned_role_id": role_id_json,
                             "template_code": selected_template_code,
                             "profile_type_code": selected_template_code,
                             "created": created,
@@ -723,7 +727,14 @@ def create_user(data: UserIn, company_id: str = Depends(get_company_id), user=De
             note = ""
             if not created:
                 note = "User already existed. Password was not changed. Access was updated."
-            return {"id": uid, "role_id": role_id, "created": created, "existing": (not created), "access_granted": bool(role_id), "note": note}
+            return {
+                "id": uid_json,
+                "role_id": role_id_json,
+                "created": created,
+                "existing": (not created),
+                "access_granted": bool(role_id),
+                "note": note,
+            }
 
 
 @router.patch("/{user_id}", dependencies=[Depends(require_permission("users:write"))])
@@ -844,7 +855,7 @@ def remove_user_from_company(user_id: str, company_id: str = Depends(get_company
                     """,
                     (company_id, user_id),
                 )
-                removed_roles = [r["role_id"] for r in cur.fetchall()]
+                removed_roles = [str(r["role_id"]) for r in cur.fetchall()]
                 if not removed_roles:
                     raise HTTPException(status_code=404, detail="user not found")
 
@@ -1164,6 +1175,7 @@ def assign_user_profile_type(
                     raise HTTPException(status_code=404, detail="user not found")
 
                 role_id = _ensure_role_from_template(cur, company_id, template)
+                role_id_json = str(role_id)
 
                 if data.replace_existing_roles:
                     cur.execute(
@@ -1205,7 +1217,7 @@ def assign_user_profile_type(
                             {
                                 "profile_type_code": template.code,
                                 "profile_type_name": template.name,
-                                "role_id": role_id,
+                                "role_id": role_id_json,
                                 "replace_existing_roles": bool(data.replace_existing_roles),
                             }
                         ),
@@ -1216,7 +1228,7 @@ def assign_user_profile_type(
                     "user_id": user_id,
                     "profile_type_code": template.code,
                     "profile_type_name": template.name,
-                    "role_id": role_id,
+                    "role_id": role_id_json,
                 }
 
 
