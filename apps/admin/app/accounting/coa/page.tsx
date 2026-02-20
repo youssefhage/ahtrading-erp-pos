@@ -23,7 +23,9 @@ type CoaAccount = {
 
 export default function CoaPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
+  const statusIsBusy = /^Saving\b/i.test(status);
 
   const [editOpen, setEditOpen] = useState(false);
   const [edit, setEdit] = useState<CoaAccount | null>(null);
@@ -105,7 +107,8 @@ export default function CoaPage() {
   }, [accountById, openEdit]);
 
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const res = await apiGet<{ accounts: CoaAccount[] }>("/coa/accounts");
       setAccounts(res.accounts || []);
@@ -113,6 +116,8 @@ export default function CoaPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -155,13 +160,13 @@ export default function CoaPage() {
             <p className="ui-module-subtitle">Manage account names, posting flags, and parent structure.</p>
           </div>
           <div className="ui-module-actions">
-            <Button variant="outline" onClick={load}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={loading}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
           </div>
         </div>
       </div>
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
         <CardHeader>
@@ -181,9 +186,10 @@ export default function CoaPage() {
             tableId="accounting.coa"
             rows={accounts}
             columns={columns}
+            isLoading={loading}
             initialSort={{ columnId: "account_code", dir: "asc" }}
             globalFilterPlaceholder="Search code / name..."
-            emptyText="No accounts."
+            emptyText={loading ? "Loading..." : "No accounts."}
           />
         </CardContent>
       </Card>

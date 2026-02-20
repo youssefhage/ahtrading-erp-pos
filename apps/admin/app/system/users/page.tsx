@@ -64,6 +64,9 @@ export default function UsersPage() {
   const [editSaving, setEditSaving] = useState(false);
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
+  const loading = status.startsWith("Loading");
+  const statusIsBusy = /^(Loading|Creating|Assigning|Applying|Saving|Removing)\b/.test(status);
+  const statusIsNotice = status.startsWith("User already existed.") || status.startsWith("Email already exists.");
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -313,15 +316,15 @@ export default function UsersPage() {
 
   return (
     <Page width="lg" className="px-4 pb-10">
-        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy && !statusIsNotice ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <PageHeader
         title="Users"
         description="Manage access for this company (users, roles, profile types)."
         actions={
           <>
-            <Button variant="outline" onClick={load}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={statusIsBusy}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
@@ -477,7 +480,8 @@ export default function UsersPage() {
           tableId="system.users"
           rows={users}
           columns={columns}
-          emptyText="No users."
+          isLoading={loading}
+          emptyText={loading ? "Loading users..." : "No users."}
           globalFilterPlaceholder="Search email / id..."
           initialSort={{ columnId: "email", dir: "asc" }}
         />

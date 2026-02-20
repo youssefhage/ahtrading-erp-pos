@@ -70,7 +70,7 @@ export default function TrialBalancePage() {
   }, []);
 
   async function load() {
-    setStatus("Loading...");
+    setStatus("");
     try {
       const res = await apiGet<{ trial_balance: TrialRow[] }>("/reports/trial-balance");
       setRows(res.trial_balance || []);

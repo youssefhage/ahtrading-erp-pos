@@ -30,7 +30,11 @@ function fmt(n: string | number, frac = 2) {
 }
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export default function BalanceSheetPage() {
@@ -39,9 +43,15 @@ export default function BalanceSheetPage() {
 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [asOf, setAsOf] = useState(todayIso());
+  const printQuery = useMemo(() => {
+    const qs = new URLSearchParams();
+    if (asOf) qs.set("as_of", asOf);
+    const s = qs.toString();
+    return s ? `?${s}` : "";
+  }, [asOf]);
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setStatus("");
     try {
       const params = new URLSearchParams();
       if (asOf) params.set("as_of", asOf);
@@ -102,7 +112,7 @@ export default function BalanceSheetPage() {
               </Button>
               <Button asChild variant="outline">
                 <Link
-                  href={`/accounting/reports/balance-sheet/print?as_of=${encodeURIComponent(asOf)}`}
+                  href={`/accounting/reports/balance-sheet/print${printQuery}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -111,7 +121,7 @@ export default function BalanceSheetPage() {
               </Button>
               <Button asChild variant="outline">
                 <a
-                  href={`/exports/reports/balance-sheet/pdf?as_of=${encodeURIComponent(asOf)}`}
+                  href={`/exports/reports/balance-sheet/pdf${printQuery}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

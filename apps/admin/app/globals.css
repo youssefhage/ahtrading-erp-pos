@@ -48,9 +48,9 @@
     /* Ring focus */
     --ring: 37 99 235;    /* blue-600 */
 
-    /* Text selection (subtle light grey) */
-    --selection: 0 0 0;
-    --selection-alpha: 0.08;
+    /* Text selection: use accent tint so highlighted text is clearly visible. */
+    --selection: var(--primary);
+    --selection-alpha: 0.28;
   }
 
   /*
@@ -183,9 +183,9 @@
     --terminal-amber: 248 113 113;
     --terminal-cyan: 96 165 250;
 
-    /* Text selection (subtle light grey) */
-    --selection: 255 255 255;
-    --selection-alpha: 0.12;
+    /* Text selection: stronger in dark mode for clear contrast. */
+    --selection: var(--primary);
+    --selection-alpha: 0.36;
   }
 
   * {
@@ -802,6 +802,79 @@
 
   .ui-chip-danger {
     @apply border border-danger/25 bg-danger/5 text-foreground;
+  }
+
+  /* Semantic chip tones: muted, natural palettes (Notion/ClickUp-like) */
+  .ui-chip-status-draft {
+    border-color: rgb(148 163 184 / 0.45);
+    background-color: rgb(148 163 184 / 0.14);
+    color: rgb(51 65 85);
+  }
+
+  .ui-chip-status-posted {
+    border-color: rgb(74 124 89 / 0.48);
+    background-color: rgb(74 124 89 / 0.14);
+    color: rgb(20 83 45);
+  }
+
+  .ui-chip-source-admin {
+    border-color: rgb(100 116 139 / 0.42);
+    background-color: rgb(100 116 139 / 0.12);
+    color: rgb(51 65 85);
+  }
+
+  .ui-chip-source-pos {
+    border-color: rgb(15 118 110 / 0.45);
+    background-color: rgb(15 118 110 / 0.12);
+    color: rgb(17 94 89);
+  }
+
+  .ui-chip-source-import {
+    border-color: rgb(180 83 9 / 0.45);
+    background-color: rgb(180 83 9 / 0.12);
+    color: rgb(120 53 15);
+  }
+
+  .ui-chip-source-api {
+    border-color: rgb(79 70 229 / 0.45);
+    background-color: rgb(79 70 229 / 0.12);
+    color: rgb(67 56 202);
+  }
+
+  .dark .ui-chip-status-draft {
+    border-color: rgb(148 163 184 / 0.42);
+    background-color: rgb(71 85 105 / 0.24);
+    color: rgb(226 232 240);
+  }
+
+  .dark .ui-chip-status-posted {
+    border-color: rgb(74 124 89 / 0.52);
+    background-color: rgb(22 101 52 / 0.24);
+    color: rgb(187 247 208);
+  }
+
+  .dark .ui-chip-source-admin {
+    border-color: rgb(100 116 139 / 0.44);
+    background-color: rgb(71 85 105 / 0.24);
+    color: rgb(226 232 240);
+  }
+
+  .dark .ui-chip-source-pos {
+    border-color: rgb(20 184 166 / 0.45);
+    background-color: rgb(13 148 136 / 0.22);
+    color: rgb(153 246 228);
+  }
+
+  .dark .ui-chip-source-import {
+    border-color: rgb(245 158 11 / 0.44);
+    background-color: rgb(180 83 9 / 0.24);
+    color: rgb(253 230 138);
+  }
+
+  .dark .ui-chip-source-api {
+    border-color: rgb(129 140 248 / 0.45);
+    background-color: rgb(67 56 202 / 0.24);
+    color: rgb(224 231 255);
   }
 
   /* Status indicators */

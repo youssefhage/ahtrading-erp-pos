@@ -69,6 +69,9 @@ export default function PosShiftsPage() {
   const [movements, setMovements] = useState<CashMovementRow[]>([]);
   const [recon, setRecon] = useState<CashRecon | null>(null);
   const [movementsLimit, setMovementsLimit] = useState("200");
+  const loadingShifts = status === "Loading...";
+  const loadingMovements = status === "Loading cash movements...";
+  const statusIsBusy = loadingShifts || loadingMovements;
 
   const deviceById = useMemo(() => new Map(devices.map((d) => [d.id, d])), [devices]);
 
@@ -284,14 +287,14 @@ export default function PosShiftsPage() {
 
   return (
     <Page width="lg" className="px-4 pb-10">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <PageHeader
         title="POS Shifts"
         description="Shift history and cash movements for POS devices."
         actions={
-          <Button variant="outline" onClick={load}>
-            Refresh
+          <Button variant="outline" onClick={load} disabled={statusIsBusy}>
+            {loadingShifts ? "Loading..." : "Refresh"}
           </Button>
         }
       />
@@ -302,7 +305,8 @@ export default function PosShiftsPage() {
           rows={shifts}
           columns={shiftColumns}
           getRowId={(r) => r.id}
-          emptyText="No shifts."
+          isLoading={loadingShifts}
+          emptyText={loadingShifts ? "Loading shifts..." : "No shifts."}
           globalFilterPlaceholder="Search device / status / id"
           initialSort={{ columnId: "opened_at", dir: "desc" }}
         />
@@ -372,7 +376,7 @@ export default function PosShiftsPage() {
             <label className="text-xs font-medium text-fg-muted">Limit</label>
             <Input value={movementsLimit} onChange={(e) => setMovementsLimit(e.target.value)} />
           </div>
-          <Button variant="outline" onClick={() => loadMovements(selectedShiftId)} disabled={!selectedShiftId}>
+          <Button variant="outline" onClick={() => loadMovements(selectedShiftId)} disabled={!selectedShiftId || loadingMovements}>
             Refresh Movements
           </Button>
         </div>
@@ -383,7 +387,8 @@ export default function PosShiftsPage() {
             rows={movements}
             columns={movementColumns}
             getRowId={(r) => r.id}
-            emptyText={selectedShiftId ? "No cash movements." : "Select a shift to view cash movements."}
+            isLoading={loadingMovements}
+            emptyText={loadingMovements ? "Loading cash movements..." : selectedShiftId ? "No cash movements." : "Select a shift to view cash movements."}
             globalFilterPlaceholder="Search device / type / notes"
             initialSort={{ columnId: "created_at", dir: "desc" }}
           />

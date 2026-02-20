@@ -74,6 +74,7 @@ function Inner() {
   }, [data]);
 
   const failedJobs = data?.failed_jobs || [];
+  const workerAgeSeconds = data?.worker_age_seconds ?? null;
 
   const attentionColumns = useMemo((): Array<DataTableColumn<AttentionItem>> => {
     return [
@@ -168,7 +169,7 @@ function Inner() {
         <div className="space-y-3 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/60 px-3 py-2">
             <div className="text-fg-muted">Worker last seen</div>
-            <div className="data-mono font-medium">{fmtAge(data?.worker_age_seconds ?? null)} ago</div>
+            <div className="data-mono font-medium">{workerAgeSeconds == null ? "-" : `${fmtAge(workerAgeSeconds)} ago`}</div>
           </div>
 
           <DataTable<FailedJob>

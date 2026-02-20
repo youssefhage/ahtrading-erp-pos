@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional
+from uuid import UUID
 
 from ..db import get_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
@@ -34,6 +35,16 @@ def _permission_for_entity(entity_type: str) -> str:
     return "config:read"
 
 
+def _parse_uuid_optional(value: Optional[str], field_name: str) -> Optional[str]:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return str(UUID(raw))
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a valid UUID")
+
+
 @router.get("/logs")
 def list_audit_logs(
     entity_type: Optional[str] = None,
@@ -54,10 +65,16 @@ def list_audit_logs(
     if offset < 0:
         raise HTTPException(status_code=400, detail="offset must be >= 0")
 
+    entity_type = (entity_type or "").strip() or None
+    action_prefix = (action_prefix or "").strip() or None
+
     # Require at least a type filter so this endpoint can't be used as a general audit feed
     # without explicit reporting permission.
     if not entity_type:
         raise HTTPException(status_code=400, detail="entity_type is required")
+
+    entity_id = _parse_uuid_optional(entity_id, "entity_id")
+    user_id = _parse_uuid_optional(user_id, "user_id")
 
     require_permission(_permission_for_entity(entity_type))(company_id=company_id, user=user)
 
@@ -83,10 +100,9 @@ def list_audit_logs(
                 params.append(user_id)
             if action_prefix:
                 sql += " AND l.action LIKE %s"
-                params.append(action_prefix.strip() + "%")
+                params.append(action_prefix + "%")
 
             sql += " ORDER BY l.created_at DESC, l.id DESC LIMIT %s OFFSET %s"
             params.extend([limit, offset])
             cur.execute(sql, params)
             return {"audit_logs": cur.fetchall()}
-

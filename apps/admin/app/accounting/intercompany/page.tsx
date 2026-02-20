@@ -46,6 +46,7 @@ function fmt(n: string | number) {
 
 export default function IntercompanyPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [docs, setDocs] = useState<DocRow[]>([]);
   const [settlements, setSettlements] = useState<SettlementRow[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -57,6 +58,7 @@ export default function IntercompanyPage() {
   const [exchangeRate, setExchangeRate] = useState("0");
   const [method, setMethod] = useState<"cash" | "bank">("bank");
   const [saving, setSaving] = useState(false);
+  const statusIsBusy = /^Posting settlement\b/i.test(status);
 
   const docColumns = useMemo((): Array<DataTableColumn<DocRow>> => {
     return [
@@ -108,7 +110,8 @@ export default function IntercompanyPage() {
   }, []);
 
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const [c, d, s] = await Promise.all([
         apiGet<{ companies: Company[] }>("/companies"),
@@ -124,6 +127,8 @@ export default function IntercompanyPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -185,7 +190,7 @@ export default function IntercompanyPage() {
           </div>
         </div>
       </div>
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
         <CardHeader>
@@ -239,8 +244,8 @@ export default function IntercompanyPage() {
 
             <div className="flex items-end justify-end md:col-span-3">
               <div className="flex items-center gap-2">
-                <Button variant="outline" type="button" onClick={load}>
-                  Refresh
+                <Button variant="outline" type="button" onClick={load} disabled={loading}>
+                  {loading ? "Loading..." : "Refresh"}
                 </Button>
                 <Button disabled={saving} type="submit">
                   {saving ? "Posting..." : "Settle"}
@@ -261,9 +266,10 @@ export default function IntercompanyPage() {
             tableId="accounting.intercompany.documents"
             rows={docs}
             columns={docColumns}
+            isLoading={loading}
             initialSort={{ columnId: "created_at", dir: "desc" }}
             globalFilterPlaceholder="Search source / company..."
-            emptyText="No intercompany documents."
+            emptyText={loading ? "Loading..." : "No intercompany documents."}
           />
         </CardContent>
       </Card>
@@ -278,9 +284,10 @@ export default function IntercompanyPage() {
             tableId="accounting.intercompany.settlements"
             rows={settlements}
             columns={settlementColumns}
+            isLoading={loading}
             initialSort={{ columnId: "created_at", dir: "desc" }}
             globalFilterPlaceholder="Search company..."
-            emptyText="No settlements."
+            emptyText={loading ? "Loading..." : "No settlements."}
           />
         </CardContent>
       </Card>

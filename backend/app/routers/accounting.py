@@ -354,6 +354,16 @@ def create_manual_journal(
 
                     if not account_id:
                         raise HTTPException(status_code=400, detail=f"line {idx+1}: account_id or account_code is required")
+                    cur.execute(
+                        """
+                        SELECT 1
+                        FROM company_coa_accounts
+                        WHERE company_id = %s AND id = %s
+                        """,
+                        (company_id, account_id),
+                    )
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=400, detail=f"line {idx+1}: account_id not found")
 
                     cost_center_id = (line.cost_center_id or "").strip() or None
                     if cost_center_id:
@@ -375,6 +385,8 @@ def create_manual_journal(
 
                     amount_usd = Decimal(str(line.amount_usd or 0))
                     amount_lbp = Decimal(str(line.amount_lbp or 0))
+                    if amount_usd < 0 or amount_lbp < 0:
+                        raise HTTPException(status_code=400, detail=f"line {idx+1}: amounts must be >= 0")
                     if amount_usd == 0 and amount_lbp == 0:
                         raise HTTPException(status_code=400, detail=f"line {idx+1}: amount_usd or amount_lbp is required")
 
@@ -622,9 +634,17 @@ def create_journal_template(data: JournalTemplateIn, company_id: str = Depends(g
                         account_id = row["id"]
                     if not account_id:
                         raise HTTPException(status_code=400, detail=f"line {idx}: account_id or account_code is required")
+                    cur.execute(
+                        "SELECT 1 FROM company_coa_accounts WHERE company_id=%s AND id=%s",
+                        (company_id, account_id),
+                    )
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=400, detail=f"line {idx}: account_id not found")
 
                     amount_usd = Decimal(str(line.amount_usd or 0))
                     amount_lbp = Decimal(str(line.amount_lbp or 0))
+                    if amount_usd < 0 or amount_lbp < 0:
+                        raise HTTPException(status_code=400, detail=f"line {idx}: amounts must be >= 0")
                     if amount_usd == 0 and amount_lbp == 0:
                         raise HTTPException(status_code=400, detail=f"line {idx}: amount_usd or amount_lbp is required")
 
@@ -747,8 +767,16 @@ def update_journal_template(template_id: str, data: JournalTemplateUpdateIn, com
                             account_id = row["id"]
                         if not account_id:
                             raise HTTPException(status_code=400, detail=f"line {idx}: account_id or account_code is required")
+                        cur.execute(
+                            "SELECT 1 FROM company_coa_accounts WHERE company_id=%s AND id=%s",
+                            (company_id, account_id),
+                        )
+                        if not cur.fetchone():
+                            raise HTTPException(status_code=400, detail=f"line {idx}: account_id not found")
                         amount_usd = Decimal(str(line.get("amount_usd") or 0))
                         amount_lbp = Decimal(str(line.get("amount_lbp") or 0))
+                        if amount_usd < 0 or amount_lbp < 0:
+                            raise HTTPException(status_code=400, detail=f"line {idx}: amounts must be >= 0")
                         if amount_usd == 0 and amount_lbp == 0:
                             raise HTTPException(status_code=400, detail=f"line {idx}: amount_usd or amount_lbp is required")
 
@@ -860,6 +888,8 @@ def create_journal_from_template(
                 for idx, line in enumerate(lines, start=1):
                     amount_usd = Decimal(str(line.get("amount_usd") or 0))
                     amount_lbp = Decimal(str(line.get("amount_lbp") or 0))
+                    if amount_usd < 0 or amount_lbp < 0:
+                        raise HTTPException(status_code=400, detail=f"template line {idx}: amounts must be >= 0")
                     if amount_usd == 0 and amount_lbp == 0:
                         raise HTTPException(status_code=400, detail=f"template line {idx}: amount is zero")
 
@@ -1374,6 +1404,12 @@ def import_opening_ar(
                         customer_id = code_to_id.get((r.customer_code or "").strip())
                     if not customer_id:
                         raise HTTPException(status_code=400, detail=f"row {idx+1}: customer_id or customer_code is required")
+                    cur.execute(
+                        "SELECT 1 FROM customers WHERE company_id=%s AND id=%s",
+                        (company_id, customer_id),
+                    )
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=400, detail=f"row {idx+1}: customer not found in company")
 
                     amount_usd = Decimal(str(r.amount_usd or 0))
                     amount_lbp = Decimal(str(r.amount_lbp or 0))
@@ -1586,6 +1622,12 @@ def import_opening_ap(
                         supplier_id = code_to_id.get((r.supplier_code or "").strip())
                     if not supplier_id:
                         raise HTTPException(status_code=400, detail=f"row {idx+1}: supplier_id or supplier_code is required")
+                    cur.execute(
+                        "SELECT 1 FROM suppliers WHERE company_id=%s AND id=%s",
+                        (company_id, supplier_id),
+                    )
+                    if not cur.fetchone():
+                        raise HTTPException(status_code=400, detail=f"row {idx+1}: supplier not found in company")
 
                     amount_usd = Decimal(str(r.amount_usd or 0))
                     amount_lbp = Decimal(str(r.amount_lbp or 0))

@@ -26,11 +26,16 @@ type Res = {
 };
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+    const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export default function CloseChecklistPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [data, setData] = useState<Res | null>(null);
 
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -39,7 +44,8 @@ export default function CloseChecklistPage() {
   const [endDate, setEndDate] = useState("");
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const params = new URLSearchParams();
       if (asOf) params.set("as_of", asOf);
@@ -51,6 +57,8 @@ export default function CloseChecklistPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }, [asOf, startDate, endDate]);
 
@@ -100,8 +108,8 @@ export default function CloseChecklistPage() {
           <CardDescription>Review blockers before locking a period.</CardDescription>
         </CardHeader>
         <CardContent className="ui-actions-between">
-          <Button variant="outline" onClick={load}>
-            Refresh
+          <Button variant="outline" onClick={load} disabled={loading}>
+            {loading ? "Loading..." : "Refresh"}
           </Button>
           <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
             <DialogTrigger asChild>
@@ -153,9 +161,10 @@ export default function CloseChecklistPage() {
             tableId="accounting.closeChecklist"
             rows={data?.checks || []}
             columns={columns}
+            isLoading={loading}
             initialSort={{ columnId: "level", dir: "asc" }}
             globalFilterPlaceholder="Search checks..."
-            emptyText="No checks found."
+            emptyText={loading ? "Loading..." : "No checks found."}
           />
         </CardContent>
       </Card>

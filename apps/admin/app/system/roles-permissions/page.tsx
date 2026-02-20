@@ -39,6 +39,9 @@ export default function RolesPermissionsPage() {
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
   const selectedRole = useMemo(() => (selectedRoleId ? roleById.get(selectedRoleId) || null : null), [roleById, selectedRoleId]);
+  const loading = status.startsWith("Loading");
+  const statusIsBusy = /^(Loading|Creating|Assigning|Saving|Deleting|Revoking)\b/.test(status);
+  const statusIsNotice = status.startsWith("Standard roles ready.");
 
   const load = useCallback(async () => {
     setStatus("Loading...");
@@ -266,15 +269,15 @@ export default function RolesPermissionsPage() {
 
   return (
     <Page width="lg" className="px-4 pb-10">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy && !statusIsNotice ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <PageHeader
         title="Roles & Permissions"
         description="Define roles and grant permission codes."
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" onClick={load}>
-            Refresh
+          <Button variant="outline" onClick={load} disabled={statusIsBusy}>
+            {loading ? "Loading..." : "Refresh"}
           </Button>
           <Button variant="outline" onClick={seedDefaults} disabled={seedingDefaults}>
             {seedingDefaults ? "..." : "Load Standard Roles"}
@@ -432,7 +435,8 @@ export default function RolesPermissionsPage() {
               columns={rolePermColumns}
               getRowId={(r) => r.code}
               enablePagination
-              emptyText={selectedRoleId ? "No permissions assigned." : "Select a role."}
+              isLoading={loading}
+              emptyText={loading ? "Loading role permissions..." : selectedRoleId ? "No permissions assigned." : "Select a role."}
               enableGlobalFilter={Boolean(selectedRoleId)}
               globalFilterPlaceholder="Search permission code / description"
               initialSort={{ columnId: "code", dir: "asc" }}
@@ -446,7 +450,8 @@ export default function RolesPermissionsPage() {
               columns={allPermColumns}
               getRowId={(r) => r.id}
               enablePagination
-              emptyText="No permissions."
+              isLoading={loading}
+              emptyText={loading ? "Loading permissions..." : "No permissions."}
               globalFilterPlaceholder="Search code / description"
               initialSort={{ columnId: "code", dir: "asc" }}
             />

@@ -70,6 +70,8 @@ export default function ConfigPage() {
   const sp = useSearchParams();
   const tab = String(sp.get("tab") || "policies").trim() || "policies";
   const [status, setStatus] = useState("");
+  const loading = status.startsWith("Loading");
+  const statusIsBusy = /^(Loading|Saving|Updating|Creating|Deleting)\b/.test(status);
 
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [rates, setRates] = useState<ExchangeRateRow[]>([]);
@@ -813,14 +815,14 @@ export default function ConfigPage() {
 
   return (
     <Page width="lg" className="px-4">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <PageHeader
         title="Config"
         description="Company-level settings and policies."
         actions={
-          <Button variant="outline" onClick={load}>
-            Refresh
+          <Button variant="outline" onClick={load} disabled={statusIsBusy}>
+            {loading ? "Loading..." : "Refresh"}
           </Button>
         }
         meta={
@@ -1242,7 +1244,8 @@ export default function ConfigPage() {
               rows={accountDefaultsRows}
               columns={accountDefaultsColumns}
               getRowId={(r) => r.role_code}
-              emptyText="No roles found."
+              isLoading={loading}
+              emptyText={loading ? "Loading account defaults..." : "No roles found."}
               enableGlobalFilter={false}
               initialSort={{ columnId: "role_code", dir: "asc" }}
             />
@@ -1294,7 +1297,8 @@ export default function ConfigPage() {
               rows={methods}
               columns={paymentMethodColumns}
               getRowId={(m) => m.method}
-              emptyText="No payment method mappings yet."
+              isLoading={loading}
+              emptyText={loading ? "Loading payment mappings..." : "No payment method mappings yet."}
               enableGlobalFilter={false}
               initialSort={{ columnId: "method", dir: "asc" }}
             />
@@ -1488,7 +1492,8 @@ export default function ConfigPage() {
               rows={taxCodes}
               columns={taxCodeColumns}
               getRowId={(t) => t.id}
-              emptyText="No tax codes yet."
+              isLoading={loading}
+              emptyText={loading ? "Loading tax codes..." : "No tax codes yet."}
               enableGlobalFilter={false}
               initialSort={{ columnId: "name", dir: "asc" }}
             />
@@ -1572,7 +1577,8 @@ export default function ConfigPage() {
               rows={rates}
               columns={exchangeRateColumns}
               getRowId={(r) => r.id}
-              emptyText="No exchange rates yet."
+              isLoading={loading}
+              emptyText={loading ? "Loading exchange rates..." : "No exchange rates yet."}
               enableGlobalFilter={false}
               initialSort={{ columnId: "rate_date", dir: "desc" }}
             />

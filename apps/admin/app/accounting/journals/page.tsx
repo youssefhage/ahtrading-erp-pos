@@ -8,6 +8,7 @@ import { ErrorBanner } from "@/components/error-banner";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Chip } from "@/components/ui/chip";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
@@ -69,6 +70,28 @@ type LineDraft = {
   project_id: string;
 };
 
+type LineField = "side" | "account_code" | "amount_usd" | "amount_lbp" | "memo" | "cost_center_id" | "project_id";
+
+const lineFieldOrder: LineField[] = ["side", "account_code", "amount_usd", "amount_lbp", "memo", "cost_center_id", "project_id"];
+
+function createLineDraft(side: "debit" | "credit" = "debit"): LineDraft {
+  return {
+    key: `l-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    side,
+    account_code: "",
+    account_id: null,
+    memo: "",
+    amount_usd: "",
+    amount_lbp: "",
+    cost_center_id: "",
+    project_id: ""
+  };
+}
+
+function resetDraftLines(): LineDraft[] {
+  return [createLineDraft("debit"), createLineDraft("credit")];
+}
+
 function toNum(v: string) {
   const n = Number(v || 0);
   return Number.isFinite(n) ? n : 0;
@@ -79,11 +102,17 @@ function fmt(n: string | number, frac = 2) {
 }
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+    const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export default function JournalsPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [journals, setJournals] = useState<JournalRow[]>([]);
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
   const [detail, setDetail] = useState<JournalDetail | null>(null);
@@ -101,14 +130,12 @@ export default function JournalsPage() {
   const [rateType, setRateType] = useState("market");
   const [exchangeRate, setExchangeRate] = useState("0");
   const [memo, setMemo] = useState("");
-  const [lines, setLines] = useState<LineDraft[]>([
-    { key: "l1", side: "debit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "", cost_center_id: "", project_id: "" },
-    { key: "l2", side: "credit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "", cost_center_id: "", project_id: "" }
-  ]);
+  const [lines, setLines] = useState<LineDraft[]>(() => resetDraftLines());
   const [creating, setCreating] = useState(false);
 
   const [reverseOpen, setReverseOpen] = useState(false);
   const [reversing, setReversing] = useState(false);
+  const statusIsBusy = /^(Creating|Reversing)\b/i.test(status);
 
   const accountByCode = useMemo(() => {
     const m = new Map<string, CoaAccount>();
@@ -134,6 +161,7 @@ export default function JournalsPage() {
     }
     return { dUsd, cUsd, dLbp, cLbp, diffUsd: dUsd - cUsd, diffLbp: dLbp - cLbp };
   }, [lines]);
+  const isBalanced = Math.abs(totals.diffUsd) < 0.0001 && Math.abs(totals.diffLbp) < 0.01;
 
   const journalColumns = useMemo((): Array<DataTableColumn<JournalRow>> => {
     return [
@@ -179,7 +207,8 @@ export default function JournalsPage() {
   }, []);
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const params = new URLSearchParams();
       if (q.trim()) params.set("q", q.trim());
@@ -196,10 +225,11 @@ export default function JournalsPage() {
       setAccounts(a.accounts || []);
       setCostCenters(cc.cost_centers || []);
       setProjects(pr.projects || []);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }, [q, startDate, endDate, sourceType]);
 
@@ -208,14 +238,16 @@ export default function JournalsPage() {
       setDetail(null);
       return;
     }
-    setStatus("Loading journal...");
+    setLoadingDetail(true);
+    setStatus("");
     try {
       const res = await apiGet<JournalDetail>(`/accounting/journals/${id}`);
       setDetail(res);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoadingDetail(false);
     }
   }
 
@@ -266,6 +298,46 @@ export default function JournalsPage() {
     updateLine(idx, { amount_lbp: lbp, amount_usd: usd });
   }
 
+  function focusLineField(lineIndex: number, field: LineField) {
+    if (typeof document === "undefined") return;
+    const selector = `[data-line-index="${lineIndex}"][data-line-field="${field}"]`;
+    const el = document.querySelector<HTMLElement>(selector);
+    if (!el) return;
+    el.focus();
+    if (el instanceof HTMLInputElement) {
+      try {
+        el.select();
+      } catch {
+        // no-op
+      }
+    }
+  }
+
+  function moveToNextLineField(lineIndex: number, field: LineField) {
+    const fieldIndex = lineFieldOrder.indexOf(field);
+    if (fieldIndex < 0) return;
+    const isLastField = fieldIndex === lineFieldOrder.length - 1;
+
+    if (!isLastField) {
+      focusLineField(lineIndex, lineFieldOrder[fieldIndex + 1]);
+      return;
+    }
+
+    const nextLineIndex = lineIndex + 1;
+    if (nextLineIndex >= lines.length) {
+      setLines((prev) => [...prev, createLineDraft("debit")]);
+      setTimeout(() => focusLineField(nextLineIndex, "side"), 0);
+      return;
+    }
+    focusLineField(nextLineIndex, "side");
+  }
+
+  function handleLineKeyDown(e: React.KeyboardEvent<HTMLElement>, lineIndex: number, field: LineField) {
+    if (e.key !== "Enter" || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return;
+    e.preventDefault();
+    moveToNextLineField(lineIndex, field);
+  }
+
   async function createManualJournal(e: React.FormEvent) {
     e.preventDefault();
     setCreating(true);
@@ -291,10 +363,7 @@ export default function JournalsPage() {
       const res = await apiPost<{ id: string; journal_no: string }>("/accounting/manual-journals", payload);
       setCreateOpen(false);
       setMemo("");
-      setLines([
-        { key: `l-${Date.now()}-1`, side: "debit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "", cost_center_id: "", project_id: "" },
-        { key: `l-${Date.now()}-2`, side: "credit", account_code: "", account_id: null, memo: "", amount_usd: "", amount_lbp: "", cost_center_id: "", project_id: "" }
-      ]);
+      setLines(resetDraftLines());
       await load();
       await loadDetail(res.id);
       setStatus("");
@@ -337,7 +406,7 @@ export default function JournalsPage() {
             </div>
           </div>
         </div>
-        {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+        {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.4fr_1fr]">
           <Card>
@@ -388,8 +457,8 @@ export default function JournalsPage() {
                     </DialogContent>
                   </Dialog>
 
-                  <Button variant="outline" onClick={load}>
-                    Refresh
+                  <Button variant="outline" onClick={load} disabled={loading}>
+                    {loading ? "Loading..." : "Refresh"}
                   </Button>
                 </div>
 
@@ -397,10 +466,12 @@ export default function JournalsPage() {
                   <DialogTrigger asChild>
                     <Button>New Manual Journal</Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-3xl">
-                    <DialogHeader>
-                      <DialogTitle>Manual Journal</DialogTitle>
-                      <DialogDescription>Balanced dual-currency entry. Small rounding differences auto-balance to the ROUNDING account.</DialogDescription>
+                  <DialogContent className="w-[min(98vw,1200px)] max-w-none p-0">
+                    <DialogHeader className="border-b border-border-subtle bg-bg-elevated px-4 pb-4 pt-5 pr-14 sm:px-6">
+                      <DialogTitle className="text-2xl font-semibold tracking-tight">Manual Journal</DialogTitle>
+                      <DialogDescription className="max-w-4xl text-sm leading-relaxed text-fg-muted">
+                        Balanced dual-currency entry. Small rounding differences auto-balance to the ROUNDING account.
+                      </DialogDescription>
                     </DialogHeader>
 
                     <datalist id="coa-accounts">
@@ -411,183 +482,222 @@ export default function JournalsPage() {
                       ))}
                     </datalist>
 
-                    <form onSubmit={createManualJournal} className="space-y-4">
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-fg-muted">Date</label>
-                          <Input
-                            type="date"
-                            value={journalDate}
-                            onChange={(e) => {
-                              setJournalDate(e.target.value);
-                              primeExchangeRate(e.target.value, rateType);
-                            }}
-                          />
+                    <form onSubmit={createManualJournal} className="space-y-5 px-4 pb-5 pt-4 sm:px-6 sm:pb-6 sm:pt-5">
+                      <section className="rounded-xl border border-border-subtle bg-bg-sunken/20 p-3 sm:p-4">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+                          <div className="space-y-1 md:col-span-3">
+                            <label className="text-xs font-medium uppercase tracking-[0.08em] text-fg-subtle">Date</label>
+                            <Input
+                              autoFocus
+                              type="date"
+                              value={journalDate}
+                              onChange={(e) => {
+                                setJournalDate(e.target.value);
+                                primeExchangeRate(e.target.value, rateType);
+                              }}
+                            />
+                          </div>
+                          <div className="space-y-1 md:col-span-3">
+                            <label className="text-xs font-medium uppercase tracking-[0.08em] text-fg-subtle">Rate Type</label>
+                            <Input
+                              value={rateType}
+                              onChange={(e) => {
+                                setRateType(e.target.value);
+                                primeExchangeRate(journalDate, e.target.value);
+                              }}
+                              placeholder="market"
+                            />
+                          </div>
+                          <div className="space-y-1 md:col-span-6">
+                            <label className="text-xs font-medium uppercase tracking-[0.08em] text-fg-subtle">Exchange Rate (USD→LL)</label>
+                            <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} inputMode="decimal" />
+                          </div>
+                          <div className="space-y-1 md:col-span-12">
+                            <label className="text-xs font-medium uppercase tracking-[0.08em] text-fg-subtle">Memo (optional)</label>
+                            <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Why are we booking this?" />
+                          </div>
                         </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-fg-muted">Rate Type</label>
-                          <Input
-                            value={rateType}
-                            onChange={(e) => {
-                              setRateType(e.target.value);
-                              primeExchangeRate(journalDate, e.target.value);
-                            }}
-                            placeholder="market"
-                          />
-                        </div>
-                        <div className="space-y-1 md:col-span-2">
-                          <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD→LL)</label>
-                          <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} />
-                        </div>
-                        <div className="space-y-1 md:col-span-4">
-                          <label className="text-xs font-medium text-fg-muted">Memo (optional)</label>
-                          <Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="Why are we booking this?" />
-                        </div>
-                      </div>
+                      </section>
 
-                      <div className="ui-table-scroll">
-                        <table className="ui-table">
-                          <thead className="ui-thead">
-                            <tr>
-                              <th className="px-3 py-2">Side</th>
-                              <th className="px-3 py-2">Account</th>
-                              <th className="px-3 py-2 text-right">USD</th>
-                              <th className="px-3 py-2 text-right">LL</th>
-                              <th className="px-3 py-2">Memo</th>
-                              <th className="px-3 py-2">Cost Center</th>
-                              <th className="px-3 py-2">Project</th>
-                              <th className="px-3 py-2"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {lines.map((l, idx) => {
-                              const acc = l.account_code ? accountByCode.get(l.account_code) : undefined;
-                              return (
-                                <tr key={l.key} className="border-t border-border-subtle align-top">
-                                  <td className="px-3 py-2">
-                                    <select
-                                      className="h-9 w-28 rounded-md border border-border bg-bg-elevated px-2 text-sm"
-                                      value={l.side}
-                                      onChange={(e) => updateLine(idx, { side: e.target.value as "debit" | "credit" })}
-                                    >
-                                      <option value="debit">Debit</option>
-                                      <option value="credit">Credit</option>
-                                    </select>
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <Input
-                                      list="coa-accounts"
-                                      value={l.account_code}
-                                      onChange={(e) => onAccountCodeChange(idx, e.target.value)}
-                                      placeholder="Account code..."
-                                    />
-                                    <div className="mt-1 text-xs text-fg-subtle">
-                                      {acc?.name_en || (l.account_code ? "Unknown account" : "")}
-                                    </div>
-                                  </td>
-                                  <td className="px-3 py-2 text-right">
-                                    <Input
-                                      value={l.amount_usd}
-                                      onChange={(e) => applyUsd(idx, e.target.value)}
-                                      placeholder="0.0000"
-                                    />
-                                  </td>
-                                  <td className="px-3 py-2 text-right">
-                                    <Input
-                                      value={l.amount_lbp}
-                                      onChange={(e) => applyLbp(idx, e.target.value)}
-                                      placeholder="0.00"
-                                    />
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <Input value={l.memo} onChange={(e) => updateLine(idx, { memo: e.target.value })} placeholder="Line memo..." />
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <select
-                                      className="ui-select"
-                                      value={l.cost_center_id}
-                                      onChange={(e) => updateLine(idx, { cost_center_id: e.target.value })}
-                                    >
-                                      <option value="">-</option>
-                                      {costCenters
-                                        .filter((x) => x.is_active)
-                                        .map((x) => (
-                                          <option key={x.id} value={x.id}>
-                                            {x.code} {x.name ? `- ${x.name}` : ""}
-                                          </option>
-                                        ))}
-                                    </select>
-                                  </td>
-                                  <td className="px-3 py-2">
-                                    <select className="ui-select" value={l.project_id} onChange={(e) => updateLine(idx, { project_id: e.target.value })}>
-                                      <option value="">-</option>
-                                      {projects
-                                        .filter((x) => x.is_active)
-                                        .map((x) => (
-                                          <option key={x.id} value={x.id}>
-                                            {x.code} {x.name ? `- ${x.name}` : ""}
-                                          </option>
-                                        ))}
-                                    </select>
-                                  </td>
-                                  <td className="px-3 py-2 text-right">
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}
-                                      disabled={lines.length <= 2}
-                                    >
-                                      Remove
-                                    </Button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                          <tfoot className="border-t border-border bg-bg-sunken/20">
-                            <tr>
-                              <td className="px-3 py-2 text-xs font-semibold text-fg-muted" colSpan={2}>
-                                Totals
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">
-                                D {fmt(totals.dUsd, 4)} / C {fmt(totals.cUsd, 4)}
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">
-                                D {fmt(totals.dLbp, 2)} / C {fmt(totals.cLbp, 2)}
-                              </td>
-                              <td className="px-3 py-2 text-xs text-fg-muted" colSpan={4}>
-                                Diff USD {fmt(totals.diffUsd, 4)} | Diff LL {fmt(totals.diffLbp, 2)}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
+                      <section className="space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <h3 className="text-sm font-semibold text-foreground">Entry Lines</h3>
+                            <p className="text-xs text-fg-subtle">Use matching debit and credit totals before creating the journal.</p>
+                          </div>
+                          <Chip variant={isBalanced ? "success" : "danger"}>
+                            {isBalanced ? "Balanced" : "Out of balance"}
+                          </Chip>
+                        </div>
 
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() =>
-                            setLines((prev) => [
-                              ...prev,
-                              {
-                                key: `l-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-                                side: "debit",
-                                account_code: "",
-                                account_id: null,
-                                memo: "",
-                                amount_usd: "",
-                                amount_lbp: "",
-                                cost_center_id: "",
-                                project_id: ""
-                              }
-                            ])
-                          }
-                        >
+                        <div className="ui-table-scroll">
+                          <table className="ui-table min-w-[1100px]">
+                            <colgroup>
+                              <col className="w-[130px]" />
+                              <col className="w-[280px]" />
+                              <col className="w-[140px]" />
+                              <col className="w-[150px]" />
+                              <col className="w-[220px]" />
+                              <col className="w-[170px]" />
+                              <col className="w-[170px]" />
+                              <col className="w-[130px]" />
+                            </colgroup>
+                            <thead className="ui-thead">
+                              <tr>
+                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">Side</th>
+                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">Account</th>
+                                <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">USD</th>
+                                <th className="px-3 py-3 text-right text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">LL</th>
+                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">Memo</th>
+                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">Cost Center</th>
+                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle">Project</th>
+                                <th className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {lines.map((l, idx) => {
+                                const acc = l.account_code ? accountByCode.get(l.account_code) : undefined;
+                                return (
+                                  <tr key={l.key} className="border-t border-border-subtle align-top">
+                                    <td className="px-3 py-2">
+                                      <select
+                                        className="ui-select h-10 min-w-[120px]"
+                                        data-line-index={idx}
+                                        data-line-field="side"
+                                        value={l.side}
+                                        onChange={(e) => updateLine(idx, { side: e.target.value as "debit" | "credit" })}
+                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "side")}
+                                      >
+                                        <option value="debit">Debit</option>
+                                        <option value="credit">Credit</option>
+                                      </select>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <Input
+                                        list="coa-accounts"
+                                        data-line-index={idx}
+                                        data-line-field="account_code"
+                                        value={l.account_code}
+                                        onChange={(e) => onAccountCodeChange(idx, e.target.value)}
+                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "account_code")}
+                                        placeholder="Type account code..."
+                                      />
+                                      <div className="mt-1 min-h-[1rem] truncate text-xs text-fg-subtle">
+                                        {acc?.name_en || (l.account_code ? "Unknown account" : "")}
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <Input
+                                        className="text-right font-mono"
+                                        data-line-index={idx}
+                                        data-line-field="amount_usd"
+                                        value={l.amount_usd}
+                                        onChange={(e) => applyUsd(idx, e.target.value)}
+                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "amount_usd")}
+                                        placeholder="0.0000"
+                                        inputMode="decimal"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <Input
+                                        className="text-right font-mono"
+                                        data-line-index={idx}
+                                        data-line-field="amount_lbp"
+                                        value={l.amount_lbp}
+                                        onChange={(e) => applyLbp(idx, e.target.value)}
+                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "amount_lbp")}
+                                        placeholder="0.00"
+                                        inputMode="decimal"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <Input
+                                        data-line-index={idx}
+                                        data-line-field="memo"
+                                        value={l.memo}
+                                        onChange={(e) => updateLine(idx, { memo: e.target.value })}
+                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "memo")}
+                                        placeholder="Line memo..."
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <select
+                                        className="ui-select"
+                                        data-line-index={idx}
+                                        data-line-field="cost_center_id"
+                                        value={l.cost_center_id}
+                                        onChange={(e) => updateLine(idx, { cost_center_id: e.target.value })}
+                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "cost_center_id")}
+                                      >
+                                        <option value="">-</option>
+                                        {costCenters
+                                          .filter((x) => x.is_active)
+                                          .map((x) => (
+                                            <option key={x.id} value={x.id}>
+                                              {x.code} {x.name ? `- ${x.name}` : ""}
+                                            </option>
+                                          ))}
+                                      </select>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <select
+                                        className="ui-select"
+                                        data-line-index={idx}
+                                        data-line-field="project_id"
+                                        value={l.project_id}
+                                        onChange={(e) => updateLine(idx, { project_id: e.target.value })}
+                                        onKeyDown={(e) => handleLineKeyDown(e, idx, "project_id")}
+                                      >
+                                        <option value="">-</option>
+                                        {projects
+                                          .filter((x) => x.is_active)
+                                          .map((x) => (
+                                            <option key={x.id} value={x.id}>
+                                              {x.code} {x.name ? `- ${x.name}` : ""}
+                                            </option>
+                                          ))}
+                                      </select>
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}
+                                        disabled={lines.length <= 2}
+                                      >
+                                        Remove
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot className="border-t border-border bg-bg-sunken/20">
+                              <tr>
+                                <td className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.08em] text-fg-subtle" colSpan={2}>
+                                  Totals
+                                </td>
+                                <td className="px-3 py-3 text-right font-mono text-xs">
+                                  D {fmt(totals.dUsd, 4)} / C {fmt(totals.cUsd, 4)}
+                                </td>
+                                <td className="px-3 py-3 text-right font-mono text-xs">
+                                  D {fmt(totals.dLbp, 2)} / C {fmt(totals.cLbp, 2)}
+                                </td>
+                                <td className="px-3 py-3 text-xs text-fg-muted" colSpan={4}>
+                                  Diff USD {fmt(totals.diffUsd, 4)} | Diff LL {fmt(totals.diffLbp, 2)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </section>
+
+                      <div className="flex flex-col gap-3 rounded-xl border border-border-subtle bg-bg-sunken/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setLines((prev) => [...prev, createLineDraft("debit")])}>
                           Add Line
                         </Button>
-                        <Button type="submit" disabled={creating}>
+                        <Button type="submit" disabled={creating} className="w-full min-w-[180px] sm:w-auto">
                           {creating ? "..." : "Create Journal"}
                         </Button>
                       </div>
@@ -600,11 +710,12 @@ export default function JournalsPage() {
                 tableId="accounting.journals.list"
                 rows={journals}
                 columns={journalColumns}
+                isLoading={loading}
                 onRowClick={(j) => loadDetail(j.id)}
                 getRowId={(j) => j.id}
                 initialSort={{ columnId: "journal_date", dir: "desc" }}
                 globalFilterPlaceholder="Search journal no / memo / source..."
-                emptyText="No journals."
+                emptyText={loading ? "Loading..." : "No journals."}
               />
             </CardContent>
           </Card>
@@ -612,7 +723,7 @@ export default function JournalsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Journal Detail</CardTitle>
-              <CardDescription>{detail ? detail.journal.journal_no : "Select a journal to inspect entries."}</CardDescription>
+              <CardDescription>{loadingDetail ? "Loading journal..." : detail ? detail.journal.journal_no : "Select a journal to inspect entries."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {detail ? (
@@ -635,8 +746,8 @@ export default function JournalsPage() {
                   </div>
 
                   <div className="flex items-center justify-between gap-2">
-                    <Button variant="outline" onClick={() => loadDetail(detail.journal.id)}>
-                      Refresh
+                    <Button variant="outline" onClick={() => loadDetail(detail.journal.id)} disabled={loadingDetail}>
+                      {loadingDetail ? "Loading..." : "Refresh"}
                     </Button>
                     <Dialog open={reverseOpen} onOpenChange={setReverseOpen}>
                       <DialogTrigger asChild>
@@ -663,9 +774,10 @@ export default function JournalsPage() {
                     tableId={`accounting.journals.${detail.journal.id}.entries`}
                     rows={detail.entries}
                     columns={entryColumns}
+                    isLoading={loadingDetail}
                     initialSort={{ columnId: "account", dir: "asc" }}
                     globalFilterPlaceholder="Search account / dims..."
-                    emptyText="No entries."
+                    emptyText={loadingDetail ? "Loading..." : "No entries."}
                   />
                 </>
               ) : (

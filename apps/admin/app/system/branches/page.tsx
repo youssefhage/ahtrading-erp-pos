@@ -27,6 +27,7 @@ export default function BranchesPage() {
   const [branches, setBranches] = useState<BranchRow[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
   const [name, setName] = useState("");
@@ -46,7 +47,8 @@ export default function BranchesPage() {
   const [saving, setSaving] = useState(false);
 
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const [res, wh] = await Promise.all([
         apiGet<{ branches: BranchRow[] }>("/branches"),
@@ -58,6 +60,8 @@ export default function BranchesPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -82,7 +86,7 @@ export default function BranchesPage() {
       }
     }
     setCreating(true);
-    setStatus("Creating...");
+    setStatus("");
     try {
       await apiPost("/branches", {
         name: name.trim(),
@@ -132,7 +136,7 @@ export default function BranchesPage() {
       }
     }
     setSaving(true);
-    setStatus("Saving...");
+    setStatus("");
     try {
       await apiPatch(`/branches/${encodeURIComponent(editId)}`, {
         name: editName.trim(),
@@ -181,7 +185,7 @@ export default function BranchesPage() {
       globalSearch: false,
       align: "right",
       cell: (b) => (
-        <Button variant="outline" size="sm" onClick={() => openEdit(b)}>
+        <Button variant="outline" size="sm" onClick={() => openEdit(b)} disabled={loading || creating || saving}>
           Edit
         </Button>
       ),
@@ -197,12 +201,12 @@ export default function BranchesPage() {
         description="Branches are your stores/locations. POS devices can be scoped to a branch."
         actions={
           <>
-            <Button variant="outline" onClick={load}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={loading || creating || saving}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
-                <Button>New Branch</Button>
+                <Button disabled={loading || creating || saving}>New Branch</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
@@ -244,7 +248,7 @@ export default function BranchesPage() {
                     />
                   </div>
                   <div className="flex justify-end">
-                    <Button type="submit" disabled={creating}>
+                    <Button type="submit" disabled={creating || loading || saving}>
                       {creating ? "..." : "Create"}
                     </Button>
                   </div>
@@ -290,10 +294,10 @@ export default function BranchesPage() {
               <textarea className="ui-textarea" value={editOperatingHours} onChange={(e) => setEditOperatingHours(e.target.value)} rows={6} />
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving || loading || creating}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving || loading || creating}>
                 {saving ? "..." : "Save"}
               </Button>
             </div>
@@ -306,7 +310,8 @@ export default function BranchesPage() {
           tableId="system.branches"
           rows={branches}
           columns={columns}
-          emptyText="No branches."
+          isLoading={loading}
+          emptyText={loading ? "Loading branches..." : "No branches."}
           globalFilterPlaceholder="Search branch name / address..."
           initialSort={{ columnId: "name", dir: "asc" }}
         />

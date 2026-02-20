@@ -25,6 +25,7 @@ type TemplateRow = {
 
 export default function JournalTemplatesListPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<TemplateRow[]>([]);
 
   const columns: Array<DataTableColumn<TemplateRow>> = [
@@ -55,14 +56,16 @@ export default function JournalTemplatesListPage() {
   ];
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const res = await apiGet<{ templates: TemplateRow[] }>("/accounting/journal-templates");
       setTemplates(res.templates || []);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -80,8 +83,8 @@ export default function JournalTemplatesListPage() {
             <p className="ui-module-subtitle">Create reusable templates for recurring balanced journal entries.</p>
           </div>
           <div className="ui-module-actions">
-            <Button variant="outline" onClick={load}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={loading}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
             <Button asChild>
               <Link href="/accounting/journal-templates/new">New Template</Link>
@@ -102,9 +105,11 @@ export default function JournalTemplatesListPage() {
             tableId="accounting.journal_templates.list"
             rows={templates}
             columns={columns}
+            isLoading={loading}
             getRowId={(r) => r.id}
             initialSort={{ columnId: "name", dir: "asc" }}
             globalFilterPlaceholder="Search name / memo / rate type"
+            emptyText={loading ? "Loading..." : "No templates."}
           />
         </CardContent>
       </Card>

@@ -13,19 +13,72 @@ function fmt(n: string | number, frac = 2) {
   return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: frac });
 }
 
-export type VatRow = { tax_code_id: string; tax_name: string; period: string; base_lbp: string | number; tax_lbp: string | number };
-export function VatReportPdf(props: { rows: VatRow[] }) {
+export type VatRow = {
+  tax_code_id: string;
+  tax_name: string;
+  period: string;
+  direction?: "output" | "input" | "other";
+  direction_label?: string;
+  base_lbp: string | number;
+  tax_lbp: string | number;
+  line_count?: number;
+  source_types?: string[];
+};
+
+export type VatSummary = {
+  output_base_lbp: string | number;
+  output_tax_lbp: string | number;
+  input_base_lbp: string | number;
+  input_tax_lbp: string | number;
+  net_tax_lbp: string | number;
+  other_base_lbp?: string | number;
+  other_tax_lbp?: string | number;
+  rows_count?: number;
+};
+
+export function VatReportPdf(props: { rows: VatRow[]; summary?: VatSummary; startDate?: string | null; endDate?: string | null }) {
   const rows = props.rows || [];
+  const summary = props.summary || {
+    output_base_lbp: 0,
+    output_tax_lbp: 0,
+    input_base_lbp: 0,
+    input_tax_lbp: 0,
+    net_tax_lbp: 0,
+    rows_count: rows.length,
+  };
   return (
     <Document title="VAT Report">
       <Page size="A4" style={s.page} wrap>
         <View style={s.headerRow}>
           <View>
-            <Text style={s.h1}>VAT Report (LBP)</Text>
-            <Text style={[s.muted]}>Monthly VAT aggregated from tax lines.</Text>
+            <Text style={s.h1}>VAT Filing View (LBP)</Text>
+            <Text style={[s.muted]}>
+              Period{" "}
+              <Text style={s.mono}>
+                {props.startDate || "all"} {"->"} {props.endDate || "all"}
+              </Text>
+            </Text>
           </View>
           <View>
             <Text style={[s.muted, s.mono, { textAlign: "right" }]}>Rows {rows.length}</Text>
+          </View>
+        </View>
+
+        <View style={[s.section, s.grid3]}>
+          <View style={s.box}>
+            <Text style={s.label}>Output VAT</Text>
+            <Text style={[s.value, s.mono]}>{fmtLbp(summary.output_tax_lbp)}</Text>
+            <Text style={[s.mono, { marginTop: 2 }]}>Base {fmtLbp(summary.output_base_lbp)}</Text>
+          </View>
+          <View style={s.box}>
+            <Text style={s.label}>Input VAT</Text>
+            <Text style={[s.value, s.mono]}>{fmtLbp(summary.input_tax_lbp)}</Text>
+            <Text style={[s.mono, { marginTop: 2 }]}>Base {fmtLbp(summary.input_base_lbp)}</Text>
+          </View>
+          <View style={s.box}>
+            <Text style={s.label}>Net VAT</Text>
+            <Text style={[s.value, s.mono]}>{fmtLbp(summary.net_tax_lbp)}</Text>
+            <Text style={[s.mono, { marginTop: 2 }]}>Rows {summary.rows_count ?? rows.length}</Text>
           </View>
         </View>
 
@@ -33,16 +86,20 @@ export function VatReportPdf(props: { rows: VatRow[] }) {
           <View style={s.table}>
             <View style={s.thead} fixed>
               <Text style={[s.th, { flex: 2.2 }]}>Period</Text>
-              <Text style={[s.th, { flex: 5.2 }]}>Tax</Text>
+              <Text style={[s.th, { flex: 2.2 }]}>Type</Text>
+              <Text style={[s.th, { flex: 4.5 }]}>Tax</Text>
               <Text style={[s.th, s.right, { flex: 2.3 }]}>Base LBP</Text>
               <Text style={[s.th, s.right, { flex: 2.3 }]}>VAT LBP</Text>
+              <Text style={[s.th, s.right, { flex: 1.5 }]}>Lines</Text>
             </View>
             {rows.map((r, idx) => (
               <View key={`${r.tax_code_id}:${r.period}:${idx}`} style={s.tr} wrap={false}>
                 <Text style={[s.td, s.mono, { flex: 2.2 }]}>{r.period}</Text>
-                <Text style={[s.td, { flex: 5.2 }]}>{r.tax_name}</Text>
+                <Text style={[s.td, { flex: 2.2 }]}>{r.direction_label || r.direction || "Other"}</Text>
+                <Text style={[s.td, { flex: 4.5 }]}>{r.tax_name}</Text>
                 <Text style={[s.td, s.right, s.mono, { flex: 2.3 }]}>{fmt(r.base_lbp, 2)}</Text>
                 <Text style={[s.td, s.right, s.mono, { flex: 2.3 }]}>{fmt(r.tax_lbp, 2)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.5 }]}>{fmt(r.line_count || 0, 0)}</Text>
               </View>
             ))}
             {rows.length === 0 ? (

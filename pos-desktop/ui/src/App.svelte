@@ -36,6 +36,7 @@
   const WEB_CONFIG_UNOFFICIAL_STORAGE_KEY = "pos_web_config_unofficial";
   const WEB_LOCAL_OUTBOX_STORAGE_KEY = "pos_web_local_outbox_v1";
   const WEB_LOCAL_AUDIT_STORAGE_KEY = "pos_web_local_audit_v1";
+  const CASHIER_MANAGER_META_STORAGE_KEY = "pos_ui_cashier_manager_meta_v1";
   const CART_DRAFTS_STORAGE_KEY = "pos_ui_cart_drafts_v1";
   const CART_DRAFT_KEEP_COPY_STORAGE_KEY = "pos_ui_cart_drafts_keep_copy_on_resume";
   const DEFAULT_API_BASE = "/api";
@@ -140,6 +141,29 @@
   };
   const _removeStorage = (key) => {
     try { localStorage.removeItem(key); } catch (_) {}
+  };
+
+  const _managerRoleNames = ["manager", "admin", "owner", "supervisor"];
+  const _cashierLooksManager = (cashier) => {
+    if (!cashier || typeof cashier !== "object") return false;
+    if (cashier.is_manager === true || cashier.is_admin === true || cashier.can_manager_approve === true) return true;
+    const role = String(cashier.role || cashier.type || "").trim().toLowerCase();
+    if (_managerRoleNames.includes(role)) return true;
+    const roles = Array.isArray(cashier.roles) ? cashier.roles : [];
+    if (roles.some((r) => _managerRoleNames.includes(String(r || "").trim().toLowerCase()))) return true;
+    const perms = Array.isArray(cashier.permissions) ? cashier.permissions : [];
+    return perms.some((p) => {
+      const key = String(p || "").trim().toLowerCase();
+      return key.includes("manager") || key.includes("approve") || key.includes("admin");
+    });
+  };
+  const _cashierHasManagerMetadata = (cashier) => {
+    if (!cashier || typeof cashier !== "object") return false;
+    const hasKey = (k) => Object.prototype.hasOwnProperty.call(cashier, k);
+    if (hasKey("is_manager") || hasKey("is_admin") || hasKey("can_manager_approve")) return true;
+    if (hasKey("role") || hasKey("type")) return true;
+    if (Array.isArray(cashier.roles) || Array.isArray(cashier.permissions)) return true;
+    return false;
   };
 
   const normalizeVatRate = (value) => {
@@ -425,6 +449,7 @@
   let webCatalogCache = new Map();
   let webLocalOutboxByCompany = { official: [], unofficial: [] };
   let webAuditByCompany = { official: [], unofficial: [] };
+  let cashierManagerMetaByCompany = { official: null, unofficial: null };
   let managerApprovalUntilByCompany = { official: 0, unofficial: 0 };
   let managerApprovalPendingCompanies = [];
   const WEB_CATALOG_CACHE_TTL_MS = 15000;
@@ -591,6 +616,8 @@
   let cashierCompanyKey = "official";
   let cashierPin = "";
   let cashierPinEl = null;
+  let cashierOfficialManager = false;
+  let cashierUnofficialManager = false;
 
   // Shift
   let showShiftModal = false;
@@ -620,6 +647,72 @@
   $: cashierOfficialName = activeCashierOfficial ? activeCashierOfficial.name : (config.cashier_id ? "Unknown" : "Not Signed In");
   $: cashierUnofficialName = activeCashierUnofficial ? activeCashierUnofficial.name : (unofficialConfig.cashier_id ? "Unknown" : "Not Signed In");
   $: cashierName = `O:${cashierOfficialName} · U:${cashierUnofficialName}`;
+  const _normalizeCashierManagerMeta = (value) => {
+    if (!value || typeof value !== "object") return null;
+    const cashier_id = String(value?.cashier_id || "").trim();
+    if (!cashier_id) return null;
+    const manager_badge = value?.manager_badge;
+    return {
+      cashier_id,
+      manager_badge: manager_badge === true ? true : (manager_badge === false ? false : null),
+      updated_at: String(value?.updated_at || "").trim() || null,
+    };
+  };
+  const _persistCashierManagerMeta = () => {
+    try { localStorage.setItem(CASHIER_MANAGER_META_STORAGE_KEY, JSON.stringify(cashierManagerMetaByCompany || {})); } catch (_) {}
+  };
+  const _setCashierManagerMetaFor = (companyKey, cashier) => {
+    const key = normalizeCompanyKey(companyKey);
+    const cashier_id = String(cashier?.id || "").trim();
+    if (!cashier_id) return;
+    const manager_badge = _cashierHasManagerMetadata(cashier) ? _cashierLooksManager(cashier) : null;
+    const nextMeta = {
+      cashier_id,
+      manager_badge,
+      updated_at: new Date().toISOString(),
+    };
+    cashierManagerMetaByCompany = {
+      ...(cashierManagerMetaByCompany || {}),
+      [key]: nextMeta,
+    };
+    _persistCashierManagerMeta();
+  };
+  const _clearCashierManagerMetaFor = (companyKey) => {
+    const key = normalizeCompanyKey(companyKey);
+    if (!cashierManagerMetaByCompany?.[key]) return;
+    cashierManagerMetaByCompany = {
+      ...(cashierManagerMetaByCompany || {}),
+      [key]: null,
+    };
+    _persistCashierManagerMeta();
+  };
+  const _syncCashierManagerMetaFor = (companyKey) => {
+    const key = normalizeCompanyKey(companyKey);
+    const currentCashierId = String(cashierIdForCompany(key) || "").trim();
+    const cached = _normalizeCashierManagerMeta(cashierManagerMetaByCompany?.[key]);
+    const cachedCashierId = String(cached?.cashier_id || "").trim();
+    if (!currentCashierId) {
+      if (cached) _clearCashierManagerMetaFor(key);
+      return;
+    }
+    if (cached && cachedCashierId !== currentCashierId) {
+      _clearCashierManagerMetaFor(key);
+    }
+  };
+  const _managerBadgeForCompany = (companyKey, activeCashier = null) => {
+    const key = normalizeCompanyKey(companyKey);
+    const currentCashierId = String(cashierIdForCompany(key) || "").trim();
+    if (!currentCashierId) return false;
+    if (_cashierHasManagerMetadata(activeCashier) && _cashierLooksManager(activeCashier)) return true;
+    const cached = _normalizeCashierManagerMeta(cashierManagerMetaByCompany?.[key]);
+    if (!cached) return false;
+    if (String(cached.cashier_id || "").trim() !== currentCashierId) return false;
+    return cached.manager_badge === true;
+  };
+  $: _syncCashierManagerMetaFor("official");
+  $: _syncCashierManagerMetaFor("unofficial");
+  $: cashierOfficialManager = _managerBadgeForCompany("official", activeCashierOfficial);
+  $: cashierUnofficialManager = _managerBadgeForCompany("unofficial", activeCashierUnofficial);
   const _isoAgeMinutes = (iso) => {
     const t = Date.parse(String(iso || ""));
     if (!Number.isFinite(t)) return 0;
@@ -2022,27 +2115,8 @@
     return { ok: true, return_id: returnId };
   };
 
-  const _isManagerCashier = (cashier) => {
-    if (!cashier || typeof cashier !== "object") return false;
-    if (cashier.is_manager === true || cashier.is_admin === true || cashier.can_manager_approve === true) return true;
-    const role = String(cashier.role || cashier.type || "").trim().toLowerCase();
-    if (["manager", "admin", "owner", "supervisor"].includes(role)) return true;
-    const roles = Array.isArray(cashier.roles) ? cashier.roles : [];
-    if (roles.some((r) => ["manager", "admin", "owner", "supervisor"].includes(String(r || "").trim().toLowerCase()))) return true;
-    const perms = Array.isArray(cashier.permissions) ? cashier.permissions : [];
-    return perms.some((p) => {
-      const key = String(p || "").trim().toLowerCase();
-      return key.includes("manager") || key.includes("approve") || key.includes("admin");
-    });
-  };
-  const _hasManagerMeta = (cashier) => {
-    if (!cashier || typeof cashier !== "object") return false;
-    const hasKey = (k) => Object.prototype.hasOwnProperty.call(cashier, k);
-    if (hasKey("is_manager") || hasKey("is_admin") || hasKey("can_manager_approve")) return true;
-    if (hasKey("role") || hasKey("type")) return true;
-    if (Array.isArray(cashier.roles) || Array.isArray(cashier.permissions)) return true;
-    return false;
-  };
+  const _isManagerCashier = (cashier) => _cashierLooksManager(cashier);
+  const _hasManagerMeta = (cashier) => _cashierHasManagerMetadata(cashier);
   const _managerApprovalRequiredForPayload = (cfg, eventType, payload) => {
     const pm = String(payload?.payment_method || payload?.refund_method || "").trim().toLowerCase();
     if (eventType === "sale.completed") {
@@ -4780,13 +4854,23 @@
 
       // Mixed cart: automatically split into two invoices (one per company) with a single Pay.
       if (mixedCompanies) {
-        if (payment_method === "credit") {
-          reportError("Split invoices support cash/card/transfer only. Use Flag to invoice Official, or sell per-company.");
-          return;
-        }
-
         const groupId = `split-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
         const companiesInOrder = ["official", "unofficial"].filter((k) => cart.some((c) => c.companyKey === k));
+        if (payment_method === "credit") {
+          const needsApproval = companiesInOrder.filter((companyKey) => {
+            const cfg = cfgFor(companyKey);
+            return !!cfg?.require_manager_approval_credit && !_managerApprovalValidFor(companyKey);
+          });
+          if (needsApproval.length) {
+            pendingCheckoutMethod = payment_method;
+            managerApprovalPendingCompanies = needsApproval;
+            adminPinMode = "unlock";
+            openAdminPinModal();
+            reportNotice(`Manager approval required: ${_companyListText(needsApproval)}. Enter admin PIN to continue.`);
+            return;
+          }
+        }
+
         if (!ensureCashierForCompanies(companiesInOrder, "split sale")) return;
         if (!ensureShiftForCompanies(companiesInOrder, "split sale")) return;
         _assertSplitTotalsConsistent(
@@ -5021,6 +5105,7 @@
       const res = await apiCallFor(companyKey, "/cashiers/login", { method: "POST", body: { pin } });
       if (companyKey === otherCompanyKey) unofficialConfig = { ...unofficialConfig, ...(res?.config || {}) };
       else config = { ...config, ...(res?.config || {}) };
+      _setCashierManagerMetaFor(companyKey, res?.cashier || null);
       showCashierModal = false;
       cashierPin = "";
       await fetchData();
@@ -5044,6 +5129,7 @@
         const k = companies[i];
         const r = results[i];
         if (r.status !== "fulfilled") continue;
+        _clearCashierManagerMetaFor(k);
         if (k === otherCompanyKey) unofficialConfig = { ...unofficialConfig, ...(r.value?.config || {}) };
         else config = { ...config, ...(r.value?.config || {}) };
       }
@@ -5316,6 +5402,13 @@
     } catch (_) {}
     webLocalOutboxByCompany = _readJsonStorage(WEB_LOCAL_OUTBOX_STORAGE_KEY, { official: [], unofficial: [] });
     webAuditByCompany = _readJsonStorage(WEB_LOCAL_AUDIT_STORAGE_KEY, { official: [], unofficial: [] });
+    {
+      const raw = _readJsonStorage(CASHIER_MANAGER_META_STORAGE_KEY, { official: null, unofficial: null });
+      cashierManagerMetaByCompany = {
+        official: _normalizeCashierManagerMeta(raw?.official),
+        unofficial: _normalizeCashierManagerMeta(raw?.unofficial),
+      };
+    }
     cartDrafts = _loadCartDrafts();
     cashierCompanyKey = originCompanyKey;
     shiftCompanyKey = originCompanyKey;
@@ -5516,6 +5609,10 @@
   officialStatus={status}
   unofficialStatus={unofficialStatus}
   cashierName={cashierName}
+  cashierOfficialName={cashierOfficialName}
+  cashierUnofficialName={cashierUnofficialName}
+  cashierOfficialManager={cashierOfficialManager}
+  cashierUnofficialManager={cashierUnofficialManager}
   shiftText={shiftText}
   showTabs={!webSetupFirstTime}
   plainBackground={activeScreen === "pos"}
@@ -6447,8 +6544,8 @@
           bind:value={cashierCompanyKey}
           disabled={loading}
         >
-          <option value="official">Official ({cashierOfficialName})</option>
-          <option value="unofficial">Unofficial ({cashierUnofficialName})</option>
+          <option value="official">Official ({cashierOfficialName}{cashierOfficialManager ? " · Manager" : ""})</option>
+          <option value="unofficial">Unofficial ({cashierUnofficialName}{cashierUnofficialManager ? " · Manager" : ""})</option>
         </select>
         <label class="sr-only" for="cashier-pin">PIN</label>
         <input

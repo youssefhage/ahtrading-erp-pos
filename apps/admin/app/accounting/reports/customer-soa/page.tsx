@@ -38,13 +38,20 @@ type SoaRes = {
 };
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function monthStartIso() {
   const d = new Date();
   d.setDate(1);
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function kindLabel(kind: string) {
@@ -59,6 +66,7 @@ function kindLabel(kind: string) {
 export default function CustomerSoaPage() {
   const [status, setStatus] = useState("");
   const [data, setData] = useState<SoaRes | null>(null);
+  const [downloadingCsv, setDownloadingCsv] = useState(false);
 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [customer, setCustomer] = useState<CustomerTypeaheadCustomer | null>(null);
@@ -123,7 +131,7 @@ export default function CustomerSoaPage() {
 
   const load = useCallback(async () => {
     if (!customer?.id) return;
-    setStatus("Loading...");
+    setStatus("");
     try {
       const res = await apiGet<SoaRes>(`/reports/customer-soa${query}`);
       setData(res);
@@ -157,7 +165,8 @@ export default function CustomerSoaPage() {
 
   async function downloadCsv() {
     if (!customer?.id) return;
-    setStatus("Downloading CSV...");
+    setStatus("");
+    setDownloadingCsv(true);
     try {
       const res = await fetch(`${apiBase()}/reports/customer-soa${query}${query ? "&" : "?"}format=csv`, {
         credentials: "include",
@@ -173,10 +182,11 @@ export default function CustomerSoaPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setDownloadingCsv(false);
     }
   }
 
@@ -195,6 +205,7 @@ export default function CustomerSoaPage() {
           <div className="min-w-[320px] flex-1 space-y-1">
             <label className="text-xs font-medium text-fg-muted">Customer</label>
             <CustomerTypeahead
+              value={customer}
               placeholder="Search customer..."
               onSelect={(c) => {
                 setCustomer(c);
@@ -256,8 +267,8 @@ export default function CustomerSoaPage() {
                 Print / PDF
               </Link>
             </Button>
-            <Button variant="secondary" onClick={downloadCsv} disabled={!canLoad}>
-              Download CSV
+            <Button variant="secondary" onClick={downloadCsv} disabled={!canLoad || downloadingCsv}>
+              {downloadingCsv ? "Downloading..." : "Download CSV"}
             </Button>
           </div>
         </CardContent>

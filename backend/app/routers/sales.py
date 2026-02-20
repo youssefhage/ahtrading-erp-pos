@@ -491,6 +491,27 @@ def list_sales_invoices(
                   ON c.company_id = i.company_id AND c.id = i.customer_id
                 LEFT JOIN warehouses w
                   ON w.company_id = i.company_id AND w.id = i.warehouse_id
+                LEFT JOIN (
+                  SELECT p.invoice_id,
+                         COALESCE(SUM(p.amount_usd), 0) AS paid_usd,
+                         COALESCE(SUM(p.amount_lbp), 0) AS paid_lbp
+                  FROM sales_payments p
+                  WHERE p.voided_at IS NULL
+                  GROUP BY p.invoice_id
+                ) pay
+                  ON pay.invoice_id = i.id
+                LEFT JOIN (
+                  SELECT sr.company_id, sr.invoice_id,
+                         COALESCE(SUM(rf.amount_usd), 0) AS credited_usd,
+                         COALESCE(SUM(rf.amount_lbp), 0) AS credited_lbp
+                  FROM sales_refunds rf
+                  JOIN sales_returns sr
+                    ON sr.id = rf.sales_return_id
+                  WHERE sr.status = 'posted'
+                    AND lower(coalesce(rf.method, '')) = 'credit'
+                  GROUP BY sr.company_id, sr.invoice_id
+                ) cred
+                  ON cred.company_id = i.company_id AND cred.invoice_id = i.id
                 WHERE i.company_id = %s
             """
             params: list = [company_id]
@@ -547,38 +568,14 @@ def list_sales_invoices(
                   AND (
                     (
                       COALESCE(i.total_usd, 0)
-                      - COALESCE((
-                        SELECT SUM(p2.amount_usd)
-                        FROM sales_payments p2
-                        WHERE p2.invoice_id = i.id AND p2.voided_at IS NULL
-                      ), 0)
-                      - COALESCE((
-                        SELECT SUM(rf2.amount_usd)
-                        FROM sales_refunds rf2
-                        JOIN sales_returns sr2 ON sr2.id = rf2.sales_return_id
-                        WHERE sr2.company_id = i.company_id
-                          AND sr2.invoice_id = i.id
-                          AND sr2.status = 'posted'
-                          AND lower(coalesce(rf2.method, '')) = 'credit'
-                      ), 0)
+                      - COALESCE(pay.paid_usd, 0)
+                      - COALESCE(cred.credited_usd, 0)
                     ) > 0.00005
                     OR
                     (
                       COALESCE(i.total_lbp, 0)
-                      - COALESCE((
-                        SELECT SUM(p3.amount_lbp)
-                        FROM sales_payments p3
-                        WHERE p3.invoice_id = i.id AND p3.voided_at IS NULL
-                      ), 0)
-                      - COALESCE((
-                        SELECT SUM(rf3.amount_lbp)
-                        FROM sales_refunds rf3
-                        JOIN sales_returns sr3 ON sr3.id = rf3.sales_return_id
-                        WHERE sr3.company_id = i.company_id
-                          AND sr3.invoice_id = i.id
-                          AND sr3.status = 'posted'
-                          AND lower(coalesce(rf3.method, '')) = 'credit'
-                      ), 0)
+                      - COALESCE(pay.paid_lbp, 0)
+                      - COALESCE(cred.credited_lbp, 0)
                     ) > 0.005
                   )
                 """
@@ -586,6 +583,27 @@ def list_sales_invoices(
             select_sql = f"""
                 SELECT i.id, i.invoice_no, i.customer_id, c.name AS customer_name,
                        i.status, i.total_usd, i.total_lbp, i.warehouse_id, w.name AS warehouse_name,
+                       COALESCE(pay.paid_usd, 0) AS paid_usd,
+                       COALESCE(pay.paid_lbp, 0) AS paid_lbp,
+                       COALESCE(cred.credited_usd, 0) AS credited_usd,
+                       COALESCE(cred.credited_lbp, 0) AS credited_lbp,
+                       GREATEST(COALESCE(i.total_usd, 0) - COALESCE(pay.paid_usd, 0) - COALESCE(cred.credited_usd, 0), 0) AS outstanding_usd,
+                       GREATEST(COALESCE(i.total_lbp, 0) - COALESCE(pay.paid_lbp, 0) - COALESCE(cred.credited_lbp, 0), 0) AS outstanding_lbp,
+                       CASE
+                         WHEN i.status = 'canceled' THEN 'canceled'
+                         WHEN i.status <> 'posted' THEN 'not_posted'
+                         WHEN (
+                           GREATEST(COALESCE(i.total_usd, 0) - COALESCE(pay.paid_usd, 0) - COALESCE(cred.credited_usd, 0), 0) <= 0.00005
+                           AND GREATEST(COALESCE(i.total_lbp, 0) - COALESCE(pay.paid_lbp, 0) - COALESCE(cred.credited_lbp, 0), 0) <= 0.005
+                         ) THEN 'paid'
+                         WHEN (
+                           COALESCE(pay.paid_usd, 0) > 0.00005
+                           OR COALESCE(pay.paid_lbp, 0) > 0.005
+                           OR COALESCE(cred.credited_usd, 0) > 0.00005
+                           OR COALESCE(cred.credited_lbp, 0) > 0.005
+                         ) THEN 'partially_paid'
+                         ELSE 'unpaid'
+                       END AS payment_status,
                        i.sales_channel,
                        i.reserve_stock,
                        i.branch_id,

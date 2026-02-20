@@ -19,6 +19,13 @@ type InvoiceRow = {
   customer_id: string | null;
   customer_name?: string | null;
   status: string;
+  payment_status?: string | null;
+  paid_usd?: string | number;
+  paid_lbp?: string | number;
+  credited_usd?: string | number;
+  credited_lbp?: string | number;
+  outstanding_usd?: string | number;
+  outstanding_lbp?: string | number;
   sales_channel?: string | null;
   total_usd: string | number;
   total_lbp: string | number;
@@ -31,6 +38,11 @@ type InvoiceRow = {
 
 function fmtIso(iso?: string | null) {
   return String(iso || "").slice(0, 10) || "-";
+}
+
+function toNum(value: unknown, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function normalizeSalesChannel(value: unknown) {
@@ -49,10 +61,36 @@ function salesChannelLabel(value: unknown) {
 
 function salesChannelTone(value: unknown) {
   const channel = normalizeSalesChannel(value);
-  if (channel === "pos") return "ui-chip-primary";
-  if (channel === "import") return "ui-chip-warning";
-  if (channel === "api") return "ui-chip-success";
-  return "ui-chip-default";
+  if (channel === "pos") return "ui-chip-source-pos";
+  if (channel === "import") return "ui-chip-source-import";
+  if (channel === "api") return "ui-chip-source-api";
+  return "ui-chip-source-admin";
+}
+
+function normalizePaymentStatus(value: unknown): string {
+  const raw = String(value || "").trim().toLowerCase();
+  if (["paid", "unpaid", "partially_paid", "canceled", "not_posted"].includes(raw)) return raw;
+  return "";
+}
+
+function paymentStatusForInvoice(inv: InvoiceRow): string {
+  const explicit = normalizePaymentStatus(inv?.payment_status);
+  if (explicit) return explicit;
+
+  const docStatus = String(inv?.status || "").trim().toLowerCase();
+  if (docStatus === "canceled") return "canceled";
+  if (docStatus !== "posted") return "not_posted";
+
+  const outstandingUsd = toNum(inv?.outstanding_usd, 0);
+  const outstandingLbp = toNum(inv?.outstanding_lbp, 0);
+  if (outstandingUsd <= 0.00005 && outstandingLbp <= 0.005) return "paid";
+
+  const paidSignal =
+    toNum(inv?.paid_usd, 0) > 0.00005 ||
+    toNum(inv?.paid_lbp, 0) > 0.005 ||
+    toNum(inv?.credited_usd, 0) > 0.00005 ||
+    toNum(inv?.credited_lbp, 0) > 0.005;
+  return paidSignal ? "partially_paid" : "unpaid";
 }
 
 function SalesInvoicesListInner() {
@@ -154,6 +192,12 @@ function SalesInvoicesListInner() {
         header: "Status",
         accessor: (inv) => inv.status,
         cell: (inv) => <StatusChip value={inv.status} />,
+      },
+      {
+        id: "payment_status",
+        header: "Payment",
+        accessor: (inv) => paymentStatusForInvoice(inv),
+        cell: (inv) => <StatusChip value={paymentStatusForInvoice(inv)} />,
       },
       {
         id: "source",

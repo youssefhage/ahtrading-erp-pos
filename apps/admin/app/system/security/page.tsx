@@ -23,6 +23,7 @@ type MfaStatus = { enabled: boolean; pending: boolean };
 
 export default function SecurityPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const [mfa, setMfa] = useState<MfaStatus | null>(null);
 
@@ -37,7 +38,8 @@ export default function SecurityPage() {
   const [disableCode, setDisableCode] = useState("");
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const [m, s] = await Promise.all([
         apiGet<Me>("/auth/me"),
@@ -50,6 +52,8 @@ export default function SecurityPage() {
       setStatus("");
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -60,7 +64,7 @@ export default function SecurityPage() {
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     setSavingProfile(true);
-    setStatus("Saving...");
+    setStatus("");
     try {
       await apiPatch("/auth/profile", {
         full_name: fullName.trim() || null,
@@ -77,7 +81,7 @@ export default function SecurityPage() {
 
   async function startMfaSetup() {
     setSetupBusy(true);
-    setStatus("Creating MFA setup...");
+    setStatus("");
     try {
       const res = await apiPost<{ secret: string; otpauth_url: string }>("/auth/mfa/setup", {});
       setSetupSecret(res.secret || "");
@@ -95,7 +99,7 @@ export default function SecurityPage() {
     e.preventDefault();
     if (!enableCode.trim()) return setStatus("Code is required.");
     setSetupBusy(true);
-    setStatus("Enabling MFA...");
+    setStatus("");
     try {
       await apiPost("/auth/mfa/enable", { code: enableCode.trim() });
       setEnableCode("");
@@ -114,7 +118,7 @@ export default function SecurityPage() {
     e.preventDefault();
     if (!disableCode.trim()) return setStatus("Code is required.");
     setSetupBusy(true);
-    setStatus("Disabling MFA...");
+    setStatus("");
     try {
       await apiPost("/auth/mfa/disable", { code: disableCode.trim() });
       setDisableCode("");
@@ -129,7 +133,15 @@ export default function SecurityPage() {
 
   return (
     <Page width="md" className="px-4 pb-10">
-      <PageHeader title="Security" description="Profile and multi-factor authentication." actions={<Button variant="outline" onClick={load}>Refresh</Button>} />
+      <PageHeader
+        title="Security"
+        description="Profile and multi-factor authentication."
+        actions={
+          <Button variant="outline" onClick={load} disabled={loading || savingProfile || setupBusy}>
+            {loading ? "Loading..." : "Refresh"}
+          </Button>
+        }
+      />
 
       {status ? <ErrorBanner error={status} onRetry={load} /> : null}
 
@@ -148,7 +160,7 @@ export default function SecurityPage() {
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} disabled={savingProfile} />
             </div>
             <div className="md:col-span-6 flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={load} disabled={savingProfile}>
+              <Button type="button" variant="outline" onClick={load} disabled={savingProfile || loading || setupBusy}>
                 Refresh
               </Button>
               <Button type="submit" disabled={savingProfile}>
@@ -198,7 +210,7 @@ export default function SecurityPage() {
                 <Button onClick={startMfaSetup} disabled={setupBusy}>
                   {setupBusy ? "..." : (mfa?.pending ? "Regenerate Secret" : "Start Setup")}
                 </Button>
-                <Button variant="outline" onClick={load} disabled={setupBusy}>
+                <Button variant="outline" onClick={load} disabled={setupBusy || loading || savingProfile}>
                   Refresh
                 </Button>
               </div>

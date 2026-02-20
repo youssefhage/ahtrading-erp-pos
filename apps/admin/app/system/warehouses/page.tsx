@@ -25,6 +25,7 @@ type WarehouseRow = {
 export default function WarehousesPage() {
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
   const [name, setName] = useState("");
@@ -50,7 +51,8 @@ export default function WarehousesPage() {
   const [saving, setSaving] = useState(false);
 
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const res = await apiGet<{ warehouses: WarehouseRow[] }>("/warehouses");
       setWarehouses(res.warehouses || []);
@@ -58,6 +60,8 @@ export default function WarehousesPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -77,7 +81,7 @@ export default function WarehousesPage() {
       return;
     }
     setCreating(true);
-    setStatus("Creating...");
+    setStatus("");
     try {
       await apiPost("/warehouses", {
         name: name.trim(),
@@ -131,7 +135,7 @@ export default function WarehousesPage() {
       return;
     }
     setSaving(true);
-    setStatus("Saving...");
+    setStatus("");
     try {
       await apiPatch(`/warehouses/${encodeURIComponent(editId)}`, {
         name: editName.trim(),
@@ -183,7 +187,7 @@ export default function WarehousesPage() {
       globalSearch: false,
       align: "right",
       cell: (w) => (
-        <Button variant="outline" size="sm" onClick={() => openEdit(w)}>
+        <Button variant="outline" size="sm" onClick={() => openEdit(w)} disabled={loading || creating || saving}>
           Edit
         </Button>
       ),
@@ -199,12 +203,12 @@ export default function WarehousesPage() {
         description="Warehouses used for stock moves, costing, and POS defaults."
         actions={
           <>
-            <Button variant="outline" onClick={load}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={loading || creating || saving}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
-                <Button>New Warehouse</Button>
+                <Button disabled={loading || creating || saving}>New Warehouse</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
@@ -253,7 +257,7 @@ export default function WarehousesPage() {
                       </p>
                     </div>
                     <div className="flex justify-end">
-                      <Button type="submit" disabled={creating}>
+                      <Button type="submit" disabled={creating || loading || saving}>
                         {creating ? "..." : "Create"}
                       </Button>
                     </div>
@@ -303,10 +307,10 @@ export default function WarehousesPage() {
                     </select>
                   </div>
                   <div className="flex justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
+                    <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving || loading || creating}>
                       Cancel
                     </Button>
-                    <Button type="submit" disabled={saving}>
+                    <Button type="submit" disabled={saving || loading || creating}>
                       {saving ? "..." : "Save"}
                     </Button>
                   </div>
@@ -322,7 +326,8 @@ export default function WarehousesPage() {
               tableId="system.warehouses"
               rows={warehouses}
               columns={columns}
-              emptyText="No warehouses."
+              isLoading={loading}
+              emptyText={loading ? "Loading warehouses..." : "No warehouses."}
               globalFilterPlaceholder="Search warehouse name / location..."
               initialSort={{ columnId: "name", dir: "asc" }}
             />

@@ -67,6 +67,7 @@ export default function JournalTemplateEditPage() {
   const id = String(params?.id || "");
 
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
   const [costCenters, setCostCenters] = useState<DimensionRow[]>([]);
   const [projects, setProjects] = useState<DimensionRow[]>([]);
@@ -78,6 +79,7 @@ export default function JournalTemplateEditPage() {
   const [lines, setLines] = useState<LineDraft[]>([]);
 
   const [saving, setSaving] = useState(false);
+  const statusIsBusy = /^Saving\b/i.test(status);
 
   const accountByCode = useMemo(() => {
     const m = new Map<string, CoaAccount>();
@@ -108,7 +110,8 @@ export default function JournalTemplateEditPage() {
 
   const load = useCallback(async () => {
     if (!id) return;
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const [detail, a, cc, pr] = await Promise.all([
         apiGet<DetailRes>(`/accounting/journal-templates/${encodeURIComponent(id)}`),
@@ -136,10 +139,11 @@ export default function JournalTemplateEditPage() {
       setAccounts(a.accounts || []);
       setCostCenters(cc.cost_centers || []);
       setProjects(pr.projects || []);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }, [id]);
 
@@ -209,7 +213,7 @@ export default function JournalTemplateEditPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
         <CardHeader>
@@ -348,7 +352,7 @@ export default function JournalTemplateEditPage() {
               <Button type="button" variant="outline" onClick={() => router.push(`/accounting/journal-templates/${encodeURIComponent(id)}`)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving || loading}>
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
             </div>
@@ -358,4 +362,3 @@ export default function JournalTemplateEditPage() {
     </div>
   );
 }
-

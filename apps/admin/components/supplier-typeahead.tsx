@@ -101,6 +101,7 @@ function exactMatches(s: SupplierTypeaheadSupplier, token: string) {
 }
 
 export function SupplierTypeahead(props: {
+  value?: SupplierTypeaheadSupplier | null;
   disabled?: boolean;
   placeholder?: string;
   className?: string;
@@ -216,6 +217,19 @@ export function SupplierTypeahead(props: {
     };
   }, [q, open]);
 
+  useEffect(() => {
+    if (open) return;
+    const v = props.value;
+    if (!v) {
+      setQ("");
+      return;
+    }
+    const label = [v.code ? String(v.code).trim() : "", v.name ? String(v.name).trim() : ""]
+      .filter(Boolean)
+      .join(" · ");
+    setQ(label || String(v.id || ""));
+  }, [open, props.value]);
+
   const indexedRecent = useMemo(() => (recent || []).map((s) => ({ s, hay: buildHaystack(s) })), [recent]);
 
   const localResults = useMemo(() => {
@@ -247,7 +261,10 @@ export function SupplierTypeahead(props: {
   function select(s: SupplierTypeaheadSupplier) {
     pushRecent(s);
     props.onSelect(s);
-    setQ("");
+    const label = [s.code ? String(s.code).trim() : "", s.name ? String(s.name).trim() : ""]
+      .filter(Boolean)
+      .join(" · ");
+    setQ(label || String(s.id || ""));
     setOpen(false);
     setActive(0);
     inputRef.current?.focus();
@@ -293,6 +310,7 @@ export function SupplierTypeahead(props: {
         ref={inputRef}
         value={q}
         onChange={(e) => {
+          if (props.value) props.onClear?.();
           setQ(e.target.value);
           if (!open) setOpen(true);
         }}
@@ -356,7 +374,7 @@ export function SupplierTypeahead(props: {
                         className={cn(
                           "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
                           "border-b border-border-subtle last:border-b-0",
-                          isActive ? "bg-bg-sunken/70" : "hover:bg-bg-sunken/50"
+                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
                         )}
                         onMouseDown={(e) => e.preventDefault()}
                         onMouseEnter={() => setActive(idx)}

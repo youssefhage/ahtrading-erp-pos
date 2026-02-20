@@ -24,6 +24,7 @@ type AuditLogRow = {
 
 export default function AuditLogsPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<AuditLogRow[]>([]);
 
   const [entityType, setEntityType] = useState("");
@@ -39,19 +40,22 @@ export default function AuditLogsPage() {
     if (actionPrefix.trim()) p.set("action_prefix", actionPrefix.trim());
     if (userId.trim()) p.set("user_id", userId.trim());
     const n = Number(limit || 200);
-    p.set("limit", Number.isFinite(n) ? String(n) : "200");
+    const clamped = Number.isFinite(n) ? Math.min(500, Math.max(1, Math.trunc(n))) : 200;
+    p.set("limit", String(clamped));
     return p.toString();
   }, [entityType, entityId, actionPrefix, userId, limit]);
 
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const res = await apiGet<{ audit_logs: AuditLogRow[] }>(`/reports/audit-logs?${qs}`);
       setRows(res.audit_logs || []);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -122,8 +126,8 @@ export default function AuditLogsPage() {
         title="Audit Logs"
         description="Read-only audit feed. Use filters to narrow down to a document or action."
         actions={
-          <Button variant="outline" onClick={load}>
-            Refresh
+          <Button variant="outline" onClick={load} disabled={loading}>
+            {loading ? "Loading..." : "Refresh"}
           </Button>
         }
       />
@@ -158,7 +162,8 @@ export default function AuditLogsPage() {
           tableId="system.auditLogs"
           rows={rows}
           columns={columns}
-          emptyText="No audit logs found."
+          isLoading={loading}
+          emptyText={loading ? "Loading..." : "No audit logs found."}
           globalFilterPlaceholder="Search action / entity / user..."
           initialSort={{ columnId: "created_at", dir: "desc" }}
         />

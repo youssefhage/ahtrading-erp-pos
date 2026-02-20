@@ -58,7 +58,7 @@ export default function ExpiryExposurePage() {
   const valueTone = totals.valueUsd > 0 ? "warning" : "info";
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setStatus("");
     try {
       const params = new URLSearchParams();
       const dd = Math.max(0, Math.min(3650, Math.floor(Number(days || 30))));

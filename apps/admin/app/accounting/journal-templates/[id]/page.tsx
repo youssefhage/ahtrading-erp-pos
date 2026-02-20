@@ -49,7 +49,11 @@ function toNum(v: string) {
 }
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+    const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export default function JournalTemplateDetailPage() {
@@ -58,6 +62,7 @@ export default function JournalTemplateDetailPage() {
   const id = String(params?.id || "");
 
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DetailRes | null>(null);
 
   const [runOpen, setRunOpen] = useState(false);
@@ -125,15 +130,17 @@ export default function JournalTemplateDetailPage() {
 
   const load = useCallback(async () => {
     if (!id) return;
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const res = await apiGet<DetailRes>(`/accounting/journal-templates/${encodeURIComponent(id)}`);
       setData(res);
       setRateType(String(res.template?.default_rate_type || "market"));
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }, [id]);
 
@@ -171,7 +178,7 @@ export default function JournalTemplateDetailPage() {
   async function runTemplate() {
     if (!id) return;
     setRunning(true);
-    setStatus("Running template...");
+    setStatus("");
     try {
       const res = await apiPost<{ id: string; journal_no: string }>(
         `/accounting/journal-templates/${encodeURIComponent(id)}/create-journal`,
@@ -213,8 +220,8 @@ export default function JournalTemplateDetailPage() {
             {"  "}Default rate type: <span className="font-mono">{data?.template?.default_rate_type}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={load}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={loading}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
             <Button variant="outline" onClick={() => router.push(`/accounting/journal-templates/${encodeURIComponent(id)}/edit`)}>
               Edit
@@ -299,9 +306,10 @@ export default function JournalTemplateDetailPage() {
               tableId={`accounting.journalTemplates.${id}.lines`}
               rows={data?.lines || []}
               columns={lineColumns}
+              isLoading={loading}
               initialSort={{ columnId: "line_no", dir: "asc" }}
               globalFilterPlaceholder="Search account / memo / dims..."
-              emptyText="No lines."
+              emptyText={loading ? "Loading..." : "No lines."}
             />
           </CardContent>
         </Card>

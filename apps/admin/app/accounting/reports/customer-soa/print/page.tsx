@@ -72,7 +72,7 @@ export default function CustomerSoaPrintPage() {
 
   const load = useCallback(async () => {
     if (!customerId) return;
-    setStatus("Loading...");
+    setStatus("");
     try {
       const res = await apiGet<SoaRes>(`/reports/customer-soa${query}`);
       setData(res);

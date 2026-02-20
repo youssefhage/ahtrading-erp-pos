@@ -43,9 +43,10 @@ function GeneralLedgerPrintInner() {
   }, [startDate, endDate]);
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setStatus("");
     try {
-      const res = await apiGet<{ gl: GlRow[] }>(`/reports/gl${query}`);
+      const allQuery = query ? `${query}&all=1` : "?all=1";
+      const res = await apiGet<{ gl: GlRow[] }>(`/reports/gl${allQuery}`);
       setRows(res.gl || []);
       setStatus("");
     } catch (err) {

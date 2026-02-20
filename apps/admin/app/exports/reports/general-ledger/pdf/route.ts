@@ -15,6 +15,7 @@ export async function GET(req: Request) {
   const qs = new URLSearchParams();
   if (startDate) qs.set("start_date", startDate);
   if (endDate) qs.set("end_date", endDate);
+  qs.set("all", "1");
 
   const res = await backendGetJson<{ gl: GlRow[] }>(`/reports/gl?${qs.toString()}`);
   const filename = `general_ledger_${safeFilenamePart(startDate || "all")}_${safeFilenamePart(endDate || "all")}.pdf`;
@@ -24,4 +25,3 @@ export async function GET(req: Request) {
     inline
   });
 }
-

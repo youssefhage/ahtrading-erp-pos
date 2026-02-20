@@ -32,13 +32,20 @@ type Res = {
 };
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+    const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function monthStartIso() {
   const d = new Date();
   d.setDate(1);
-  return d.toISOString().slice(0, 10);
+    const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export default function LandedCostImpactPage() {
@@ -65,7 +72,7 @@ export default function LandedCostImpactPage() {
   }, [data]);
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setStatus("");
     try {
       const params = new URLSearchParams();
       if (startDate) params.set("start_date", startDate);

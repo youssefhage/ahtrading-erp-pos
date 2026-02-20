@@ -1243,7 +1243,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     {attachments.map((a) => {
                       const selected = String(a.id) === String(previewAttachmentId);
                       return (
-                      <tr key={a.id} className={`border-t border-border-subtle ${selected ? "bg-bg-elevated/40" : ""}`}>
+                      <tr key={a.id} className={`border-t border-border-subtle ${selected ? "bg-primary/10" : ""}`}>
                         <td className="px-3 py-2 text-xs">{a.filename || a.id}</td>
                         <td className="px-3 py-2 font-mono text-xs text-fg-muted">{a.content_type}</td>
                         <td className="px-3 py-2 text-right font-mono text-xs text-fg-muted">{Math.max(0, Number(a.size_bytes || 0)).toLocaleString("en-US")}</td>

@@ -32,6 +32,7 @@ export default function UomsPage() {
   const [newName, setNewName] = useState("EA");
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const statusIsBusy = /^\s*(Saving|Deleting)\.\.\.\s*$/i.test(status);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,6 +109,7 @@ export default function UomsPage() {
             defaultValue={r.name}
             onBlur={(e) => rename(r.code, e.target.value)}
             className="h-9"
+            disabled={loading || creating || statusIsBusy}
           />
         ),
       },
@@ -122,6 +124,7 @@ export default function UomsPage() {
             size="sm"
             variant={r.is_active ? "default" : "outline"}
             onClick={() => toggleActive(r.code, !r.is_active)}
+            disabled={loading || creating || statusIsBusy}
           >
             {r.is_active ? "Active" : "Inactive"}
           </Button>
@@ -144,6 +147,7 @@ export default function UomsPage() {
               confirmVariant="destructive"
               onError={(err) => setStatus(err instanceof Error ? err.message : String(err))}
               onConfirm={() => remove(r.code)}
+              disabled={loading || creating || statusIsBusy}
             >
               Delete
             </ConfirmButton>
@@ -151,7 +155,7 @@ export default function UomsPage() {
         ),
       },
     ];
-  }, [remove, rename, toggleActive]);
+  }, [creating, loading, remove, rename, statusIsBusy, toggleActive]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -177,15 +181,15 @@ export default function UomsPage() {
 
   return (
     <Page width="lg" className="px-4">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <PageHeader
         title="UOMs"
         description="Unit of Measure is master data. Items must use a UOM from this list to prevent drift."
         actions={
           <>
-            <Button variant="outline" onClick={load} disabled={creating || loading}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={creating || loading || statusIsBusy}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>

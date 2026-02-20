@@ -32,7 +32,11 @@ type AgingRow = {
 type AgingRes = { as_of: string; rows: AgingRow[] };
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function bucketTone(bucket: string): "success" | "info" | "warning" | "danger" {
@@ -72,7 +76,7 @@ export default function ArAgingPage() {
   }, [data]);
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setStatus("");
     try {
       const params = new URLSearchParams();
       if (asOf) params.set("as_of", asOf);

@@ -21,6 +21,7 @@ function sortDims(rows: DimRow[]) {
 
 export default function DimensionsPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
   const [costCenters, setCostCenters] = useState<DimRow[]>([]);
   const [projects, setProjects] = useState<DimRow[]>([]);
 
@@ -76,7 +77,8 @@ export default function DimensionsPage() {
   }, []);
 
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const [cc, pr] = await Promise.all([
         apiGet<{ cost_centers: DimRow[] }>("/dimensions/cost-centers"),
@@ -88,6 +90,8 @@ export default function DimensionsPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -107,7 +111,7 @@ export default function DimensionsPage() {
     if (!createOpen) return;
     if (!code.trim() || !name.trim()) return setStatus("code and name are required");
     setCreating(true);
-    setStatus("Creating...");
+    setStatus("");
     try {
       const payload = { code: code.trim(), name: name.trim(), is_active: isActive };
       if (createOpen === "cc") await apiPost("/dimensions/cost-centers", payload);
@@ -136,7 +140,7 @@ export default function DimensionsPage() {
     if (!editOpen || !editId) return;
     if (!editCode.trim() || !editName.trim()) return setStatus("code and name are required");
     setSaving(true);
-    setStatus("Saving...");
+    setStatus("");
     try {
       const payload = { code: editCode.trim(), name: editName.trim(), is_active: editActive };
       if (editOpen === "cc") await apiPatch(`/dimensions/cost-centers/${encodeURIComponent(editId)}`, payload);
@@ -160,8 +164,8 @@ export default function DimensionsPage() {
         title="Dimensions"
         description="Cost centers and projects for tagging journals and reports."
         actions={
-          <Button variant="outline" onClick={load}>
-            Refresh
+          <Button variant="outline" onClick={load} disabled={loading || creating || saving}>
+            {loading ? "Loading..." : "Refresh"}
           </Button>
         }
       />
@@ -170,7 +174,7 @@ export default function DimensionsPage() {
         <Section
           title="Cost Centers"
           description={`${ccSorted.length} row(s)`}
-          actions={<Button onClick={() => openCreate("cc")}>New</Button>}
+          actions={<Button onClick={() => openCreate("cc")} disabled={loading || creating || saving}>New</Button>}
         >
             <DataTable<DimRow>
               tableId="system.dimensions.cost_centers"
@@ -180,7 +184,7 @@ export default function DimensionsPage() {
                   ? {
                       ...c,
                       cell: (r) => (
-                        <Button type="button" size="sm" variant="outline" onClick={() => openEdit("cc", r)}>
+                        <Button type="button" size="sm" variant="outline" onClick={() => openEdit("cc", r)} disabled={loading || creating || saving}>
                           Edit
                         </Button>
                       ),
@@ -188,13 +192,14 @@ export default function DimensionsPage() {
                   : c
               )}
               getRowId={(r) => r.id}
-              emptyText="No cost centers."
+              isLoading={loading}
+              emptyText={loading ? "Loading cost centers..." : "No cost centers."}
               globalFilterPlaceholder="Search code / name"
               initialSort={{ columnId: "code", dir: "asc" }}
             />
         </Section>
 
-        <Section title="Projects" description={`${prSorted.length} row(s)`} actions={<Button onClick={() => openCreate("pr")}>New</Button>}>
+        <Section title="Projects" description={`${prSorted.length} row(s)`} actions={<Button onClick={() => openCreate("pr")} disabled={loading || creating || saving}>New</Button>}>
             <DataTable<DimRow>
               tableId="system.dimensions.projects"
               rows={prSorted}
@@ -203,7 +208,7 @@ export default function DimensionsPage() {
                   ? {
                       ...c,
                       cell: (r) => (
-                        <Button type="button" size="sm" variant="outline" onClick={() => openEdit("pr", r)}>
+                        <Button type="button" size="sm" variant="outline" onClick={() => openEdit("pr", r)} disabled={loading || creating || saving}>
                           Edit
                         </Button>
                       ),
@@ -211,7 +216,8 @@ export default function DimensionsPage() {
                   : c
               )}
               getRowId={(r) => r.id}
-              emptyText="No projects."
+              isLoading={loading}
+              emptyText={loading ? "Loading projects..." : "No projects."}
               globalFilterPlaceholder="Search code / name"
               initialSort={{ columnId: "code", dir: "asc" }}
             />
@@ -241,10 +247,10 @@ export default function DimensionsPage() {
               </select>
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setCreateOpen("")} disabled={creating}>
+              <Button type="button" variant="outline" onClick={() => setCreateOpen("")} disabled={creating || loading || saving}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={creating}>
+              <Button type="submit" disabled={creating || loading || saving}>
                 {creating ? "..." : "Create"}
               </Button>
             </div>
@@ -275,10 +281,10 @@ export default function DimensionsPage() {
               </select>
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setEditOpen("")} disabled={saving}>
+              <Button type="button" variant="outline" onClick={() => setEditOpen("")} disabled={saving || loading || creating}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving || loading || creating}>
                 {saving ? "..." : "Save"}
               </Button>
             </div>

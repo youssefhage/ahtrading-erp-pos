@@ -27,6 +27,8 @@ const statusChoices = ["", "pending", "processed", "failed", "dead"] as const;
 export default function OutboxPage() {
   const [events, setEvents] = useState<OutboxRow[]>([]);
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [requeueingId, setRequeueingId] = useState<string | null>(null);
 
   const [filterStatus, setFilterStatus] = useState<string>("failed");
   const [filterDeviceId, setFilterDeviceId] = useState<string>("");
@@ -35,19 +37,22 @@ export default function OutboxPage() {
   const canRequeue = useMemo(() => new Set(["failed", "dead"]), []);
 
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const qs = new URLSearchParams();
       if (filterStatus) qs.set("status", filterStatus);
       if (filterDeviceId.trim()) qs.set("device_id", filterDeviceId.trim());
       const n = Number(limit || 200);
-      qs.set("limit", Number.isFinite(n) ? String(n) : "200");
+      const clamped = Number.isFinite(n) ? Math.min(1000, Math.max(1, Math.trunc(n))) : 200;
+      qs.set("limit", String(clamped));
       const res = await apiGet<{ events: OutboxRow[] }>(`/pos/outbox?${qs.toString()}`);
       setEvents(res.events || []);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -95,8 +100,8 @@ export default function OutboxPage() {
       align: "right",
       cell: (e) =>
         canRequeue.has(e.status) ? (
-          <Button variant="outline" size="sm" onClick={() => requeue(e.id)}>
-            Requeue
+          <Button variant="outline" size="sm" onClick={() => requeue(e.id)} disabled={loading || requeueingId != null}>
+            {requeueingId === e.id ? "Requeuing..." : "Requeue"}
           </Button>
         ) : (
           <span className="text-xs text-fg-subtle">-</span>
@@ -105,14 +110,16 @@ export default function OutboxPage() {
   ];
 
   async function requeue(eventId: string) {
-    setStatus("Requeuing...");
+    setRequeueingId(eventId);
+    setStatus("");
     try {
       await apiPost(`/pos/outbox/${eventId}/requeue`, {});
       await load();
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setRequeueingId(null);
     }
   }
 
@@ -124,8 +131,8 @@ export default function OutboxPage() {
         title="Outbox"
         description="Monitor and requeue failed POS/outbox events."
         actions={
-          <Button variant="outline" onClick={load}>
-            Refresh
+          <Button variant="outline" onClick={load} disabled={loading || requeueingId != null}>
+            {loading ? "Loading..." : "Refresh"}
           </Button>
         }
       />
@@ -162,7 +169,8 @@ export default function OutboxPage() {
           tableId="system.outbox"
           rows={events}
           columns={columns}
-          emptyText="No events."
+          isLoading={loading}
+          emptyText={loading ? "Loading..." : "No events."}
           globalFilterPlaceholder="Search device / type / status..."
           initialSort={{ columnId: "created_at", dir: "desc" }}
         />

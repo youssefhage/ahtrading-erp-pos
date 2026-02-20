@@ -31,6 +31,7 @@ type BankAccountRow = {
 
 export default function BankAccountsPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<BankAccountRow[]>([]);
   const [coa, setCoa] = useState<CoaAccount[]>([]);
 
@@ -48,6 +49,7 @@ export default function BankAccountsPage() {
   const [editCurrency, setEditCurrency] = useState<"USD" | "LBP">("USD");
   const [editGlCode, setEditGlCode] = useState("");
   const [editActive, setEditActive] = useState(true);
+  const statusIsBusy = /^(Creating|Saving)\b/i.test(status);
 
   const coaByCode = useMemo(() => {
     const m = new Map<string, CoaAccount>();
@@ -87,7 +89,8 @@ export default function BankAccountsPage() {
   }, []);
 
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const [a, c] = await Promise.all([
         apiGet<{ accounts: BankAccountRow[] }>("/banking/accounts"),
@@ -99,6 +102,8 @@ export default function BankAccountsPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -179,13 +184,13 @@ export default function BankAccountsPage() {
             <p className="ui-module-subtitle">Maintain bank account to GL mapping for payment and reconciliation flows.</p>
           </div>
           <div className="ui-module-actions">
-            <Button variant="outline" onClick={load}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={loading}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
           </div>
         </div>
       </div>
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
         <CardHeader>
@@ -251,9 +256,10 @@ export default function BankAccountsPage() {
             tableId="accounting.banking.accounts"
             rows={accounts}
             columns={columns}
+            isLoading={loading}
             initialSort={{ columnId: "name", dir: "asc" }}
             globalFilterPlaceholder="Search name / GL..."
-            emptyText="No bank accounts yet."
+            emptyText={loading ? "Loading..." : "No bank accounts yet."}
           />
         </CardContent>
       </Card>

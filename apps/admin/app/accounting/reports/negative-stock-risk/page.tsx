@@ -48,7 +48,7 @@ export default function NegativeStockRiskPage() {
   const valueTone = totals.valueUsd > 0 ? "danger" : "info";
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setStatus("");
     try {
       const lim = Math.max(1, Math.min(20000, Math.floor(Number(limit || 2000))));
       const res = await apiGet<Res>(`/reports/inventory/negative-stock-risk?limit=${lim}`);

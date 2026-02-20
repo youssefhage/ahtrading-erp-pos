@@ -166,6 +166,8 @@ INVOICE_TEMPLATES = {
     },
 }
 
+OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001"
+
 
 def _normalize_receipt_template_id(value) -> str:
     v = str(value or "classic").strip().lower()
@@ -183,10 +185,14 @@ def _clean_receipt_text(value, fallback: str = "", limit: int = 120) -> str:
 
 def _receipt_render_profile(cfg: Optional[dict] = None) -> dict:
     c = cfg or {}
+    company_id = str(c.get("company_id") or "").strip()
+    is_unofficial = bool(company_id) and company_id != OFFICIAL_COMPANY_ID
     return {
         "template_id": _normalize_receipt_template_id(c.get("receipt_template")),
         "company_name": _clean_receipt_text(c.get("receipt_company_name"), fallback="AH Trading", limit=64) or "AH Trading",
         "footer_text": _clean_receipt_text(c.get("receipt_footer_text"), fallback="", limit=160),
+        "hide_company_name": is_unofficial,
+        "hide_vat_reference": is_unofficial,
     }
 
 
@@ -1516,6 +1522,8 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
     template_id = profile["template_id"]
     company_name = profile["company_name"]
     footer_text = profile["footer_text"]
+    hide_company_name = bool(profile.get("hide_company_name"))
+    hide_vat_reference = bool(profile.get("hide_vat_reference"))
 
     r = receipt_row.get("receipt") or {}
     lines = r.get("lines") or []
@@ -1545,7 +1553,7 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
     if template_id != "compact":
         meta_rows.append(f'<div class="muted">Event: <span class="mono">{e(r.get("event_id") or "-")}</span></div>')
         meta_rows.append(f'<div class="muted">Shift: <span class="mono">{e(r.get("shift_id") or "-")}</span></div>')
-        meta_rows.append(f'<div class="muted">Customer: <span class="mono">{e(r.get("customer_id") or "-")}</span></div>')
+    meta_rows.append(f'<div class="muted">Customer: <span class="mono">{e(r.get("customer_id") or "-")}</span></div>')
     meta_rows.append(f'<div class="muted">Cashier: <span>{e(cashier_name)}</span></div>')
     meta_rows.append(f'<div class="muted">Payment: <span>{e(r.get("payment_method") or "-")}</span></div>')
 
@@ -1579,6 +1587,12 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
 
     width_mm = "72mm" if template_id == "compact" else "80mm"
     footer_html = f'<div class="footer">{e(footer_text)}</div>' if footer_text else ""
+    company_html = f"<h1>{e(company_name)}</h1>" if (company_name and not hide_company_name) else ""
+    vat_row_html = (
+        f'<div class="row"><span class="muted">VAT USD</span><strong class="mono">{e(fmt_usd(totals.get("tax_usd")))}</strong></div>'
+        if not hide_vat_reference
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -1632,7 +1646,7 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
     </style>
   </head>
   <body>
-    <h1>{e(company_name)}</h1>
+    {company_html}
     <h2>{e(title)}</h2>
     <div class="meta">
       {''.join(meta_rows)}
@@ -1653,7 +1667,7 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
 
     <div class="totals">
       <div class="row"><span class="muted">Subtotal USD</span><strong class="mono">{e(fmt_usd(totals.get("base_usd")))}</strong></div>
-      <div class="row"><span class="muted">VAT USD</span><strong class="mono">{e(fmt_usd(totals.get("tax_usd")))}</strong></div>
+      {vat_row_html}
       <div class="row"><span class="muted">Total USD</span><strong class="mono">{e(fmt_usd(totals.get("total_usd")))}</strong></div>
       <div class="row"><span class="muted">Total LBP</span><strong class="mono">{e(fmt_lbp(totals.get("total_lbp")))}</strong></div>
     </div>
@@ -1677,6 +1691,8 @@ def _receipt_text(
     template_id: str = "classic",
     company_name: str = "AH Trading",
     footer_text: str = "",
+    hide_company_name: bool = False,
+    hide_vat_reference: bool = False,
 ) -> str:
     """
     Plain-text receipt for thermal printers via OS spooling.
@@ -1725,7 +1741,8 @@ def _receipt_text(
 
     out = []
     title = "SALE" if receipt_row.get("receipt_type") == "sale" else "RETURN"
-    out.append(company_label)
+    if company_label and not hide_company_name:
+        out.append(company_label)
     out.append(title)
     out.append(f"Time: {r.get('created_at') or '-'}")
     if template != "compact":
@@ -1734,7 +1751,7 @@ def _receipt_text(
             out.append(f"Shift: {r.get('shift_id')}")
     if r.get("cashier", {}).get("name") or r.get("cashier", {}).get("id"):
         out.append(f"Cashier: {r.get('cashier', {}).get('name') or r.get('cashier', {}).get('id')}")
-    if template != "compact" and r.get("customer_id"):
+    if r.get("customer_id"):
         out.append(f"Customer: {r.get('customer_id')}")
     if r.get("payment_method"):
         out.append(f"Payment: {r.get('payment_method')}")
@@ -1756,7 +1773,8 @@ def _receipt_text(
 
     out.append("-" * width)
     out.append(f"Subtotal USD: {fmt_usd(totals.get('base_usd'))}")
-    out.append(f"VAT USD:      {fmt_usd(totals.get('tax_usd'))}")
+    if not hide_vat_reference:
+        out.append(f"VAT USD:      {fmt_usd(totals.get('tax_usd'))}")
     out.append(f"Total USD:    {fmt_usd(totals.get('total_usd'))}")
     out.append(f"Total LBP:    {fmt_lbp(totals.get('total_lbp'))}")
     if footer_label:
@@ -3369,6 +3387,7 @@ class Handler(BaseHTTPRequestHandler):
                     "receipt_template": data.get("template") if "template" in data else cfg.get("receipt_template"),
                     "receipt_company_name": data.get("company_name") if "company_name" in data else cfg.get("receipt_company_name"),
                     "receipt_footer_text": data.get("footer_text") if "footer_text" in data else cfg.get("receipt_footer_text"),
+                    "company_id": cfg.get("company_id"),
                 }
             )
 
@@ -3382,6 +3401,8 @@ class Handler(BaseHTTPRequestHandler):
                     template_id=profile["template_id"],
                     company_name=profile["company_name"],
                     footer_text=profile["footer_text"],
+                    hide_company_name=bool(profile.get("hide_company_name")),
+                    hide_vat_reference=bool(profile.get("hide_vat_reference")),
                 )
                 _print_text_to_printer(txt, printer=printer, copies=copies)
             except Exception as ex:

@@ -194,6 +194,7 @@ export default function PosDevicesPage() {
   const [devices, setDevices] = useState<DeviceRow[]>([]);
   const [branches, setBranches] = useState<BranchRow[]>([]);
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
 
   const [deviceCode, setDeviceCode] = useState("");
@@ -253,9 +254,12 @@ export default function PosDevicesPage() {
     if (!lastSetup) return null;
     return buildPosConfigPayload(lastSetup, effectiveCloudApiBaseUrl, effectiveEdgeApiBaseUrl);
   }, [lastSetup, effectiveCloudApiBaseUrl, effectiveEdgeApiBaseUrl]);
+  const statusIsBusy = /^(Loading|Saving|Registering|Resetting|Deactivating|Deleting)\b/.test(status);
+  const busy = loading || statusIsBusy || registering || savingEdit || savingAssignments || savingEmployeeAssignments;
 
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const [res, br] = await Promise.all([
         apiGet<{ devices: DeviceRow[] }>("/pos/devices"),
@@ -267,6 +271,8 @@ export default function PosDevicesPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -509,19 +515,19 @@ async function resetToken(device: DeviceRow) {
 
   return (
     <Page width="lg" className="px-4 pb-10">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <PageHeader
         title="POS Devices"
         description="Register devices, edit terminal settings, and control cashier access."
         actions={
           <>
-            <Button variant="outline" onClick={load}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={busy}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
             <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
               <DialogTrigger asChild>
-                <Button>Register Device</Button>
+                <Button disabled={busy}>Register Device</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
@@ -548,7 +554,7 @@ async function resetToken(device: DeviceRow) {
                     {branchId ? <div className="text-xs text-fg-subtle">Branch ID: {branchId}</div> : null}
                   </div>
                   <div className="flex justify-end">
-                    <Button type="submit" disabled={registering}>
+                    <Button type="submit" disabled={registering || busy}>
                       {registering ? "..." : "Register"}
                     </Button>
                   </div>
@@ -584,10 +590,10 @@ async function resetToken(device: DeviceRow) {
               />
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={savingEdit}>
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={savingEdit || busy}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={savingEdit}>
+              <Button type="submit" disabled={savingEdit || busy}>
                 {savingEdit ? "..." : "Save"}
               </Button>
             </div>
@@ -647,10 +653,10 @@ async function resetToken(device: DeviceRow) {
             )}
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setAssignOpen(false)} disabled={savingAssignments}>
+            <Button type="button" variant="outline" onClick={() => setAssignOpen(false)} disabled={savingAssignments || busy}>
               Cancel
             </Button>
-            <Button type="button" onClick={saveCashierAssignments} disabled={savingAssignments || !assignDevice}>
+            <Button type="button" onClick={saveCashierAssignments} disabled={savingAssignments || !assignDevice || busy}>
               {savingAssignments ? "..." : "Save Assignments"}
             </Button>
           </div>
@@ -707,10 +713,10 @@ async function resetToken(device: DeviceRow) {
             )}
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => setAssignEmployeesOpen(false)} disabled={savingEmployeeAssignments}>
+            <Button type="button" variant="outline" onClick={() => setAssignEmployeesOpen(false)} disabled={savingEmployeeAssignments || busy}>
               Cancel
             </Button>
-            <Button type="button" onClick={saveEmployeeAssignments} disabled={savingEmployeeAssignments || !assignEmployeesDevice}>
+            <Button type="button" onClick={saveEmployeeAssignments} disabled={savingEmployeeAssignments || !assignEmployeesDevice || busy}>
               {savingEmployeeAssignments ? "..." : "Save Assignments"}
             </Button>
           </div>
@@ -721,7 +727,7 @@ async function resetToken(device: DeviceRow) {
         <Section
           title="Create Your First POS Device"
           description="Register a device, then copy a full setup pack with all required fields."
-          actions={<Button onClick={() => setRegisterOpen(true)}>Register Device</Button>}
+          actions={<Button onClick={() => setRegisterOpen(true)} disabled={busy}>Register Device</Button>}
         >
           <ol className="list-decimal space-y-1 pl-5 text-sm text-fg-subtle">
             <li>Click Register Device, choose an optional Branch, and set a device code like POS-01.</li>
@@ -888,16 +894,16 @@ async function resetToken(device: DeviceRow) {
                 align: "right",
                 cell: (d) => (
                   <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={() => openEditDevice(d)}>
+                    <Button variant="outline" size="sm" onClick={() => openEditDevice(d)} disabled={busy}>
                       Edit
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => openAssignEmployees(d)}>
+                    <Button variant="outline" size="sm" onClick={() => openAssignEmployees(d)} disabled={busy}>
                       Assign Employees
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => openAssignCashiers(d)}>
+                    <Button variant="outline" size="sm" onClick={() => openAssignCashiers(d)} disabled={busy}>
                       Assign Cashiers
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => resetToken(d)}>
+                    <Button variant="outline" size="sm" onClick={() => resetToken(d)} disabled={busy}>
                       Reset Token & Setup
                     </Button>
                     <ConfirmButton
@@ -934,7 +940,8 @@ async function resetToken(device: DeviceRow) {
                 tableId="system.posDevices"
                 rows={devices}
                 columns={columns}
-                emptyText="No devices yet."
+                isLoading={loading}
+                emptyText={loading ? "Loading devices..." : "No devices yet."}
                 globalFilterPlaceholder="Search device code / branch / token..."
                 initialSort={{ columnId: "device_code", dir: "asc" }}
               />

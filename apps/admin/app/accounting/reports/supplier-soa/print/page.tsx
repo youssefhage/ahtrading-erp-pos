@@ -71,7 +71,7 @@ export default function SupplierSoaPrintPage() {
 
   const load = useCallback(async () => {
     if (!supplierId) return;
-    setStatus("Loading...");
+    setStatus("");
     try {
       const res = await apiGet<SoaRes>(`/reports/supplier-soa${query}`);
       setData(res);

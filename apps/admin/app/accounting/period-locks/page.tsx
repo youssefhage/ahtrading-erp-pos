@@ -22,11 +22,16 @@ type PeriodLock = {
 };
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+    const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export default function PeriodLocksPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [locks, setLocks] = useState<PeriodLock[]>([]);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -39,6 +44,7 @@ export default function PeriodLocksPage() {
   const [confirmId, setConfirmId] = useState<string>("");
   const [confirmNextLocked, setConfirmNextLocked] = useState<boolean>(false);
   const [toggling, setToggling] = useState(false);
+  const statusIsBusy = /^(Creating|Locking|Unlocking)\b/i.test(status);
 
   const columns = useMemo((): Array<DataTableColumn<PeriodLock>> => {
     return [
@@ -78,7 +84,8 @@ export default function PeriodLocksPage() {
   }, []);
 
   async function load() {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const res = await apiGet<{ locks: PeriodLock[] }>("/accounting/period-locks");
       setLocks(res.locks || []);
@@ -86,6 +93,8 @@ export default function PeriodLocksPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -150,7 +159,7 @@ export default function PeriodLocksPage() {
           </div>
         </div>
       </div>
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
         <CardHeader>
@@ -159,8 +168,8 @@ export default function PeriodLocksPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="ui-actions-between">
-            <Button variant="outline" onClick={load}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={loading || creating || toggling}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
@@ -198,9 +207,10 @@ export default function PeriodLocksPage() {
             tableId="accounting.periodLocks"
             rows={locks}
             columns={columns}
+            isLoading={loading}
             initialSort={{ columnId: "range", dir: "desc" }}
             globalFilterPlaceholder="Search reason / by..."
-            emptyText="No locks."
+            emptyText={loading ? "Loading..." : "No locks."}
           />
         </CardContent>
       </Card>

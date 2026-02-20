@@ -170,10 +170,10 @@ function salesChannelLabel(value: unknown) {
 
 function salesChannelTone(value: unknown) {
   const channel = normalizeSalesChannel(value);
-  if (channel === "pos") return "ui-chip-primary";
-  if (channel === "import") return "ui-chip-warning";
-  if (channel === "api") return "ui-chip-success";
-  return "ui-chip-default";
+  if (channel === "pos") return "ui-chip-source-pos";
+  if (channel === "import") return "ui-chip-source-import";
+  if (channel === "api") return "ui-chip-source-api";
+  return "ui-chip-source-admin";
 }
 
 function SalesInvoiceShowInner() {

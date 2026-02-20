@@ -42,6 +42,7 @@ export default function JournalTemplateNewPage() {
   const router = useRouter();
 
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<CoaAccount[]>([]);
   const [costCenters, setCostCenters] = useState<DimensionRow[]>([]);
   const [projects, setProjects] = useState<DimensionRow[]>([]);
@@ -57,6 +58,7 @@ export default function JournalTemplateNewPage() {
   ]);
 
   const [saving, setSaving] = useState(false);
+  const statusIsBusy = /^Saving\b/i.test(status);
 
   const accountByCode = useMemo(() => {
     const m = new Map<string, CoaAccount>();
@@ -86,7 +88,8 @@ export default function JournalTemplateNewPage() {
   const balanced = useMemo(() => Math.abs(totals.diffUsd) < 0.0001 && Math.abs(totals.diffLbp) < 0.01, [totals]);
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setLoading(true);
+    setStatus("");
     try {
       const [a, cc, pr] = await Promise.all([
         apiGet<{ accounts: CoaAccount[] }>("/coa/accounts"),
@@ -96,10 +99,11 @@ export default function JournalTemplateNewPage() {
       setAccounts(a.accounts || []);
       setCostCenters(cc.cost_centers || []);
       setProjects(pr.projects || []);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -169,7 +173,7 @@ export default function JournalTemplateNewPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <Card>
         <CardHeader>
@@ -314,7 +318,7 @@ export default function JournalTemplateNewPage() {
               <Button type="button" variant="outline" onClick={() => router.push("/accounting/journal-templates/list")}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={saving}>
+              <Button type="submit" disabled={saving || loading}>
                 {saving ? "Saving..." : "Create Template"}
               </Button>
             </div>
@@ -324,4 +328,3 @@ export default function JournalTemplateNewPage() {
     </div>
   );
 }
-

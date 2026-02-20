@@ -7,6 +7,15 @@ import { pdfStyles as s } from "@/lib/pdf/styles";
 const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 const SALES_INVOICE_PDF_TEMPLATES = ["official_classic", "official_compact", "standard"] as const;
 export type SalesInvoicePdfTemplate = (typeof SALES_INVOICE_PDF_TEMPLATES)[number];
+const OFFICIAL_HEADER_NAME = "Antoine Hage Trading";
+const OFFICIAL_HEADER_TAX_ID = "Tax ID: 4003116";
+const OFFICIAL_HEADER_ADDRESS = "St. Youssef Church, Street Slav, Dikweneh, Lebanon";
+const OFFICIAL_HEADER_CONTACT = "Phone: +96176768630 | Email: info@ahagetrading.com";
+const OFFICIAL_FOOTER_TAGLINE =
+  "Your trusted partner in food wholesale - serving businesses across Lebanon with consistency, quality, and care.";
+const OFFICIAL_FOOTER_LEGAL =
+  "© 2025 Antoine Hage Trading. All rights reserved. | For inquiries, contact us at +96176768630 | Email: info@ahagetrading.com";
+const USE_TEMP_NON_VAT_OFFICIAL_CLASSIC = true;
 
 type Company = {
   id: string;
@@ -68,6 +77,7 @@ type InvoiceLine = {
   item_id: string;
   item_sku?: string | null;
   item_name?: string | null;
+  item_tax_code_id?: string | null;
   qty: string | number;
   uom?: string | null;
   qty_factor?: string | number | null;
@@ -94,6 +104,8 @@ type SalesPayment = {
 type TaxLine = {
   id: string;
   tax_code_id: string;
+  base_usd?: string | number;
+  base_lbp?: string | number;
   tax_usd: string | number;
   tax_lbp: string | number;
 };
@@ -120,6 +132,10 @@ function normalizePdfTemplate(value: unknown): SalesInvoicePdfTemplate | null {
 function toNum(v: unknown) {
   const n = Number(v || 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+function round2(v: number) {
+  return Math.round((v + Number.EPSILON) * 100) / 100;
 }
 
 function fmtPlainMoney(amount: unknown) {
@@ -349,21 +365,14 @@ const official = StyleSheet.create({
   companyName: {
     fontSize: 25,
     fontWeight: 700,
-    marginBottom: 10,
+    marginBottom: 6,
   },
-  companyMetaRow: {
-    flexDirection: "row",
+  companyInfoLine: {
     marginBottom: 3,
   },
-  companyMetaLabel: {
-    width: 112,
-    color: "#333",
-  },
-  companyMetaValue: {
-    flexGrow: 1,
-    textAlign: "left",
+  companyInfoMono: {
+    marginBottom: 3,
     fontFamily: "Courier",
-    color: "#222",
   },
   titleWrap: {
     width: "38%",
@@ -523,8 +532,20 @@ const official = StyleSheet.create({
     textAlign: "center",
     fontWeight: 700,
   },
+  brandFooter: {
+    marginTop: 16,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#d7d7d7",
+  },
+  brandFooterLine: {
+    textAlign: "center",
+    fontSize: 8.3,
+    color: "#333",
+    marginBottom: 2,
+  },
   trace: {
-    marginTop: 12,
+    marginTop: 6,
     fontSize: 7,
     color: "#777",
     textAlign: "right",
@@ -541,7 +562,6 @@ function OfficialInvoiceTemplate(props: {
   const inv = props.detail.invoice;
   const lines = props.detail.lines || [];
   const taxLines = props.detail.tax_lines || [];
-  const company = props.company || null;
   const customer = props.customer || null;
   const addresses = props.addresses || [];
 
@@ -574,27 +594,10 @@ function OfficialInvoiceTemplate(props: {
       <Page size="A4" style={official.page} wrap>
         <View style={official.topRow}>
           <View style={official.companyBlock}>
-            <Text style={official.companyName}>{company?.legal_name || company?.name || "Company"}</Text>
-            <View style={official.companyMetaRow}>
-              <Text style={official.companyMetaLabel}>P.O. Box</Text>
-              <Text style={official.companyMetaValue}>-</Text>
-            </View>
-            <View style={official.companyMetaRow}>
-              <Text style={official.companyMetaLabel}>Tel</Text>
-              <Text style={official.companyMetaValue}>-</Text>
-            </View>
-            <View style={official.companyMetaRow}>
-              <Text style={official.companyMetaLabel}>Fax</Text>
-              <Text style={official.companyMetaValue}>-</Text>
-            </View>
-            <View style={official.companyMetaRow}>
-              <Text style={official.companyMetaLabel}>R.C</Text>
-              <Text style={official.companyMetaValue}>{String(company?.registration_no || "-")}</Text>
-            </View>
-            <View style={official.companyMetaRow}>
-              <Text style={official.companyMetaLabel}>VAT Registration No.</Text>
-              <Text style={official.companyMetaValue}>{String(company?.vat_no || "-")}</Text>
-            </View>
+            <Text style={official.companyName}>{OFFICIAL_HEADER_NAME}</Text>
+            <Text style={official.companyInfoMono}>{OFFICIAL_HEADER_TAX_ID}</Text>
+            <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_ADDRESS}</Text>
+            <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_CONTACT}</Text>
           </View>
 
           <View style={official.titleWrap}>
@@ -769,6 +772,259 @@ function OfficialInvoiceTemplate(props: {
           <Text style={official.sign}>Stamp Duty Paid</Text>
         </View>
 
+        <View style={official.brandFooter}>
+          <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_TAGLINE}</Text>
+          <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_LEGAL}</Text>
+        </View>
+
+        <Text style={official.trace}>Ref {inv.id} · Generated {generatedAtStamp()}</Text>
+      </Page>
+    </Document>
+  );
+}
+
+function OfficialInvoiceTemplateNonVatTemp(props: {
+  detail: SalesInvoiceDetail;
+  company?: Company | null;
+  customer?: Customer | null;
+  addresses?: PartyAddress[];
+}) {
+  const inv = props.detail.invoice;
+  const lines = props.detail.lines || [];
+  const taxLines = props.detail.tax_lines || [];
+  const customer = props.customer || null;
+  const addresses = props.addresses || [];
+
+  const meta = parseMeta(inv.receipt_meta);
+  const defaultAddress = pickDefaultAddress(addresses);
+
+  const docNo = inv.invoice_no || inv.receipt_no || inv.id.slice(0, 8);
+  const customerNo = customer?.code || inv.customer_id || "-";
+  const customerName = customerLabel(inv, customer);
+  const customerPhone = String(customer?.phone || "").trim() || "-";
+
+  const deliveryLines = deliveryAddressLines(meta, defaultAddress);
+  const primaryLines = addressLines(defaultAddress);
+
+  const taxUsd = taxLines.reduce((a, t) => a + toNum(t.tax_usd), 0);
+  const totalUsd = toNum(inv.total_usd);
+  const beforeVatUsd = totalUsd - taxUsd;
+  const totalQty = lines.reduce((a, l) => a + lineQty(l), 0);
+
+  const subtotalFromInvoice = toNum(inv.subtotal_usd);
+  const discountFromInvoice = toNum(inv.discount_total_usd);
+  const computedBeforeVat = subtotalFromInvoice - discountFromInvoice;
+  const beforeVat = Math.abs(beforeVatUsd) > 0.009 ? beforeVatUsd : computedBeforeVat;
+  const vatRate = beforeVat > 0 ? taxUsd / beforeVat : 0;
+  const vatRateByCode = new Map<string, number>();
+  for (const t of taxLines) {
+    const tcid = String(t.tax_code_id || "").trim();
+    const base = toNum(t.base_usd);
+    const tax = toNum(t.tax_usd);
+    if (!tcid || base <= 0) continue;
+    vatRateByCode.set(tcid, tax / base);
+  }
+  const canFallbackToInvoiceRate = taxLines.length === 1;
+  const tempRows = lines.map((l) => {
+    const qty = lineQty(l);
+    const tcid = String(l.item_tax_code_id || "").trim();
+    const rate = vatRateByCode.get(tcid) ?? (canFallbackToInvoiceRate ? vatRate : 0);
+    const amountInclRaw = toNum(l.line_total_usd) * (1 + Math.max(0, rate));
+    return { line: l, qty, amountInclRaw };
+  });
+  const displayedLineAmounts = tempRows.map((r) => round2(r.amountInclRaw));
+  const targetTotal = round2(totalUsd);
+  const currentTotal = round2(displayedLineAmounts.reduce((a, v) => a + v, 0));
+  const delta = round2(targetTotal - currentTotal);
+  if (tempRows.length && Math.abs(delta) >= 0.01) {
+    const idx = tempRows.length - 1;
+    displayedLineAmounts[idx] = round2(displayedLineAmounts[idx] + delta);
+  }
+  const printRows = tempRows.map((r, idx) => {
+    const amountInclVat = displayedLineAmounts[idx] ?? round2(r.amountInclRaw);
+    const unitPriceInclVat = r.qty > 0 ? amountInclVat / r.qty : lineUnitPrice(r.line);
+    return { line: r.line, qty: r.qty, amountInclVat, unitPriceInclVat };
+  });
+
+  return (
+    <Document title={`Sales Invoice ${docNo}`}>
+      <Page size="A4" style={official.page} wrap>
+        <View style={official.topRow}>
+          <View style={official.companyBlock}>
+            <Text style={official.companyName}>{OFFICIAL_HEADER_NAME}</Text>
+            <Text style={official.companyInfoMono}>{OFFICIAL_HEADER_TAX_ID}</Text>
+            <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_ADDRESS}</Text>
+            <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_CONTACT}</Text>
+          </View>
+
+          <View style={official.titleWrap}>
+            <Text style={official.titleText}>Invoice</Text>
+            <Text style={official.invoiceNo}>{docNo}</Text>
+          </View>
+        </View>
+
+        <View style={official.splitRow}>
+          <View style={official.col}>
+            <View style={official.kvRow}>
+              <Text style={official.kvLabel}>Sales order No.</Text>
+              <Text style={official.kvValue}>{inv.receipt_no || docNo}</Text>
+            </View>
+            <View style={official.kvRow}>
+              <Text style={official.kvLabel}>Sales Person</Text>
+              <Text style={official.kvValue}>{metaString(meta, "sales_person", "salesperson") || "-"}</Text>
+            </View>
+            <View style={official.kvRow}>
+              <Text style={official.kvLabel}>Route</Text>
+              <Text style={official.kvValue}>{metaString(meta, "route", "route_name") || "-"}</Text>
+            </View>
+            <View style={official.kvRow}>
+              <Text style={official.kvLabel}>Reference</Text>
+              <Text style={official.kvValue}>{metaString(meta, "reference", "po_no") || inv.id.slice(0, 12)}</Text>
+            </View>
+
+            <Text style={official.blockTitle}>Primary Address</Text>
+            <View style={official.kvRow}>
+              <Text style={official.kvLabel}>Customer No.</Text>
+              <Text style={official.kvValue}>{customerNo}</Text>
+            </View>
+            <Text style={official.bodyLine}>{customerName}</Text>
+            {primaryLines.map((ln, idx) => (
+              <Text key={`primary-temp-${idx}`} style={official.bodyLine}>
+                {ln}
+              </Text>
+            ))}
+            <View style={[official.kvRow, { marginTop: 2 }]}>
+              <Text style={official.kvLabel}>Tel</Text>
+              <Text style={official.kvValue}>{customerPhone}</Text>
+            </View>
+          </View>
+
+          <View style={official.col}>
+            <View style={official.kvRow}>
+              <Text style={official.kvLabel}>Document Date</Text>
+              <Text style={official.kvValue}>{fmtUsDate(inv.invoice_date)}</Text>
+            </View>
+            <View style={official.kvRow}>
+              <Text style={official.kvLabel}>Due Date</Text>
+              <Text style={official.kvValue}>{fmtUsDate(inv.due_date)}</Text>
+            </View>
+            <View style={official.kvRow}>
+              <Text style={official.kvLabel}>Payment Terms</Text>
+              <Text style={official.kvValue}>{paymentTerms(inv)}</Text>
+            </View>
+            <View style={official.kvRow}>
+              <Text style={official.kvLabel}>Currency</Text>
+              <Text style={official.kvValue}>{inv.settlement_currency || inv.pricing_currency || "USD"}</Text>
+            </View>
+
+            <Text style={official.blockTitle}>Delivery Address</Text>
+            <View style={official.kvRow}>
+              <Text style={official.kvLabel}>Customer No.</Text>
+              <Text style={official.kvValue}>{customerNo}</Text>
+            </View>
+            <Text style={official.bodyLine}>{customerName}</Text>
+            {deliveryLines.map((ln, idx) => (
+              <Text key={`delivery-temp-${idx}`} style={official.bodyLine}>
+                {ln}
+              </Text>
+            ))}
+            <View style={[official.kvRow, { marginTop: 2 }]}>
+              <Text style={official.kvLabel}>Tel</Text>
+              <Text style={official.kvValue}>{customerPhone}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={official.tableWrap}>
+          <View style={official.headRow} fixed>
+            <View style={[official.cell, { flex: 1.35 }]}>
+              <Text style={[official.cellHead, official.left]}>Item</Text>
+            </View>
+            <View style={[official.cell, { flex: 3.45 }]}>
+              <Text style={[official.cellHead, official.left]}>Description</Text>
+            </View>
+            <View style={[official.cell, { flex: 1.05 }]}>
+              <Text style={[official.cellHead, official.right]}>Quantity</Text>
+            </View>
+            <View style={[official.cell, { flex: 0.9 }]}>
+              <Text style={[official.cellHead, official.center]}>UOM</Text>
+            </View>
+            <View style={[official.cell, { flex: 1.6 }]}>
+              <Text style={[official.cellHead, official.right]}>Unit Price</Text>
+            </View>
+            <View style={[official.cell, { flex: 1.65, borderRightWidth: 0 }]}>
+              <Text style={[official.cellHead, official.right]}>Amount</Text>
+            </View>
+          </View>
+
+          {printRows.map((r) => {
+            const l = r.line;
+            return (
+              <View key={l.id} style={official.row} wrap={false}>
+                <View style={[official.cell, { flex: 1.35 }]}>
+                  <Text style={[official.left, { fontFamily: "Courier", fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
+                </View>
+                <View style={[official.cell, { flex: 3.45 }]}>
+                  <Text style={[official.left, { fontSize: 8.5 }]}>{l.item_name || "-"}</Text>
+                </View>
+                <View style={[official.cell, { flex: 1.05 }]}>
+                  <Text style={official.right}>{fmtQty(r.qty)}</Text>
+                </View>
+                <View style={[official.cell, { flex: 0.9 }]}>
+                  <Text style={[official.center, { fontSize: 8.3 }]}>{String(l.uom || "").trim() || "-"}</Text>
+                </View>
+                <View style={[official.cell, { flex: 1.6 }]}>
+                  <Text style={official.right}>{fmtPlainMoney(r.unitPriceInclVat)}</Text>
+                </View>
+                <View style={[official.cell, { flex: 1.65, borderRightWidth: 0 }]}>
+                  <Text style={official.right}>{fmtPlainMoney(r.amountInclVat)}</Text>
+                </View>
+              </View>
+            );
+          })}
+
+          {lines.length === 0 ? (
+            <View style={official.row}>
+              <View style={[official.cell, { flex: 1, borderRightWidth: 0, paddingVertical: 8 }]}>
+                <Text style={[official.center, { color: "#666" }]}>No items.</Text>
+              </View>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={official.afterTable}>
+          <View style={official.leftFoot}>
+            <Text style={official.qtyLine}>Total Qty HL   {fmtQty(totalQty)}</Text>
+            <Text style={official.wordsLine}>{amountInWordsUsd(totalUsd)}</Text>
+            <Text style={official.noteLine}>Prices shown are VAT-inclusive while VAT is temporarily reported as 0% on invoices.</Text>
+          </View>
+
+          <View style={official.totalsBox}>
+            <View style={official.totalRow}>
+              <Text style={official.totalLabel}>Total Amount Before VAT</Text>
+              <Text style={official.totalValue}>{fmtPlainMoney(totalUsd)}</Text>
+            </View>
+            <View style={official.totalRow}>
+              <Text style={official.totalLabel}>VAT 0%</Text>
+              <Text style={official.totalValue}>{fmtPlainMoney(0)}</Text>
+            </View>
+            <View style={[official.totalRow, official.grandRow, { borderBottomWidth: 0 }]}>
+              <Text style={official.grandLabel}>Total Amount Incl. VAT</Text>
+              <Text style={official.grandValue}>{fmtPlainMoney(totalUsd)}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={official.signRow}>
+          <Text style={official.sign}>Receiver&apos;s Name & Signature</Text>
+          <Text style={official.sign}>Stamp Duty Paid</Text>
+        </View>
+
+        <View style={official.brandFooter}>
+          <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_TAGLINE}</Text>
+          <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_LEGAL}</Text>
+        </View>
+
         <Text style={official.trace}>Ref {inv.id} · Generated {generatedAtStamp()}</Text>
       </Page>
     </Document>
@@ -783,7 +1039,6 @@ function OfficialCompactInvoiceTemplate(props: {
   const inv = props.detail.invoice;
   const lines = props.detail.lines || [];
   const taxLines = props.detail.tax_lines || [];
-  const company = props.company || null;
   const customer = props.customer || null;
 
   const docNo = inv.invoice_no || inv.receipt_no || inv.id.slice(0, 8);
@@ -804,11 +1059,10 @@ function OfficialCompactInvoiceTemplate(props: {
       <Page size="A4" style={s.page} wrap>
         <View style={s.headerRow}>
           <View style={{ maxWidth: "64%" }}>
-            <Text style={s.h1}>{company?.legal_name || company?.name || "Company"}</Text>
-            {company?.registration_no ? (
-              <Text style={[s.muted, s.mono, { marginTop: 3 }]}>Reg No: {String(company.registration_no)}</Text>
-            ) : null}
-            {company?.vat_no ? <Text style={[s.muted, s.mono]}>VAT No: {String(company.vat_no)}</Text> : null}
+            <Text style={s.h1}>{OFFICIAL_HEADER_NAME}</Text>
+            <Text style={[s.muted, s.mono, { marginTop: 3 }]}>{OFFICIAL_HEADER_TAX_ID}</Text>
+            <Text style={[s.muted, { marginTop: 2 }]}>{OFFICIAL_HEADER_ADDRESS}</Text>
+            <Text style={[s.muted, { marginTop: 2 }]}>{OFFICIAL_HEADER_CONTACT}</Text>
           </View>
           <View>
             <Text style={[s.h2, { textAlign: "right" }]}>Invoice</Text>
@@ -893,6 +1147,11 @@ function OfficialCompactInvoiceTemplate(props: {
           <Text style={s.mono}>Ref {inv.id}</Text>
           <Text style={s.mono}>Generated {generatedAtStamp()}</Text>
         </View>
+
+        <View style={[s.section, { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#d9d9d9" }]}>
+          <Text style={[s.muted, { textAlign: "center", fontSize: 8.5 }]}>{OFFICIAL_FOOTER_TAGLINE}</Text>
+          <Text style={[s.muted, { textAlign: "center", fontSize: 8.2, marginTop: 2 }]}>{OFFICIAL_FOOTER_LEGAL}</Text>
+        </View>
       </Page>
     </Document>
   );
@@ -905,11 +1164,14 @@ function StandardInvoiceTemplate(props: { detail: SalesInvoiceDetail; company?: 
   const taxLines = props.detail.tax_lines || [];
   const company = props.company || null;
   const showHeader = company?.id === OFFICIAL_COMPANY_ID;
+  const isUnofficial = !showHeader;
 
   const paidUsd = payments.reduce((a, p) => a + toNum(p.amount_usd), 0);
   const paidLbp = payments.reduce((a, p) => a + toNum(p.amount_lbp), 0);
   const balUsd = toNum(inv.total_usd) - paidUsd;
   const balLbp = toNum(inv.total_lbp) - paidLbp;
+  const subtotalUsd = toNum(inv.subtotal_usd || inv.total_usd);
+  const subtotalLbp = toNum(inv.subtotal_lbp || inv.total_lbp);
 
   const taxUsd = taxLines.reduce((a, t) => a + toNum(t.tax_usd), 0);
   const taxLbp = taxLines.reduce((a, t) => a + toNum(t.tax_lbp), 0);
@@ -986,10 +1248,17 @@ function StandardInvoiceTemplate(props: { detail: SalesInvoiceDetail; company?: 
         </View>
 
         <View style={[s.section, { flexDirection: "row", gap: 10 }]}>
-          <View style={[s.box, { flex: 1 }]}> 
-            <Text style={s.label}>Tax</Text>
-            <Text style={[s.value, s.mono]}>{fmtUsdLbp(taxUsd, taxLbp)}</Text>
-          </View>
+          {isUnofficial ? (
+            <View style={[s.box, { flex: 1 }]}>
+              <Text style={s.label}>Subtotal</Text>
+              <Text style={[s.value, s.mono]}>{fmtUsdLbp(subtotalUsd, subtotalLbp)}</Text>
+            </View>
+          ) : (
+            <View style={[s.box, { flex: 1 }]}>
+              <Text style={s.label}>Tax</Text>
+              <Text style={[s.value, s.mono]}>{fmtUsdLbp(taxUsd, taxLbp)}</Text>
+            </View>
+          )}
           <View style={[s.box, { flex: 1 }]}> 
             <Text style={s.label}>Totals</Text>
             <Text style={[s.value, s.mono]}>{fmtUsdLbp(inv.total_usd, inv.total_lbp)}</Text>
@@ -1017,19 +1286,20 @@ export function SalesInvoicePdf(props: {
   const company = props.company || null;
   const selected = normalizePdfTemplate(props.template);
   const isOfficial = company?.id === OFFICIAL_COMPANY_ID;
+  const OfficialClassicTemplate = USE_TEMP_NON_VAT_OFFICIAL_CLASSIC ? OfficialInvoiceTemplateNonVatTemp : OfficialInvoiceTemplate;
 
   if (selected === "official_compact") {
     return <OfficialCompactInvoiceTemplate detail={props.detail} company={props.company} customer={props.customer} />;
   }
   if (selected === "official_classic") {
-    return <OfficialInvoiceTemplate detail={props.detail} company={props.company} customer={props.customer} addresses={props.addresses} />;
+    return <OfficialClassicTemplate detail={props.detail} company={props.company} customer={props.customer} addresses={props.addresses} />;
   }
   if (selected === "standard") {
     return <StandardInvoiceTemplate detail={props.detail} company={props.company} />;
   }
 
   if (isOfficial) {
-    return <OfficialInvoiceTemplate detail={props.detail} company={props.company} customer={props.customer} addresses={props.addresses} />;
+    return <OfficialClassicTemplate detail={props.detail} company={props.company} customer={props.customer} addresses={props.addresses} />;
   }
   return <StandardInvoiceTemplate detail={props.detail} company={props.company} />;
 }

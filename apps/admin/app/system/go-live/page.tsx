@@ -107,7 +107,8 @@ function numOrUndef(v: string): number | undefined {
 }
 
 export default function GoLivePage() {
-  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   const [rateType, setRateType] = useState("market");
   const [exchangeRate, setExchangeRate] = useState("90000");
@@ -350,9 +351,10 @@ export default function GoLivePage() {
     try {
       const res = await apiGet<PreflightRes>("/config/preflight");
       setPreflight(res);
+      setError("");
     } catch (e) {
       setPreflight(null);
-      setStatus(e instanceof Error ? e.message : String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setPreflightLoading(false);
     }
@@ -360,13 +362,14 @@ export default function GoLivePage() {
 
   async function seedDemoData() {
     setDemoSeeding(true);
-    setStatus("Seeding demo data...");
+    setError("");
+    setNotice("");
     try {
       await apiPost("/devtools/demo-data/import", { size: "small", with_opening_stock: true });
-      setStatus("Demo data seeded. You can now test invoices and stock flows.");
+      setNotice("Demo data seeded. You can now test invoices and stock flows.");
       await reloadPreflight();
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setDemoSeeding(false);
     }
@@ -379,7 +382,7 @@ export default function GoLivePage() {
       if (market && market.usd_to_lbp) setExchangeRate(String(market.usd_to_lbp));
     } catch (e) {
       // non-blocking
-      setStatus(e instanceof Error ? e.message : String(e));
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -390,7 +393,17 @@ export default function GoLivePage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      {status ? <ErrorBanner error={status} onRetry={() => { loadDefaults(); reloadPreflight(); }} /> : null}
+      {error ? (
+        <ErrorBanner
+          error={error}
+          onRetry={() => {
+            setError("");
+            loadDefaults();
+            reloadPreflight();
+          }}
+        />
+      ) : null}
+      {notice ? <div className="rounded-md border border-border bg-bg-sunken px-3 py-2 text-sm text-fg-muted">{notice}</div> : null}
 
       <Card>
         <CardHeader>
@@ -516,7 +529,8 @@ export default function GoLivePage() {
                         disabled={arImporting || !!arErrors || arPreview.length === 0}
                         onClick={async () => {
                           setArImporting(true);
-                          setStatus("");
+                          setError("");
+                          setNotice("");
                           try {
                             const payload = {
                               rate_type: rateType,
@@ -533,9 +547,9 @@ export default function GoLivePage() {
                             };
                             const res = await apiPost<{ created: number; skipped: number }>("/accounting/opening/ar/import", payload);
                             setArOpen(false);
-                            setStatus(`Opening AR import OK. created=${res.created} skipped=${res.skipped}`);
+                            setNotice(`Opening AR import OK. created=${res.created} skipped=${res.skipped}`);
                           } catch (e) {
-                            setStatus(e instanceof Error ? e.message : String(e));
+                            setError(e instanceof Error ? e.message : String(e));
                           } finally {
                             setArImporting(false);
                           }
@@ -608,7 +622,8 @@ export default function GoLivePage() {
                         disabled={apImporting || !!apErrors || apPreview.length === 0}
                         onClick={async () => {
                           setApImporting(true);
-                          setStatus("");
+                          setError("");
+                          setNotice("");
                           try {
                             const payload = {
                               rate_type: rateType,
@@ -625,9 +640,9 @@ export default function GoLivePage() {
                             };
                             const res = await apiPost<{ created: number; skipped: number }>("/accounting/opening/ap/import", payload);
                             setApOpen(false);
-                            setStatus(`Opening AP import OK. created=${res.created} skipped=${res.skipped}`);
+                            setNotice(`Opening AP import OK. created=${res.created} skipped=${res.skipped}`);
                           } catch (e) {
-                            setStatus(e instanceof Error ? e.message : String(e));
+                            setError(e instanceof Error ? e.message : String(e));
                           } finally {
                             setApImporting(false);
                           }

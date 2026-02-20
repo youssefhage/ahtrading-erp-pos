@@ -21,7 +21,11 @@ type BsRow = {
 type BsRes = { as_of: string; rows: BsRow[] };
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function fmt(n: string | number, frac = 2) {
@@ -43,7 +47,7 @@ function BalanceSheetPrintInner() {
   }, [asOf]);
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setStatus("");
     try {
       const res = await apiGet<BsRes>(`/reports/balance-sheet${query}`);
       setData(res);

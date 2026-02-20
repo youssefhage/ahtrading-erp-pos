@@ -51,6 +51,7 @@ function monthStartISO() {
 
 export default function ConsolidatedReportsPage() {
   const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
 
@@ -174,11 +175,12 @@ export default function ConsolidatedReportsPage() {
   }, [companies, selected]);
 
   function companyIdsQS() {
-    return encodeURIComponent(companyIds.join(","));
+    return companyIds.join(",");
   }
 
   async function loadCompanies() {
-    setStatus("Loading companies...");
+    setLoading(true);
+    setStatus("");
     try {
       const res = await apiGet<{ companies: Company[] }>("/companies");
       setCompanies(res.companies || []);
@@ -190,6 +192,8 @@ export default function ConsolidatedReportsPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -198,14 +202,19 @@ export default function ConsolidatedReportsPage() {
       setStatus("Select at least one company.");
       return;
     }
-    setStatus("Loading consolidated report...");
+    setLoading(true);
+    setStatus("");
     try {
+      const params = new URLSearchParams();
+      params.set("company_ids", companyIdsQS());
       if (report === "trial") {
-        const res = await apiGet<{ trial_balance: TrialRow[] }>(`/reports/consolidated/trial-balance?company_ids=${companyIdsQS()}`);
+        const res = await apiGet<{ trial_balance: TrialRow[] }>(`/reports/consolidated/trial-balance?${params.toString()}`);
         setTrial(res.trial_balance || []);
       } else if (report === "pl") {
+        if (startDate) params.set("start_date", startDate);
+        if (endDate) params.set("end_date", endDate);
         const res = await apiGet<{ rows: PLRow[]; revenue_usd: any; revenue_lbp: any; expense_usd: any; expense_lbp: any; net_profit_usd: any; net_profit_lbp: any }>(
-          `/reports/consolidated/profit-loss?company_ids=${companyIdsQS()}&start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`
+          `/reports/consolidated/profit-loss?${params.toString()}`
         );
         setPl(res.rows || []);
         setPlTotals({
@@ -217,13 +226,16 @@ export default function ConsolidatedReportsPage() {
           net_profit_lbp: res.net_profit_lbp
         });
       } else {
-        const res = await apiGet<{ rows: BSRow[] }>(`/reports/consolidated/balance-sheet?company_ids=${companyIdsQS()}&as_of=${encodeURIComponent(asOf)}`);
+        if (asOf) params.set("as_of", asOf);
+        const res = await apiGet<{ rows: BSRow[] }>(`/reports/consolidated/balance-sheet?${params.toString()}`);
         setBs(res.rows || []);
       }
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -249,7 +261,7 @@ export default function ConsolidatedReportsPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      {status ? (
+      {status && !loading ? (
         <ErrorBanner
           error={status}
           onRetry={() => {
@@ -279,11 +291,11 @@ export default function ConsolidatedReportsPage() {
               <>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">Start</label>
-                  <Input value={startDate} onChange={(e) => setStartDate(e.target.value)} placeholder="YYYY-MM-DD" />
+                  <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} placeholder="YYYY-MM-DD" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-fg-muted">End</label>
-                  <Input value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="YYYY-MM-DD" />
+                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="YYYY-MM-DD" />
                 </div>
               </>
             ) : null}
@@ -291,7 +303,7 @@ export default function ConsolidatedReportsPage() {
             {report === "bs" ? (
               <div className="space-y-1 md:col-span-2">
                 <label className="text-xs font-medium text-fg-muted">As of</label>
-                <Input value={asOf} onChange={(e) => setAsOf(e.target.value)} placeholder="YYYY-MM-DD" />
+                <Input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} placeholder="YYYY-MM-DD" />
               </div>
             ) : null}
           </div>
@@ -300,10 +312,10 @@ export default function ConsolidatedReportsPage() {
             <div className="flex items-center justify-between gap-2">
               <div className="text-sm font-medium text-foreground">Companies ({companyIds.length} selected)</div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={() => selectAll(true)}>
+                <Button variant="outline" onClick={() => selectAll(true)} disabled={loading}>
                   Select all
                 </Button>
-                <Button variant="outline" onClick={() => selectAll(false)}>
+                <Button variant="outline" onClick={() => selectAll(false)} disabled={loading}>
                   Clear
                 </Button>
               </div>
@@ -321,10 +333,12 @@ export default function ConsolidatedReportsPage() {
           </div>
 
           <div className="flex items-center justify-end gap-2">
-            <Button variant="outline" onClick={loadCompanies}>
+            <Button variant="outline" onClick={loadCompanies} disabled={loading}>
               Refresh Companies
             </Button>
-            <Button onClick={loadReport}>Run</Button>
+            <Button onClick={loadReport} disabled={loading}>
+              {loading ? "Running..." : "Run"}
+            </Button>
           </div>
         </CardContent>
       </Card>

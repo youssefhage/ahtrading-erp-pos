@@ -24,6 +24,7 @@ function fmt(n: string | number) {
 export default function InventoryValuationPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [status, setStatus] = useState("");
+  const [downloadingCsv, setDownloadingCsv] = useState(false);
 
   const columns = useMemo((): Array<DataTableColumn<Row>> => {
     return [
@@ -60,7 +61,7 @@ export default function InventoryValuationPage() {
   }, []);
 
   async function load() {
-    setStatus("Loading...");
+    setStatus("");
     try {
       const res = await apiGet<{ inventory: Row[] }>("/reports/inventory-valuation");
       setRows(res.inventory || []);
@@ -76,7 +77,8 @@ export default function InventoryValuationPage() {
   }, []);
 
   async function downloadCsv() {
-    setStatus("Downloading CSV...");
+    setStatus("");
+    setDownloadingCsv(true);
     try {
       const res = await fetch(`${apiBase()}/reports/inventory-valuation?format=csv`, {
         credentials: "include"
@@ -92,10 +94,11 @@ export default function InventoryValuationPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setDownloadingCsv(false);
     }
   }
 
@@ -113,8 +116,8 @@ export default function InventoryValuationPage() {
               <Button variant="outline" onClick={load}>
                 Refresh
               </Button>
-              <Button variant="secondary" onClick={downloadCsv}>
-                Download CSV
+              <Button variant="secondary" onClick={downloadCsv} disabled={downloadingCsv}>
+                {downloadingCsv ? "Downloading..." : "Download CSV"}
               </Button>
             </div>
 

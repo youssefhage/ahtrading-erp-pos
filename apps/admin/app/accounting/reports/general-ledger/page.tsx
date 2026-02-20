@@ -22,15 +22,26 @@ type GlRow = {
   memo: string | null;
 };
 
+type GlRes = {
+  gl: GlRow[];
+  total?: number;
+  limit?: number;
+  offset?: number;
+};
+
 function fmt(n: string | number) {
   return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
 export default function GeneralLedgerPage() {
   const [rows, setRows] = useState<GlRow[]>([]);
+  const [total, setTotal] = useState(0);
   const [status, setStatus] = useState("");
+  const [downloadingCsv, setDownloadingCsv] = useState(false);
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(100);
 
   const query = useMemo(() => {
     const qs = new URLSearchParams();
@@ -41,20 +52,38 @@ export default function GeneralLedgerPage() {
   }, [startDate, endDate]);
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setStatus("");
     try {
-      const res = await apiGet<{ gl: GlRow[] }>(`/reports/gl${query}`);
+      const qs = new URLSearchParams();
+      if (startDate) qs.set("start_date", startDate);
+      if (endDate) qs.set("end_date", endDate);
+      qs.set("limit", String(pageSize));
+      qs.set("offset", String(page * pageSize));
+      const res = await apiGet<GlRes>(`/reports/gl?${qs.toString()}`);
       setRows(res.gl || []);
+      setTotal(Number(res.total || 0));
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
     }
-  }, [query]);
+  }, [endDate, page, pageSize, startDate]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [startDate, endDate]);
+
+  const printQuery = useMemo(() => {
+    const qs = new URLSearchParams();
+    if (startDate) qs.set("start_date", startDate);
+    if (endDate) qs.set("end_date", endDate);
+    const s = qs.toString();
+    return s ? `?${s}` : "";
+  }, [endDate, startDate]);
 
   const columns = useMemo((): Array<DataTableColumn<GlRow>> => {
     return [
@@ -113,7 +142,8 @@ export default function GeneralLedgerPage() {
   }, []);
 
   async function downloadCsv() {
-    setStatus("Downloading CSV...");
+    setStatus("");
+    setDownloadingCsv(true);
     try {
       const res = await fetch(`${apiBase()}/reports/gl${query}${query ? "&" : "?"}format=csv`, {
         credentials: "include"
@@ -129,10 +159,11 @@ export default function GeneralLedgerPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setDownloadingCsv(false);
     }
   }
 
@@ -144,7 +175,7 @@ export default function GeneralLedgerPage() {
           <CardHeader>
             <CardTitle>Entries (USD + LL)</CardTitle>
             <CardDescription>
-              Filter by journal date, then export CSV. {rows.length} rows
+              Filter by journal date, then export CSV. Showing {rows.length.toLocaleString("en-US")} of {total.toLocaleString("en-US")} rows
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -165,7 +196,7 @@ export default function GeneralLedgerPage() {
                 </Button>
                 <Button asChild variant="outline">
                   <Link
-                    href={`/accounting/reports/general-ledger/print?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
+                    href={`/accounting/reports/general-ledger/print${printQuery}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
@@ -174,15 +205,15 @@ export default function GeneralLedgerPage() {
                 </Button>
                 <Button asChild variant="outline">
                   <a
-                    href={`/exports/reports/general-ledger/pdf?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
+                    href={`/exports/reports/general-ledger/pdf${printQuery}`}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
                     Download PDF
                   </a>
                 </Button>
-                <Button variant="secondary" onClick={downloadCsv}>
-                  Download CSV
+                <Button variant="secondary" onClick={downloadCsv} disabled={downloadingCsv}>
+                  {downloadingCsv ? "Downloading..." : "Download CSV"}
                 </Button>
               </div>
             </div>
@@ -191,9 +222,19 @@ export default function GeneralLedgerPage() {
               tableId="accounting.reports.general_ledger"
               rows={rows}
               columns={columns}
-              initialSort={{ columnId: "journal_date", dir: "desc" }}
+              initialSort={{ columnId: "journal_date", dir: "asc" }}
               globalFilterPlaceholder="Search journal / account / memo..."
               emptyText="No GL entries yet."
+              serverPagination={{
+                page,
+                pageSize,
+                total,
+                onPageChange: (nextPage) => setPage(Math.max(0, nextPage)),
+                onPageSizeChange: (nextPageSize) => {
+                  setPageSize(nextPageSize);
+                  setPage(0);
+                },
+              }}
             />
           </CardContent>
         </Card>

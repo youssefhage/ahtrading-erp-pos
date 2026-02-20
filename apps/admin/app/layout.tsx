@@ -4,6 +4,7 @@ import Script from "next/script";
 import "./globals.css";
 import { ClientShellLayout } from "./client-shell-layout";
 import { ToastProvider } from "@/components/toast-provider";
+import { PdfDownloadInterceptor } from "@/components/pdf-download-interceptor";
 
 const roboto = Roboto({
   subsets: ["latin"],
@@ -70,6 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="font-sans antialiased">
         <ToastProvider>
+          <PdfDownloadInterceptor />
           <ClientShellLayout>{children}</ClientShellLayout>
         </ToastProvider>
       </body>

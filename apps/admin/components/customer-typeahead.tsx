@@ -102,6 +102,7 @@ function exactMatches(c: CustomerTypeaheadCustomer, token: string) {
 }
 
 export function CustomerTypeahead(props: {
+  value?: CustomerTypeaheadCustomer | null;
   disabled?: boolean;
   placeholder?: string;
   className?: string;
@@ -217,6 +218,19 @@ export function CustomerTypeahead(props: {
     };
   }, [q, open]);
 
+  useEffect(() => {
+    if (open) return;
+    const v = props.value;
+    if (!v) {
+      setQ("");
+      return;
+    }
+    const label = [v.code ? String(v.code).trim() : "", v.name ? String(v.name).trim() : ""]
+      .filter(Boolean)
+      .join(" · ");
+    setQ(label || String(v.id || ""));
+  }, [open, props.value]);
+
   const indexedRecent = useMemo(() => (recent || []).map((c) => ({ c, hay: buildHaystack(c) })), [recent]);
 
   const localResults = useMemo(() => {
@@ -248,7 +262,10 @@ export function CustomerTypeahead(props: {
   function select(c: CustomerTypeaheadCustomer) {
     pushRecent(c);
     props.onSelect(c);
-    setQ("");
+    const label = [c.code ? String(c.code).trim() : "", c.name ? String(c.name).trim() : ""]
+      .filter(Boolean)
+      .join(" · ");
+    setQ(label || String(c.id || ""));
     setOpen(false);
     setActive(0);
     inputRef.current?.focus();
@@ -294,6 +311,7 @@ export function CustomerTypeahead(props: {
         ref={inputRef}
         value={q}
         onChange={(e) => {
+          if (props.value) props.onClear?.();
           setQ(e.target.value);
           if (!open) setOpen(true);
         }}
@@ -357,7 +375,7 @@ export function CustomerTypeahead(props: {
                         className={cn(
                           "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
                           "border-b border-border-subtle last:border-b-0",
-                          isActive ? "bg-bg-sunken/70" : "hover:bg-bg-sunken/50"
+                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
                         )}
                         onMouseDown={(e) => e.preventDefault()}
                         onMouseEnter={() => setActive(idx)}

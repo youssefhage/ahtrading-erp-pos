@@ -15,6 +15,7 @@ type DupGroup<T> = { key: string; n: number; customers?: T[]; suppliers?: T[] };
 export default function DedupPage() {
   const [status, setStatus] = useState("");
   const [err, setErr] = useState<unknown>(null);
+  const [loading, setLoading] = useState(false);
 
   const [customerDupEmail, setCustomerDupEmail] = useState<Array<DupGroup<CustomerTypeaheadCustomer>>>([]);
   const [customerDupPhone, setCustomerDupPhone] = useState<Array<DupGroup<CustomerTypeaheadCustomer>>>([]);
@@ -34,8 +35,9 @@ export default function DedupPage() {
   const [supplierBusy, setSupplierBusy] = useState(false);
 
   const load = useCallback(async () => {
+    setLoading(true);
     setErr(null);
-    setStatus("Loading...");
+    setStatus("");
     try {
       const [c, s] = await Promise.all([
         apiGet<{ by_email: any[]; by_phone: any[] }>("/customers/duplicates").catch(() => ({ by_email: [], by_phone: [] })),
@@ -49,6 +51,8 @@ export default function DedupPage() {
     } catch (e) {
       setErr(e);
       setStatus("");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -63,7 +67,7 @@ export default function DedupPage() {
     if (!srcCustomer?.id || !tgtCustomer?.id) return setStatus("Pick source and target customers.");
     if (srcCustomer.id === tgtCustomer.id) return setStatus("Source and target must differ.");
     setCustomerBusy(true);
-    setStatus("Previewing customer merge...");
+    setStatus("");
     try {
       const res = await apiPost<any>("/customers/merge/preview", {
         source_customer_id: srcCustomer.id,
@@ -83,7 +87,7 @@ export default function DedupPage() {
     if (srcCustomer.id === tgtCustomer.id) return setStatus("Source and target must differ.");
     if (!window.confirm(`Merge customer ${srcCustomer.name} into ${tgtCustomer.name}? This cannot be undone.`)) return;
     setCustomerBusy(true);
-    setStatus("Merging customer...");
+    setStatus("");
     try {
       await apiPost("/customers/merge", {
         source_customer_id: srcCustomer.id,
@@ -107,7 +111,7 @@ export default function DedupPage() {
     if (!srcSupplier?.id || !tgtSupplier?.id) return setStatus("Pick source and target suppliers.");
     if (srcSupplier.id === tgtSupplier.id) return setStatus("Source and target must differ.");
     setSupplierBusy(true);
-    setStatus("Previewing supplier merge...");
+    setStatus("");
     try {
       const res = await apiPost<any>("/suppliers/merge/preview", {
         source_supplier_id: srcSupplier.id,
@@ -127,7 +131,7 @@ export default function DedupPage() {
     if (srcSupplier.id === tgtSupplier.id) return setStatus("Source and target must differ.");
     if (!window.confirm(`Merge supplier ${srcSupplier.name} into ${tgtSupplier.name}? This cannot be undone.`)) return;
     setSupplierBusy(true);
-    setStatus("Merging supplier...");
+    setStatus("");
     try {
       await apiPost("/suppliers/merge", {
         source_supplier_id: srcSupplier.id,
@@ -182,7 +186,7 @@ export default function DedupPage() {
           <h1 className="text-xl font-semibold text-foreground">Dedup / Merge</h1>
           <p className="text-sm text-fg-muted">Merge duplicate customers and suppliers safely (with preview).</p>
         </div>
-        <Button variant="outline" onClick={load}>
+        <Button variant="outline" onClick={load} disabled={loading || customerBusy || supplierBusy}>
           Refresh
         </Button>
       </div>
@@ -326,4 +330,3 @@ export default function DedupPage() {
     </div>
   );
 }
-

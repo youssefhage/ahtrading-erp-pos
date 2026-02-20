@@ -24,6 +24,8 @@ type LocationRow = {
 
 export default function WarehouseLocationsPage() {
   const [status, setStatus] = useState("");
+  const [loadingWarehouses, setLoadingWarehouses] = useState(false);
+  const [loadingLocations, setLoadingLocations] = useState(false);
   const [warehouses, setWarehouses] = useState<WarehouseRow[]>([]);
   const [warehouseId, setWarehouseId] = useState("");
   const [locations, setLocations] = useState<LocationRow[]>([]);
@@ -51,6 +53,7 @@ export default function WarehouseLocationsPage() {
   }, [warehouses]);
 
   const whById = useMemo(() => new Map(warehouses.map((w) => [w.id, w])), [warehouses]);
+  const loading = loadingWarehouses || loadingLocations;
 
   async function loadWarehouses() {
     const res = await apiGet<{ warehouses: WarehouseRow[] }>("/warehouses");
@@ -69,14 +72,36 @@ export default function WarehouseLocationsPage() {
     setLocations(res.locations || []);
   }
 
+  async function refreshLocations(nextWhId?: string) {
+    const wid = nextWhId ?? warehouseId;
+    if (!wid) {
+      setLocations([]);
+      return;
+    }
+    setLoadingLocations(true);
+    setStatus("");
+    try {
+      await loadLocations(wid);
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setLoadingLocations(false);
+    }
+  }
+
   async function loadAll() {
-    setStatus("Loading...");
+    setLoadingWarehouses(true);
+    setStatus("");
     try {
       await loadWarehouses();
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
+    } finally {
+      setLoadingWarehouses(false);
     }
   }
 
@@ -88,14 +113,7 @@ export default function WarehouseLocationsPage() {
   useEffect(() => {
     (async () => {
       if (!warehouseId) return;
-      setStatus("Loading locations...");
-      try {
-        await loadLocations(warehouseId);
-        setStatus("");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setStatus(message);
-      }
+      await refreshLocations(warehouseId);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [warehouseId]);
@@ -105,7 +123,7 @@ export default function WarehouseLocationsPage() {
     if (!warehouseId) return setStatus("warehouse is required");
     if (!code.trim()) return setStatus("code is required");
     setCreating(true);
-    setStatus("Saving...");
+    setStatus("");
     try {
       await apiPost(`/warehouses/${encodeURIComponent(warehouseId)}/locations`, {
         code: code.trim(),
@@ -116,7 +134,7 @@ export default function WarehouseLocationsPage() {
       setName("");
       setIsActive(true);
       setCreateOpen(false);
-      await loadLocations(warehouseId);
+      await refreshLocations(warehouseId);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -139,7 +157,7 @@ export default function WarehouseLocationsPage() {
     if (!editId) return;
     if (!editCode.trim()) return setStatus("code is required");
     setSaving(true);
-    setStatus("Saving...");
+    setStatus("");
     try {
       await apiPatch(`/warehouses/locations/${encodeURIComponent(editId)}`, {
         code: editCode.trim(),
@@ -147,7 +165,7 @@ export default function WarehouseLocationsPage() {
         is_active: Boolean(editActive)
       });
       setEditOpen(false);
-      await loadLocations(warehouseId);
+      await refreshLocations(warehouseId);
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -159,14 +177,14 @@ export default function WarehouseLocationsPage() {
 
   return (
     <Page width="lg" className="px-4 pb-10">
-      {status ? <ErrorBanner error={status} onRetry={() => loadLocations(warehouseId)} /> : null}
+      {status ? <ErrorBanner error={status} onRetry={loadAll} /> : null}
 
       <PageHeader
         title="Warehouse Locations"
         description="Bin/location master data per warehouse."
         actions={
-          <Button variant="outline" onClick={loadAll}>
-            Refresh Warehouses
+          <Button variant="outline" onClick={loadAll} disabled={loading || creating || saving}>
+            {loadingWarehouses ? "Loading..." : "Refresh Warehouses"}
           </Button>
         }
       />
@@ -176,12 +194,12 @@ export default function WarehouseLocationsPage() {
         description="Select a warehouse to manage its locations."
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => loadLocations(warehouseId)} disabled={!warehouseId}>
+            <Button variant="outline" onClick={() => refreshLocations(warehouseId)} disabled={!warehouseId || loading || creating || saving}>
               Refresh Locations
             </Button>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
-                <Button disabled={!warehouseId}>New Location</Button>
+                <Button disabled={!warehouseId || loading || creating || saving}>New Location</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
@@ -204,7 +222,7 @@ export default function WarehouseLocationsPage() {
                     Active
                   </label>
                   <div className="flex justify-end">
-                    <Button type="submit" disabled={creating}>
+                    <Button type="submit" disabled={creating || loading}>
                       {creating ? "..." : "Save"}
                     </Button>
                   </div>
@@ -246,10 +264,10 @@ export default function WarehouseLocationsPage() {
                   Active
                 </label>
                 <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>
+                  <Button type="button" variant="outline" onClick={() => setEditOpen(false)} disabled={saving || loading}>
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={saving}>
+                  <Button type="submit" disabled={saving || loading}>
                     {saving ? "..." : "Save"}
                   </Button>
                 </div>
@@ -280,7 +298,7 @@ export default function WarehouseLocationsPage() {
                 globalSearch: false,
                 align: "right",
                 cell: (l) => (
-                  <Button variant="outline" size="sm" onClick={() => openEdit(l)}>
+                  <Button variant="outline" size="sm" onClick={() => openEdit(l)} disabled={loading || creating || saving}>
                     Edit
                   </Button>
                 ),
@@ -292,7 +310,8 @@ export default function WarehouseLocationsPage() {
                 tableId={`system.warehouseLocations.${warehouseId || "none"}`}
                 rows={locations}
                 columns={columns}
-                emptyText="No locations."
+                isLoading={loadingLocations}
+                emptyText={loadingLocations ? "Loading locations..." : "No locations."}
                 globalFilterPlaceholder="Search code / name..."
                 initialSort={{ columnId: "code", dir: "asc" }}
               />

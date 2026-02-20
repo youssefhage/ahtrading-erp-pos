@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Response, HTTPException
 from datetime import date
 from typing import Optional
 from decimal import Decimal
+from uuid import UUID
 import csv
 import io
 from ..db import get_conn, get_admin_conn, set_company_context
@@ -17,8 +18,21 @@ def _parse_company_ids(company_ids: Optional[str], fallback: str) -> list[str]:
             raise HTTPException(status_code=400, detail="company_ids is empty")
         if len(ids) > 25:
             raise HTTPException(status_code=400, detail="too many companies (max 25)")
-        return ids
-    return [fallback]
+    else:
+        ids = [fallback]
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in ids:
+        try:
+            cid = str(UUID(raw))
+        except Exception:
+            raise HTTPException(status_code=400, detail="company_ids contains invalid UUID")
+        if cid in seen:
+            continue
+        seen.add(cid)
+        normalized.append(cid)
+    return normalized
 
 def _assert_reports_access(user_id: str, company_ids: list[str]):
     # Cross-company access check: user must have reports:read in each requested company.
@@ -41,6 +55,62 @@ def _assert_reports_access(user_id: str, company_ids: list[str]):
     missing = [cid for cid in company_ids if cid not in allowed]
     if missing:
         raise HTTPException(status_code=403, detail=f"missing reports:read for {len(missing)} companies")
+
+
+def _parse_uuid_optional(value: Optional[str], field_name: str) -> Optional[str]:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        return str(UUID(raw))
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a valid UUID")
+
+
+def _parse_uuid_required(value: Optional[str], field_name: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail=f"{field_name} is required")
+    try:
+        return str(UUID(raw))
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a valid UUID")
+
+
+def _month_start(d: date) -> date:
+    return d.replace(day=1)
+
+
+def _month_end(d: date) -> date:
+    if d.month == 12:
+        return date(d.year + 1, 1, 1).replace(day=1) - date.resolution
+    return date(d.year, d.month + 1, 1) - date.resolution
+
+
+def _resolve_vat_range(period: Optional[date], start_date: Optional[date], end_date: Optional[date]) -> tuple[Optional[date], Optional[date], Optional[date]]:
+    if period:
+        p = _month_start(period)
+        return p, p, _month_end(p)
+
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
+
+    return None, start_date, end_date
+
+
+def _vat_direction_from_source_type(source_type: Optional[str]) -> str:
+    raw = (source_type or "").strip().lower()
+    if raw in {"output", "input", "other"}:
+        return raw
+    if raw in {"sales_invoice", "sales_return", "sales_invoice_cancel"}:
+        return "output"
+    if raw in {"supplier_invoice", "supplier_invoice_cancel"}:
+        return "input"
+    if raw.startswith("sales_"):
+        return "output"
+    if raw.startswith("supplier_"):
+        return "input"
+    return "other"
 
 @router.get("/attention", dependencies=[Depends(require_permission("reports:read"))])
 def attention(company_id: str = Depends(get_company_id)):
@@ -171,8 +241,10 @@ def attention(company_id: str = Depends(get_company_id)):
                 """
                 SELECT COUNT(*)::int AS c
                 FROM pos_events_outbox
-                WHERE status='failed'
+                WHERE company_id=%s
+                  AND status='failed'
                 """,
+                (company_id,),
             )
             outbox_failed = int(cur.fetchone()["c"])
 
@@ -469,6 +541,8 @@ def consolidated_profit_and_loss(
     today = date.today()
     start_date = start_date or today.replace(day=1)
     end_date = end_date or today
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
     ids = _parse_company_ids(company_ids, company_id)
     _assert_reports_access(user["user_id"], ids)
     acc: dict[str, dict] = {}
@@ -597,39 +671,124 @@ def consolidated_balance_sheet(
 
 
 @router.get("/vat", dependencies=[Depends(require_permission("reports:read"))])
-def vat_report(period: Optional[date] = None, format: Optional[str] = None, company_id: str = Depends(get_company_id)):
+def vat_report(
+    period: Optional[date] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    format: Optional[str] = None,
+    company_id: str = Depends(get_company_id),
+):
+    period_month, start_date, end_date = _resolve_vat_range(period, start_date, end_date)
+    format = (format or "").strip().lower() or None
+
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            if period:
-                cur.execute(
-                    """
-                    SELECT tax_code_id, tax_name, period, base_lbp, tax_lbp
-                    FROM vat_report_monthly
-                    WHERE company_id = %s AND period = date_trunc('month', %s)::date
-                    ORDER BY tax_name
-                    """,
-                    (company_id, period),
-                )
-            else:
-                cur.execute(
-                    """
-                    SELECT tax_code_id, tax_name, period, base_lbp, tax_lbp
-                    FROM vat_report_monthly
-                    WHERE company_id = %s
-                    ORDER BY period DESC, tax_name
-                    """,
-                    (company_id,),
-                )
+            cur.execute(
+                """
+                SELECT
+                  tc.id AS tax_code_id,
+                  tc.name AS tax_name,
+                  date_trunc('month', COALESCE(tl.tax_date, tl.created_at::date))::date AS period,
+                  CASE
+                    WHEN tl.source_type IN ('sales_invoice', 'sales_return', 'sales_invoice_cancel') OR tl.source_type LIKE 'sales_%%' THEN 'output'
+                    WHEN tl.source_type IN ('supplier_invoice', 'supplier_invoice_cancel') OR tl.source_type LIKE 'supplier_%%' THEN 'input'
+                    ELSE 'other'
+                  END AS direction,
+                  ARRAY_AGG(DISTINCT tl.source_type ORDER BY tl.source_type) AS source_types,
+                  COUNT(*)::int AS line_count,
+                  SUM(tl.base_lbp) AS base_lbp,
+                  SUM(tl.tax_lbp) AS tax_lbp
+                FROM tax_lines tl
+                JOIN tax_codes tc ON tc.id = tl.tax_code_id
+                WHERE tl.company_id = %s
+                  AND tc.tax_type = 'vat'
+                  AND (%s::date IS NULL OR COALESCE(tl.tax_date, tl.created_at::date) >= %s::date)
+                  AND (%s::date IS NULL OR COALESCE(tl.tax_date, tl.created_at::date) <= %s::date)
+                GROUP BY tc.id, tc.name, period, direction
+                ORDER BY
+                  period DESC,
+                  CASE direction WHEN 'output' THEN 0 WHEN 'input' THEN 1 ELSE 2 END,
+                  tc.name
+                """,
+                (company_id, start_date, start_date, end_date, end_date),
+            )
             rows = cur.fetchall()
+
+            output_base_lbp = Decimal("0")
+            output_tax_lbp = Decimal("0")
+            input_base_lbp = Decimal("0")
+            input_tax_lbp = Decimal("0")
+            other_base_lbp = Decimal("0")
+            other_tax_lbp = Decimal("0")
+
+            for r in rows:
+                direction = _vat_direction_from_source_type(r.get("direction"))
+                r["direction"] = direction
+                r["direction_label"] = "Output VAT" if direction == "output" else ("Input VAT" if direction == "input" else "Other")
+                r["source_types"] = [str(v) for v in (r.get("source_types") or [])]
+                r["line_count"] = int(r.get("line_count") or 0)
+                r["base_lbp"] = Decimal(str(r.get("base_lbp") or 0))
+                r["tax_lbp"] = Decimal(str(r.get("tax_lbp") or 0))
+                if direction == "output":
+                    output_base_lbp += r["base_lbp"]
+                    output_tax_lbp += r["tax_lbp"]
+                elif direction == "input":
+                    input_base_lbp += r["base_lbp"]
+                    input_tax_lbp += r["tax_lbp"]
+                else:
+                    other_base_lbp += r["base_lbp"]
+                    other_tax_lbp += r["tax_lbp"]
+
+            summary = {
+                "output_base_lbp": output_base_lbp,
+                "output_tax_lbp": output_tax_lbp,
+                "input_base_lbp": input_base_lbp,
+                "input_tax_lbp": input_tax_lbp,
+                "net_tax_lbp": output_tax_lbp - input_tax_lbp,
+                "other_base_lbp": other_base_lbp,
+                "other_tax_lbp": other_tax_lbp,
+                "rows_count": len(rows),
+            }
+
             if format == "csv":
                 output = io.StringIO()
                 writer = csv.writer(output)
-                writer.writerow(["tax_code_id", "tax_name", "period", "base_lbp", "tax_lbp"])
+                writer.writerow(
+                    [
+                        "tax_code_id",
+                        "tax_name",
+                        "period",
+                        "direction",
+                        "direction_label",
+                        "base_lbp",
+                        "tax_lbp",
+                        "line_count",
+                        "source_types",
+                    ]
+                )
                 for r in rows:
-                    writer.writerow([r["tax_code_id"], r["tax_name"], r["period"], r["base_lbp"], r["tax_lbp"]])
+                    writer.writerow(
+                        [
+                            r["tax_code_id"],
+                            r["tax_name"],
+                            r["period"],
+                            r["direction"],
+                            r["direction_label"],
+                            r["base_lbp"],
+                            r["tax_lbp"],
+                            r["line_count"],
+                            ",".join(r["source_types"]),
+                        ]
+                    )
                 return Response(content=output.getvalue(), media_type="text/csv")
-            return {"vat": rows}
+            return {
+                "period": str(period_month) if period_month else None,
+                "start_date": str(start_date) if start_date else None,
+                "end_date": str(end_date) if end_date else None,
+                "summary": summary,
+                "vat": rows,
+            }
 
 
 @router.get("/audit-logs", dependencies=[Depends(require_permission("reports:read"))])
@@ -649,6 +808,12 @@ def list_audit_logs(
         raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
     if offset < 0:
         raise HTTPException(status_code=400, detail="offset must be >= 0")
+
+    entity_id = _parse_uuid_optional(entity_id, "entity_id")
+    user_id = _parse_uuid_optional(user_id, "user_id")
+
+    entity_type = (entity_type or "").strip() or None
+    action_prefix = (action_prefix or "").strip() or None
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -674,7 +839,7 @@ def list_audit_logs(
                 params.append(user_id)
             if action_prefix:
                 sql += " AND l.action LIKE %s"
-                params.append(action_prefix.strip() + "%")
+                params.append(action_prefix + "%")
 
             sql += " ORDER BY l.created_at DESC, l.id DESC LIMIT %s OFFSET %s"
             params.extend([limit, offset])
@@ -701,13 +866,21 @@ def trial_balance(company_id: str = Depends(get_company_id)):
 
 
 @router.get("/gl", dependencies=[Depends(require_permission("reports:read"))])
-def general_ledger(start_date: Optional[date] = None, end_date: Optional[date] = None, format: Optional[str] = None, company_id: str = Depends(get_company_id)):
+def general_ledger(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    format: Optional[str] = None,
+    all: bool = False,
+    limit: int = 200,
+    offset: int = 0,
+    company_id: str = Depends(get_company_id),
+):
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
-            sql = """
-                SELECT j.journal_date, j.journal_no, a.account_code, a.name_en,
-                       e.debit_usd, e.credit_usd, e.debit_lbp, e.credit_lbp, e.memo
+            base_sql = """
                 FROM gl_entries e
                 JOIN gl_journals j ON j.id = e.journal_id
                 JOIN company_coa_accounts a ON a.id = e.account_id
@@ -715,22 +888,43 @@ def general_ledger(start_date: Optional[date] = None, end_date: Optional[date] =
             """
             params = [company_id]
             if start_date:
-                sql += " AND j.journal_date >= %s"
+                base_sql += " AND j.journal_date >= %s"
                 params.append(start_date)
             if end_date:
-                sql += " AND j.journal_date <= %s"
+                base_sql += " AND j.journal_date <= %s"
                 params.append(end_date)
-            sql += " ORDER BY j.journal_date, j.journal_no, a.account_code"
-            cur.execute(sql, params)
-            rows = cur.fetchall()
+
+            select_sql = """
+                SELECT j.journal_date, j.journal_no, a.account_code, a.name_en,
+                       e.debit_usd, e.credit_usd, e.debit_lbp, e.credit_lbp, e.memo
+            """
+            order_sql = " ORDER BY j.journal_date, j.journal_no, a.account_code"
+
             if format == "csv":
+                cur.execute(select_sql + base_sql + order_sql, params)
+                rows = cur.fetchall()
                 output = io.StringIO()
                 writer = csv.writer(output)
                 writer.writerow(["date", "journal_no", "account_code", "account_name", "debit_usd", "credit_usd", "debit_lbp", "credit_lbp", "memo"])
                 for r in rows:
                     writer.writerow([r["journal_date"], r["journal_no"], r["account_code"], r["name_en"], r["debit_usd"], r["credit_usd"], r["debit_lbp"], r["credit_lbp"], r["memo"]])
                 return Response(content=output.getvalue(), media_type="text/csv")
-            return {"gl": rows}
+
+            if all:
+                cur.execute(select_sql + base_sql + order_sql, params)
+                rows = cur.fetchall()
+                return {"gl": rows, "total": len(rows), "limit": len(rows), "offset": 0}
+
+            if limit <= 0 or limit > 5000:
+                raise HTTPException(status_code=400, detail="limit must be between 1 and 5000")
+            if offset < 0:
+                raise HTTPException(status_code=400, detail="offset must be >= 0")
+
+            cur.execute(f"SELECT COUNT(*)::int AS total {base_sql}", params)
+            total = int(cur.fetchone()["total"])
+            cur.execute(select_sql + base_sql + order_sql + " LIMIT %s OFFSET %s", params + [limit, offset])
+            rows = cur.fetchall()
+            return {"gl": rows, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/inventory-valuation", dependencies=[Depends(require_permission("reports:read"))])
@@ -791,7 +985,14 @@ def metrics(company_id: str = Depends(get_company_id)):
                    (SELECT COALESCE(SUM(sp.amount_usd), 0)
                     FROM sales_payments sp
                     JOIN sales_invoices si ON si.id = sp.invoice_id
-                    WHERE si.company_id = %s AND si.status = 'posted')) AS ar_usd,
+                    WHERE si.company_id = %s AND si.status = 'posted' AND sp.voided_at IS NULL)
+                   -
+                   (SELECT COALESCE(SUM(rf.amount_usd), 0)
+                    FROM sales_refunds rf
+                    JOIN sales_returns sr ON sr.id = rf.sales_return_id
+                    WHERE sr.company_id = %s
+                      AND sr.status = 'posted'
+                      AND lower(coalesce(rf.method, '')) = 'credit')) AS ar_usd,
                   ((SELECT COALESCE(SUM(total_lbp), 0)
                     FROM sales_invoices
                     WHERE company_id = %s AND status = 'posted')
@@ -799,7 +1000,14 @@ def metrics(company_id: str = Depends(get_company_id)):
                    (SELECT COALESCE(SUM(sp.amount_lbp), 0)
                     FROM sales_payments sp
                     JOIN sales_invoices si ON si.id = sp.invoice_id
-                    WHERE si.company_id = %s AND si.status = 'posted')) AS ar_lbp,
+                    WHERE si.company_id = %s AND si.status = 'posted' AND sp.voided_at IS NULL)
+                   -
+                   (SELECT COALESCE(SUM(rf.amount_lbp), 0)
+                    FROM sales_refunds rf
+                    JOIN sales_returns sr ON sr.id = rf.sales_return_id
+                    WHERE sr.company_id = %s
+                      AND sr.status = 'posted'
+                      AND lower(coalesce(rf.method, '')) = 'credit')) AS ar_lbp,
                   ((SELECT COALESCE(SUM(total_usd), 0)
                     FROM supplier_invoices
                     WHERE company_id = %s AND status = 'posted')
@@ -807,7 +1015,15 @@ def metrics(company_id: str = Depends(get_company_id)):
                    (SELECT COALESCE(SUM(sp.amount_usd), 0)
                     FROM supplier_payments sp
                     JOIN supplier_invoices si ON si.id = sp.supplier_invoice_id
-                    WHERE si.company_id = %s AND si.status = 'posted')) AS ap_usd,
+                    WHERE si.company_id = %s AND si.status = 'posted')
+                   -
+                   (SELECT COALESCE(SUM(sca.amount_usd), 0)
+                    FROM supplier_credit_note_applications sca
+                    JOIN supplier_credit_notes scn
+                      ON scn.id = sca.supplier_credit_note_id
+                     AND scn.company_id = sca.company_id
+                    WHERE sca.company_id = %s
+                      AND scn.status = 'posted')) AS ap_usd,
                   ((SELECT COALESCE(SUM(total_lbp), 0)
                     FROM supplier_invoices
                     WHERE company_id = %s AND status = 'posted')
@@ -815,7 +1031,15 @@ def metrics(company_id: str = Depends(get_company_id)):
                    (SELECT COALESCE(SUM(sp.amount_lbp), 0)
                     FROM supplier_payments sp
                     JOIN supplier_invoices si ON si.id = sp.supplier_invoice_id
-                    WHERE si.company_id = %s AND si.status = 'posted')) AS ap_lbp,
+                    WHERE si.company_id = %s AND si.status = 'posted')
+                   -
+                   (SELECT COALESCE(SUM(sca.amount_lbp), 0)
+                    FROM supplier_credit_note_applications sca
+                    JOIN supplier_credit_notes scn
+                      ON scn.id = sca.supplier_credit_note_id
+                     AND scn.company_id = sca.company_id
+                    WHERE sca.company_id = %s
+                      AND scn.status = 'posted')) AS ap_lbp,
                   (SELECT COALESCE(SUM(sm.qty_in * sm.unit_cost_usd) - SUM(sm.qty_out * sm.unit_cost_usd), 0)
                    FROM stock_moves sm
                    WHERE sm.company_id = %s) AS stock_value_usd,
@@ -854,6 +1078,10 @@ def metrics(company_id: str = Depends(get_company_id)):
                     company_id,
                     company_id,
                     company_id,
+                    company_id,
+                    company_id,
+                    company_id,
+                    company_id,
                 ),
             )
             row = cur.fetchone()
@@ -874,38 +1102,78 @@ def ar_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company
                   si.customer_id,
                   c.name AS customer_name,
                   si.invoice_date,
-                  si.due_date,
+                  COALESCE(si.due_date, si.invoice_date) AS due_date,
                   si.total_usd,
                   si.total_lbp,
-                  COALESCE(SUM(sp.amount_usd), 0) AS paid_usd,
-                  COALESCE(SUM(sp.amount_lbp), 0) AS paid_lbp,
-                  (si.total_usd - COALESCE(SUM(sp.amount_usd), 0)) AS balance_usd,
-                  (si.total_lbp - COALESCE(SUM(sp.amount_lbp), 0)) AS balance_lbp,
-                  GREATEST((%s::date - si.due_date), 0) AS days_past_due,
+                  COALESCE(sp.paid_usd, 0) AS paid_usd,
+                  COALESCE(sp.paid_lbp, 0) AS paid_lbp,
+                  COALESCE(cr.credited_usd, 0) AS credited_usd,
+                  COALESCE(cr.credited_lbp, 0) AS credited_lbp,
+                  (si.total_usd - COALESCE(sp.paid_usd, 0) - COALESCE(cr.credited_usd, 0)) AS balance_usd,
+                  (si.total_lbp - COALESCE(sp.paid_lbp, 0) - COALESCE(cr.credited_lbp, 0)) AS balance_lbp,
+                  GREATEST((%s::date - COALESCE(si.due_date, si.invoice_date)), 0) AS days_past_due,
                   CASE
-                    WHEN %s::date <= si.due_date THEN 0
-                    WHEN (%s::date - si.due_date) <= 30 THEN 1
-                    WHEN (%s::date - si.due_date) <= 60 THEN 2
-                    WHEN (%s::date - si.due_date) <= 90 THEN 3
+                    WHEN %s::date <= COALESCE(si.due_date, si.invoice_date) THEN 0
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 30 THEN 1
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 60 THEN 2
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 90 THEN 3
                     ELSE 4
                   END AS bucket_order,
                   CASE
-                    WHEN %s::date <= si.due_date THEN 'current'
-                    WHEN (%s::date - si.due_date) <= 30 THEN '1-30'
-                    WHEN (%s::date - si.due_date) <= 60 THEN '31-60'
-                    WHEN (%s::date - si.due_date) <= 90 THEN '61-90'
+                    WHEN %s::date <= COALESCE(si.due_date, si.invoice_date) THEN 'current'
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 30 THEN '1-30'
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 60 THEN '31-60'
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 90 THEN '61-90'
                     ELSE '90+'
                   END AS bucket
                 FROM sales_invoices si
                 LEFT JOIN customers c ON c.id = si.customer_id
-                LEFT JOIN sales_payments sp ON sp.invoice_id = si.id
-                WHERE si.company_id = %s AND si.status = 'posted'
-                GROUP BY si.id, si.invoice_no, si.customer_id, c.name, si.invoice_date, si.due_date, si.total_usd, si.total_lbp
-                HAVING (si.total_usd - COALESCE(SUM(sp.amount_usd), 0)) != 0
-                    OR (si.total_lbp - COALESCE(SUM(sp.amount_lbp), 0)) != 0
-                ORDER BY bucket_order, si.due_date, si.invoice_no
+                LEFT JOIN (
+                  SELECT p.invoice_id,
+                         COALESCE(SUM(p.amount_usd), 0) AS paid_usd,
+                         COALESCE(SUM(p.amount_lbp), 0) AS paid_lbp
+                  FROM sales_payments p
+                  WHERE p.voided_at IS NULL
+                    AND COALESCE(p.captured_at, p.created_at)::date <= %s
+                  GROUP BY p.invoice_id
+                ) sp ON sp.invoice_id = si.id
+                LEFT JOIN (
+                  SELECT sr.invoice_id,
+                         COALESCE(SUM(rf.amount_usd), 0) AS credited_usd,
+                         COALESCE(SUM(rf.amount_lbp), 0) AS credited_lbp
+                  FROM sales_refunds rf
+                  JOIN sales_returns sr ON sr.id = rf.sales_return_id
+                  WHERE sr.company_id = %s
+                    AND sr.status = 'posted'
+                    AND lower(coalesce(rf.method, '')) = 'credit'
+                    AND rf.created_at::date <= %s
+                  GROUP BY sr.invoice_id
+                ) cr ON cr.invoice_id = si.id
+                WHERE si.company_id = %s
+                  AND si.status = 'posted'
+                  AND si.invoice_date <= %s
+                GROUP BY si.id, si.invoice_no, si.customer_id, c.name, si.invoice_date, si.due_date, si.total_usd, si.total_lbp,
+                         sp.paid_usd, sp.paid_lbp, cr.credited_usd, cr.credited_lbp
+                HAVING (si.total_usd - COALESCE(sp.paid_usd, 0) - COALESCE(cr.credited_usd, 0)) != 0
+                    OR (si.total_lbp - COALESCE(sp.paid_lbp, 0) - COALESCE(cr.credited_lbp, 0)) != 0
+                ORDER BY bucket_order, COALESCE(si.due_date, si.invoice_date), si.invoice_no
                 """,
-                (as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, company_id),
+                (
+                    as_of,
+                    as_of,
+                    as_of,
+                    as_of,
+                    as_of,
+                    as_of,
+                    as_of,
+                    as_of,
+                    as_of,
+                    as_of,
+                    company_id,
+                    as_of,
+                    company_id,
+                    as_of,
+                ),
             )
             return {"as_of": str(as_of), "rows": cur.fetchall()}
 
@@ -924,7 +1192,7 @@ def ap_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company
                   si.supplier_id,
                   s.name AS supplier_name,
                   si.invoice_date,
-                  si.due_date,
+                  COALESCE(si.due_date, si.invoice_date) AS due_date,
                   si.total_usd,
                   si.total_lbp,
                   COALESCE(sp.paid_usd, 0) AS paid_usd,
@@ -933,19 +1201,19 @@ def ap_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company
                   COALESCE(sc.credits_lbp, 0) AS credits_lbp,
                   (si.total_usd - COALESCE(sp.paid_usd, 0) - COALESCE(sc.credits_usd, 0)) AS balance_usd,
                   (si.total_lbp - COALESCE(sp.paid_lbp, 0) - COALESCE(sc.credits_lbp, 0)) AS balance_lbp,
-                  GREATEST((%s::date - si.due_date), 0) AS days_past_due,
+                  GREATEST((%s::date - COALESCE(si.due_date, si.invoice_date)), 0) AS days_past_due,
                   CASE
-                    WHEN %s::date <= si.due_date THEN 0
-                    WHEN (%s::date - si.due_date) <= 30 THEN 1
-                    WHEN (%s::date - si.due_date) <= 60 THEN 2
-                    WHEN (%s::date - si.due_date) <= 90 THEN 3
+                    WHEN %s::date <= COALESCE(si.due_date, si.invoice_date) THEN 0
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 30 THEN 1
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 60 THEN 2
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 90 THEN 3
                     ELSE 4
                   END AS bucket_order,
                   CASE
-                    WHEN %s::date <= si.due_date THEN 'current'
-                    WHEN (%s::date - si.due_date) <= 30 THEN '1-30'
-                    WHEN (%s::date - si.due_date) <= 60 THEN '31-60'
-                    WHEN (%s::date - si.due_date) <= 90 THEN '61-90'
+                    WHEN %s::date <= COALESCE(si.due_date, si.invoice_date) THEN 'current'
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 30 THEN '1-30'
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 60 THEN '31-60'
+                    WHEN (%s::date - COALESCE(si.due_date, si.invoice_date)) <= 90 THEN '61-90'
                     ELSE '90+'
                   END AS bucket
                 FROM supplier_invoices si
@@ -955,24 +1223,32 @@ def ap_aging(as_of: Optional[date] = None, company_id: str = Depends(get_company
                          SUM(amount_usd) AS paid_usd,
                          SUM(amount_lbp) AS paid_lbp
                   FROM supplier_payments
+                  WHERE COALESCE(payment_date, created_at::date) <= %s
                   GROUP BY supplier_invoice_id
                 ) sp ON sp.supplier_invoice_id = si.id
                 LEFT JOIN (
-                  SELECT supplier_invoice_id,
-                         SUM(amount_usd) AS credits_usd,
-                         SUM(amount_lbp) AS credits_lbp
-                  FROM supplier_credit_note_applications
-                  WHERE company_id = %s
-                  GROUP BY supplier_invoice_id
+                  SELECT sca.supplier_invoice_id,
+                         SUM(sca.amount_usd) AS credits_usd,
+                         SUM(sca.amount_lbp) AS credits_lbp
+                  FROM supplier_credit_note_applications sca
+                  JOIN supplier_credit_notes scn
+                    ON scn.id = sca.supplier_credit_note_id
+                   AND scn.company_id = sca.company_id
+                  WHERE sca.company_id = %s
+                    AND scn.status = 'posted'
+                    AND sca.created_at::date <= %s
+                  GROUP BY sca.supplier_invoice_id
                 ) sc ON sc.supplier_invoice_id = si.id
-                WHERE si.company_id = %s AND si.status = 'posted'
+                WHERE si.company_id = %s
+                  AND si.status = 'posted'
+                  AND si.invoice_date <= %s
                 GROUP BY si.id, si.invoice_no, si.supplier_id, s.name, si.invoice_date, si.due_date, si.total_usd, si.total_lbp,
                          sp.paid_usd, sp.paid_lbp, sc.credits_usd, sc.credits_lbp
                 HAVING (si.total_usd - COALESCE(sp.paid_usd, 0) - COALESCE(sc.credits_usd, 0)) != 0
                     OR (si.total_lbp - COALESCE(sp.paid_lbp, 0) - COALESCE(sc.credits_lbp, 0)) != 0
-                ORDER BY bucket_order, si.due_date, si.invoice_no
+                ORDER BY bucket_order, COALESCE(si.due_date, si.invoice_date), si.invoice_no
                 """,
-                (as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, company_id, company_id),
+                (as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, as_of, company_id, as_of, company_id, as_of),
             )
             return {"as_of": str(as_of), "rows": cur.fetchall()}
 
@@ -994,6 +1270,7 @@ def customer_soa(
     Statement of Account (SOA) for a single customer.
     Sign convention: positive balance means customer owes us (AR). Negative means we owe the customer (credit).
     """
+    customer_id = _parse_uuid_required(customer_id, "customer_id")
     today = date.today()
     start_date = start_date or _soa_default_start(today)
     end_date = end_date or today
@@ -1036,8 +1313,8 @@ def customer_soa(
 
                   -- Payments received decrease AR (negative).
                   SELECT
-                    sp.created_at::date AS tx_date,
-                    sp.created_at AS ts,
+                    COALESCE(sp.captured_at, sp.created_at)::date AS tx_date,
+                    COALESCE(sp.captured_at, sp.created_at) AS ts,
                     'payment'::text AS kind,
                     sp.id AS doc_id,
                     si.invoice_no AS ref,
@@ -1049,6 +1326,7 @@ def customer_soa(
                   WHERE si.company_id=%s
                     AND si.status='posted'
                     AND si.customer_id=%s
+                    AND sp.voided_at IS NULL
 
                   UNION ALL
 
@@ -1086,6 +1364,7 @@ def customer_soa(
                   WHERE rf.company_id=%s
                     AND sr.status='posted'
                     AND si.customer_id=%s
+                    AND lower(coalesce(rf.method, '')) <> 'credit'
                 )
             """
 
@@ -1219,6 +1498,7 @@ def supplier_soa(
     Statement of Account (SOA) for a single supplier.
     Sign convention: positive balance means we owe the supplier (AP). Negative means supplier owes us (credit).
     """
+    supplier_id = _parse_uuid_required(supplier_id, "supplier_id")
     today = date.today()
     start_date = start_date or _soa_default_start(today)
     end_date = end_date or today
@@ -1261,7 +1541,7 @@ def supplier_soa(
 
                   -- Payments made decrease AP (negative).
                   SELECT
-                    sp.created_at::date AS tx_date,
+                    COALESCE(sp.payment_date, sp.created_at::date) AS tx_date,
                     sp.created_at AS ts,
                     'payment'::text AS kind,
                     sp.id AS doc_id,
@@ -1414,6 +1694,8 @@ def profit_and_loss(
     today = date.today()
     start_date = start_date or today.replace(day=1)
     end_date = end_date or today
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="end_date cannot be before start_date")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
@@ -1479,6 +1761,8 @@ def sales_margin_by_item(
     """
     if limit <= 0 or limit > 2000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    warehouse_id = _parse_uuid_optional(warehouse_id, "warehouse_id")
+    branch_id = _parse_uuid_optional(branch_id, "branch_id")
     today = date.today()
     start_date = start_date or today.replace(day=1)
     end_date = end_date or today
@@ -1589,6 +1873,8 @@ def sales_margin_by_customer(
     """
     if limit <= 0 or limit > 2000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    warehouse_id = _parse_uuid_optional(warehouse_id, "warehouse_id")
+    branch_id = _parse_uuid_optional(branch_id, "branch_id")
     today = date.today()
     start_date = start_date or today.replace(day=1)
     end_date = end_date or today
@@ -1695,6 +1981,8 @@ def sales_margin_by_category(
     """
     if limit <= 0 or limit > 2000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 2000")
+    warehouse_id = _parse_uuid_optional(warehouse_id, "warehouse_id")
+    branch_id = _parse_uuid_optional(branch_id, "branch_id")
     today = date.today()
     start_date = start_date or today.replace(day=1)
     end_date = end_date or today
@@ -1803,6 +2091,7 @@ def expiry_exposure(
         raise HTTPException(status_code=400, detail="days must be between 0 and 3650")
     if limit <= 0 or limit > 5000:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 5000")
+    warehouse_id = _parse_uuid_optional(warehouse_id, "warehouse_id")
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:

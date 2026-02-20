@@ -32,6 +32,8 @@ export default function PosCashiersPage() {
   const [status, setStatus] = useState("");
   const [cashiers, setCashiers] = useState<CashierRow[]>([]);
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
+  const loading = status.startsWith("Loading");
+  const statusIsBusy = /^(Loading|Creating|Saving)\b/.test(status);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -164,19 +166,19 @@ export default function PosCashiersPage() {
 
   return (
     <Page width="lg" className="px-4 pb-10">
-      {status ? <ErrorBanner error={status} onRetry={load} /> : null}
+      {status && !statusIsBusy ? <ErrorBanner error={status} onRetry={load} /> : null}
 
       <PageHeader
         title="POS Cashiers"
         description="Cashiers, PINs, and optional employee links used by POS devices (supports offline login)."
         actions={
           <>
-            <Button variant="outline" onClick={load}>
-              Refresh
+            <Button variant="outline" onClick={load} disabled={statusIsBusy}>
+              {loading ? "Loading..." : "Refresh"}
             </Button>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
-                <Button>Create Cashier</Button>
+                <Button disabled={statusIsBusy}>Create Cashier</Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
@@ -207,7 +209,7 @@ export default function PosCashiersPage() {
                     Active
                   </label>
                   <div className="flex justify-end">
-                    <Button type="submit" disabled={creating}>
+                    <Button type="submit" disabled={creating || statusIsBusy}>
                       {creating ? "..." : "Create"}
                     </Button>
                   </div>
@@ -244,7 +246,7 @@ export default function PosCashiersPage() {
                   globalSearch: false,
                   align: "right",
                   cell: (c) => (
-                    <Button variant="outline" size="sm" onClick={() => openEdit(c.id)}>
+                    <Button variant="outline" size="sm" onClick={() => openEdit(c.id)} disabled={statusIsBusy}>
                       Edit
                     </Button>
                   ),
@@ -256,7 +258,8 @@ export default function PosCashiersPage() {
                   tableId="system.posCashiers"
                   rows={cashiers}
                   columns={columns}
-                  emptyText="No cashiers yet."
+                  isLoading={loading}
+                  emptyText={loading ? "Loading cashiers..." : "No cashiers yet."}
                   globalFilterPlaceholder="Search cashier name..."
                   initialSort={{ columnId: "name", dir: "asc" }}
                 />
@@ -300,7 +303,7 @@ export default function PosCashiersPage() {
                 Active
               </label>
               <div className="flex justify-end">
-                <Button type="submit" disabled={editing}>
+                <Button type="submit" disabled={editing || statusIsBusy}>
                   {editing ? "..." : "Save"}
                 </Button>
               </div>

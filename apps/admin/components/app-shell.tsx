@@ -1875,7 +1875,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                       }}
                       className={cn(
                         "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
-                        active ? "bg-bg-sunken" : "hover:bg-bg-sunken"
+                        active ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken"
                       )}
                       onMouseEnter={() => setCommandActiveIndex(idx)}
                       onClick={() => {

@@ -3,6 +3,10 @@
   export let officialStatus = "";
   export let unofficialStatus = "";
   export let cashierName = "";
+  export let cashierOfficialName = "";
+  export let cashierUnofficialName = "";
+  export let cashierOfficialManager = false;
+  export let cashierUnofficialManager = false;
   export let shiftText = "";
   export let showTabs = false;
   export let plainBackground = false;
@@ -35,7 +39,13 @@
   $: officialConnected = _isConnected(officialStatus);
   $: unofficialConnected = _isConnected(unofficialStatus);
   $: outboxKind = _outboxKind(syncBadge, officialConnected, unofficialConnected);
-  $: cashierKind = _toText(cashierName).toLowerCase().includes("not signed") ? "warn" : "neutral";
+  $: hasStructuredCashier = !!(_toText(cashierOfficialName) || _toText(cashierUnofficialName));
+  $: officialCashierText = _toText(cashierOfficialName) || "Not Signed In";
+  $: unofficialCashierText = _toText(cashierUnofficialName) || "Not Signed In";
+  $: legacyCashierText = _toText(cashierName) || "—";
+  $: cashierKind = hasStructuredCashier
+    ? (officialCashierText.toLowerCase().includes("not signed") || unofficialCashierText.toLowerCase().includes("not signed") ? "warn" : "neutral")
+    : (legacyCashierText.toLowerCase().includes("not signed") ? "warn" : "neutral");
   $: shiftKind = _toText(shiftText).toLowerCase().includes("open") ? "ok" : "neutral";
   $: outboxCompactText = outboxKind === "ok" ? "SYNCED" : (outboxKind === "warn" ? "SYNCING" : "OFFLINE");
 </script>
@@ -77,7 +87,31 @@
           <div class={`group flex items-center gap-2 rounded-full border px-2.5 py-1 ${tone(cashierKind)} backdrop-blur-md transition-all shrink-0`}>
             <div class="text-[10px] font-bold uppercase tracking-wider opacity-70">Cashier</div>
             <div class="w-px h-3 bg-current opacity-20"></div>
-            <div class="text-[11px] font-semibold whitespace-nowrap clamp-1 max-w-[130px]">{cashierName || "—"}</div>
+            {#if hasStructuredCashier}
+              <div class="flex items-center gap-2 text-[11px] font-semibold whitespace-nowrap">
+                <div class="inline-flex items-center gap-1">
+                  <span class="text-[10px] opacity-70 font-bold uppercase">O</span>
+                  <span class="clamp-1 max-w-[84px]">{officialCashierText}</span>
+                  {#if cashierOfficialManager}
+                    <span class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border border-accent/35 bg-accent/12 text-accent">
+                      Manager
+                    </span>
+                  {/if}
+                </div>
+                <span class="opacity-35">|</span>
+                <div class="inline-flex items-center gap-1">
+                  <span class="text-[10px] opacity-70 font-bold uppercase">U</span>
+                  <span class="clamp-1 max-w-[84px]">{unofficialCashierText}</span>
+                  {#if cashierUnofficialManager}
+                    <span class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border border-accent/35 bg-accent/12 text-accent">
+                      Manager
+                    </span>
+                  {/if}
+                </div>
+              </div>
+            {:else}
+              <div class="text-[11px] font-semibold whitespace-nowrap clamp-1 max-w-[130px]">{legacyCashierText}</div>
+            {/if}
           </div>
           <div class={`group flex items-center gap-2 rounded-full border px-2.5 py-1 ${tone(shiftKind)} backdrop-blur-md transition-all shrink-0`}>
             <div class="text-[10px] font-bold uppercase tracking-wider opacity-70">Shift</div>

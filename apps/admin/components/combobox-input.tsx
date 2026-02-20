@@ -221,7 +221,7 @@ export function ComboboxInput(props: {
                         className={cn(
                           "w-full px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-inset",
                           "border-b border-border-subtle last:border-b-0",
-                          isActive ? "bg-bg-sunken/70" : "hover:bg-bg-sunken/50"
+                          isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
                         )}
                         onMouseDown={(e) => e.preventDefault()}
                         onMouseEnter={() => setActive(idx)}

@@ -33,7 +33,11 @@ type PlRes = {
 };
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function monthStartIso() {
@@ -52,7 +56,7 @@ export default function ProfitLossPage() {
   const [endDate, setEndDate] = useState(todayIso());
 
   const load = useCallback(async () => {
-    setStatus("Loading...");
+    setStatus("");
     try {
       const params = new URLSearchParams();
       if (startDate) params.set("start_date", startDate);
@@ -98,6 +102,13 @@ export default function ProfitLossPage() {
 
   const netProfitUsd = Number(data?.net_profit_usd || 0);
   const netProfitTone = netProfitUsd < 0 ? "danger" : netProfitUsd > 0 ? "success" : "info";
+  const printQuery = useMemo(() => {
+    const qs = new URLSearchParams();
+    if (startDate) qs.set("start_date", startDate);
+    if (endDate) qs.set("end_date", endDate);
+    const s = qs.toString();
+    return s ? `?${s}` : "";
+  }, [endDate, startDate]);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -145,7 +156,7 @@ export default function ProfitLossPage() {
               </Button>
               <Button asChild variant="outline">
                 <Link
-                  href={`/accounting/reports/profit-loss/print?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
+                  href={`/accounting/reports/profit-loss/print${printQuery}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -154,7 +165,7 @@ export default function ProfitLossPage() {
               </Button>
               <Button asChild variant="outline">
                 <a
-                  href={`/exports/reports/profit-loss/pdf?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`}
+                  href={`/exports/reports/profit-loss/pdf${printQuery}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
