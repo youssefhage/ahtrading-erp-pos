@@ -42,8 +42,8 @@
             <p class="appDesc">Runs the local POS agents and opens the cashier UI. Works on LAN during internet outages.</p>
             <p class="appMeta muted" data-app-version="pos">Version: checking...</p>
             <div class="appLinks">
-              <a class="btn" href="/updates/latest-installer/pos/windows">Download for Windows</a>
-              <a class="btn ghost" href="/updates/latest-installer/pos/macos">Download for macOS</a>
+              <a class="btn" data-download="pos-windows" href="/updates/latest-installer/pos/windows">Download for Windows</a>
+              <a class="btn ghost" data-download="pos-macos" href="/updates/latest-installer/pos/macos">Download for macOS</a>
             </div>
           </article>
 
@@ -61,8 +61,8 @@
             <p class="appDesc">Dedicated Admin app wrapper. You can also open Admin from POS via the Manager button.</p>
             <p class="appMeta muted" data-app-version="admin">Version: checking...</p>
             <div class="appLinks">
-              <a class="btn" href="/updates/latest-installer/admin/windows">Download for Windows</a>
-              <a class="btn ghost" href="/updates/latest-installer/admin/macos">Download for macOS</a>
+              <a class="btn" data-download="admin-windows" href="/updates/latest-installer/admin/windows">Download for Windows</a>
+              <a class="btn ghost" data-download="admin-macos" href="/updates/latest-installer/admin/macos">Download for macOS</a>
             </div>
           </article>
         </div>
@@ -97,6 +97,11 @@
           if (el) el.textContent = text;
         }
 
+        function setDownloadHref(app, platform, href) {
+          var el = document.querySelector('[data-download="' + app + '-' + platform + '"]');
+          if (el && href) el.setAttribute("href", href);
+        }
+
         async function fetchJson(url) {
           var res = await fetch(url, { cache: "no-store" });
           if (!res.ok) throw new Error("HTTP " + res.status);
@@ -116,12 +121,66 @@
           return "";
         }
 
-        (async function () {
-          var posV = await resolveVersion("pos", ["/updates/pos/latest.json"]);
-          setText("pos", posV ? "Version: v" + posV : "Version: unavailable");
+        function platformOrder(platforms, targetOs) {
+          var keys = Object.keys(platforms || {});
+          if (targetOs === "windows") {
+            var orderedWindows = [];
+            if (keys.indexOf("windows-x86_64") !== -1) orderedWindows.push("windows-x86_64");
+            for (var i = 0; i < keys.length; i++) {
+              if (keys[i] !== "windows-x86_64" && keys[i].indexOf("windows") === 0) orderedWindows.push(keys[i]);
+            }
+            return orderedWindows;
+          }
 
-          var adminV = await resolveVersion("admin", ["/updates/admin/latest.json", "/updates/portal/latest.json"]);
+          var orderedMac = [];
+          if (keys.indexOf("darwin-aarch64") !== -1) orderedMac.push("darwin-aarch64");
+          if (keys.indexOf("darwin-x86_64") !== -1) orderedMac.push("darwin-x86_64");
+          for (var j = 0; j < keys.length; j++) {
+            if (
+              keys[j].indexOf("darwin") === 0 &&
+              keys[j] !== "darwin-aarch64" &&
+              keys[j] !== "darwin-x86_64"
+            ) {
+              orderedMac.push(keys[j]);
+            }
+          }
+          return orderedMac;
+        }
+
+        async function resolveDownloadUrl(paths, targetOs) {
+          for (var i = 0; i < paths.length; i++) {
+            try {
+              var data = await fetchJson(paths[i]);
+              var platforms = (data && data.platforms) || {};
+              var ordered = platformOrder(platforms, targetOs);
+              for (var j = 0; j < ordered.length; j++) {
+                var entry = platforms[ordered[j]] || {};
+                var url = String(entry.url || "").trim();
+                if (url) return url;
+              }
+            } catch (_) {
+              // try next path
+            }
+          }
+          return "";
+        }
+
+        (async function () {
+          var posPaths = ["/updates/pos/latest.json"];
+          var posV = await resolveVersion("pos", posPaths);
+          setText("pos", posV ? "Version: v" + posV : "Version: unavailable");
+          var posWinUrl = await resolveDownloadUrl(posPaths, "windows");
+          if (posWinUrl) setDownloadHref("pos", "windows", posWinUrl);
+          var posMacUrl = await resolveDownloadUrl(posPaths, "macos");
+          if (posMacUrl) setDownloadHref("pos", "macos", posMacUrl);
+
+          var adminPaths = ["/updates/admin/latest.json", "/updates/portal/latest.json"];
+          var adminV = await resolveVersion("admin", adminPaths);
           setText("admin", adminV ? "Version: v" + adminV : "Version: unavailable");
+          var adminWinUrl = await resolveDownloadUrl(adminPaths, "windows");
+          if (adminWinUrl) setDownloadHref("admin", "windows", adminWinUrl);
+          var adminMacUrl = await resolveDownloadUrl(adminPaths, "macos");
+          if (adminMacUrl) setDownloadHref("admin", "macos", adminMacUrl);
         })();
       })();
     </script>
