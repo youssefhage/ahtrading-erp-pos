@@ -35,6 +35,72 @@ def _safe_journal_no(prefix: str, base: str) -> str:
     base = "".join([c for c in base if c.isalnum() or c in {"-", "_"}])[:40]
     return f"{prefix}-{base}-{uuid.uuid4().hex[:6]}"
 
+
+def _find_gl_journal_for_source(cur, company_id: str, source_type: str, source_id: str):
+    cur.execute(
+        """
+        SELECT id
+        FROM gl_journals
+        WHERE company_id = %s AND source_type = %s AND source_id = %s
+        ORDER BY created_at ASC
+        LIMIT 1
+        """,
+        (company_id, source_type, source_id),
+    )
+    row = cur.fetchone()
+    return row["id"] if row else None
+
+
+def _insert_gl_journal_resilient_user(
+    cur,
+    *,
+    company_id: str,
+    journal_no: str,
+    source_type: str,
+    source_id: str,
+    journal_date: date,
+    exchange_rate: Decimal,
+    memo: str,
+    created_by_user_id: str,
+) -> str:
+    existing_id = _find_gl_journal_for_source(cur, company_id, source_type, source_id)
+    if existing_id:
+        return str(existing_id)
+
+    base_no = (journal_no or "").strip() or f"GL-{str(source_id)[:8]}"
+    for attempt in range(10):
+        candidate_no = base_no if attempt == 0 else f"{base_no}-{uuid.uuid4().hex[:6]}"
+        cur.execute(
+            """
+            INSERT INTO gl_journals
+              (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
+            VALUES
+              (gen_random_uuid(), %s, %s, %s, %s, %s, 'market', %s, %s, %s)
+            ON CONFLICT (company_id, journal_no) DO NOTHING
+            RETURNING id
+            """,
+            (
+                company_id,
+                candidate_no,
+                source_type,
+                source_id,
+                journal_date,
+                exchange_rate,
+                memo,
+                created_by_user_id,
+            ),
+        )
+        row = cur.fetchone()
+        if row:
+            return str(row["id"])
+
+        existing_id = _find_gl_journal_for_source(cur, company_id, source_type, source_id)
+        if existing_id:
+            return str(existing_id)
+
+    raise HTTPException(status_code=409, detail=f"unable to allocate unique journal number for {source_type}")
+
+
 def _reverse_gl_journal(cur, company_id: str, source_type: str, source_id: str, cancel_source_type: str, cancel_date: date, user_id: str, memo: str):
     cur.execute(
         """
@@ -1638,25 +1704,17 @@ def post_sales_invoice_draft(invoice_id: str, data: SalesInvoicePostIn, company_
                     if not sales:
                         raise HTTPException(status_code=400, detail="Missing SALES account default")
 
-                cur.execute(
-                    """
-                    INSERT INTO gl_journals
-                      (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_user_id)
-                    VALUES
-                      (gen_random_uuid(), %s, %s, 'sales_invoice', %s, %s, 'market', %s, %s, %s)
-                    RETURNING id
-                    """,
-                    (
-                        company_id,
-                        f"GL-{inv['invoice_no']}",
-                        invoice_id,
-                        inv_date,
-                        inv.get("exchange_rate") or 0,
-                        f"Sales invoice {inv['invoice_no']}",
-                        user["user_id"],
-                    ),
+                journal_id = _insert_gl_journal_resilient_user(
+                    cur,
+                    company_id=company_id,
+                    journal_no=f"GL-{inv['invoice_no']}",
+                    source_type="sales_invoice",
+                    source_id=str(invoice_id),
+                    journal_date=inv_date,
+                    exchange_rate=Decimal(str(inv.get("exchange_rate") or 0)),
+                    memo=f"Sales invoice {inv['invoice_no']}",
+                    created_by_user_id=user["user_id"],
                 )
-                journal_id = cur.fetchone()["id"]
 
                 payment_accounts = _fetch_payment_method_accounts(cur, company_id)
                 for p in payments:

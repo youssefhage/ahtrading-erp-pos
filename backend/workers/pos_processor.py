@@ -8,7 +8,6 @@ from decimal import Decimal
 import uuid
 import psycopg
 from psycopg.rows import dict_row
-from psycopg import errors as pg_errors
 
 DB_URL_DEFAULT = 'postgresql://localhost/ahtrading'
 MAX_ATTEMPTS_DEFAULT = 5
@@ -373,6 +372,73 @@ def next_doc_no(cur, company_id: str, doc_type: str) -> str:
     cur.execute("SELECT next_document_no(%s, %s) AS doc_no", (company_id, doc_type))
     row = cur.fetchone()
     return row["doc_no"]
+
+
+def _find_gl_journal_for_source(cur, company_id: str, source_type: str, source_id: str):
+    cur.execute(
+        """
+        SELECT id, journal_no
+        FROM gl_journals
+        WHERE company_id = %s AND source_type = %s AND source_id = %s
+        ORDER BY created_at ASC
+        LIMIT 1
+        """,
+        (company_id, source_type, source_id),
+    )
+    return cur.fetchone()
+
+
+def _insert_gl_journal_resilient(
+    cur,
+    *,
+    company_id: str,
+    journal_no: str,
+    source_type: str,
+    source_id: str,
+    journal_date: date,
+    exchange_rate: Decimal,
+    memo: str,
+    created_by_device_id: str,
+    created_by_cashier_id: Optional[str],
+) -> str:
+    existing = _find_gl_journal_for_source(cur, company_id, source_type, source_id)
+    if existing:
+        return str(existing["id"])
+
+    base_no = (journal_no or "").strip() or f"GL-{str(source_id)[:8]}"
+    for attempt in range(10):
+        candidate_no = base_no if attempt == 0 else f"{base_no}-{uuid.uuid4().hex[:6]}"
+        cur.execute(
+            """
+            INSERT INTO gl_journals
+              (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
+            VALUES
+              (gen_random_uuid(), %s, %s, %s, %s, %s, 'market', %s, %s, %s, %s)
+            ON CONFLICT (company_id, journal_no) DO NOTHING
+            RETURNING id
+            """,
+            (
+                company_id,
+                candidate_no,
+                source_type,
+                source_id,
+                journal_date,
+                exchange_rate,
+                memo,
+                created_by_device_id,
+                created_by_cashier_id,
+            ),
+        )
+        row = cur.fetchone()
+        if row:
+            return str(row["id"])
+
+        # Conflict could be an idempotent replay for the same source.
+        existing = _find_gl_journal_for_source(cur, company_id, source_type, source_id)
+        if existing:
+            return str(existing["id"])
+
+    raise ValueError(f"unable to allocate unique journal_no for {source_type}:{source_id}")
 
 
 def get_avg_cost(cur, company_id: str, item_id: str, warehouse_id: str):
@@ -1395,17 +1461,18 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         raise ValueError("Missing account defaults for sales posting")
 
     journal_no = f"GL-{invoice_no}"
-    cur.execute(
-        """
-        INSERT INTO gl_journals
-          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
-        VALUES
-          (gen_random_uuid(), %s, %s, 'sales_invoice', %s, %s, 'market', %s, %s, %s, %s)
-        RETURNING id
-        """,
-        (company_id, journal_no, invoice_id, invoice_date, exchange_rate, f"POS sale {invoice_no}", device_id, cashier_id),
+    journal_id = _insert_gl_journal_resilient(
+        cur,
+        company_id=company_id,
+        journal_no=journal_no,
+        source_type="sales_invoice",
+        source_id=str(invoice_id),
+        journal_date=invoice_date,
+        exchange_rate=exchange_rate,
+        memo=f"POS sale {invoice_no}",
+        created_by_device_id=device_id,
+        created_by_cashier_id=cashier_id,
     )
-    journal_id = cur.fetchone()["id"]
 
     payment_accounts = fetch_payment_method_accounts(cur, company_id)
     if payments:
@@ -1881,18 +1948,18 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         raise ValueError("Missing account defaults for sales return posting")
 
     journal_no = f"SR-{str(return_id)[:8]}"
-
-    cur.execute(
-        """
-        INSERT INTO gl_journals
-          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
-        VALUES
-          (gen_random_uuid(), %s, %s, 'sales_return', %s, %s, 'market', %s, %s, %s, %s)
-        RETURNING id
-        """,
-        (company_id, journal_no, return_id, return_date, exchange_rate, f"POS return {str(return_id)[:8]}", device_id, payload.get("cashier_id")),
+    journal_id = _insert_gl_journal_resilient(
+        cur,
+        company_id=company_id,
+        journal_no=journal_no,
+        source_type="sales_return",
+        source_id=str(return_id),
+        journal_date=return_date,
+        exchange_rate=exchange_rate,
+        memo=f"POS return {str(return_id)[:8]}",
+        created_by_device_id=device_id,
+        created_by_cashier_id=payload.get("cashier_id"),
     )
-    journal_id = cur.fetchone()["id"]
 
     # Refund account selection:
     # - If invoice is a credit sale (unpaid), default to AR (credit note).
@@ -2335,26 +2402,18 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
         raise ValueError("Missing account defaults for purchase receipt posting (INVENTORY/GRNI)")
 
     journal_no = f"GR-{str(gr_id)[:8]}"
-    cur.execute(
-        """
-        INSERT INTO gl_journals
-          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
-        VALUES
-          (gen_random_uuid(), %s, %s, 'goods_receipt', %s, %s, 'market', %s, %s, %s, %s)
-        RETURNING id
-        """,
-        (
-            company_id,
-            journal_no,
-            gr_id,
-            receipt_date,
-            Decimal(str(payload.get("exchange_rate", 0) or 0)),
-            f"POS goods receipt {str(receipt_no)}",
-            device_id,
-            payload.get("cashier_id"),
-        ),
+    journal_id = _insert_gl_journal_resilient(
+        cur,
+        company_id=company_id,
+        journal_no=journal_no,
+        source_type="goods_receipt",
+        source_id=str(gr_id),
+        journal_date=receipt_date,
+        exchange_rate=Decimal(str(payload.get("exchange_rate", 0) or 0)),
+        memo=f"POS goods receipt {str(receipt_no)}",
+        created_by_device_id=device_id,
+        created_by_cashier_id=payload.get("cashier_id"),
     )
-    journal_id = cur.fetchone()["id"]
     cur.execute(
         """
         INSERT INTO gl_entries (id, journal_id, account_id, debit_usd, credit_usd, debit_lbp, credit_lbp, memo, warehouse_id)
@@ -2583,17 +2642,18 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
         raise ValueError("Missing account defaults for purchase posting (AP/GRNI)")
 
     journal_no = f"GL-{invoice_no}"
-    cur.execute(
-        """
-        INSERT INTO gl_journals
-          (id, company_id, journal_no, source_type, source_id, journal_date, rate_type, exchange_rate, memo, created_by_device_id, created_by_cashier_id)
-        VALUES
-          (gen_random_uuid(), %s, %s, 'supplier_invoice', %s, %s, 'market', %s, %s, %s, %s)
-        RETURNING id
-        """,
-        (company_id, journal_no, inv_id, invoice_date, exchange_rate, f"POS supplier invoice {invoice_no}", device_id, payload.get("cashier_id")),
+    journal_id = _insert_gl_journal_resilient(
+        cur,
+        company_id=company_id,
+        journal_no=journal_no,
+        source_type="supplier_invoice",
+        source_id=str(inv_id),
+        journal_date=invoice_date,
+        exchange_rate=exchange_rate,
+        memo=f"POS supplier invoice {invoice_no}",
+        created_by_device_id=device_id,
+        created_by_cashier_id=payload.get("cashier_id"),
     )
-    journal_id = cur.fetchone()["id"]
 
     # Debit GRNI (net) to clear receipts; inventory is recognized at goods receipt.
     cur.execute(
