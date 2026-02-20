@@ -6701,8 +6701,8 @@
     ></button>
     <div class="relative w-full max-w-sm bg-surface border border-ink/10 rounded-2xl shadow-2xl overflow-hidden z-10">
       <div class="p-6 border-b border-ink/10 text-center">
-        <h2 class="text-xl font-bold text-ink">Cashier Login</h2>
-        <p class="text-sm text-muted mt-1">Enter PIN for selected company</p>
+        <h2 class="text-xl font-bold text-ink">Cashier Access</h2>
+        <p class="text-sm text-muted mt-1">Sign in with PIN or sign out the current cashier for selected company</p>
       </div>
       <div class="p-6 space-y-4">
         <label class="text-xs text-muted uppercase tracking-wider font-bold" for="cashier-company">Company</label>
@@ -6715,6 +6715,12 @@
           <option value="official">Official ({cashierOfficialName}{cashierOfficialManager ? " · Manager" : ""})</option>
           <option value="unofficial">Unofficial ({cashierUnofficialName}{cashierUnofficialManager ? " · Manager" : ""})</option>
         </select>
+        <div class="text-xs text-muted">
+          Current cashier:
+          <span class="font-semibold text-ink/80">
+            {normalizeCompanyKey(cashierCompanyKey || originCompanyKey) === "unofficial" ? cashierUnofficialName : cashierOfficialName}
+          </span>
+        </div>
         <label class="sr-only" for="cashier-pin">PIN</label>
         <input
           class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono text-lg tracking-widest focus:ring-2 focus:ring-accent/50 focus:outline-none"
@@ -6736,10 +6742,11 @@
           <button
             class="flex-[1.4] py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
             on:click={() => cashierLogout(cashierCompanyKey || originCompanyKey)}
-            disabled={loading}
+            disabled={loading || !cashierIdForCompany(cashierCompanyKey || originCompanyKey)}
             type="button"
+            title="Sign out current cashier for selected company"
           >
-            Sign Out
+            Sign Out Current
           </button>
           <button
             class="flex-[2] py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
