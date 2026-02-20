@@ -1535,6 +1535,15 @@
     }
   };
 
+  const _isDeviceTokenError = (errLike) => {
+    const statusCode = toNum(errLike?.status, 0);
+    const msg = String(errLike?.message || errLike?.detail || errLike || "").trim().toLowerCase();
+    if (statusCode === 401 || statusCode === 403) {
+      if (msg.includes("device token") || msg.includes("missing device") || msg.includes("device credentials")) return true;
+    }
+    return msg.includes("invalid device token");
+  };
+
   const _invalidateWebCatalogCache = (companyKey = null) => {
     if (companyKey == null) {
       webCatalogCache = new Map();
@@ -2762,6 +2771,15 @@
       else failures.push(`promotions: ${pullSteps[3].reason?.message || "failed"}`);
 
       if (failures.length) {
+        const rejectedReasons = pullSteps
+          .filter((step) => step.status === "rejected")
+          .map((step) => step.reason);
+        const allDeviceTokenErrors = rejectedReasons.length > 0 && rejectedReasons.every((reason) => _isDeviceTokenError(reason));
+        if (allDeviceTokenErrors) {
+          const err = new Error(`Device credentials are invalid for ${companyKey}. Reconnect this company from Settings > Express Setup.`);
+          err.payload = { sync, failures, mode: "cloud-setup", invalid_device_token: true };
+          throw err;
+        }
         const err = new Error(`Cloud refresh failed: ${failures.join(" | ")}`);
         err.payload = { sync, failures, mode: "cloud-setup" };
         throw err;
@@ -2814,6 +2832,12 @@
       await Promise.all(workers);
       const summary = await _webPosCall(companyKey, "/pos/outbox/device-summary", { method: "GET" });
       if (failed.length) {
+        const allDeviceTokenErrors = failed.length > 0 && failed.every((row) => _isDeviceTokenError(row?.error || ""));
+        if (allDeviceTokenErrors) {
+          const err = new Error(`Device credentials are invalid for ${companyKey}. Reconnect this company from Settings > Express Setup.`);
+          err.payload = { sent, failed, summary: summary || null, mode: "cloud-setup", invalid_device_token: true };
+          throw err;
+        }
         const err = new Error(`Cloud queue push failed for ${failed.length} event(s).`);
         err.payload = { sent, failed, summary: summary || null, mode: "cloud-setup" };
         throw err;
@@ -4053,7 +4077,7 @@
         return {
           ok: true,
           devices: [],
-          warning: "Device list unavailable for this account; enter POS code manually.",
+          warning: "Device list unavailable for this account. Ask an admin for POS device access (pos:manage).",
         };
       }
       throw e;
@@ -6001,6 +6025,7 @@
             </a>
           {/if}
           <div class="px-1 pt-1 text-[10px] text-muted">{syncActionHelp}</div>
+          <div class="px-1 pb-1 text-[10px] text-muted/80">Version: {runtimeVersionText}</div>
         </div>
       {/if}
     </div>

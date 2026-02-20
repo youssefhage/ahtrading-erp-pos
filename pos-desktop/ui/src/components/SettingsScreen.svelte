@@ -60,8 +60,6 @@
   let setupDevicePickUnofficial = "";
   let setupDevicesOfficial = [];
   let setupDevicesUnofficial = [];
-  let setupDeviceCodeOfficial = "POS-01";
-  let setupDeviceCodeUnofficial = "POS-02";
   let setupBusy = false;
   let setupErr = "";
   let setupNotice = "";
@@ -120,6 +118,20 @@
     if (!ok) return { kind: "bad", text: "Offline" };
     if (ok && !auth) return { kind: "warn", text: "Online (auth failed)" };
     return { kind: "ok", text: "Online" };
+  };
+
+  const _syncStatusAuthOk = (st) => !!(st?.sync_auth_ok ?? st?.edge_auth_ok);
+  const _syncStatusOnline = (st) => !!(st?.sync_ok ?? st?.edge_ok);
+  const _syncStatusInvalidToken = (st) => {
+    const statusCode = Number(st?.status || 0);
+    const msg = String(st?.error || "").trim().toLowerCase();
+    return (
+      statusCode === 401 ||
+      statusCode === 403 ||
+      msg.includes("invalid device token") ||
+      msg.includes("missing device") ||
+      msg.includes("device token")
+    );
   };
 
   const saveOne = async (companyKey) => {
@@ -340,8 +352,6 @@
     setupDevicePickUnofficial = "";
     setupDevicesOfficial = [];
     setupDevicesUnofficial = [];
-    setupDeviceCodeOfficial = "POS-01";
-    setupDeviceCodeUnofficial = "POS-02";
   };
 
   const applyPickedDevice = (kind) => {
@@ -351,18 +361,12 @@
     const row = list.find((d) => String(d?.device_code || "").trim().toUpperCase() === picked);
     if (isUnofficial) {
       if (row) {
-        setupDeviceCodeUnofficial = normalizeDeviceCode(row.device_code, "POS-02");
         if (!setupBranchUnofficial && String(row.branch_id || "").trim()) setupBranchUnofficial = String(row.branch_id || "").trim();
-      } else if (!String(setupDeviceCodeUnofficial || "").trim()) {
-        setupDeviceCodeUnofficial = "POS-02";
       }
       return;
     }
     if (row) {
-      setupDeviceCodeOfficial = normalizeDeviceCode(row.device_code, "POS-01");
       if (!setupBranchOfficial && String(row.branch_id || "").trim()) setupBranchOfficial = String(row.branch_id || "").trim();
-    } else if (!String(setupDeviceCodeOfficial || "").trim()) {
-      setupDeviceCodeOfficial = "POS-01";
     }
   };
 
@@ -399,9 +403,25 @@
       if (isUnofficial) {
         setupBranchesUnofficial = branches;
         setupDevicesUnofficial = devices;
+        const currentPick = normalizeDeviceCode(setupDevicePickUnofficial, "");
+        const currentCfgCode = normalizeDeviceCode(unofficialConfig?.device_code || "", "");
+        const validCodes = new Set(devices.map((d) => normalizeDeviceCode(d?.device_code || "", "")));
+        if (!currentPick || !validCodes.has(currentPick)) {
+          setupDevicePickUnofficial = validCodes.has(currentCfgCode)
+            ? currentCfgCode
+            : (devices[0]?.device_code || "");
+        }
       } else {
         setupBranchesOfficial = branches;
         setupDevicesOfficial = devices;
+        const currentPick = normalizeDeviceCode(setupDevicePickOfficial, "");
+        const currentCfgCode = normalizeDeviceCode(officialConfig?.device_code || "", "");
+        const validCodes = new Set(devices.map((d) => normalizeDeviceCode(d?.device_code || "", "")));
+        if (!currentPick || !validCodes.has(currentPick)) {
+          setupDevicePickOfficial = validCodes.has(currentCfgCode)
+            ? currentCfgCode
+            : (devices[0]?.device_code || "");
+        }
       }
       applyPickedDevice(kind);
     } catch (e) {
@@ -502,16 +522,16 @@
       const companyUn = String(setupCompanyUnofficial || setupCompanyOfficial || "").trim();
       const branchOff = String(setupBranchOfficial || "").trim();
       const branchUn = String(setupBranchUnofficial || "").trim();
-      const codeOff = normalizeDeviceCode(setupDeviceCodeOfficial || setupDevicePickOfficial, "POS-01");
-      const codeUn = normalizeDeviceCode(setupDeviceCodeUnofficial || setupDevicePickUnofficial, "POS-02");
+      const codeOff = normalizeDeviceCode(setupDevicePickOfficial, "");
+      const codeUn = normalizeDeviceCode(setupDevicePickUnofficial, "");
       if (!apiBase) throw new Error("Cloud API URL is required.");
       if (!token) throw new Error("You are not logged in. Click Log In first.");
       if (!companyOff) throw new Error("Select Official company.");
-      if (!codeOff) throw new Error("Official POS code is required.");
+      if (!codeOff) throw new Error("Select an Official POS source.");
       if (dualOnboardingEnabled && !companyUn) throw new Error("Select Unofficial company.");
-      if (dualOnboardingEnabled && !codeUn) throw new Error("Unofficial POS code is required.");
+      if (dualOnboardingEnabled && !codeUn) throw new Error("Select an Unofficial POS source.");
       if (dualOnboardingEnabled && companyOff === companyUn && codeOff === codeUn) {
-        throw new Error("Official and Unofficial cannot use the same POS code in the same company.");
+        throw new Error("Official and Unofficial cannot use the same POS source in the same company.");
       }
 
       const canReuseDeviceCredentials = ({
@@ -534,6 +554,30 @@
         return true;
       };
 
+      const evaluateReuseDecision = async ({
+        companyKey,
+        currentCfg,
+        targetCompanyId,
+        targetDeviceCode,
+        selectedDeviceId = "",
+      }) => {
+        if (!canReuseDeviceCredentials({
+          currentCfg,
+          targetCompanyId,
+          targetDeviceCode,
+          selectedDeviceId,
+        })) return { reuse: false, stale: false };
+        try {
+          const st = await testSyncFor(companyKey);
+          if (_syncStatusAuthOk(st)) return { reuse: true, stale: false };
+          if (_syncStatusInvalidToken(st)) return { reuse: false, stale: true };
+          if (!_syncStatusOnline(st)) return { reuse: true, stale: false };
+          return { reuse: true, stale: false };
+        } catch (_) {
+          return { reuse: true, stale: false };
+        }
+      };
+
       const selectedOff = (setupDevicesOfficial || []).find(
         (d) => normalizeDeviceCode(d?.device_code || "", "") === codeOff
       );
@@ -541,12 +585,14 @@
         (d) => normalizeDeviceCode(d?.device_code || "", "") === codeUn
       );
 
-      const reuseOff = canReuseDeviceCredentials({
+      const reuseOffResult = await evaluateReuseDecision({
+        companyKey: "official",
         currentCfg: officialConfig,
         targetCompanyId: companyOff,
         targetDeviceCode: codeOff,
         selectedDeviceId: String(selectedOff?.id || "").trim(),
       });
+      const reuseOff = !!reuseOffResult.reuse;
 
       const regOff = reuseOff
         ? {
@@ -575,13 +621,16 @@
       try { await syncPullFor("official"); } catch (_) {}
 
       let regUn = null;
+      let reuseUnResult = { reuse: false, stale: false };
       if (dualOnboardingEnabled) {
-        const reuseUn = canReuseDeviceCredentials({
+        reuseUnResult = await evaluateReuseDecision({
+          companyKey: "unofficial",
           currentCfg: unofficialConfig,
           targetCompanyId: companyUn,
           targetDeviceCode: codeUn,
           selectedDeviceId: String(selectedUn?.id || "").trim(),
         });
+        const reuseUn = !!reuseUnResult.reuse;
         regUn = reuseUn
           ? {
               device_id: String(unofficialConfig?.device_id || "").trim(),
@@ -616,6 +665,9 @@
       notice = reused.length > 0
         ? `Express setup applied. Reused ${reused.join(" + ")} device credentials and started sync pull.`
         : "Express setup applied and sync pull started.";
+      if (reuseOffResult?.stale || (dualOnboardingEnabled && reuseUnResult?.stale)) {
+        setupNotice = `${setupNotice} Device token was refreshed for stale credentials.`;
+      }
       err = "";
     } catch (e) {
       setupErr = e?.message || String(e);
@@ -910,22 +962,18 @@
                     on:change={() => applyPickedDevice("official")}
                     disabled={setupBusy}
                   >
-                    <option value="">Create/use manual code...</option>
+                    <option value="">Select POS source...</option>
                     {#each setupDevicesOfficial as d}
                       <option value={d.device_code}>{d.device_code}{d.branch_name ? ` (${d.branch_name})` : ""}</option>
                     {/each}
                   </select>
                 </div>
-                <div>
-                  <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="setup_off_device_code">POS Code</label>
-                  <input
-                    id="setup_off_device_code"
-                    class="w-full bg-surface/50 border border-white/10 rounded-xl px-3 py-2.5 font-mono text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none text-ink"
-                    bind:value={setupDeviceCodeOfficial}
-                    disabled={setupBusy}
-                  />
-                </div>
               </div>
+              {#if setupDevicesOfficial.length === 0}
+                <div class="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[11px] text-muted">
+                  No POS sources found for Official. Check `pos:manage` access and device setup in Admin.
+                </div>
+              {/if}
             </div>
 
             <!-- Unofficial Config Section -->
@@ -974,22 +1022,18 @@
                       on:change={() => applyPickedDevice("unofficial")}
                       disabled={setupBusy}
                     >
-                      <option value="">Create/use manual code...</option>
+                      <option value="">Select POS source...</option>
                       {#each setupDevicesUnofficial as d}
                         <option value={d.device_code}>{d.device_code}{d.branch_name ? ` (${d.branch_name})` : ""}</option>
                       {/each}
                     </select>
                   </div>
-                  <div>
-                    <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="setup_un_device_code">POS Code</label>
-                    <input
-                      id="setup_un_device_code"
-                      class="w-full bg-surface/50 border border-white/10 rounded-xl px-3 py-2.5 font-mono text-sm focus:ring-2 focus:ring-accent/50 focus:outline-none text-ink"
-                      bind:value={setupDeviceCodeUnofficial}
-                      disabled={setupBusy}
-                    />
-                  </div>
                 </div>
+                {#if setupDevicesUnofficial.length === 0}
+                  <div class="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-[11px] text-muted">
+                    No POS sources found for Unofficial. Check `pos:manage` access and device setup in Admin.
+                  </div>
+                {/if}
               </div>
             {/if}
 
@@ -1117,8 +1161,10 @@
               <input id="off_co" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.company_id} />
             </div>
             <div>
-              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_code">Device Code</label>
-              <input id="off_code" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-emerald-500/50 focus:border-emerald-500/50 focus:outline-none text-ink" bind:value={off.device_code} />
+              <div class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1">POS Source</div>
+              <div class="w-full bg-black/10 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs text-ink/80">
+                {off.device_code || "Not selected"}
+              </div>
             </div>
             <div>
               <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="off_br">Branch ID</label>
@@ -1184,8 +1230,10 @@
               <input id="un_co" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.company_id} />
             </div>
             <div>
-              <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_code">Device Code</label>
-              <input id="un_code" class="w-full bg-black/20 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs focus:ring-1 focus:ring-amber-500/50 focus:border-amber-500/50 focus:outline-none text-ink" bind:value={un.device_code} />
+              <div class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1">POS Source</div>
+              <div class="w-full bg-black/10 border border-white/10 rounded-xl px-3 py-2 font-mono text-xs text-ink/80">
+                {un.device_code || "Not selected"}
+              </div>
             </div>
             <div>
               <label class="text-[10px] text-muted font-bold uppercase tracking-wide mb-1 block" for="un_br">Branch ID</label>

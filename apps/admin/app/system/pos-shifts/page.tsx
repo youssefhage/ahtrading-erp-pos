@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { Page, PageHeader, Section } from "@/components/page";
@@ -61,6 +61,20 @@ type CashRecon = {
   expected_computed_lbp: string | number;
 };
 
+type ShiftCloseResult = {
+  shift: {
+    id: string;
+    status: string;
+    closed_at: string;
+    expected_cash_usd: string | number;
+    expected_cash_lbp: string | number;
+    variance_usd: string | number;
+    variance_lbp: string | number;
+  };
+  cash_methods: string[];
+  has_cash_method_mapping: boolean;
+};
+
 function toNumber(value: unknown): number {
   const n = Number(value ?? 0);
   return Number.isFinite(n) ? n : 0;
@@ -102,6 +116,13 @@ function humanizeMovementType(value: string) {
     .join(" ");
 }
 
+function toInputCash(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "0";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  return String(n);
+}
+
 export default function PosShiftsPage() {
   const [status, setStatus] = useState("");
   const [shifts, setShifts] = useState<ShiftRow[]>([]);
@@ -111,13 +132,19 @@ export default function PosShiftsPage() {
   const [movements, setMovements] = useState<CashMovementRow[]>([]);
   const [recon, setRecon] = useState<CashRecon | null>(null);
   const [movementsLimit, setMovementsLimit] = useState("200");
+  const [closingCashUsd, setClosingCashUsd] = useState("0");
+  const [closingCashLbp, setClosingCashLbp] = useState("0");
+  const [closingNotes, setClosingNotes] = useState("");
+  const [closeFormShiftId, setCloseFormShiftId] = useState("");
+  const [closingShift, setClosingShift] = useState(false);
   const loadingShifts = status === "Loading...";
   const loadingMovements = status === "Loading cash movements...";
-  const statusIsBusy = loadingShifts || loadingMovements;
+  const statusIsBusy = loadingShifts || loadingMovements || closingShift;
 
   const deviceById = useMemo(() => new Map(devices.map((d) => [d.id, d])), [devices]);
   const selectedShift = useMemo(() => shifts.find((s) => s.id === selectedShiftId) || null, [shifts, selectedShiftId]);
   const selectedDeviceCode = selectedShift ? (deviceById.get(selectedShift.device_id)?.device_code || selectedShift.device_id) : "";
+  const selectedShiftIsOpen = String(selectedShift?.status || "").toLowerCase() === "open";
   const openShiftCount = useMemo(() => shifts.filter((s) => String(s.status).toLowerCase() === "open").length, [shifts]);
   const closedShiftCount = Math.max(0, shifts.length - openShiftCount);
 
@@ -318,6 +345,59 @@ export default function PosShiftsPage() {
     }
   }
 
+  function loadExpectedIntoCloseForm() {
+    if (!selectedShift) return;
+    const expectedUsd =
+      recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_usd : selectedShift.expected_cash_usd;
+    const expectedLbp =
+      recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_lbp : selectedShift.expected_cash_lbp;
+    setClosingCashUsd(toInputCash(expectedUsd));
+    setClosingCashLbp(toInputCash(expectedLbp));
+    setCloseFormShiftId(selectedShift.id);
+  }
+
+  async function closeSelectedShift() {
+    if (!selectedShift || !selectedShiftId) return;
+    if (String(selectedShift.status || "").toLowerCase() !== "open") {
+      setStatus("HTTP 400: only open shifts can be closed");
+      return;
+    }
+
+    const usd = Number(closingCashUsd);
+    const lbp = Number(closingCashLbp);
+    if (!Number.isFinite(usd) || usd < 0) {
+      setStatus("HTTP 422: closing cash USD must be >= 0");
+      return;
+    }
+    if (!Number.isFinite(lbp) || lbp < 0) {
+      setStatus("HTTP 422: closing cash LBP must be >= 0");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Close shift ${selectedShiftId} for device ${selectedDeviceCode || selectedShift.device_id}?`,
+    );
+    if (!confirmed) return;
+
+    setClosingShift(true);
+    setStatus("Closing shift...");
+    try {
+      await apiPost<ShiftCloseResult>(`/pos/shifts/${encodeURIComponent(selectedShiftId)}/close-admin`, {
+        closing_cash_usd: usd,
+        closing_cash_lbp: lbp,
+        notes: closingNotes.trim() || undefined,
+      });
+      await load();
+      await loadMovements(selectedShiftId);
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setClosingShift(false);
+    }
+  }
+
   useEffect(() => {
     load();
   }, []);
@@ -334,6 +414,29 @@ export default function PosShiftsPage() {
     loadMovements(selectedShiftId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedShiftId]);
+
+  useEffect(() => {
+    if (!selectedShift) {
+      setClosingCashUsd("0");
+      setClosingCashLbp("0");
+      setClosingNotes("");
+      setCloseFormShiftId("");
+      return;
+    }
+    if (!selectedShiftIsOpen) {
+      setCloseFormShiftId(selectedShift.id);
+      return;
+    }
+    if (closeFormShiftId === selectedShift.id) return;
+    const expectedUsd =
+      recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_usd : selectedShift.expected_cash_usd;
+    const expectedLbp =
+      recon && recon.shift && recon.shift.id === selectedShift.id ? recon.expected_computed_lbp : selectedShift.expected_cash_lbp;
+    setClosingCashUsd(toInputCash(expectedUsd));
+    setClosingCashLbp(toInputCash(expectedLbp));
+    setCloseFormShiftId(selectedShift.id);
+    setClosingNotes("");
+  }, [selectedShift, selectedShiftIsOpen, closeFormShiftId, recon]);
 
   return (
     <Page width="lg" className="px-4 pb-10">
@@ -427,6 +530,61 @@ export default function PosShiftsPage() {
                 <div className="ui-metric-label">Close USD</div>
                 <div className="ui-metric-value">{formatUsd(selectedShift.closing_cash_usd, { blankWhenNull: true })}</div>
               </div>
+            </div>
+          </div>
+        ) : null}
+
+        {selectedShift && selectedShiftIsOpen ? (
+          <div className="mt-3 rounded-md border border-border-subtle bg-bg-sunken/15 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-medium text-foreground">Close Selected Shift</div>
+                <div className="text-xs text-fg-subtle">Enter counted cash, then close this shift from web admin.</div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={loadExpectedIntoCloseForm} disabled={closingShift}>
+                Use Expected Cash
+              </Button>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Closing Cash (USD)</label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  value={closingCashUsd}
+                  onChange={(e) => setClosingCashUsd(e.target.value)}
+                  disabled={closingShift}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-fg-muted">Closing Cash (LBP)</label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="1"
+                  inputMode="numeric"
+                  value={closingCashLbp}
+                  onChange={(e) => setClosingCashLbp(e.target.value)}
+                  disabled={closingShift}
+                />
+              </div>
+            </div>
+            <div className="mt-3 space-y-1">
+              <label className="text-xs font-medium text-fg-muted">Notes (optional)</label>
+              <textarea
+                className="ui-textarea min-h-20 w-full"
+                value={closingNotes}
+                onChange={(e) => setClosingNotes(e.target.value)}
+                disabled={closingShift}
+                placeholder="Shift close notes"
+              />
+            </div>
+            <div className="mt-3 flex justify-end">
+              <Button variant="destructive" onClick={closeSelectedShift} disabled={closingShift}>
+                {closingShift ? "Closing..." : "Close Shift"}
+              </Button>
             </div>
           </div>
         ) : null}

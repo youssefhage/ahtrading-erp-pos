@@ -194,6 +194,97 @@ def test_close_shift_uses_cash_method_normalization(monkeypatch):
     assert (res.get("shift") or {}).get("status") == "closed"
 
 
+def test_close_shift_admin_uses_shift_device_and_actor(monkeypatch):
+    captured = {"device_id": None, "closed_by": None}
+
+    class _FakeCursorForAdminClose:
+        def __init__(self):
+            self._row = None
+
+        def execute(self, sql, params=None):
+            text = " ".join(str(sql or "").lower().split())
+            if "from pos_shifts" in text and "status = 'open'" in text and "device_id = %s" not in text:
+                self._row = {
+                    "id": "shift-1",
+                    "device_id": "device-9",
+                    "opened_at": datetime(2026, 1, 1, 8, 0, 0),
+                    "opening_cash_usd": Decimal("15"),
+                    "opening_cash_lbp": Decimal("150000"),
+                }
+                return
+            if "update pos_shifts" in text and "returning id, status, closed_at" in text:
+                captured["closed_by"] = (params or [None] * 8)[7]
+                self._row = {
+                    "id": "shift-1",
+                    "status": "closed",
+                    "closed_at": datetime(2026, 1, 1, 9, 0, 0),
+                    "expected_cash_usd": Decimal("20"),
+                    "expected_cash_lbp": Decimal("200000"),
+                    "variance_usd": Decimal("0"),
+                    "variance_lbp": Decimal("0"),
+                }
+                return
+            raise AssertionError(f"unexpected SQL in test cursor: {text}")
+
+        def fetchone(self):
+            return self._row
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeConnForAdminClose:
+        def __init__(self):
+            self._cursor = _FakeCursorForAdminClose()
+
+        def cursor(self):
+            return self._cursor
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_expected_cash(
+        cur,
+        company_id,
+        device_id,
+        shift_id,
+        opened_at,
+        opening_cash_usd,
+        opening_cash_lbp,
+        cash_methods_norm=None,
+    ):
+        captured["device_id"] = device_id
+        return Decimal("20"), Decimal("200000")
+
+    monkeypatch.setattr(pos_router, "get_conn", lambda: _FakeConnForAdminClose())
+    monkeypatch.setattr(pos_router, "set_company_context", lambda conn, company_id: None)
+    monkeypatch.setattr(pos_router, "_load_cash_methods", lambda cur, company_id: (["Cash"], ["cash"]))
+    monkeypatch.setattr(pos_router, "_expected_cash", _fake_expected_cash)
+
+    payload = pos_router.ShiftCloseIn(
+        closing_cash_usd=Decimal("20"),
+        closing_cash_lbp=Decimal("200000"),
+        notes="close shift from admin",
+        cashier_id="cashier-1",
+    )
+    res = pos_router.close_shift_admin(
+        "shift-1",
+        payload,
+        company_id="company-1",
+        _auth=None,
+        user={"user_id": "user-1"},
+    )
+
+    assert captured["device_id"] == "device-9"
+    assert captured["closed_by"] == "user-1"
+    assert (res.get("shift") or {}).get("status") == "closed"
+
+
 def test_list_shifts_computes_live_expected_for_open_shifts(monkeypatch):
     captured = {"calls": []}
 

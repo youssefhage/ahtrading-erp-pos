@@ -795,8 +795,8 @@ const QUICK_SETUP_FIELD_IDS = [
   "setupMfaCode",
   "setupCompanyOfficial",
   "setupCompanyUnofficial",
-  "setupDeviceCodeOfficial",
-  "setupDeviceCodeUnofficial",
+  "setupDeviceSelectOfficial",
+  "setupDeviceSelectUnofficial",
 ];
 
 function clearQuickSetupFieldErrors() {
@@ -878,8 +878,8 @@ function buildQuickSetupSnapshot() {
   const cloudUrl = normalizeUrl(el("edgeUrl")?.value || "");
   const officialCompany = String(el("setupCompanyOfficial")?.value || "").trim();
   const unofficialCompany = String(el("setupCompanyUnofficial")?.value || "").trim();
-  const officialCode = normalizeDeviceCode(el("setupDeviceCodeOfficial")?.value || "");
-  const unofficialCode = normalizeDeviceCode(el("setupDeviceCodeUnofficial")?.value || "");
+  const officialCode = normalizeDeviceCode(el("setupDeviceSelectOfficial")?.value || "");
+  const unofficialCode = normalizeDeviceCode(el("setupDeviceSelectUnofficial")?.value || "");
   const branch = String(el("setupBranch")?.value || "").trim();
   const dual = quickSetupDualModeEnabled();
   const tokenState = quickSetup.token ? "present" : "missing";
@@ -890,8 +890,8 @@ function buildQuickSetupSnapshot() {
     `primary_company=${officialCompany || "(empty)"}`,
     `secondary_company=${unofficialCompany || "(empty)"}`,
     `branch_id=${branch || "(none)"}`,
-    `primary_device_code=${officialCode || "(empty)"}`,
-    `secondary_device_code=${unofficialCode || "(empty)"}`,
+    `primary_pos_source=${officialCode || "(empty)"}`,
+    `secondary_pos_source=${unofficialCode || "(empty)"}`,
     `session_token=${tokenState}`,
   ].join("\n");
 }
@@ -930,10 +930,14 @@ function updateQuickSetupActionState() {
   const pass = String(el("setupPassword")?.value || "");
   const mfaCode = String(el("setupMfaCode")?.value || "").trim();
   const hasCompany = String(el("setupCompanyOfficial")?.value || "").trim().length > 0;
+  const hasPrimarySource = normalizeDeviceCode(el("setupDeviceSelectOfficial")?.value || "").length > 0;
+  const dualMode = quickSetupDualModeEnabled();
+  const hasSecondarySource = normalizeDeviceCode(el("setupDeviceSelectUnofficial")?.value || "").length > 0;
+  const readyForApply = hasCompany && hasPrimarySource && (!dualMode || hasSecondarySource);
 
   if (loginBtn) loginBtn.disabled = quickSetupBusy || !email || !pass;
   if (verifyBtn) verifyBtn.disabled = quickSetupBusy || !quickSetup.mfaToken || !mfaCode;
-  if (applyBtn) applyBtn.disabled = quickSetupBusy || !quickSetup.token || !hasCompany;
+  if (applyBtn) applyBtn.disabled = quickSetupBusy || !quickSetup.token || !readyForApply;
   if (clearBtn) clearBtn.disabled = quickSetupBusy;
 }
 
@@ -952,26 +956,10 @@ function syncQuickSetupSecondarySelection() {
 function updateQuickSetupModeUI() {
   const dual = quickSetupDualModeEnabled();
   const secondaryWrap = el("setupSecondaryWrap");
-  const secondaryCodeWrap = el("setupSecondaryCodeWrap");
   if (secondaryWrap) secondaryWrap.style.display = dual ? "" : "none";
-  if (secondaryCodeWrap) secondaryCodeWrap.style.display = dual ? "" : "none";
   syncQuickSetupSecondarySelection();
   applySetupDeviceSelection("official", { silent: true });
-  const primaryCode = normalizeDeviceCode(el("setupDeviceCodeOfficial")?.value || "");
-  if (!dual && el("setupDeviceCodeUnofficial")) {
-    const current = normalizeDeviceCode(el("setupDeviceCodeUnofficial")?.value || "");
-    if (!current || current === primaryCode || !DEVICE_CODE_RE.test(current)) {
-      el("setupDeviceCodeUnofficial").value = deriveSecondaryDeviceCode(primaryCode);
-    }
-    if (el("setupDeviceSelectUnofficial")) {
-      el("setupDeviceSelectUnofficial").value = "";
-    }
-    const unCodeEl = el("setupDeviceCodeUnofficial");
-    if (unCodeEl) {
-      unCodeEl.readOnly = false;
-      unCodeEl.removeAttribute("aria-readonly");
-    }
-  } else {
+  if (dual) {
     applySetupDeviceSelection("unofficial", { silent: true });
   }
   updateQuickSetupActionState();
@@ -1055,8 +1043,6 @@ function setupDeviceConfig(kind) {
       label: "Secondary",
       companyId: "setupCompanyUnofficial",
       selectId: "setupDeviceSelectUnofficial",
-      codeId: "setupDeviceCodeUnofficial",
-      defaultCode: "POS-02",
     };
   }
   return {
@@ -1064,8 +1050,6 @@ function setupDeviceConfig(kind) {
     label: "Primary",
     companyId: "setupCompanyOfficial",
     selectId: "setupDeviceSelectOfficial",
-    codeId: "setupDeviceCodeOfficial",
-    defaultCode: "POS-01",
   };
 }
 
@@ -1120,7 +1104,7 @@ function syncBranchFromSelectedPrimaryDevice({ silent = false } = {}) {
       branchEl.value = branchId;
       if (!silent) {
         const branchLabel = String(selected?.branch_name || branchId).trim() || branchId;
-        setSetupNote(`Branch auto-selected from Primary POS device (${branchLabel}).`, "warn");
+        setSetupNote(`Branch auto-selected from Primary POS source (${branchLabel}).`, "warn");
       }
     }
     return;
@@ -1128,31 +1112,13 @@ function syncBranchFromSelectedPrimaryDevice({ silent = false } = {}) {
   if (!silent) {
     const branchLabel = String(selected?.branch_name || branchId).trim() || branchId;
     setSetupNote(
-      `Primary POS device is assigned to branch ${branchLabel}, but that branch is not available in the current branch list.`,
+      `Primary POS source is assigned to branch ${branchLabel}, but that branch is not available in the current branch list.`,
       "warn",
     );
   }
 }
 
 function applySetupDeviceSelection(kind, { silent = false } = {}) {
-  const cfg = setupDeviceConfig(kind);
-  const pickEl = el(cfg.selectId);
-  const codeEl = el(cfg.codeId);
-  if (!codeEl) return;
-
-  const selectedCode = normalizeDeviceCode(pickEl?.value || "");
-  if (selectedCode) {
-    codeEl.value = selectedCode;
-    codeEl.readOnly = true;
-    codeEl.setAttribute("aria-readonly", "true");
-    if (kind === "official") syncBranchFromSelectedPrimaryDevice({ silent });
-    return;
-  }
-
-  codeEl.readOnly = false;
-  codeEl.removeAttribute("aria-readonly");
-  const normalized = normalizeDeviceCode(codeEl.value || "");
-  codeEl.value = normalized || cfg.defaultCode;
   if (kind === "official") syncBranchFromSelectedPrimaryDevice({ silent });
 }
 
@@ -1166,7 +1132,7 @@ function fillSetupDevicePicker(kind, devices) {
     value: d.device_code,
     label: d.branch_name ? `${d.device_code} (${d.branch_name})` : d.device_code,
   }));
-  fillSelect(pickEl, list, { placeholder: "Create new POS code (manual)..." });
+  fillSelect(pickEl, list, { placeholder: "Select POS source..." });
   if (current && list.some((x) => normalizeDeviceCode(x.value) === current)) {
     pickEl.value = current;
   } else {
@@ -1215,7 +1181,7 @@ async function quickSetupRefreshDevicePicker(kind, { silent = false } = {}) {
 
   const seq = (quickSetupDeviceLoadSeq[kind] || 0) + 1;
   quickSetupDeviceLoadSeq[kind] = seq;
-  fillSelect(pickEl, [], { placeholder: "Loading POS devices..." });
+  fillSelect(pickEl, [], { placeholder: "Loading POS sources..." });
 
   try {
     const devices = await quickSetupLoadDevicesForCompany(companyId);
@@ -1223,12 +1189,12 @@ async function quickSetupRefreshDevicePicker(kind, { silent = false } = {}) {
     fillSetupDevicePicker(kind, devices);
   } catch (e) {
     if (quickSetupDeviceLoadSeq[kind] !== seq) return;
-    fillSelect(pickEl, [], { placeholder: "Could not load devices; enter code manually..." });
+    fillSelect(pickEl, [], { placeholder: "Could not load POS sources..." });
     pickEl.value = "";
     applySetupDeviceSelection(kind, { silent: true });
     if (!silent) {
       const msg = e instanceof Error ? e.message : String(e);
-      setSetupNote(`${cfg.label} POS list unavailable (${msg}). You can still enter a device code manually.`, "warn");
+      setSetupNote(`${cfg.label} POS source list unavailable (${msg}). Retry after checking Cloud/API connectivity.`, "warn");
     }
   }
 }
@@ -1322,8 +1288,8 @@ async function quickSetupLogin() {
     fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select primary company…" });
     fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select secondary company…" });
     fillSelect(el("setupBranch"), [], { placeholder: "Select branch (optional)…" });
-    fillSelect(el("setupDeviceSelectOfficial"), [], { placeholder: "Loading POS devices..." });
-    fillSelect(el("setupDeviceSelectUnofficial"), [], { placeholder: "Loading POS devices..." });
+    fillSelect(el("setupDeviceSelectOfficial"), [], { placeholder: "Loading POS sources..." });
+    fillSelect(el("setupDeviceSelectUnofficial"), [], { placeholder: "Loading POS sources..." });
 
     const active = String(res?.active_company_id || "").trim();
     if (active) {
@@ -1332,7 +1298,7 @@ async function quickSetupLogin() {
     }
 
     updateQuickSetupModeUI();
-    setQuickSetupStage("company", "active", "Select company, branch, and device codes.");
+    setQuickSetupStage("company", "active", "Select company, branch, and POS sources.");
     setSetupNote("Logged in. Select your company and branch, then generate setup.", "success");
     setStatus("Quick Setup: logged in.");
     await Promise.allSettled([
@@ -1398,10 +1364,10 @@ async function quickSetupVerifyMfa() {
     const list = normalizeCompanyList(quickSetup.companies);
     fillSelect(el("setupCompanyOfficial"), list, { placeholder: "Select primary company…" });
     fillSelect(el("setupCompanyUnofficial"), list, { placeholder: "Select secondary company…" });
-    fillSelect(el("setupDeviceSelectOfficial"), [], { placeholder: "Loading POS devices..." });
-    fillSelect(el("setupDeviceSelectUnofficial"), [], { placeholder: "Loading POS devices..." });
+    fillSelect(el("setupDeviceSelectOfficial"), [], { placeholder: "Loading POS sources..." });
+    fillSelect(el("setupDeviceSelectUnofficial"), [], { placeholder: "Loading POS sources..." });
     updateQuickSetupModeUI();
-    setQuickSetupStage("company", "active", "Select company, branch, and device codes.");
+    setQuickSetupStage("company", "active", "Select company, branch, and POS sources.");
     setSetupNote("MFA verified. Select your company and branch, then generate setup.", "success");
     setStatus("Quick Setup: MFA verified.");
     await Promise.allSettled([
@@ -1473,7 +1439,7 @@ async function quickSetupApply() {
   clearQuickSetupFieldErrors();
   setSetupNote("");
   setStatus("");
-  setQuickSetupStage("company", "active", "Validating company, branch, and device code inputs.");
+  setQuickSetupStage("company", "active", "Validating company, branch, and POS source inputs.");
   setQuickSetupBusyState(true, "setupApplyBtn", "Generating…");
   let stage = "company";
   try {
@@ -1508,9 +1474,9 @@ async function quickSetupApply() {
     const branchId = String(el("setupBranch").value || "").trim();
     const selectedDeviceCodeOfficial = normalizeDeviceCode(el("setupDeviceSelectOfficial")?.value || "");
     const selectedDeviceCodeUnofficial = normalizeDeviceCode(el("setupDeviceSelectUnofficial")?.value || "");
-    const deviceCodeOfficial = selectedDeviceCodeOfficial || normalizeDeviceCode(el("setupDeviceCodeOfficial").value || "") || "POS-01";
+    const deviceCodeOfficial = selectedDeviceCodeOfficial;
     const deviceCodeUnofficial = dualMode
-      ? (selectedDeviceCodeUnofficial || normalizeDeviceCode(el("setupDeviceCodeUnofficial").value || "") || "POS-02")
+      ? selectedDeviceCodeUnofficial
       : deriveSecondaryDeviceCode(deviceCodeOfficial);
     const selectedOfficialDevice = setupDeviceFromCatalog(companyOfficial, deviceCodeOfficial);
     const selectedUnofficialDevice = setupDeviceFromCatalog(companyUnofficial, deviceCodeUnofficial);
@@ -1523,31 +1489,30 @@ async function quickSetupApply() {
       branchIdUnofficial = String(selectedUnofficialDevice.branch_id).trim();
     }
 
-    el("setupDeviceCodeOfficial").value = deviceCodeOfficial;
-    el("setupDeviceCodeUnofficial").value = deviceCodeUnofficial;
-
     if (!companyOfficial) return quickSetupFail("Select the primary company.", "setupCompanyOfficial");
     if (!UUID_RE.test(companyOfficial)) return quickSetupFail("Primary company ID format is invalid.", "setupCompanyOfficial");
     if (dualMode && !companyUnofficial) return quickSetupFail("Select the secondary company or turn off secondary mode.", "setupCompanyUnofficial");
     if (dualMode && !UUID_RE.test(companyUnofficial)) return quickSetupFail("Secondary company ID format is invalid.", "setupCompanyUnofficial");
+    if (!deviceCodeOfficial) return quickSetupFail("Select the primary POS source.", "setupDeviceSelectOfficial");
+    if (dualMode && !deviceCodeUnofficial) return quickSetupFail("Select the secondary POS source.", "setupDeviceSelectUnofficial");
     if (branchId && !UUID_RE.test(branchId)) return quickSetupFail("Branch ID format is invalid.", "setupBranch");
     if (!DEVICE_CODE_RE.test(deviceCodeOfficial)) {
-      return quickSetupFail("Primary device code must be 2-40 chars (A-Z, 0-9, _ or -).", "setupDeviceCodeOfficial");
+      return quickSetupFail("Primary POS source code must be 2-40 chars (A-Z, 0-9, _ or -).", "setupDeviceSelectOfficial");
     }
     if (!DEVICE_CODE_RE.test(deviceCodeUnofficial)) {
-      return quickSetupFail("Secondary device code must be 2-40 chars (A-Z, 0-9, _ or -).", "setupDeviceCodeUnofficial");
+      return quickSetupFail("Secondary POS source code must be 2-40 chars (A-Z, 0-9, _ or -).", "setupDeviceSelectUnofficial");
     }
     if (companyOfficial === companyUnofficial && deviceCodeOfficial === deviceCodeUnofficial) {
       return quickSetupFail(
-        "When primary and secondary point to the same company, device codes must be different.",
-        "setupDeviceCodeUnofficial",
+        "When primary and secondary point to the same company, POS sources must be different.",
+        "setupDeviceSelectUnofficial",
       );
     }
 
     const branchWarnings = [];
     if (branchId && selectedOfficialDevice?.branch_id && branchId !== branchIdOfficial) {
       const branchLabel = String(selectedOfficialDevice?.branch_name || branchIdOfficial).trim() || branchIdOfficial;
-      branchWarnings.push(`Primary POS device is assigned to ${branchLabel}; setup will use that branch.`);
+      branchWarnings.push(`Primary POS source is assigned to ${branchLabel}; setup will use that branch.`);
     }
     if (
       dualMode &&
@@ -1781,11 +1746,9 @@ function quickSetupClear() {
   fillSelect(el("setupCompanyOfficial"), [], { placeholder: "Log in to load companies…" });
   fillSelect(el("setupCompanyUnofficial"), [], { placeholder: "Log in to load companies…" });
   fillSelect(el("setupBranch"), [], { placeholder: "Log in to load branches…" });
-  fillSelect(el("setupDeviceSelectOfficial"), [], { placeholder: "Log in and select company..." });
-  fillSelect(el("setupDeviceSelectUnofficial"), [], { placeholder: "Log in and select company..." });
+  fillSelect(el("setupDeviceSelectOfficial"), [], { placeholder: "Log in and select POS source..." });
+  fillSelect(el("setupDeviceSelectUnofficial"), [], { placeholder: "Log in and select POS source..." });
   if (el("setupDualMode")) el("setupDualMode").checked = false;
-  if (el("setupDeviceCodeOfficial")) el("setupDeviceCodeOfficial").value = "POS-01";
-  if (el("setupDeviceCodeUnofficial")) el("setupDeviceCodeUnofficial").value = "POS-02";
   updateQuickSetupModeUI();
   setQuickSetupStage("account", "active", "Enter Cloud API URL and account credentials, then click Log In.");
   setSetupNote("Quick Setup session cleared.", "success");
@@ -2194,8 +2157,8 @@ if (el("setupCompanyOfficial")) {
   fillSelect(el("setupCompanyOfficial"), [], { placeholder: "Log in to load companies…" });
   fillSelect(el("setupCompanyUnofficial"), [], { placeholder: "Log in to load companies…" });
   fillSelect(el("setupBranch"), [], { placeholder: "Log in to load branches…" });
-  fillSelect(el("setupDeviceSelectOfficial"), [], { placeholder: "Log in and select company..." });
-  fillSelect(el("setupDeviceSelectUnofficial"), [], { placeholder: "Log in and select company..." });
+  fillSelect(el("setupDeviceSelectOfficial"), [], { placeholder: "Log in and select POS source..." });
+  fillSelect(el("setupDeviceSelectUnofficial"), [], { placeholder: "Log in and select POS source..." });
   el("setupLoginBtn").addEventListener("click", () => quickSetupLogin());
   el("setupVerifyMfaBtn").addEventListener("click", () => quickSetupVerifyMfa());
   el("setupClearBtn").addEventListener("click", quickSetupClear);
@@ -2214,7 +2177,7 @@ if (el("setupCompanyOfficial")) {
       quickSetupVerifyMfa();
     });
   }
-  for (const id of ["setupEmail", "setupPassword", "setupMfaCode", "setupDeviceCodeOfficial", "setupDeviceCodeUnofficial", "edgeUrl"]) {
+  for (const id of ["setupEmail", "setupPassword", "setupMfaCode", "edgeUrl"]) {
     const n = el(id);
     if (!n) continue;
     n.addEventListener("input", () => {
@@ -2225,14 +2188,14 @@ if (el("setupCompanyOfficial")) {
   if (el("setupDeviceSelectOfficial")) {
     el("setupDeviceSelectOfficial").addEventListener("change", () => {
       applySetupDeviceSelection("official");
-      clearInputError("setupDeviceCodeOfficial");
+      clearInputError("setupDeviceSelectOfficial");
       updateQuickSetupActionState();
     });
   }
   if (el("setupDeviceSelectUnofficial")) {
     el("setupDeviceSelectUnofficial").addEventListener("change", () => {
       applySetupDeviceSelection("unofficial");
-      clearInputError("setupDeviceCodeUnofficial");
+      clearInputError("setupDeviceSelectUnofficial");
       updateQuickSetupActionState();
     });
   }
@@ -2251,13 +2214,13 @@ if (el("setupCompanyOfficial")) {
       const deviceBranchId = String(selected?.branch_id || "").trim();
       if (selected && branchId && deviceBranchId && branchId !== deviceBranchId) {
         const branchLabel = String(selected?.branch_name || deviceBranchId).trim() || deviceBranchId;
-        setSetupNote(`Primary POS device is assigned to ${branchLabel}; setup will use the device branch.`, "warn");
+        setSetupNote(`Primary POS source is assigned to ${branchLabel}; setup will use the device branch.`, "warn");
       }
     });
   }
   el("setupCompanyOfficial").addEventListener("change", () => {
     syncQuickSetupSecondarySelection();
-    setQuickSetupStage("company", "active", "Company selected. Loading branches and waiting for device setup.");
+    setQuickSetupStage("company", "active", "Company selected. Loading branches and waiting for POS source selection.");
     quickSetupLoadBranches().catch(() => {});
     quickSetupRefreshDevicePicker("official", { silent: true }).catch(() => {});
     if (!quickSetupDualModeEnabled()) {

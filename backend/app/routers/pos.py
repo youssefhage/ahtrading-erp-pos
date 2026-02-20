@@ -2417,63 +2417,118 @@ def close_shift(shift_id: str, data: ShiftCloseIn, device=Depends(require_device
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
-            cash_methods, cash_methods_norm = _load_cash_methods(cur, str(device["company_id"]))
-            cur.execute(
-                """
-                SELECT id, opened_at, opening_cash_usd, opening_cash_lbp
-                FROM pos_shifts
-                WHERE id = %s AND company_id = %s AND device_id = %s AND status = 'open'
-                """,
-                (shift_id, device["company_id"], device["device_id"]),
+            return _close_shift_impl(
+                cur=cur,
+                company_id=str(device["company_id"]),
+                shift_id=shift_id,
+                data=data,
+                device_id=str(device["device_id"]),
+                closed_by_user_id=None,
             )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(status_code=404, detail="open shift not found")
-            expected_usd, expected_lbp = _expected_cash(
-                cur,
-                device["company_id"],
-                device["device_id"],
-                shift_id,
-                row["opened_at"],
-                row["opening_cash_usd"],
-                row["opening_cash_lbp"],
-                cash_methods_norm=cash_methods_norm,
+
+
+def _close_shift_impl(
+    *,
+    cur,
+    company_id: str,
+    shift_id: str,
+    data: ShiftCloseIn,
+    device_id: Optional[str],
+    closed_by_user_id: Optional[str],
+):
+    cash_methods, cash_methods_norm = _load_cash_methods(cur, company_id)
+    if device_id:
+        cur.execute(
+            """
+            SELECT id, opened_at, opening_cash_usd, opening_cash_lbp
+            FROM pos_shifts
+            WHERE id = %s AND company_id = %s AND device_id = %s AND status = 'open'
+            """,
+            (shift_id, company_id, device_id),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT id, device_id, opened_at, opening_cash_usd, opening_cash_lbp
+            FROM pos_shifts
+            WHERE id = %s AND company_id = %s AND status = 'open'
+            """,
+            (shift_id, company_id),
+        )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="open shift not found")
+
+    effective_device_id = device_id or str(row.get("device_id") or "")
+    expected_usd, expected_lbp = _expected_cash(
+        cur,
+        company_id,
+        effective_device_id,
+        shift_id,
+        row["opened_at"],
+        row["opening_cash_usd"],
+        row["opening_cash_lbp"],
+        cash_methods_norm=cash_methods_norm,
+    )
+    variance_usd = Decimal(str(data.closing_cash_usd)) - expected_usd
+    variance_lbp = Decimal(str(data.closing_cash_lbp)) - expected_lbp
+    cur.execute(
+        """
+        UPDATE pos_shifts
+        SET status = 'closed',
+            closed_at = now(),
+            closing_cash_usd = %s,
+            closing_cash_lbp = %s,
+            expected_cash_usd = %s,
+            expected_cash_lbp = %s,
+            variance_usd = %s,
+            variance_lbp = %s,
+            closed_cashier_id = %s,
+            closed_by = COALESCE(%s, closed_by),
+            notes = COALESCE(%s, notes)
+        WHERE id = %s
+        RETURNING id, status, closed_at, expected_cash_usd, expected_cash_lbp, variance_usd, variance_lbp
+        """,
+        (
+            data.closing_cash_usd,
+            data.closing_cash_lbp,
+            expected_usd,
+            expected_lbp,
+            variance_usd,
+            variance_lbp,
+            data.cashier_id,
+            closed_by_user_id,
+            data.notes,
+            shift_id,
+        ),
+    )
+    return {
+        "shift": cur.fetchone(),
+        "cash_methods": cash_methods,
+        "has_cash_method_mapping": bool(cash_methods),
+    }
+
+
+@router.post("/shifts/{shift_id}/close-admin", dependencies=[Depends(require_permission("pos:manage"))])
+def close_shift_admin(
+    shift_id: str,
+    data: ShiftCloseIn,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+    user=Depends(get_current_user),
+):
+    _assert_non_negative_shift_cash(data.closing_cash_usd, data.closing_cash_lbp, "closing")
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            return _close_shift_impl(
+                cur=cur,
+                company_id=company_id,
+                shift_id=shift_id,
+                data=data,
+                device_id=None,
+                closed_by_user_id=(user.get("user_id") if isinstance(user, dict) else None),
             )
-            variance_usd = Decimal(str(data.closing_cash_usd)) - expected_usd
-            variance_lbp = Decimal(str(data.closing_cash_lbp)) - expected_lbp
-            cur.execute(
-                """
-                UPDATE pos_shifts
-                SET status = 'closed',
-                    closed_at = now(),
-                    closing_cash_usd = %s,
-                    closing_cash_lbp = %s,
-                    expected_cash_usd = %s,
-                    expected_cash_lbp = %s,
-                    variance_usd = %s,
-                    variance_lbp = %s,
-                    closed_cashier_id = %s,
-                    notes = COALESCE(%s, notes)
-                WHERE id = %s
-                RETURNING id, status, closed_at, expected_cash_usd, expected_cash_lbp, variance_usd, variance_lbp
-                """,
-                (
-                    data.closing_cash_usd,
-                    data.closing_cash_lbp,
-                    expected_usd,
-                    expected_lbp,
-                    variance_usd,
-                    variance_lbp,
-                    data.cashier_id,
-                    data.notes,
-                    shift_id,
-                ),
-            )
-            return {
-                "shift": cur.fetchone(),
-                "cash_methods": cash_methods,
-                "has_cash_method_mapping": bool(cash_methods),
-            }
 
 
 @router.get("/shifts/{shift_id}/cash-reconciliation", dependencies=[Depends(require_permission("pos:manage"))])
