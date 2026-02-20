@@ -101,9 +101,9 @@ def list_users(company_id: str = Depends(get_company_id)):
             has_phone = _has_users_column(cur, "phone")
             has_mfa_enabled = _has_users_column(cur, "mfa_enabled")
             profile_codes_select = (
-                "COALESCE(array_agg(DISTINCT r.template_code) FILTER (WHERE r.template_code IS NOT NULL), ARRAY[]::text[]) AS profile_type_codes,"
+                "COALESCE(array_agg(DISTINCT r.template_code) FILTER (WHERE r.template_code IS NOT NULL), ARRAY[]::text[]) AS profile_type_codes"
                 if has_template_code
-                else "ARRAY[]::text[] AS profile_type_codes,"
+                else "ARRAY[]::text[] AS profile_type_codes"
             )
             full_name_select = "u.full_name" if has_full_name else "NULL::text AS full_name"
             phone_select = "u.phone" if has_phone else "NULL::text AS phone"
