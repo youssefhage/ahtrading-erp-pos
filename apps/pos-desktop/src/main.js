@@ -251,7 +251,8 @@ function setDiag(msg) {
 function setVersionLabel() {
   const v = el("appVersion");
   if (!v) return;
-  v.textContent = APP_VERSION;
+  const current = String(APP_VERSION || "").trim() || "unknown";
+  v.textContent = `desktop v${current}`;
 }
 
 async function loadAppVersion() {
@@ -641,8 +642,12 @@ function agentBase(port) {
 }
 
 function buildUnifiedUiUrl(port) {
-  const ts = Date.now();
-  return `${agentBase(port)}/?cb=${ts}`;
+  const q = new URLSearchParams();
+  q.set("cb", String(Date.now()));
+  q.set("desktop", "1");
+  const desktopVersion = String(APP_VERSION || "").trim();
+  if (desktopVersion) q.set("desktopVersion", desktopVersion);
+  return `${agentBase(port)}/?${q.toString()}`;
 }
 
 async function checkLatestUnifiedUi(port) {

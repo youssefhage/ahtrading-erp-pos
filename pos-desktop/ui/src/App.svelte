@@ -8,6 +8,7 @@
   import SaleSummary from "./components/SaleSummary.svelte";
   import ItemLookup from "./components/ItemLookup.svelte";
   import SettingsScreen from "./components/SettingsScreen.svelte";
+  import posUiPackage from "../package.json";
   import {
     cartCompaniesSet as cartCompaniesSetFromLines,
     effectiveInvoiceCompany as effectiveInvoiceCompanyFor,
@@ -45,6 +46,7 @@
   const WEB_LOCAL_AUDIT_MAX = 500;
   const CART_DRAFTS_MAX = 50;
   const MANAGER_APPROVAL_TTL_MS = 2 * 60 * 1000;
+  const POS_UI_VERSION = String(posUiPackage?.version || "").trim() || "dev";
 
   // These are seeded in backend/db/seeds/seed_companies.sql and used in sample POS configs.
   const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
@@ -445,6 +447,7 @@
   let webHostUnsupported = false;
   let webSetupFirstTime = false;
   let webHostHint = "";
+  let runtimeVersionText = `pos-web v${POS_UI_VERSION}`;
   let webEventInvoiceMap = new Map();
   let webCatalogCache = new Map();
   let webLocalOutboxByCompany = { official: [], unofficial: [] };
@@ -5469,8 +5472,23 @@
     }
   };
 
+  const refreshRuntimeVersionText = () => {
+    if (typeof window === "undefined") return;
+    const q = new URLSearchParams(window.location.search || "");
+    const desktopFlag = String(q.get("desktop") || "").trim() === "1";
+    const desktopVersion = String(q.get("desktopVersion") || "").trim();
+    if (!desktopFlag) {
+      runtimeVersionText = `pos-web v${POS_UI_VERSION}`;
+      return;
+    }
+    runtimeVersionText = desktopVersion
+      ? `pos-desktop v${desktopVersion} · ui v${POS_UI_VERSION}`
+      : `pos-desktop · ui v${POS_UI_VERSION}`;
+  };
+
   // Lifecycle
   onMount(() => {
+    refreshRuntimeVersionText();
     let fetchTimer = null;
     let pushTimer = null;
     let pullTimer = null;
@@ -6165,6 +6183,7 @@
       setupBranches={setupBranches}
       setupDevices={setupDevices}
       setupRegisterDevice={setupRegisterDevice}
+      versionText={runtimeVersionText}
     />
   {/if}
 </Shell>

@@ -24,6 +24,7 @@
   export let setupBranches = async (payload) => ({ ok: false, error: "setup branches unavailable", payload });
   export let setupDevices = async (payload) => ({ ok: false, error: "setup devices unavailable", payload });
   export let setupRegisterDevice = async (payload) => ({ ok: false, error: "setup register unavailable", payload });
+  export let versionText = "";
 
   let off = {};
   let un = {};
@@ -635,6 +636,9 @@
       <p class="text-sm text-muted/80 leading-relaxed max-w-lg">
         The POS UI talks to local agents. Each agent syncs to Cloud via <span class="font-mono text-accent bg-accent/10 px-1 py-0.5 rounded text-xs">api_base_url</span>.
       </p>
+      {#if versionText}
+        <p class="mt-2 text-[10px] font-mono text-muted/70">{versionText}</p>
+      {/if}
     </header>
 
     <div class="relative z-10 flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-6">

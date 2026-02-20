@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Terminal, Command, ArrowRight } from "lucide-react";
 
 import { apiPost, getCompanyId, setSession, type LoginResponse } from "@/lib/api";
+import { ADMIN_APP_VERSION } from "@/lib/app-version";
 import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -95,7 +96,7 @@ export default function LoginPage() {
 
         <div className="flex items-center gap-2 text-xs text-fg-subtle">
           <Terminal className="h-4 w-4" />
-          <span className="font-mono">v2.0.0-terminal</span>
+          <span className="font-mono">v{ADMIN_APP_VERSION}</span>
         </div>
       </div>
 

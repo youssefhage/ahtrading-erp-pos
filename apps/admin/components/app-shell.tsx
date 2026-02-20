@@ -63,6 +63,7 @@ import {
   toggleFavoriteForCompany
 } from "@/lib/nav-memory";
 import { getDefaultBranchId, getDefaultWarehouseId, setDefaultBranchId, setDefaultWarehouseId } from "@/lib/op-context";
+import { ADMIN_APP_VERSION } from "@/lib/app-version";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -1503,6 +1504,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
               <LogOut className="h-4 w-4 shrink-0" />
               {!collapsed && <span className="text-xs">Logout</span>}
             </Button>
+            {!collapsed ? <div className="px-2 pt-1 text-[10px] font-mono text-fg-subtle">v{ADMIN_APP_VERSION}</div> : null}
           </div>
         </div>
       </aside>
@@ -1814,6 +1816,7 @@ export function AppShell(props: { title?: string; children: React.ReactNode }) {
                 <LogOut className="h-4 w-4" />
                 <span className="text-xs">Logout</span>
               </Button>
+              <div className="px-3 pt-2 text-[10px] font-mono text-fg-subtle">v{ADMIN_APP_VERSION}</div>
             </div>
           </div>
         </DialogContent>
