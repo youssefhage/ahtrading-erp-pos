@@ -139,6 +139,38 @@ async function secureDelete(k) {
   }
 }
 
+async function loadPersistedSecret(k) {
+  const key = String(k || "");
+  const secure = await secureGet(key);
+  if (typeof secure === "string" && secure.trim()) {
+    return secure;
+  }
+  const legacy = localStorage.getItem(key) || "";
+  if (!legacy) return "";
+  const ok = await secureSet(key, legacy);
+  if (ok) {
+    localStorage.removeItem(key);
+  }
+  return legacy;
+}
+
+async function persistSecret(k, v) {
+  const key = String(k || "");
+  const value = String(v ?? "");
+  if (!value) {
+    await secureDelete(key);
+    localStorage.removeItem(key);
+    return;
+  }
+  const ok = await secureSet(key, value);
+  if (ok) {
+    localStorage.removeItem(key);
+    return;
+  }
+  // Keychain can be unavailable in some environments; keep a local fallback.
+  localStorage.setItem(key, value);
+}
+
 function el(id) {
   return document.getElementById(id);
 }
@@ -525,15 +557,15 @@ async function load() {
   el("edgeUrl").value = localStorage.getItem(KEY_EDGE) || "https://app.melqard.com/api";
   if (el("edgeLanUrl")) el("edgeLanUrl").value = localStorage.getItem(KEY_EDGE_LAN) || "";
   await migrateSecretsFromLocalStorage();
-  el("setupPack").value = (await secureGet(KEY_PACK)) || "";
+  el("setupPack").value = (await loadPersistedSecret(KEY_PACK)) || "";
   el("portOfficial").value = localStorage.getItem(KEY_PORT_OFFICIAL) || "7070";
   el("portUnofficial").value = localStorage.getItem(KEY_PORT_UNOFFICIAL) || "7072";
   el("companyOfficial").value = localStorage.getItem(KEY_CO_OFFICIAL) || "00000000-0000-0000-0000-000000000001";
   el("companyUnofficial").value = localStorage.getItem(KEY_CO_UNOFFICIAL) || "00000000-0000-0000-0000-000000000002";
   el("deviceIdOfficial").value = localStorage.getItem(KEY_DEV_ID_OFFICIAL) || "";
-  el("deviceTokenOfficial").value = (await secureGet(KEY_DEV_TOK_OFFICIAL)) || "";
+  el("deviceTokenOfficial").value = (await loadPersistedSecret(KEY_DEV_TOK_OFFICIAL)) || "";
   el("deviceIdUnofficial").value = localStorage.getItem(KEY_DEV_ID_UNOFFICIAL) || "";
-  el("deviceTokenUnofficial").value = (await secureGet(KEY_DEV_TOK_UNOFFICIAL)) || "";
+  el("deviceTokenUnofficial").value = (await loadPersistedSecret(KEY_DEV_TOK_UNOFFICIAL)) || "";
   if (el("setupEmail")) el("setupEmail").value = localStorage.getItem(KEY_SETUP_EMAIL) || "";
   setVersionLabel();
   setStatus("");
@@ -996,6 +1028,24 @@ function normalizeCompanyLabel(label, companyId) {
   if (raw && lowered !== "undefined" && lowered !== "null" && lowered !== "unknown") return raw;
   const fallbackId = String(companyId || "").trim();
   return fallbackId || "selected company";
+}
+
+function canReuseExistingDeviceCredentials({
+  currentCompanyId,
+  currentDeviceId,
+  currentDeviceToken,
+  targetCompanyId,
+  selectedDeviceId = "",
+}) {
+  const existingCompany = String(currentCompanyId || "").trim();
+  const existingDeviceId = String(currentDeviceId || "").trim();
+  const existingToken = String(currentDeviceToken || "").trim();
+  const targetCompany = String(targetCompanyId || "").trim();
+  const selected = String(selectedDeviceId || "").trim();
+  if (!existingCompany || !existingDeviceId || !existingToken || !targetCompany) return false;
+  if (existingCompany !== targetCompany) return false;
+  if (selected && selected !== existingDeviceId) return false;
+  return true;
 }
 
 function setupDeviceConfig(kind) {
@@ -1586,13 +1636,47 @@ async function quickSetupApply() {
       }
     };
 
-    const officialReg = await registerDevice("Official", companyOfficial, branchIdOfficial, deviceCodeOfficial);
-    const unofficialReg = await registerDevice(
-      "Unofficial",
-      companyUnofficial,
-      branchIdUnofficial,
-      deviceCodeUnofficial,
-    );
+    const existingCompanyOfficial = String(el("companyOfficial")?.value || "").trim();
+    const existingDeviceIdOfficial = String(el("deviceIdOfficial")?.value || "").trim();
+    const existingDeviceTokenOfficial = String(el("deviceTokenOfficial")?.value || "").trim();
+    const existingCompanyUnofficial = String(el("companyUnofficial")?.value || "").trim();
+    const existingDeviceIdUnofficial = String(el("deviceIdUnofficial")?.value || "").trim();
+    const existingDeviceTokenUnofficial = String(el("deviceTokenUnofficial")?.value || "").trim();
+
+    const reuseOfficial = canReuseExistingDeviceCredentials({
+      currentCompanyId: existingCompanyOfficial,
+      currentDeviceId: existingDeviceIdOfficial,
+      currentDeviceToken: existingDeviceTokenOfficial,
+      targetCompanyId: companyOfficial,
+      selectedDeviceId: String(selectedOfficialDevice?.id || "").trim(),
+    });
+    const reuseUnofficial = canReuseExistingDeviceCredentials({
+      currentCompanyId: existingCompanyUnofficial,
+      currentDeviceId: existingDeviceIdUnofficial,
+      currentDeviceToken: existingDeviceTokenUnofficial,
+      targetCompanyId: companyUnofficial,
+      selectedDeviceId: String(selectedUnofficialDevice?.id || "").trim(),
+    });
+
+    const officialReg = reuseOfficial
+      ? { device_id: existingDeviceIdOfficial, device_token: existingDeviceTokenOfficial, reused: true }
+      : await registerDevice("Official", companyOfficial, branchIdOfficial, deviceCodeOfficial);
+    const unofficialReg = reuseUnofficial
+      ? { device_id: existingDeviceIdUnofficial, device_token: existingDeviceTokenUnofficial, reused: true }
+      : await registerDevice(
+        "Unofficial",
+        companyUnofficial,
+        branchIdUnofficial,
+        deviceCodeUnofficial,
+      );
+
+    const reusedKinds = [
+      officialReg?.reused ? "primary" : "",
+      unofficialReg?.reused ? "secondary" : "",
+    ].filter(Boolean);
+    if (reusedKinds.length > 0) {
+      setSetupNote(`Reused existing ${reusedKinds.join(" + ")} device credentials.`, "warn");
+    }
 
     const deviceIdOfficial = String(officialReg?.device_id || "").trim();
     const deviceTokenOfficial = String(officialReg?.device_token || "").trim();
@@ -1618,8 +1702,8 @@ async function quickSetupApply() {
     localStorage.setItem(KEY_CO_UNOFFICIAL, companyUnofficial);
     localStorage.setItem(KEY_DEV_ID_OFFICIAL, deviceIdOfficial);
     localStorage.setItem(KEY_DEV_ID_UNOFFICIAL, deviceIdUnofficial);
-    await secureSet(KEY_DEV_TOK_OFFICIAL, deviceTokenOfficial);
-    await secureSet(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
+    await persistSecret(KEY_DEV_TOK_OFFICIAL, deviceTokenOfficial);
+    await persistSecret(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
 
     // Patch the agent config files live (agent reloads config on each request) so the POS can sync immediately.
     setSetupNote("Applying config to local agents…", "warn");
@@ -1788,8 +1872,8 @@ async function start() {
   localStorage.setItem(KEY_CO_UNOFFICIAL, companyUnofficial);
   localStorage.setItem(KEY_DEV_ID_OFFICIAL, deviceIdOfficial);
   localStorage.setItem(KEY_DEV_ID_UNOFFICIAL, deviceIdUnofficial);
-  await secureSet(KEY_DEV_TOK_OFFICIAL, deviceTokenOfficial);
-  await secureSet(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
+  await persistSecret(KEY_DEV_TOK_OFFICIAL, deviceTokenOfficial);
+  await persistSecret(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
 
   setStatus("Starting local agents…");
   setDiag("");
@@ -2199,7 +2283,7 @@ if (el("setupCompanyOfficial")) {
 }
 el("applyPackBtn").addEventListener("click", () => {
   const raw = el("setupPack").value;
-  secureSet(KEY_PACK, raw);
+  void persistSecret(KEY_PACK, raw);
   try {
     const pack = parsePack(raw);
     if (!pack) {
@@ -2215,8 +2299,8 @@ el("applyPackBtn").addEventListener("click", () => {
     localStorage.setItem(KEY_CO_UNOFFICIAL, String(el("companyUnofficial").value || "").trim());
     localStorage.setItem(KEY_DEV_ID_OFFICIAL, String(el("deviceIdOfficial").value || "").trim());
     localStorage.setItem(KEY_DEV_ID_UNOFFICIAL, String(el("deviceIdUnofficial").value || "").trim());
-    secureSet(KEY_DEV_TOK_OFFICIAL, String(el("deviceTokenOfficial").value || "").trim());
-    secureSet(KEY_DEV_TOK_UNOFFICIAL, String(el("deviceTokenUnofficial").value || "").trim());
+    void persistSecret(KEY_DEV_TOK_OFFICIAL, String(el("deviceTokenOfficial").value || "").trim());
+    void persistSecret(KEY_DEV_TOK_UNOFFICIAL, String(el("deviceTokenUnofficial").value || "").trim());
 
     setStatus("Setup pack applied.");
     setDiag("");
@@ -2226,7 +2310,7 @@ el("applyPackBtn").addEventListener("click", () => {
 });
 el("clearPackBtn").addEventListener("click", () => {
   el("setupPack").value = "";
-  secureDelete(KEY_PACK);
+  void persistSecret(KEY_PACK, "");
   setStatus("Cleared setup pack.");
 });
 installReplaceOnTypeBehavior();

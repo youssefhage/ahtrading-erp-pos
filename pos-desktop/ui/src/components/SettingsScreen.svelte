@@ -514,14 +514,54 @@
         throw new Error("Official and Unofficial cannot use the same POS code in the same company.");
       }
 
-      const regOff = await setupRegisterDevice({
-        api_base_url: apiBase,
-        token,
-        company_id: companyOff,
-        branch_id: branchOff,
-        device_code: codeOff,
-        reset_token: true,
+      const canReuseDeviceCredentials = ({
+        currentCfg,
+        targetCompanyId,
+        targetDeviceCode,
+        selectedDeviceId = "",
+      }) => {
+        const companyId = String(currentCfg?.company_id || "").trim();
+        const deviceId = String(currentCfg?.device_id || "").trim();
+        const deviceToken = String(currentCfg?.device_token || "").trim();
+        const currentCode = normalizeDeviceCode(currentCfg?.device_code || "", "");
+        const targetCompany = String(targetCompanyId || "").trim();
+        const targetCode = normalizeDeviceCode(targetDeviceCode || "", "");
+        const selectedId = String(selectedDeviceId || "").trim();
+        if (!companyId || !deviceId || !deviceToken || !targetCompany) return false;
+        if (companyId !== targetCompany) return false;
+        if (targetCode && currentCode && targetCode !== currentCode) return false;
+        if (selectedId && selectedId !== deviceId) return false;
+        return true;
+      };
+
+      const selectedOff = (setupDevicesOfficial || []).find(
+        (d) => normalizeDeviceCode(d?.device_code || "", "") === codeOff
+      );
+      const selectedUn = (setupDevicesUnofficial || []).find(
+        (d) => normalizeDeviceCode(d?.device_code || "", "") === codeUn
+      );
+
+      const reuseOff = canReuseDeviceCredentials({
+        currentCfg: officialConfig,
+        targetCompanyId: companyOff,
+        targetDeviceCode: codeOff,
+        selectedDeviceId: String(selectedOff?.id || "").trim(),
       });
+
+      const regOff = reuseOff
+        ? {
+            device_id: String(officialConfig?.device_id || "").trim(),
+            device_token: String(officialConfig?.device_token || "").trim(),
+            reused: true,
+          }
+        : await setupRegisterDevice({
+            api_base_url: apiBase,
+            token,
+            company_id: companyOff,
+            branch_id: branchOff,
+            device_code: codeOff,
+            reset_token: true,
+          });
 
       await saveConfigFor("official", {
         api_base_url: apiBase,
@@ -534,15 +574,28 @@
       });
       try { await syncPullFor("official"); } catch (_) {}
 
+      let regUn = null;
       if (dualOnboardingEnabled) {
-        const regUn = await setupRegisterDevice({
-          api_base_url: apiBase,
-          token,
-          company_id: companyUn,
-          branch_id: branchUn,
-          device_code: codeUn,
-          reset_token: true,
+        const reuseUn = canReuseDeviceCredentials({
+          currentCfg: unofficialConfig,
+          targetCompanyId: companyUn,
+          targetDeviceCode: codeUn,
+          selectedDeviceId: String(selectedUn?.id || "").trim(),
         });
+        regUn = reuseUn
+          ? {
+              device_id: String(unofficialConfig?.device_id || "").trim(),
+              device_token: String(unofficialConfig?.device_token || "").trim(),
+              reused: true,
+            }
+          : await setupRegisterDevice({
+              api_base_url: apiBase,
+              token,
+              company_id: companyUn,
+              branch_id: branchUn,
+              device_code: codeUn,
+              reset_token: true,
+            });
         await saveConfigFor("unofficial", {
           api_base_url: apiBase,
           cloud_api_base_url: apiBase,
@@ -556,7 +609,13 @@
       }
 
       setupNotice = `Connected successfully. Official: ${setupCompanyLabel(companyOff)}${dualOnboardingEnabled ? ` · Unofficial: ${setupCompanyLabel(companyUn)}` : ""}.`;
-      notice = "Express setup applied and sync pull started.";
+      const reused = [
+        regOff?.reused ? "Official" : "",
+        regUn?.reused ? "Unofficial" : "",
+      ].filter(Boolean);
+      notice = reused.length > 0
+        ? `Express setup applied. Reused ${reused.join(" + ")} device credentials and started sync pull.`
+        : "Express setup applied and sync pull started.";
       err = "";
     } catch (e) {
       setupErr = e?.message || String(e);

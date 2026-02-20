@@ -5261,13 +5261,18 @@
   const cashierLogout = async (companyKey = "") => {
     const target = String(companyKey || "").trim();
     const companies = target ? [normalizeCompanyKey(target)] : ["official", "unofficial"];
+    const activeCompanies = companies.filter((k) => !!cashierIdForCompany(k));
+    if (!activeCompanies.length) {
+      reportNotice(target ? `No cashier signed in (${normalizeCompanyKey(target)}).` : "No cashier is currently signed in.");
+      return;
+    }
     try {
       loading = true;
       const results = await Promise.allSettled(
-        companies.map((k) => apiCallFor(k, "/cashiers/logout", { method: "POST", body: {} })),
+        activeCompanies.map((k) => apiCallFor(k, "/cashiers/logout", { method: "POST", body: {} })),
       );
-      for (let i = 0; i < companies.length; i += 1) {
-        const k = companies[i];
+      for (let i = 0; i < activeCompanies.length; i += 1) {
+        const k = activeCompanies[i];
         const r = results[i];
         if (r.status !== "fulfilled") continue;
         _clearCashierManagerMetaFor(k);
@@ -5965,17 +5970,15 @@
           >
             Theme: {theme === "light" ? "Light" : "Dark"}
           </button>
-          {#if config.cashier_id || unofficialConfig.cashier_id}
-            <button
-              class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
-              on:click={() => { showTopMoreActions = false; cashierLogout(); }}
-              disabled={loading}
-              title="Cashier logout"
-              type="button"
-            >
-              Logout
-            </button>
-          {/if}
+          <button
+            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            on:click={() => { showTopMoreActions = false; cashierLogout(); }}
+            disabled={loading}
+            title="Cashier logout"
+            type="button"
+          >
+            Cashier Logout
+          </button>
           {#if webHostUnsupported}
             <a
               class="w-full h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors inline-flex items-center"
@@ -6729,6 +6732,14 @@
             type="button"
           >
             Cancel
+          </button>
+          <button
+            class="flex-[1.4] py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
+            on:click={() => cashierLogout(cashierCompanyKey || originCompanyKey)}
+            disabled={loading}
+            type="button"
+          >
+            Sign Out
           </button>
           <button
             class="flex-[2] py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
