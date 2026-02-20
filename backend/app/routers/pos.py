@@ -2287,71 +2287,72 @@ def _expected_cash(
     )
     cash_methods = [r["method"] for r in cur.fetchall()] or []
     cash_methods_norm = [str(m).strip().lower() for m in cash_methods if str(m or "").strip()]
-    if not cash_methods:
-        return Decimal("0"), Decimal("0")
-    if shift_id:
-        sql = """
-            SELECT COALESCE(SUM(sp.amount_usd), 0) AS usd,
-                   COALESCE(SUM(sp.amount_lbp), 0) AS lbp
-            FROM sales_payments sp
-            JOIN sales_invoices si ON si.id = sp.invoice_id
-            WHERE si.company_id = %s AND si.shift_id = %s AND sp.method = ANY(%s)
-              AND sp.voided_at IS NULL
-        """
-        params = [company_id, shift_id, cash_methods]
-    else:
-        sql = """
-            SELECT COALESCE(SUM(sp.amount_usd), 0) AS usd,
-                   COALESCE(SUM(sp.amount_lbp), 0) AS lbp
-            FROM sales_payments sp
-            JOIN sales_invoices si ON si.id = sp.invoice_id
-            WHERE si.company_id = %s AND si.device_id = %s
-              AND si.created_at >= %s
-              AND sp.method = ANY(%s)
-              AND sp.voided_at IS NULL
-        """
-        params = [company_id, device_id, opened_at, cash_methods]
-    cur.execute(sql, params)
-    row = cur.fetchone()
-
-    sales_usd = Decimal(str(row["usd"] or 0))
-    sales_lbp = Decimal(str(row["lbp"] or 0))
+    sales_usd = Decimal("0")
+    sales_lbp = Decimal("0")
+    if cash_methods_norm:
+        if shift_id:
+            sql = """
+                SELECT COALESCE(SUM(sp.amount_usd), 0) AS usd,
+                       COALESCE(SUM(sp.amount_lbp), 0) AS lbp
+                FROM sales_payments sp
+                JOIN sales_invoices si ON si.id = sp.invoice_id
+                WHERE si.company_id = %s AND si.shift_id = %s
+                  AND lower(coalesce(sp.method, '')) = ANY(%s)
+                  AND sp.voided_at IS NULL
+            """
+            params = [company_id, shift_id, cash_methods_norm]
+        else:
+            sql = """
+                SELECT COALESCE(SUM(sp.amount_usd), 0) AS usd,
+                       COALESCE(SUM(sp.amount_lbp), 0) AS lbp
+                FROM sales_payments sp
+                JOIN sales_invoices si ON si.id = sp.invoice_id
+                WHERE si.company_id = %s AND si.device_id = %s
+                  AND si.created_at >= %s
+                  AND lower(coalesce(sp.method, '')) = ANY(%s)
+                  AND sp.voided_at IS NULL
+            """
+            params = [company_id, device_id, opened_at, cash_methods_norm]
+        cur.execute(sql, params)
+        row = cur.fetchone() or {}
+        sales_usd = Decimal(str(row.get("usd") or 0))
+        sales_lbp = Decimal(str(row.get("lbp") or 0))
 
     refunds_usd = Decimal("0")
     refunds_lbp = Decimal("0")
-    if shift_id:
-        cur.execute(
-            """
-            SELECT COALESCE(SUM(rf.amount_usd), 0) AS usd,
-                   COALESCE(SUM(rf.amount_lbp), 0) AS lbp
-            FROM sales_refunds rf
-            JOIN sales_returns sr ON sr.id = rf.sales_return_id
-            WHERE sr.company_id = %s
-              AND sr.shift_id = %s
-              AND sr.status = 'posted'
-              AND lower(coalesce(rf.method, '')) = ANY(%s)
-            """,
-            (company_id, shift_id, cash_methods_norm),
-        )
-    else:
-        cur.execute(
-            """
-            SELECT COALESCE(SUM(rf.amount_usd), 0) AS usd,
-                   COALESCE(SUM(rf.amount_lbp), 0) AS lbp
-            FROM sales_refunds rf
-            JOIN sales_returns sr ON sr.id = rf.sales_return_id
-            WHERE sr.company_id = %s
-              AND sr.device_id = %s
-              AND sr.created_at >= %s
-              AND sr.status = 'posted'
-              AND lower(coalesce(rf.method, '')) = ANY(%s)
-            """,
-            (company_id, device_id, opened_at, cash_methods_norm),
-        )
-    rrow = cur.fetchone()
-    if rrow:
-        refunds_usd = Decimal(str(rrow["usd"] or 0))
-        refunds_lbp = Decimal(str(rrow["lbp"] or 0))
+    if cash_methods_norm:
+        if shift_id:
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(rf.amount_usd), 0) AS usd,
+                       COALESCE(SUM(rf.amount_lbp), 0) AS lbp
+                FROM sales_refunds rf
+                JOIN sales_returns sr ON sr.id = rf.sales_return_id
+                WHERE sr.company_id = %s
+                  AND sr.shift_id = %s
+                  AND sr.status = 'posted'
+                  AND lower(coalesce(rf.method, '')) = ANY(%s)
+                """,
+                (company_id, shift_id, cash_methods_norm),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT COALESCE(SUM(rf.amount_usd), 0) AS usd,
+                       COALESCE(SUM(rf.amount_lbp), 0) AS lbp
+                FROM sales_refunds rf
+                JOIN sales_returns sr ON sr.id = rf.sales_return_id
+                WHERE sr.company_id = %s
+                  AND sr.device_id = %s
+                  AND sr.created_at >= %s
+                  AND sr.status = 'posted'
+                  AND lower(coalesce(rf.method, '')) = ANY(%s)
+                """,
+                (company_id, device_id, opened_at, cash_methods_norm),
+            )
+        rrow = cur.fetchone() or {}
+        refunds_usd = Decimal(str(rrow.get("usd") or 0))
+        refunds_lbp = Decimal(str(rrow.get("lbp") or 0))
 
     movements_usd = Decimal("0")
     movements_lbp = Decimal("0")
@@ -2475,17 +2476,18 @@ def shift_cash_reconciliation(shift_id: str, company_id: str = Depends(get_compa
             sales_lbp = Decimal("0")
             refunds_usd = Decimal("0")
             refunds_lbp = Decimal("0")
-            if cash_methods:
+            if cash_methods_norm:
                 cur.execute(
                     """
                     SELECT COALESCE(SUM(sp.amount_usd), 0) AS usd,
                            COALESCE(SUM(sp.amount_lbp), 0) AS lbp
                     FROM sales_payments sp
                     JOIN sales_invoices si ON si.id = sp.invoice_id
-                    WHERE si.company_id = %s AND si.shift_id = %s AND sp.method = ANY(%s)
+                    WHERE si.company_id = %s AND si.shift_id = %s
+                      AND lower(coalesce(sp.method, '')) = ANY(%s)
                       AND sp.voided_at IS NULL
                     """,
-                    (company_id, shift_id, cash_methods),
+                    (company_id, shift_id, cash_methods_norm),
                 )
                 row = cur.fetchone() or {}
                 sales_usd = Decimal(str(row.get("usd") or 0))
