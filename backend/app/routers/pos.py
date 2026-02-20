@@ -2237,7 +2237,7 @@ def get_open_shift(device=Depends(require_device)):
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
-            cash_methods, _ = _load_cash_methods(cur, str(device["company_id"]))
+            cash_methods, cash_methods_norm = _load_cash_methods(cur, str(device["company_id"]))
             cur.execute(
                 """
                 SELECT id, status, opened_at, opening_cash_usd, opening_cash_lbp
@@ -2258,6 +2258,7 @@ def get_open_shift(device=Depends(require_device)):
                     row["opened_at"],
                     row["opening_cash_usd"],
                     row["opening_cash_lbp"],
+                    cash_methods_norm=cash_methods_norm,
                 )
                 row["expected_closing_cash_usd"] = expected_usd
                 row["expected_closing_cash_lbp"] = expected_lbp
@@ -2274,7 +2275,7 @@ def open_shift(data: ShiftOpenIn, device=Depends(require_device)):
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
-            cash_methods, _ = _load_cash_methods(cur, str(device["company_id"]))
+            cash_methods, cash_methods_norm = _load_cash_methods(cur, str(device["company_id"]))
             cur.execute(
                 """
                 SELECT id FROM pos_shifts
@@ -2316,8 +2317,10 @@ def _expected_cash(
     opened_at,
     opening_cash_usd: Decimal,
     opening_cash_lbp: Decimal,
+    cash_methods_norm: Optional[list[str]] = None,
 ):
-    _cash_methods, cash_methods_norm = _load_cash_methods(cur, company_id)
+    if cash_methods_norm is None:
+        _cash_methods, cash_methods_norm = _load_cash_methods(cur, company_id)
     sales_usd = Decimal("0")
     sales_lbp = Decimal("0")
     if cash_methods_norm:
@@ -2328,7 +2331,7 @@ def _expected_cash(
                 FROM sales_payments sp
                 JOIN sales_invoices si ON si.id = sp.invoice_id
                 WHERE si.company_id = %s AND si.shift_id = %s
-                  AND lower(coalesce(sp.method, '')) = ANY(%s)
+                  AND lower(sp.method) = ANY(%s)
                   AND sp.voided_at IS NULL
             """
             params = [company_id, shift_id, cash_methods_norm]
@@ -2340,7 +2343,7 @@ def _expected_cash(
                 JOIN sales_invoices si ON si.id = sp.invoice_id
                 WHERE si.company_id = %s AND si.device_id = %s
                   AND si.created_at >= %s
-                  AND lower(coalesce(sp.method, '')) = ANY(%s)
+                  AND lower(sp.method) = ANY(%s)
                   AND sp.voided_at IS NULL
             """
             params = [company_id, device_id, opened_at, cash_methods_norm]
@@ -2362,7 +2365,7 @@ def _expected_cash(
                 WHERE sr.company_id = %s
                   AND sr.shift_id = %s
                   AND sr.status = 'posted'
-                  AND lower(coalesce(rf.method, '')) = ANY(%s)
+                  AND lower(rf.method) = ANY(%s)
                 """,
                 (company_id, shift_id, cash_methods_norm),
             )
@@ -2377,7 +2380,7 @@ def _expected_cash(
                   AND sr.device_id = %s
                   AND sr.created_at >= %s
                   AND sr.status = 'posted'
-                  AND lower(coalesce(rf.method, '')) = ANY(%s)
+                  AND lower(rf.method) = ANY(%s)
                 """,
                 (company_id, device_id, opened_at, cash_methods_norm),
             )
@@ -2434,6 +2437,7 @@ def close_shift(shift_id: str, data: ShiftCloseIn, device=Depends(require_device
                 row["opened_at"],
                 row["opening_cash_usd"],
                 row["opening_cash_lbp"],
+                cash_methods_norm=cash_methods_norm,
             )
             variance_usd = Decimal(str(data.closing_cash_usd)) - expected_usd
             variance_lbp = Decimal(str(data.closing_cash_lbp)) - expected_lbp
@@ -2512,7 +2516,7 @@ def shift_cash_reconciliation(shift_id: str, company_id: str = Depends(get_compa
                     FROM sales_payments sp
                     JOIN sales_invoices si ON si.id = sp.invoice_id
                     WHERE si.company_id = %s AND si.shift_id = %s
-                      AND lower(coalesce(sp.method, '')) = ANY(%s)
+                      AND lower(sp.method) = ANY(%s)
                       AND sp.voided_at IS NULL
                     """,
                     (company_id, shift_id, cash_methods_norm),
@@ -2530,7 +2534,7 @@ def shift_cash_reconciliation(shift_id: str, company_id: str = Depends(get_compa
                     WHERE sr.company_id = %s
                       AND sr.shift_id = %s
                       AND sr.status = 'posted'
-                      AND lower(coalesce(rf.method, '')) = ANY(%s)
+                      AND lower(rf.method) = ANY(%s)
                     """,
                     (company_id, shift_id, cash_methods_norm),
                 )

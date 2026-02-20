@@ -682,6 +682,15 @@
     const key = _shiftCompany(companyKey);
     return Array.isArray((shiftCashMethodsByCompany || {})[key]) ? (shiftCashMethodsByCompany || {})[key] : [];
   };
+  const _setShiftIdForCompany = (companyKey, shiftId = "") => {
+    const key = normalizeCompanyKey(companyKey);
+    const nextShiftId = String(shiftId || "").trim();
+    if (key === otherCompanyKey) {
+      unofficialConfig = { ...unofficialConfig, shift_id: nextShiftId };
+    } else {
+      config = { ...config, shift_id: nextShiftId };
+    }
+  };
   const _shiftExpectedUsdFrom = (srcShift, fallback = 0) => (
     toNum(_shiftPickMoney(srcShift || {}, ["expected_closing_cash_usd", "expected_cash_usd", "cash_expected_usd"], _shiftPickMoney(srcShift || {}, ["opening_cash_usd", "opening_usd"], fallback)), 0)
   );
@@ -5370,6 +5379,7 @@
       const res = await apiCallFor(targetCompany, "/shift/status", { method: "POST", body: {} });
       const nextShift = res?.shift || null;
       _setShiftCashSetup(targetCompany, res?.cash_methods || [], res?.has_cash_method_mapping);
+      _setShiftIdForCompany(targetCompany, nextShift?.id || "");
       if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
       shift = nextShift;
       if (nextShift) {
@@ -5377,7 +5387,6 @@
       } else {
         _setShiftClosingTouched(targetCompany, false);
       }
-      await fetchData();
       if (!quiet) reportNotice(nextShift ? `${targetCompany} shift is open` : `${targetCompany} has no open shift`);
     } catch (e) {
       reportError(e.message);
@@ -5408,12 +5417,13 @@
       });
       const nextShift = res?.shift || null;
       _setShiftCashSetup(targetCompany, res?.cash_methods || [], res?.has_cash_method_mapping);
+      _setShiftIdForCompany(targetCompany, nextShift?.id || "");
       if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
       shift = nextShift;
       _setShiftClosingTouched(targetCompany, false);
       closingCashUsd = toNum(_shiftPickMoney(nextShift, ["opening_cash_usd", "opening_usd"], openingCashUsd), 0);
       closingCashLbp = toNum(_shiftPickMoney(nextShift, ["opening_cash_lbp", "opening_lbp"], openingCashLbp), 0);
-      await fetchData();
+      Promise.resolve().then(() => fetchData({ background: true })).catch(() => {});
       reportNotice(`Shift opened (${targetCompany})`);
       showShiftModal = false;
     } catch (e) {
@@ -5445,10 +5455,11 @@
       });
       const nextShift = res?.shift || null;
       _setShiftCashSetup(targetCompany, res?.cash_methods || [], res?.has_cash_method_mapping);
+      _setShiftIdForCompany(targetCompany, nextShift?.id || "");
       if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
       shift = nextShift;
       _setShiftClosingTouched(targetCompany, false);
-      await fetchData();
+      Promise.resolve().then(() => fetchData({ background: true })).catch(() => {});
       reportNotice(`Shift closed (${targetCompany})`);
       showShiftModal = false;
     } catch (e) {
