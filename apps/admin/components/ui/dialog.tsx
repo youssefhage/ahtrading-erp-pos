@@ -14,6 +14,23 @@ const DialogPortal = DialogPrimitive.Portal;
 
 const DialogClose = DialogPrimitive.Close;
 
+function isKeepOpenTarget(event: unknown): boolean {
+  const e = event as {
+    target?: EventTarget;
+    detail?: { originalEvent?: { target?: EventTarget; composedPath?: () => EventTarget[] } };
+  };
+  const targets: EventTarget[] = [];
+  if (e?.target) targets.push(e.target);
+  if (e?.detail?.originalEvent?.target) targets.push(e.detail.originalEvent.target);
+  const path = e?.detail?.originalEvent?.composedPath?.();
+  if (Array.isArray(path)) {
+    for (const node of path) targets.push(node);
+  }
+  return targets.some(
+    (node) => node instanceof HTMLElement && Boolean(node.closest('[data-dialog-keepopen="true"]'))
+  );
+}
+
 const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Overlay>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
@@ -47,8 +64,7 @@ const DialogContent = React.forwardRef<
       onPointerDownOutside={(e) => {
         // Some controls (like SearchableSelect) render popovers in a body portal.
         // Without this, Radix considers clicks in those popovers as "outside" and closes the dialog.
-        const target = e.target as HTMLElement | null;
-        if (target && target.closest('[data-dialog-keepopen="true"]')) {
+        if (isKeepOpenTarget(e)) {
           e.preventDefault();
           return;
         }
@@ -57,16 +73,14 @@ const DialogContent = React.forwardRef<
       onFocusOutside={(e) => {
         // When a portal popover focuses an input (e.g. SearchableSelect search box),
         // Radix will treat it as a focus-outside and close the dialog unless we block it.
-        const target = e.target as HTMLElement | null;
-        if (target && target.closest('[data-dialog-keepopen="true"]')) {
+        if (isKeepOpenTarget(e)) {
           e.preventDefault();
           return;
         }
         onFocusOutside?.(e);
       }}
       onInteractOutside={(e) => {
-        const target = e.target as HTMLElement | null;
-        if (target && target.closest('[data-dialog-keepopen="true"]')) {
+        if (isKeepOpenTarget(e)) {
           e.preventDefault();
           return;
         }
