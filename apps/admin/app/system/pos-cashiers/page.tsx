@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ErrorBanner } from "@/components/error-banner";
-import { SearchableSelect } from "@/components/searchable-select";
 
 type CashierRow = {
   id: string;
@@ -244,13 +243,13 @@ export default function PosCashiersPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg-muted">Linked Employee (optional)</label>
-                    <SearchableSelect
-                      value={userId}
-                      onChange={setUserId}
-                      placeholder="No linked employee"
-                      searchPlaceholder="Search employees..."
-                      options={createEmployeeOptions}
-                    />
+                    <select className="ui-select" value={userId} onChange={(e) => setUserId(e.target.value)}>
+                      {createEmployeeOptions.map((opt) => (
+                        <option key={`create-emp-${opt.value || "none"}`} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg-muted">PIN</label>
@@ -332,13 +331,13 @@ export default function PosCashiersPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">Linked Employee (optional)</label>
-                <SearchableSelect
-                  value={editUserId}
-                  onChange={setEditUserId}
-                  placeholder="No linked employee"
-                  searchPlaceholder="Search employees..."
-                  options={editEmployeeOptions}
-                />
+                <select className="ui-select" value={editUserId} onChange={(e) => setEditUserId(e.target.value)}>
+                  {editEmployeeOptions.map((opt) => (
+                    <option key={`edit-emp-${opt.value || "none"}`} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-fg-muted">New PIN (optional)</label>
