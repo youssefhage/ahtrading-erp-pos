@@ -48,9 +48,10 @@
     /* Ring focus */
     --ring: 37 99 235;    /* blue-600 */
 
-    /* Text selection: use accent tint so highlighted text is clearly visible. */
+    /* Text selection: enforce strong contrast across themes and form controls. */
     --selection: var(--primary);
-    --selection-alpha: 0.28;
+    --selection-alpha: 0.5;
+    --selection-fg: var(--primary-fg);
   }
 
   /*
@@ -185,7 +186,8 @@
 
     /* Text selection: stronger in dark mode for clear contrast. */
     --selection: var(--primary);
-    --selection-alpha: 0.36;
+    --selection-alpha: 0.58;
+    --selection-fg: var(--primary-fg);
   }
 
   * {
@@ -229,12 +231,26 @@
 
   ::selection {
     background: rgba(var(--selection), var(--selection-alpha));
-    color: rgb(var(--fg));
+    color: rgb(var(--selection-fg));
   }
 
   ::-moz-selection {
     background: rgba(var(--selection), var(--selection-alpha));
-    color: rgb(var(--fg));
+    color: rgb(var(--selection-fg));
+  }
+
+  input::selection,
+  textarea::selection,
+  [contenteditable="true"]::selection {
+    background: rgba(var(--selection), var(--selection-alpha));
+    color: rgb(var(--selection-fg));
+  }
+
+  input::-moz-selection,
+  textarea::-moz-selection,
+  [contenteditable="true"]::-moz-selection {
+    background: rgba(var(--selection), var(--selection-alpha));
+    color: rgb(var(--selection-fg));
   }
 
   code {
