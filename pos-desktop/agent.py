@@ -1985,26 +1985,70 @@ def _get_outbox_event(event_id: str) -> Optional[dict]:
 
 
 def _require_print_base_url(cfg: dict) -> str:
-    raw = str(cfg.get("print_base_url") or "").strip()
-    if not raw:
+    bases = _print_base_candidates(cfg)
+    if not bases:
         raise ValueError("missing print_base_url (Admin URL)")
-    return raw.rstrip("/")
+    return bases[0]
+
+
+def _admin_base_from_api_base(value) -> str:
+    base = _normalize_api_base_url(value)
+    if not base:
+        return ""
+    try:
+        u = urlparse(base)
+    except Exception:
+        return base
+    path = str(u.path or "").rstrip("/")
+    lower = path.lower()
+    if lower.endswith("/api"):
+        path = path[:-4]
+    else:
+        idx = lower.find("/api/")
+        if idx >= 0:
+            path = path[:idx]
+    return u._replace(path=(path or "/"), params="", query="", fragment="").geturl().rstrip("/")
+
+
+def _print_base_candidates(cfg: dict) -> list[str]:
+    out: list[str] = []
+
+    def _add(value) -> None:
+        base = _normalize_api_base_url(value)
+        if not base:
+            return
+        if base not in out:
+            out.append(base)
+
+    _add(cfg.get("print_base_url"))
+    _add(_admin_base_from_api_base(cfg.get("cloud_api_base_url") or cfg.get("api_base_url") or cfg.get("edge_api_base_url")))
+    _add(_admin_base_from_api_base(cfg.get("api_base_url")))
+    return out
 
 
 def _fetch_invoice_pdf(cfg: dict, invoice_id: str, template: Optional[str] = None) -> bytes:
     """
     Fetch the A4 invoice PDF from the Admin app exports route using device headers.
     """
-    base = _require_print_base_url(cfg)
     invoice_id = (invoice_id or "").strip()
     if not invoice_id:
         raise ValueError("missing invoice_id")
 
     tpl = _normalize_invoice_template_id(template if template is not None else cfg.get("invoice_template"))
-    url = f"{base}/exports/sales-invoices/{quote(invoice_id)}/pdf?inline=1&template={quote(tpl)}"
-    req = Request(url, headers={**device_headers(cfg), "Accept": "application/pdf"}, method="GET")
-    with urlopen(req, timeout=30) as resp:
-        return resp.read()
+    bases = _print_base_candidates(cfg)
+    if not bases:
+        raise ValueError("missing print_base_url (Admin URL)")
+    last_err: Optional[str] = None
+    for base in bases:
+        url = f"{base}/exports/sales-invoices/{quote(invoice_id)}/pdf?inline=1&template={quote(tpl)}"
+        req = Request(url, headers={**device_headers(cfg), "Accept": "application/pdf"}, method="GET")
+        try:
+            with urlopen(req, timeout=20) as resp:
+                return resp.read()
+        except Exception as ex:
+            last_err = str(ex)
+            continue
+    raise ValueError(f"invoice PDF fetch failed for all Admin URL candidates: {last_err or 'unknown error'}")
 
 
 def _resolve_sales_invoice_from_event(cfg: dict, event_id: str) -> dict:

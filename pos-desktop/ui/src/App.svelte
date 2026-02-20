@@ -618,6 +618,7 @@
   let showCashierModal = false;
   let cashierCompanyKey = "official";
   let cashierPin = "";
+  let cashierLoginCashierId = "";
   let cashierPinEl = null;
   let cashierOfficialManager = false;
   let cashierUnofficialManager = false;
@@ -725,6 +726,19 @@
     : String(config?.cashier_id || "").trim();
   $: selectedCashierName = selectedCashierCompanyKey === otherCompanyKey ? cashierUnofficialName : cashierOfficialName;
   $: selectedCashierSignedIn = !!selectedCashierId;
+  $: cashierChoices = selectedCashierCompanyKey === otherCompanyKey ? unofficialCashiers : cashiers;
+  $: {
+    const options = Array.isArray(cashierChoices) ? cashierChoices : [];
+    const ids = new Set(options.map((c) => String(c?.id || "").trim()).filter((id) => !!id));
+    let nextSelected = String(cashierLoginCashierId || "").trim();
+    if (!nextSelected || !ids.has(nextSelected)) {
+      const currentSignedIn = String(selectedCashierId || "").trim();
+      nextSelected = ids.has(currentSignedIn)
+        ? currentSignedIn
+        : String(options?.[0]?.id || "").trim();
+    }
+    if (nextSelected !== cashierLoginCashierId) cashierLoginCashierId = nextSelected;
+  }
   $: cashierModalSubtitle = selectedCashierSignedIn
     ? `${selectedCashierName} is signed in for selected company. Enter PIN to switch cashier, or sign out current.`
     : "No cashier is signed in for selected company. Enter PIN to sign in.";
@@ -2065,9 +2079,22 @@
     return { ok: true, invoice_id: detail?.invoice?.id || null };
   };
 
-  const _invoicePdfUrlFromCfg = (cfg, invoiceId) => {
+  const _resolvePrintBaseUrl = (companyKey, cfg = null) => {
+    const localCfg = cfg || cfgForCompanyKey(companyKey) || {};
+    const explicit = _normalizeOriginUrl(String(localCfg?.print_base_url || "").trim());
+    if (explicit) return explicit;
+    const fromApi = _adminBaseFromApiBase(_webPosApiBaseFor(companyKey));
+    if (fromApi) return fromApi;
+    try {
+      return _normalizeOriginUrl(String(window?.location?.origin || "").trim());
+    } catch (_) {
+      return "";
+    }
+  };
+
+  const _invoicePdfUrlFromCfg = (companyKey, cfg, invoiceId) => {
     const invId = String(invoiceId || "").trim();
-    const pb = String(cfg?.print_base_url || "").trim().replace(/\/+$/, "");
+    const pb = _resolvePrintBaseUrl(companyKey, cfg);
     if (!invId || !pb) return "";
     const tplRaw = String(cfg?.invoice_template || "official_classic").trim().toLowerCase();
     const tpl = (tplRaw === "official_classic" || tplRaw === "official_compact" || tplRaw === "standard")
@@ -2076,9 +2103,9 @@
     return `${pb}/exports/sales-invoices/${encodeURIComponent(invId)}/pdf?inline=1&template=${encodeURIComponent(tpl)}`;
   };
 
-  const _receiptPdfUrlFromCfg = (cfg, invoiceId) => {
+  const _receiptPdfUrlFromCfg = (companyKey, cfg, invoiceId) => {
     const invId = String(invoiceId || "").trim();
-    const pb = String(cfg?.print_base_url || "").trim().replace(/\/+$/, "");
+    const pb = _resolvePrintBaseUrl(companyKey, cfg);
     if (!invId || !pb) return "";
     return `${pb}/exports/sales-receipts/${encodeURIComponent(invId)}/pdf?inline=1`;
   };
@@ -2105,14 +2132,14 @@
     if (!invoiceId) throw new Error("invoice not found for event");
     if (thermal && companyKey !== "official") {
       const cfg = cfgForCompanyKey(companyKey) || {};
-      const pdfUrl = _receiptPdfUrlFromCfg(cfg, invoiceId);
+      const pdfUrl = _receiptPdfUrlFromCfg(companyKey, cfg, invoiceId);
       if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
         return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
       }
     }
     if (!thermal && companyKey === "official") {
       const cfg = cfgForCompanyKey(companyKey) || {};
-      const pdfUrl = _invoicePdfUrlFromCfg(cfg, invoiceId);
+      const pdfUrl = _invoicePdfUrlFromCfg(companyKey, cfg, invoiceId);
       if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
         return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
       }
@@ -2129,14 +2156,14 @@
     if (!invoiceId) throw new Error("No receipt found for this device.");
     if (thermal && companyKey !== "official") {
       const cfg = cfgForCompanyKey(companyKey) || {};
-      const pdfUrl = _receiptPdfUrlFromCfg(cfg, invoiceId);
+      const pdfUrl = _receiptPdfUrlFromCfg(companyKey, cfg, invoiceId);
       if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
         return { ok: true, invoice_id: invoiceId };
       }
     }
     if (!thermal && companyKey === "official") {
       const cfg = cfgForCompanyKey(companyKey) || {};
-      const pdfUrl = _invoicePdfUrlFromCfg(cfg, invoiceId);
+      const pdfUrl = _invoicePdfUrlFromCfg(companyKey, cfg, invoiceId);
       if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
         return { ok: true, invoice_id: invoiceId };
       }
@@ -2517,16 +2544,24 @@
     }
     if (method === "POST" && pathname === "/cashiers/login") {
       const pin = String(body?.pin || "").trim();
+      const cashierId = String(body?.cashier_id || "").trim();
       if (!pin) throw new Error("PIN is required.");
+      if (!cashierId) throw new Error("Select cashier name.");
       let res = null;
       try {
-        res = await _webPosCall(companyKey, "/pos/cashiers/verify", { method: "POST", body: { pin } });
+        res = await _webPosCall(companyKey, "/pos/cashiers/verify", {
+          method: "POST",
+          body: { pin, cashier_id: cashierId },
+        });
       } catch (e) {
         const status = toNum(e?.status, 0);
         const message = String(e?.message || "").trim();
         const lowerMessage = message.toLowerCase();
         if (status === 403 && lowerMessage.includes("not assigned")) {
           throw new Error(`Cashier is not assigned to this ${companyKey} device. Update device cashier/employee assignments in Admin.`);
+        }
+        if (status === 404 && lowerMessage.includes("cashier")) {
+          throw new Error(`Selected cashier is no longer available for ${companyKey}. Refresh cashiers and try again.`);
         }
         if (status === 401) {
           if (lowerMessage.includes("device token") || lowerMessage.includes("device is not connected") || lowerMessage.includes("missing device")) {
@@ -2545,7 +2580,7 @@
             }
             if (innerLower.includes("no active cashiers")) throw inner;
           }
-          throw new Error(`Invalid PIN for ${companyKey} cashier.`);
+          throw new Error(`Invalid PIN for selected ${companyKey} cashier.`);
         }
         throw e;
       }
@@ -2986,13 +3021,8 @@
           }
           const resolved = await apiCallFor(companyKey, "/invoices/resolve-by-event", { method: "POST", body: { event_id: eid } });
           const invId = String(resolved?.invoice_id || "").trim();
-          const pb = String(cfg.print_base_url || "").trim().replace(/\/+$/, "");
-          if (invId && pb) {
-            const tplRaw = String(cfg.invoice_template || "official_classic").trim().toLowerCase();
-            const tpl = (tplRaw === "official_classic" || tplRaw === "official_compact" || tplRaw === "standard")
-              ? tplRaw
-              : "official_classic";
-            const u = `${pb}/exports/sales-invoices/${encodeURIComponent(invId)}/pdf?inline=1&template=${encodeURIComponent(tpl)}`;
+          const u = _invoicePdfUrlFromCfg(companyKey, cfg, invId);
+          if (u) {
             if (receiptWin) receiptWin.location = u;
             else window.open(u, "_blank", "noopener,noreferrer");
             return;
@@ -3857,7 +3887,7 @@
       printer: String(offCfg.invoice_printer || "").trim(),
       copies: Math.max(1, Math.min(10, toNum(offCfg.invoice_print_copies, 1))),
       auto: !!offCfg.auto_print_invoice,
-      baseUrl: String(offCfg.print_base_url || "").trim(),
+      baseUrl: _resolvePrintBaseUrl("official", offCfg),
       template: String(offCfg.invoice_template || "official_classic").trim().toLowerCase() || "official_classic",
     };
     printUnofficial = {
@@ -4806,6 +4836,35 @@
     managerApprovalPendingCompanies = [];
     const checkoutIntent = checkoutIntentId || makeIntentId();
     checkoutIntentId = checkoutIntent;
+    const preopenedPrintWindows = {};
+    const consumedPrintWindows = new Set();
+
+    const primePrintWindowFor = (companyKey) => {
+      const key = normalizeCompanyKey(companyKey);
+      let win = preopenedPrintWindows[key] || null;
+      try {
+        if (win && win.closed) win = null;
+      } catch (_) {
+        win = null;
+      }
+      if (!win) {
+        try { win = _openManagedPrintWindow(); } catch (_) { win = null; }
+        if (win) {
+          try {
+            win.document.open();
+            win.document.write(
+              "<!doctype html><html><head><meta charset=\"utf-8\" /><title>Preparing print...</title></head><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:16px;color:#111\">Preparing print preview...</body></html>",
+            );
+            win.document.close();
+          } catch (_) {}
+        }
+        preopenedPrintWindows[key] = win;
+      }
+      return win;
+    };
+    const markPrintWindowConsumed = (companyKey) => {
+      consumedPrintWindows.add(normalizeCompanyKey(companyKey));
+    };
     
     try {
       // Returns: enforce company-correct routing (single company or split by company).
@@ -4979,6 +5038,7 @@
             return;
           }
         }
+        const receiptWin = primePrintWindowFor(invoiceCompany);
         const customer_id = await resolveCustomerId(invoiceCompany);
         if (requested_customer_id && !customer_id) {
           reportNotice("Customer not found on Official. Proceeding as walk-in.");
@@ -5021,9 +5081,8 @@
         checkoutIntentId = "";
         fetchData();
         reportNotice(`Sale queued (official): ${res.event_id || "ok"}`);
-        let receiptWin = null;
-        try { receiptWin = _openManagedPrintWindow(); } catch (_) {}
         await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
+        markPrintWindowConsumed(invoiceCompany);
         return;
       }
 
@@ -5048,6 +5107,7 @@
 
         if (!ensureCashierForCompanies(companiesInOrder, "split sale")) return;
         if (!ensureShiftForCompanies(companiesInOrder, "split sale")) return;
+        for (const companyKey of companiesInOrder) primePrintWindowFor(companyKey);
         _assertSplitTotalsConsistent(
           companiesInOrder.map((companyKey) => ({ companyKey, lines: cart.filter((c) => c.companyKey === companyKey) })),
         );
@@ -5103,9 +5163,9 @@
 
             // Remove only the successfully invoiced lines.
             cart = cart.filter((c) => c.companyKey !== companyKey);
-            let receiptWin = null;
-            try { receiptWin = _openManagedPrintWindow(); } catch (_) {}
+            const receiptWin = primePrintWindowFor(companyKey);
             await printAfterSale(companyKey, res?.event_id || "", receiptWin);
+            markPrintWindowConsumed(companyKey);
           } catch (e) {
             const pe = e?.payload;
             if (pe?.error === "manager_approval_required" || pe?.error === "pos_auth_required") throw e;
@@ -5141,6 +5201,7 @@
           return;
         }
       }
+      const receiptWin = primePrintWindowFor(invoiceCompany);
       const customer_id = await resolveCustomerId(invoiceCompany);
       if (requested_customer_id && !customer_id) {
         reportNotice(`Customer not found on ${invoiceCompany}. Proceeding as walk-in.`);
@@ -5185,9 +5246,8 @@
       activeCustomer = null;
       checkoutIntentId = "";
       fetchData();
-      let receiptWin = null;
-      try { receiptWin = _openManagedPrintWindow(); } catch (_) {}
       await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
+      markPrintWindowConsumed(invoiceCompany);
     } catch(e) {
       const p = e?.payload;
       if (p?.error === "pos_auth_required") {
@@ -5210,6 +5270,10 @@
         reportError(e.message);
       }
     } finally {
+      for (const [companyKey, win] of Object.entries(preopenedPrintWindows)) {
+        if (consumedPrintWindows.has(normalizeCompanyKey(companyKey))) continue;
+        try { if (win && !win.closed) win.close(); } catch (_) {}
+      }
       loading = false;
       checkoutInFlight = false;
     }
@@ -5273,11 +5337,16 @@
 
   const cashierLogin = async () => {
     const pin = (cashierPin || "").trim();
+    const cashier_id = String(cashierLoginCashierId || "").trim();
     if (!pin) return;
+    if (!cashier_id) {
+      reportError("Select cashier name first.");
+      return;
+    }
     const companyKey = normalizeCompanyKey(cashierCompanyKey || originCompanyKey);
     try {
       loading = true;
-      const res = await apiCallFor(companyKey, "/cashiers/login", { method: "POST", body: { pin } });
+      const res = await apiCallFor(companyKey, "/cashiers/login", { method: "POST", body: { pin, cashier_id } });
       if (companyKey === otherCompanyKey) unofficialConfig = { ...unofficialConfig, ...(res?.config || {}) };
       else config = { ...config, ...(res?.config || {}) };
       _setCashierManagerMetaFor(companyKey, res?.cashier || null);
@@ -6755,6 +6824,21 @@
           Current cashier:
           <span class="font-semibold text-ink/80">{selectedCashierName}</span>
         </div>
+        <label class="text-xs text-muted uppercase tracking-wider font-bold" for="cashier-select">Cashier</label>
+        <select
+          id="cashier-select"
+          class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-accent/50 focus:outline-none"
+          bind:value={cashierLoginCashierId}
+          disabled={loading || !cashierChoices.length}
+        >
+          {#if !cashierChoices.length}
+            <option value="">No active cashiers available</option>
+          {:else}
+            {#each cashierChoices as c}
+              <option value={c.id}>{c.name}</option>
+            {/each}
+          {/if}
+        </select>
         <label class="sr-only" for="cashier-pin">PIN</label>
         <input
           class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-3 font-mono text-lg tracking-widest focus:ring-2 focus:ring-accent/50 focus:outline-none"
@@ -6785,7 +6869,7 @@
           <button
             class="flex-[2] py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
             on:click={cashierLogin}
-            disabled={loading}
+            disabled={loading || !cashierLoginCashierId}
             title={selectedCashierSignedIn ? "Switch cashier with PIN" : "Sign in cashier with PIN"}
             type="button"
           >

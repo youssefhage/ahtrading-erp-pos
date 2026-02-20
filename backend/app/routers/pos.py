@@ -2801,6 +2801,7 @@ class CashierUpdate(BaseModel):
 
 class CashierVerifyIn(BaseModel):
     pin: str
+    cashier_id: Optional[str] = None
 
 
 @router.get("/cashiers", dependencies=[Depends(require_permission("pos:manage"))])
@@ -3393,26 +3394,55 @@ def verify_cashier(data: CashierVerifyIn, device=Depends(require_device)):
     pin = (data.pin or "").strip()
     if not pin:
         raise HTTPException(status_code=400, detail="pin is required")
+    target_cashier_id = _normalize_optional_uuid_text(data.cashier_id)
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
             rows = _eligible_cashiers_for_device(cur, str(device["company_id"]), str(device["device_id"]))
+            def _cashier_payload(row):
+                meta = _cashier_manager_meta(cur, str(device["company_id"]), str(row.get("user_id") or ""))
+                return {
+                    "cashier": {
+                        "id": row["id"],
+                        "name": row["name"],
+                        "user_id": row.get("user_id"),
+                        "role": meta.get("role"),
+                        "roles": meta.get("roles") or [],
+                        "permissions": meta.get("permissions") or [],
+                        "can_manager_approve": bool(meta.get("can_manager_approve")),
+                        "is_manager": bool(meta.get("is_manager")),
+                        "is_admin": bool(meta.get("is_admin")),
+                    }
+                }
+
+            if target_cashier_id:
+                target_row = None
+                for r in rows:
+                    if str(r.get("id") or "") == target_cashier_id:
+                        target_row = r
+                        break
+                if not target_row:
+                    cur.execute(
+                        """
+                        SELECT 1
+                        FROM pos_cashiers
+                        WHERE company_id = %s
+                          AND id = %s
+                          AND is_active = true
+                        LIMIT 1
+                        """,
+                        (device["company_id"], target_cashier_id),
+                    )
+                    if cur.fetchone():
+                        raise HTTPException(status_code=403, detail="cashier is not assigned to this device")
+                    raise HTTPException(status_code=404, detail="cashier not found")
+                if not verify_pin(pin, target_row["pin_hash"]):
+                    raise HTTPException(status_code=401, detail="invalid pin")
+                return _cashier_payload(target_row)
+
             for r in rows:
                 if verify_pin(pin, r["pin_hash"]):
-                    meta = _cashier_manager_meta(cur, str(device["company_id"]), str(r.get("user_id") or ""))
-                    return {
-                        "cashier": {
-                            "id": r["id"],
-                            "name": r["name"],
-                            "user_id": r.get("user_id"),
-                            "role": meta.get("role"),
-                            "roles": meta.get("roles") or [],
-                            "permissions": meta.get("permissions") or [],
-                            "can_manager_approve": bool(meta.get("can_manager_approve")),
-                            "is_manager": bool(meta.get("is_manager")),
-                            "is_admin": bool(meta.get("is_admin")),
-                        }
-                    }
+                    return _cashier_payload(r)
             # Better operator UX: if PIN is valid for an active cashier but that cashier
             # is filtered out by device assignments, return a specific error.
             eligible_ids = {str(r.get("id")) for r in rows if r.get("id")}
