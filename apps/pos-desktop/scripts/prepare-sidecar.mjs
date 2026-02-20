@@ -26,10 +26,15 @@ function requiredSidecarPath() {
 }
 
 function run(cmd, args, { cwd = repoRoot } = {}) {
-  const res = spawnSync(cmd, args, {
+  const resolvedCmd =
+    process.platform === "win32" && (cmd === "npm" || cmd === "npx") ? `${cmd}.cmd` : cmd;
+  const res = spawnSync(resolvedCmd, args, {
     cwd,
     stdio: "inherit",
   });
+  if (res.error) {
+    console.error(`[pos-desktop] failed to start command (${resolvedCmd}): ${res.error.message}`);
+  }
   return (res.status ?? 1) === 0;
 }
 

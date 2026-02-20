@@ -35,11 +35,15 @@ function requestedBundles(args) {
 }
 
 function runBuild(args) {
-  const res = spawnSync("npx", ["tauri", "build", ...args], {
+  const npxCmd = process.platform === "win32" ? "npx.cmd" : "npx";
+  const res = spawnSync(npxCmd, ["tauri", "build", ...args], {
     cwd: appRoot,
     stdio: "inherit",
     env: process.env,
   });
+  if (res.error) {
+    console.error(`[pos-desktop] failed to start Tauri build command (${npxCmd}): ${res.error.message}`);
+  }
   return res.status ?? 1;
 }
 
