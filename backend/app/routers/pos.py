@@ -1447,7 +1447,7 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
                         jsonb_build_object(
                           'id', b.id,
                           'barcode', b.barcode,
-                          'qty_factor', b.qty_factor,
+                          'qty_factor', COALESCE(c.to_base_factor, b.qty_factor),
                           'uom_code', b.uom_code,
                           'label', b.label,
                           'is_primary', b.is_primary
@@ -1455,6 +1455,10 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
                         ORDER BY b.is_primary DESC, b.created_at ASC
                     ) AS barcodes
                     FROM item_barcodes b
+                    LEFT JOIN item_uom_conversions c
+                      ON c.company_id = b.company_id
+                     AND c.item_id = b.item_id
+                     AND c.uom_code = b.uom_code
                     WHERE b.company_id = i.company_id AND b.item_id = i.id
                 ) bc ON true
                 WHERE i.is_active = true
@@ -1555,7 +1559,7 @@ def catalog_delta(
                           jsonb_build_object(
                             'id', b.id,
                             'barcode', b.barcode,
-                            'qty_factor', b.qty_factor,
+                            'qty_factor', COALESCE(c.to_base_factor, b.qty_factor),
                             'uom_code', b.uom_code,
                             'label', b.label,
                             'is_primary', b.is_primary
@@ -1563,6 +1567,10 @@ def catalog_delta(
                           ORDER BY b.is_primary DESC, b.created_at ASC
                       ) AS barcodes
                       FROM item_barcodes b
+                      LEFT JOIN item_uom_conversions c
+                        ON c.company_id = b.company_id
+                       AND c.item_id = b.item_id
+                       AND c.uom_code = b.uom_code
                       WHERE b.company_id = i.company_id AND b.item_id = i.id
                   ) bc ON true
                   WHERE i.is_active = true

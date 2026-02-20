@@ -1547,13 +1547,17 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
     title = "Sale Receipt" if receipt_row.get("receipt_type") == "sale" else "Return Receipt"
     cashier = r.get("cashier") or {}
     cashier_name = cashier.get("name") or cashier.get("id") or "-"
+    customer_name = str(r.get("customer_name") or "").strip()
+    customer_id = str(r.get("customer_id") or "").strip()
+    customer_label = customer_name or customer_id or "-"
+    customer_balance = r.get("customer_balance") if isinstance(r.get("customer_balance"), dict) else None
 
     meta_rows = []
     meta_rows.append(f'<div class="muted">Time: <span class="mono">{e(r.get("created_at") or "-")}</span></div>')
     if template_id != "compact":
         meta_rows.append(f'<div class="muted">Event: <span class="mono">{e(r.get("event_id") or "-")}</span></div>')
         meta_rows.append(f'<div class="muted">Shift: <span class="mono">{e(r.get("shift_id") or "-")}</span></div>')
-    meta_rows.append(f'<div class="muted">Customer: <span class="mono">{e(r.get("customer_id") or "-")}</span></div>')
+    meta_rows.append(f'<div class="muted">Customer: <span class="mono">{e(customer_label)}</span></div>')
     meta_rows.append(f'<div class="muted">Cashier: <span>{e(cashier_name)}</span></div>')
     meta_rows.append(f'<div class="muted">Payment: <span>{e(r.get("payment_method") or "-")}</span></div>')
 
@@ -1593,6 +1597,14 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
         if not hide_vat_reference
         else ""
     )
+    balance_rows_html = ""
+    if hide_vat_reference and customer_balance:
+        balance_rows_html = (
+            f'<div class="row"><span class="muted">Previous Balance USD</span><strong class="mono">{e(fmt_usd(customer_balance.get("previous_usd")))}</strong></div>'
+            f'<div class="row"><span class="muted">Previous Balance LBP</span><strong class="mono">{e(fmt_lbp(customer_balance.get("previous_lbp")))}</strong></div>'
+            f'<div class="row"><span class="muted">Balance After Sale USD</span><strong class="mono">{e(fmt_usd(customer_balance.get("after_usd")))}</strong></div>'
+            f'<div class="row"><span class="muted">Balance After Sale LBP</span><strong class="mono">{e(fmt_lbp(customer_balance.get("after_lbp")))}</strong></div>'
+        )
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -1670,6 +1682,7 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
       {vat_row_html}
       <div class="row"><span class="muted">Total USD</span><strong class="mono">{e(fmt_usd(totals.get("total_usd")))}</strong></div>
       <div class="row"><span class="muted">Total LBP</span><strong class="mono">{e(fmt_lbp(totals.get("total_lbp")))}</strong></div>
+      {balance_rows_html}
     </div>
     {footer_html}
 
@@ -1708,6 +1721,10 @@ def _receipt_text(
     r = receipt_row.get("receipt") or {}
     lines = r.get("lines") or []
     totals = r.get("totals") or {}
+    customer_name = str(r.get("customer_name") or "").strip()
+    customer_id = str(r.get("customer_id") or "").strip()
+    customer_label = customer_name or customer_id or "-"
+    customer_balance = r.get("customer_balance") if isinstance(r.get("customer_balance"), dict) else None
 
     def clip(s: str) -> str:
         s = str(s or "")
@@ -1751,8 +1768,8 @@ def _receipt_text(
             out.append(f"Shift: {r.get('shift_id')}")
     if r.get("cashier", {}).get("name") or r.get("cashier", {}).get("id"):
         out.append(f"Cashier: {r.get('cashier', {}).get('name') or r.get('cashier', {}).get('id')}")
-    if r.get("customer_id"):
-        out.append(f"Customer: {r.get('customer_id')}")
+    if customer_label and customer_label != "-":
+        out.append(f"Customer: {customer_label}")
     if r.get("payment_method"):
         out.append(f"Payment: {r.get('payment_method')}")
     out.append("-" * width)
@@ -1777,6 +1794,11 @@ def _receipt_text(
         out.append(f"VAT USD:      {fmt_usd(totals.get('tax_usd'))}")
     out.append(f"Total USD:    {fmt_usd(totals.get('total_usd'))}")
     out.append(f"Total LBP:    {fmt_lbp(totals.get('total_lbp'))}")
+    if hide_vat_reference and customer_balance:
+        out.append(f"Prev Bal USD: {fmt_usd(customer_balance.get('previous_usd'))}")
+        out.append(f"Prev Bal LBP: {fmt_lbp(customer_balance.get('previous_lbp'))}")
+        out.append(f"After USD:    {fmt_usd(customer_balance.get('after_usd'))}")
+        out.append(f"After LBP:    {fmt_lbp(customer_balance.get('after_lbp'))}")
     if footer_label:
         out.append("-" * width)
         out.append(clip(footer_label))
@@ -3744,6 +3766,21 @@ class Handler(BaseHTTPRequestHandler):
                     vat_codes=(cfg.get("vat_codes") if isinstance(cfg.get("vat_codes"), dict) else None),
                 ),
             }
+            if customer_id:
+                cust = get_customer_by_id(str(customer_id))
+                prev_usd = float((cust or {}).get("credit_balance_usd") or 0)
+                prev_lbp = float((cust or {}).get("credit_balance_lbp") or 0)
+                delta_usd = float(receipt.get("totals", {}).get("total_usd") or 0) if pm == "credit" else 0.0
+                delta_lbp = float(receipt.get("totals", {}).get("total_lbp") or 0) if pm == "credit" else 0.0
+                receipt["customer_name"] = (cust or {}).get("name") or None
+                receipt["customer_balance"] = {
+                    "previous_usd": prev_usd,
+                    "previous_lbp": prev_lbp,
+                    "sale_delta_usd": delta_usd,
+                    "sale_delta_lbp": delta_lbp,
+                    "after_usd": prev_usd + delta_usd,
+                    "after_lbp": prev_lbp + delta_lbp,
+                }
             save_receipt("sale", receipt)
             resp = {
                 "event_id": event_id,

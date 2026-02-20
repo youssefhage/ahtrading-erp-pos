@@ -405,12 +405,25 @@ def main() -> int:
         up_uoms += int(res.get("upserted") or 0)
 
     # Barcodes.
+    factor_by_sku_uom: dict[tuple[str, str], str] = {}
+    for r in uoms_rows:
+        sku = str(r.get("sku") or "").strip()
+        u = str(r.get("uom_code") or "").strip().upper()
+        f = str(r.get("to_base_factor") or "").strip()
+        if sku and u and f:
+            factor_by_sku_uom[(sku, u)] = f
+
+    corrected_barcode_factors = 0
     bc_payload = []
     for r in barcodes_rows:
         sku = str(r.get("sku") or "").strip()
         bc = str(r.get("barcode") or "").strip()
         u = str(r.get("uom_code") or "").strip()
         qf = str(r.get("qty_factor") or "").strip() or "1"
+        mapped = factor_by_sku_uom.get((sku, u.upper())) if u else None
+        if mapped and mapped != qf:
+            qf = mapped
+            corrected_barcode_factors += 1
         primary = str(r.get("is_primary") or "false").strip().lower() == "true"
         if not sku or not bc:
             continue
@@ -450,6 +463,7 @@ def main() -> int:
                 "categories_assigned": up_cat,
                 "uom_conversions_upserted": up_uoms,
                 "barcodes_upserted": up_bcs,
+                "barcode_factors_corrected_from_uoms": corrected_barcode_factors,
                 "prices_upserted": up_prices,
             },
             indent=2,

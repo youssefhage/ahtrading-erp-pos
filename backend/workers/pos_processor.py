@@ -98,10 +98,15 @@ def q_points(v: Decimal) -> Decimal:
     return v.quantize(Decimal("0.0001"))
 
 UOM_Q6 = Decimal("0.000001")
+UOM_Q4 = Decimal("0.0001")
 
 
 def _q6(v: Decimal) -> Decimal:
     return v.quantize(UOM_Q6)
+
+
+def _q4(v: Decimal) -> Decimal:
+    return v.quantize(UOM_Q4)
 
 
 def _norm_uom_code(v) -> str | None:
@@ -182,20 +187,29 @@ def _resolve_line_uom(
         raise ValueError(f"{line_label}: missing UOM conversion for item_id={it} uom={u}")
     expected = _q6(expected)
 
+    # Keep canonical factor from conversions for storage; allow 4-decimal input
+    # factor only for consistency checks (legacy barcode precision).
+    factor_for_consistency = expected
     if qty_factor is not None:
         f_in = _q6(Decimal(str(qty_factor or 0)))
         if f_in <= 0:
             raise ValueError(f"{line_label}: qty_factor must be > 0")
         if f_in != expected:
-            raise ValueError(f"{line_label}: qty_factor mismatch for uom {u} (expected {expected}, got {f_in})")
+            if _q4(f_in) != _q4(expected):
+                raise ValueError(f"{line_label}: qty_factor mismatch for uom {u} (expected {expected}, got {f_in})")
+            factor_for_consistency = f_in
+        else:
+            factor_for_consistency = f_in
 
     if qty_entered is not None:
         qe_in = _q6(Decimal(str(qty_entered or 0)))
         if qe_in <= 0:
             raise ValueError(f"{line_label}: qty_entered must be > 0")
-        expect_base = _q6(qe_in * expected)
+        expect_base = _q6(qe_in * factor_for_consistency)
         if (qty_base - expect_base).copy_abs() > epsilon:
-            raise ValueError(f"{line_label}: qty and qty_entered mismatch (qty={qty_base}, qty_entered={qe_in}, factor={expected})")
+            raise ValueError(
+                f"{line_label}: qty and qty_entered mismatch (qty={qty_base}, qty_entered={qe_in}, factor={factor_for_consistency})"
+            )
 
     qe = _q6(qty_base / expected) if expected else _q6(qty_base)
     return u, expected, qe

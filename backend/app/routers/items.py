@@ -667,9 +667,15 @@ def list_all_barcodes(company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, item_id, barcode, qty_factor, uom_code, label, is_primary, created_at, updated_at
-                FROM item_barcodes
-                WHERE company_id = %s
+                SELECT b.id, b.item_id, b.barcode,
+                       COALESCE(c.to_base_factor, b.qty_factor) AS qty_factor,
+                       b.uom_code, b.label, b.is_primary, b.created_at, b.updated_at
+                FROM item_barcodes b
+                LEFT JOIN item_uom_conversions c
+                  ON c.company_id = b.company_id
+                 AND c.item_id = b.item_id
+                 AND c.uom_code = b.uom_code
+                WHERE b.company_id = %s
                 ORDER BY item_id, is_primary DESC, created_at ASC
                 """,
                 (company_id,),
@@ -684,7 +690,7 @@ def bulk_upsert_barcodes(data: BulkBarcodesIn, company_id: str = Depends(get_com
 
     Why:
     - ERPNext exports include barcode UOM and conversion factors.
-    - Our POS relies on barcode.qty_factor and barcode.uom_code to compute base quantities.
+    - Canonical factors live in item_uom_conversions; barcode factors must stay in sync.
     - The normal `/{item_id}/barcodes` endpoint is intentionally append-only (audit trail),
       but imports need idempotent upserts.
     """
@@ -717,6 +723,20 @@ def bulk_upsert_barcodes(data: BulkBarcodesIn, company_id: str = Depends(get_com
                 if missing:
                     raise HTTPException(status_code=400, detail=f"unknown sku(s): {missing[:25]}")
 
+                item_ids = [str(v["id"]) for v in item_by_sku.values()]
+                cur.execute(
+                    """
+                    SELECT item_id, uom_code, to_base_factor
+                    FROM item_uom_conversions
+                    WHERE company_id = %s AND item_id = ANY(%s::uuid[])
+                    """,
+                    (company_id, item_ids),
+                )
+                conv_by_item_uom: dict[tuple[str, str], Decimal] = {}
+                for r in (cur.fetchall() or []):
+                    key = (str(r["item_id"]), _norm_uom(r["uom_code"]))
+                    conv_by_item_uom[key] = Decimal(str(r.get("to_base_factor") or 0))
+
                 upserted = 0
                 for ln in lines:
                     sku = (ln.sku or "").strip()
@@ -733,7 +753,13 @@ def bulk_upsert_barcodes(data: BulkBarcodesIn, company_id: str = Depends(get_com
                     uom_code = _norm_uom(ln.uom_code) if ln.uom_code is not None and str(ln.uom_code).strip() else base_uom
                     _ensure_uom_exists(cur, company_id, uom_code)
 
-                    qty_factor = Decimal(str(ln.qty_factor))
+                    qty_factor_in = Decimal(str(ln.qty_factor))
+                    key = (str(item_id), uom_code)
+                    qty_factor = conv_by_item_uom.get(key)
+                    if uom_code == base_uom:
+                        qty_factor = Decimal("1")
+                    elif qty_factor is None or qty_factor <= 0:
+                        qty_factor = qty_factor_in
 
                     cur.execute(
                         """
@@ -765,6 +791,7 @@ def bulk_upsert_barcodes(data: BulkBarcodesIn, company_id: str = Depends(get_com
                         """,
                         (company_id, item_id, uom_code, qty_factor),
                     )
+                    conv_by_item_uom[key] = qty_factor
 
                     if bool(ln.is_primary):
                         # Make all other barcodes for this item non-primary.
@@ -1605,6 +1632,18 @@ def bulk_upsert_item_uom_conversions(
                         """,
                         (company_id, item_id, uom_code, f, bool(ln.is_active)),
                     )
+                    cur.execute(
+                        """
+                        UPDATE item_barcodes
+                        SET qty_factor = %s,
+                            updated_at = now()
+                        WHERE company_id = %s
+                          AND item_id = %s
+                          AND uom_code = %s
+                          AND qty_factor IS DISTINCT FROM %s
+                        """,
+                        (f, company_id, item_id, uom_code, f),
+                    )
                     upserted += 1
 
                 cur.execute(
@@ -1753,9 +1792,15 @@ def list_item_barcodes(item_id: str, company_id: str = Depends(get_company_id)):
         with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT id, barcode, qty_factor, uom_code, label, is_primary, created_at, updated_at
-                    FROM item_barcodes
-                    WHERE company_id = %s AND item_id = %s
+                    SELECT b.id, b.barcode,
+                           COALESCE(c.to_base_factor, b.qty_factor) AS qty_factor,
+                           b.uom_code, b.label, b.is_primary, b.created_at, b.updated_at
+                    FROM item_barcodes b
+                    LEFT JOIN item_uom_conversions c
+                      ON c.company_id = b.company_id
+                     AND c.item_id = b.item_id
+                     AND c.uom_code = b.uom_code
+                    WHERE b.company_id = %s AND b.item_id = %s
                     ORDER BY is_primary DESC, created_at ASC
                     """,
                     (company_id, item_id),
@@ -1789,19 +1834,35 @@ def add_item_barcode(item_id: str, data: ItemBarcodeIn, company_id: str = Depend
                 if uom_code:
                     _ensure_uom_exists(cur, company_id, uom_code)
 
+                bc_uom = uom_code or base_uom
+                cur.execute(
+                    """
+                    SELECT to_base_factor
+                    FROM item_uom_conversions
+                    WHERE company_id=%s AND item_id=%s AND uom_code=%s
+                    """,
+                    (company_id, item_id, bc_uom),
+                )
+                conv = cur.fetchone()
+                if bc_uom == base_uom:
+                    bc_factor = Decimal("1")
+                elif conv and Decimal(str(conv.get("to_base_factor") or 0)) > 0:
+                    bc_factor = Decimal(str(conv["to_base_factor"]))
+                else:
+                    bc_factor = Decimal(str(data.qty_factor))
+
                 cur.execute(
                     """
                     INSERT INTO item_barcodes (id, company_id, item_id, barcode, qty_factor, uom_code, label, is_primary)
                     VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                     """,
-                    (company_id, item_id, barcode, data.qty_factor, uom_code or base_uom, data.label, data.is_primary),
+                    (company_id, item_id, barcode, bc_factor, bc_uom, data.label, data.is_primary),
                 )
                 barcode_id = cur.fetchone()["id"]
 
                 # Ensure conversion exists for the declared barcode UOM.
                 # We store the factor used at scan time in docs, so future edits won't rewrite history.
-                bc_uom = uom_code or base_uom
                 cur.execute(
                     """
                     INSERT INTO item_uom_conversions (id, company_id, item_id, uom_code, to_base_factor, is_active)
@@ -1811,7 +1872,7 @@ def add_item_barcode(item_id: str, data: ItemBarcodeIn, company_id: str = Depend
                         is_active = true,
                         updated_at = now()
                     """,
-                    (company_id, item_id, bc_uom, Decimal(str(data.qty_factor))),
+                    (company_id, item_id, bc_uom, bc_factor),
                 )
 
                 if data.is_primary:
@@ -1890,6 +1951,40 @@ def update_item_barcode(barcode_id: str, data: ItemBarcodeUpdate, company_id: st
                     raise HTTPException(status_code=400, detail="qty_factor must be 1 when uom_code is the item base UOM")
                 _ensure_uom_exists(cur, company_id, bc_uom)
 
+                if bc_uom != base_uom and "uom_code" in patch and "qty_factor" not in patch:
+                    cur.execute(
+                        """
+                        SELECT to_base_factor
+                        FROM item_uom_conversions
+                        WHERE company_id=%s AND item_id=%s AND uom_code=%s
+                        """,
+                        (company_id, row["item_id"], bc_uom),
+                    )
+                    if not cur.fetchone():
+                        raise HTTPException(
+                            status_code=400,
+                            detail="qty_factor is required when changing to a UOM without an existing conversion",
+                        )
+
+                if bc_uom == base_uom:
+                    canonical_factor = Decimal("1")
+                elif "qty_factor" in patch:
+                    canonical_factor = bc_factor
+                else:
+                    cur.execute(
+                        """
+                        SELECT to_base_factor
+                        FROM item_uom_conversions
+                        WHERE company_id=%s AND item_id=%s AND uom_code=%s
+                        """,
+                        (company_id, row["item_id"], bc_uom),
+                    )
+                    conv = cur.fetchone()
+                    if conv and Decimal(str(conv.get("to_base_factor") or 0)) > 0:
+                        canonical_factor = Decimal(str(conv["to_base_factor"]))
+                    else:
+                        canonical_factor = bc_factor
+
                 # Keep conversions in sync (best-effort upsert).
                 cur.execute(
                     """
@@ -1900,7 +1995,17 @@ def update_item_barcode(barcode_id: str, data: ItemBarcodeUpdate, company_id: st
                         is_active = true,
                         updated_at = now()
                     """,
-                    (company_id, row["item_id"], bc_uom, bc_factor),
+                    (company_id, row["item_id"], bc_uom, canonical_factor),
+                )
+                cur.execute(
+                    """
+                    UPDATE item_barcodes
+                    SET qty_factor = %s,
+                        uom_code = %s,
+                        updated_at = now()
+                    WHERE company_id = %s AND id = %s
+                    """,
+                    (canonical_factor, bc_uom, company_id, barcode_id),
                 )
 
                 if patch.get("is_primary") is True:
@@ -2051,6 +2156,18 @@ def upsert_item_uom_conversion(item_id: str, data: ItemUomConversionIn, company_
                 )
                 cur.execute(
                     """
+                    UPDATE item_barcodes
+                    SET qty_factor = %s,
+                        updated_at = now()
+                    WHERE company_id = %s
+                      AND item_id = %s
+                      AND uom_code = %s
+                      AND qty_factor IS DISTINCT FROM %s
+                    """,
+                    (f, company_id, item_id, uom_code, f),
+                )
+                cur.execute(
+                    """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                     VALUES (gen_random_uuid(), %s, %s, 'item_uom_conversion_upsert', 'item', %s, %s::jsonb)
                     """,
@@ -2110,6 +2227,20 @@ def update_item_uom_conversion(item_id: str, uom_code: str, data: ItemUomConvers
                 )
                 if cur.rowcount == 0:
                     raise HTTPException(status_code=404, detail="conversion not found")
+                if "to_base_factor" in patch and patch["to_base_factor"] is not None:
+                    f = Decimal(str(patch["to_base_factor"]))
+                    cur.execute(
+                        """
+                        UPDATE item_barcodes
+                        SET qty_factor = %s,
+                            updated_at = now()
+                        WHERE company_id = %s
+                          AND item_id = %s
+                          AND uom_code = %s
+                          AND qty_factor IS DISTINCT FROM %s
+                        """,
+                        (f, company_id, item_id, u, f),
+                    )
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)

@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 QTY_EPSILON = Decimal("0.000001")
 Q6 = Decimal("0.000001")
+Q4 = Decimal("0.0001")
 
 
 def norm_uom_code(v: Optional[str]) -> Optional[str]:
@@ -18,6 +19,11 @@ def norm_uom_code(v: Optional[str]) -> Optional[str]:
 def q6(v: Decimal) -> Decimal:
     # Keep factors and entered qty at the same precision as the DB columns (numeric(18,6)).
     return v.quantize(Q6, rounding=ROUND_HALF_UP)
+
+
+def q4(v: Decimal) -> Decimal:
+    # Backward compatibility with legacy barcode factors stored at 4 decimals.
+    return v.quantize(Q4, rounding=ROUND_HALF_UP)
 
 
 def load_item_uom_context(cur, company_id: str, item_ids: list[str]) -> tuple[dict[str, str], dict[str, dict[str, Decimal]]]:
@@ -111,6 +117,9 @@ def resolve_line_uom(
             )
     expected = q6(expected)
 
+    # Use canonical conversion factor for storage; optionally trust a 4-decimal
+    # input factor for qty-vs-entered consistency checks (legacy barcode precision).
+    factor_for_consistency = expected
     if qty_factor is not None:
         try:
             f_in = q6(Decimal(str(qty_factor or 0)))
@@ -119,10 +128,14 @@ def resolve_line_uom(
         if f_in <= 0:
             raise HTTPException(status_code=400, detail=f"{line_label}: qty_factor must be > 0")
         if strict_factor and f_in != expected:
-            raise HTTPException(
-                status_code=400,
-                detail=f"{line_label}: qty_factor mismatch for uom {uom_norm} (expected {expected}, got {f_in})",
-            )
+            if q4(f_in) != q4(expected):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{line_label}: qty_factor mismatch for uom {uom_norm} (expected {expected}, got {f_in})",
+                )
+            factor_for_consistency = f_in
+        else:
+            factor_for_consistency = f_in
     else:
         # If a non-base uom is specified, the factor is derived from conversions.
         pass
@@ -136,11 +149,11 @@ def resolve_line_uom(
             raise HTTPException(status_code=400, detail=f"{line_label}: qty_entered must be > 0")
 
         # Ensure client didn't send inconsistent base vs entered quantities.
-        expect_base = q6(qe_in * expected)
+        expect_base = q6(qe_in * factor_for_consistency)
         if (qty_base - expect_base).copy_abs() > epsilon:
             raise HTTPException(
                 status_code=400,
-                detail=f"{line_label}: qty and qty_entered do not match qty_factor (qty={qty_base}, qty_entered={qe_in}, factor={expected})",
+                detail=f"{line_label}: qty and qty_entered do not match qty_factor (qty={qty_base}, qty_entered={qe_in}, factor={factor_for_consistency})",
             )
 
     # Always store a consistent entered qty (even if client omitted it).
@@ -153,4 +166,3 @@ def resolve_line_uom(
         "qty_entered": qe,
         "qty": qty_base,
     }
-
