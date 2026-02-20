@@ -628,6 +628,7 @@
   let openingCashLbp = 0;
   let closingCashUsd = 0;
   let closingCashLbp = 0;
+  let shiftClosingTouchedByCompany = { official: false, unofficial: false };
   const _shiftMoney = (value, fallback = null) => {
     if (value == null || value === "") return fallback;
     const n = Number(value);
@@ -639,6 +640,36 @@
       if (v != null) return v;
     }
     return fallback;
+  };
+  const _shiftCompany = (companyKey = shiftCompanyKey) => normalizeCompanyKey(companyKey || shiftCompanyKey || originCompanyKey);
+  const _shiftClosingTouched = (companyKey = shiftCompanyKey) => {
+    const key = _shiftCompany(companyKey);
+    return !!(shiftClosingTouchedByCompany || {})[key];
+  };
+  const _setShiftClosingTouched = (companyKey = shiftCompanyKey, touched = true) => {
+    const key = _shiftCompany(companyKey);
+    shiftClosingTouchedByCompany = {
+      ...(shiftClosingTouchedByCompany || {}),
+      [key]: !!touched,
+    };
+  };
+  const _shiftExpectedUsdFrom = (srcShift, fallback = 0) => (
+    toNum(_shiftPickMoney(srcShift || {}, ["expected_closing_cash_usd", "expected_cash_usd", "cash_expected_usd"], _shiftPickMoney(srcShift || {}, ["opening_cash_usd", "opening_usd"], fallback)), 0)
+  );
+  const _shiftExpectedLbpFrom = (srcShift, fallback = 0) => (
+    toNum(_shiftPickMoney(srcShift || {}, ["expected_closing_cash_lbp", "expected_cash_lbp", "cash_expected_lbp"], _shiftPickMoney(srcShift || {}, ["opening_cash_lbp", "opening_lbp"], fallback)), 0)
+  );
+  const _applyShiftExpectedToClosing = (companyKey = shiftCompanyKey, srcShift = shift, { preserveTouched = true } = {}) => {
+    if (preserveTouched && _shiftClosingTouched(companyKey)) return;
+    closingCashUsd = _shiftExpectedUsdFrom(srcShift, closingCashUsd);
+    closingCashLbp = _shiftExpectedLbpFrom(srcShift, closingCashLbp);
+    _setShiftClosingTouched(companyKey, false);
+  };
+  const markShiftClosingEdited = (companyKey = shiftCompanyKey) => {
+    _setShiftClosingTouched(companyKey, true);
+  };
+  const shiftResetClosingToExpected = (companyKey = shiftCompanyKey) => {
+    _applyShiftExpectedToClosing(companyKey, shift, { preserveTouched: false });
   };
 
   // Derived
@@ -5309,8 +5340,9 @@
       if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
       shift = nextShift;
       if (nextShift) {
-        closingCashUsd = toNum(_shiftPickMoney(nextShift, ["expected_closing_cash_usd", "expected_cash_usd", "cash_expected_usd"], _shiftPickMoney(nextShift, ["opening_cash_usd", "opening_usd"], 0)), 0);
-        closingCashLbp = toNum(_shiftPickMoney(nextShift, ["expected_closing_cash_lbp", "expected_cash_lbp", "cash_expected_lbp"], _shiftPickMoney(nextShift, ["opening_cash_lbp", "opening_lbp"], 0)), 0);
+        _applyShiftExpectedToClosing(targetCompany, nextShift, { preserveTouched: true });
+      } else {
+        _setShiftClosingTouched(targetCompany, false);
       }
       await fetchData();
       if (!quiet) reportNotice(nextShift ? `${targetCompany} shift is open` : `${targetCompany} has no open shift`);
@@ -5344,6 +5376,7 @@
       const nextShift = res?.shift || null;
       if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
       shift = nextShift;
+      _setShiftClosingTouched(targetCompany, false);
       closingCashUsd = toNum(_shiftPickMoney(nextShift, ["opening_cash_usd", "opening_usd"], openingCashUsd), 0);
       closingCashLbp = toNum(_shiftPickMoney(nextShift, ["opening_cash_lbp", "opening_lbp"], openingCashLbp), 0);
       await fetchData();
@@ -5379,6 +5412,7 @@
       const nextShift = res?.shift || null;
       if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
       shift = nextShift;
+      _setShiftClosingTouched(targetCompany, false);
       await fetchData();
       reportNotice(`Shift closed (${targetCompany})`);
       showShiftModal = false;
@@ -6782,6 +6816,17 @@
               </div>
             </div>
           </div>
+          <div class="flex justify-end">
+            <button
+              class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+              type="button"
+              on:click={() => shiftResetClosingToExpected(shiftCompanyKey)}
+              disabled={loading}
+              title="Reset closing cash inputs to expected values"
+            >
+              Reset to Expected
+            </button>
+          </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label class="text-xs text-muted" for="shift-closing-usd">Closing Cash (USD)</label>
@@ -6791,6 +6836,7 @@
                 type="number"
                 step="0.01"
                 bind:value={closingCashUsd}
+                on:input={() => markShiftClosingEdited(shiftCompanyKey)}
               />
             </div>
             <div>
@@ -6801,6 +6847,7 @@
                 type="number"
                 step="1"
                 bind:value={closingCashLbp}
+                on:input={() => markShiftClosingEdited(shiftCompanyKey)}
               />
             </div>
           </div>
