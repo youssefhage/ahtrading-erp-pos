@@ -75,25 +75,54 @@ def _has_roles_template_code_column(cur) -> bool:
     return bool((cur.fetchone() or {}).get("ok"))
 
 
+def _has_users_column(cur, column_name: str) -> bool:
+    cur.execute(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'users'
+            AND column_name = %s
+        ) AS ok
+        """,
+        (column_name,),
+    )
+    return bool((cur.fetchone() or {}).get("ok"))
+
+
 @router.get("", dependencies=[Depends(require_permission("users:read"))])
 def list_users(company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
             has_template_code = _has_roles_template_code_column(cur)
+            has_full_name = _has_users_column(cur, "full_name")
+            has_phone = _has_users_column(cur, "phone")
+            has_mfa_enabled = _has_users_column(cur, "mfa_enabled")
             profile_codes_select = (
                 "COALESCE(array_agg(DISTINCT r.template_code) FILTER (WHERE r.template_code IS NOT NULL), ARRAY[]::text[]) AS profile_type_codes,"
                 if has_template_code
                 else "ARRAY[]::text[] AS profile_type_codes,"
             )
+            full_name_select = "u.full_name" if has_full_name else "NULL::text AS full_name"
+            phone_select = "u.phone" if has_phone else "NULL::text AS phone"
+            mfa_enabled_select = "u.mfa_enabled" if has_mfa_enabled else "false AS mfa_enabled"
+            group_by_cols = ["u.id", "u.email", "u.is_active"]
+            if has_full_name:
+                group_by_cols.append("u.full_name")
+            if has_phone:
+                group_by_cols.append("u.phone")
+            if has_mfa_enabled:
+                group_by_cols.append("u.mfa_enabled")
             cur.execute(
                 f"""
                 SELECT u.id,
                        u.email,
-                       u.full_name,
-                       u.phone,
+                       {full_name_select},
+                       {phone_select},
                        u.is_active,
-                       u.mfa_enabled,
+                       {mfa_enabled_select},
                        COALESCE(array_agg(DISTINCT r.name) FILTER (WHERE r.id IS NOT NULL), ARRAY[]::text[]) AS role_names,
                        {profile_codes_select}
                 FROM users u
@@ -103,7 +132,7 @@ def list_users(company_id: str = Depends(get_company_id)):
                   ON r.id = ur.role_id
                  AND r.company_id = ur.company_id
                 WHERE ur.company_id = %s
-                GROUP BY u.id, u.email, u.full_name, u.phone, u.is_active, u.mfa_enabled
+                GROUP BY {', '.join(group_by_cols)}
                 ORDER BY u.email
                 """,
                 (company_id,),
@@ -154,9 +183,26 @@ def list_user_directory():
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
+            has_full_name = _has_users_column(cur, "full_name")
+            has_phone = _has_users_column(cur, "phone")
+            has_mfa_enabled = _has_users_column(cur, "mfa_enabled")
+            full_name_select = "u.full_name" if has_full_name else "NULL::text AS full_name"
+            phone_select = "u.phone" if has_phone else "NULL::text AS phone"
+            mfa_enabled_select = "u.mfa_enabled" if has_mfa_enabled else "false AS mfa_enabled"
             cur.execute(
                 """
-                SELECT u.id, u.email, u.full_name, u.phone, u.is_active, u.mfa_enabled
+                SELECT u.id,
+                       u.email,
+                       """
+                + full_name_select
+                + """,
+                       """
+                + phone_select
+                + """,
+                       u.is_active,
+                       """
+                + mfa_enabled_select
+                + """
                 FROM users u
                 ORDER BY u.email
                 """,
@@ -503,9 +549,28 @@ def me(company_id: str = Depends(get_company_id), user=Depends(get_current_user)
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.cursor() as cur:
+            has_full_name = _has_users_column(cur, "full_name")
+            has_phone = _has_users_column(cur, "phone")
+            has_mfa_enabled = _has_users_column(cur, "mfa_enabled")
+            full_name_select = "u.full_name" if has_full_name else "NULL::text AS full_name"
+            phone_select = "u.phone" if has_phone else "NULL::text AS phone"
+            mfa_enabled_select = "u.mfa_enabled" if has_mfa_enabled else "false AS mfa_enabled"
             cur.execute(
                 """
-                SELECT u.id, u.email, u.full_name, u.phone, u.is_active, u.mfa_enabled, u.created_at, u.updated_at
+                SELECT u.id,
+                       u.email,
+                       """
+                + full_name_select
+                + """,
+                       """
+                + phone_select
+                + """,
+                       u.is_active,
+                       """
+                + mfa_enabled_select
+                + """,
+                       u.created_at,
+                       u.updated_at
                 FROM users u
                 WHERE u.id = %s
                 """,
@@ -531,15 +596,21 @@ def update_me(
     if not patch:
         return {"ok": True}
 
-    fields = []
-    params = []
-    for k, v in patch.items():
-        fields.append(f"{k} = %s")
-        params.append(v)
-    params.append(user["user_id"])
-
     with get_conn() as conn:
         with conn.cursor() as cur:
+            if "full_name" in patch and not _has_users_column(cur, "full_name"):
+                patch.pop("full_name", None)
+            if "phone" in patch and not _has_users_column(cur, "phone"):
+                patch.pop("phone", None)
+            if not patch:
+                return {"ok": True}
+
+            fields = []
+            params = []
+            for k, v in patch.items():
+                fields.append(f"{k} = %s")
+                params.append(v)
+            params.append(user["user_id"])
             cur.execute(
                 f"""
                 UPDATE users
@@ -671,34 +742,22 @@ def update_user(user_id: str, data: UserAdminUpdate, company_id: str = Depends(g
     if not patch:
         return {"ok": True}
 
-    fields = []
-    params = []
-    for key in ("email", "full_name", "phone"):
-        if key in patch:
-            fields.append(f"{key} = %s")
-            params.append(patch[key])
-    if "is_active" in patch:
-        next_active = bool(patch["is_active"])
-        fields.append("is_active = %s")
-        params.append(next_active)
-        if next_active:
-            fields.append("deactivated_at = NULL")
-            fields.append("deactivation_reason = NULL")
-        else:
-            fields.append("deactivated_at = now()")
-            fields.append("deactivation_reason = %s")
-            params.append((patch.get("deactivation_reason") or "").strip() or "deactivated by admin")
-    elif "deactivation_reason" in patch:
-        fields.append("deactivation_reason = %s")
-        params.append(patch["deactivation_reason"])
-
-    if not fields:
-        return {"ok": True}
-
     with get_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                has_full_name = _has_users_column(cur, "full_name")
+                has_phone = _has_users_column(cur, "phone")
+                has_deactivated_at = _has_users_column(cur, "deactivated_at")
+                has_deactivation_reason = _has_users_column(cur, "deactivation_reason")
+
+                if "full_name" in patch and not has_full_name:
+                    patch.pop("full_name", None)
+                if "phone" in patch and not has_phone:
+                    patch.pop("phone", None)
+                if "deactivation_reason" in patch and not has_deactivation_reason:
+                    patch.pop("deactivation_reason", None)
+
                 cur.execute(
                     """
                     SELECT 1
@@ -710,6 +769,35 @@ def update_user(user_id: str, data: UserAdminUpdate, company_id: str = Depends(g
                 )
                 if not cur.fetchone():
                     raise HTTPException(status_code=404, detail="user not found")
+
+                fields = []
+                params = []
+                for key in ("email", "full_name", "phone"):
+                    if key in patch:
+                        fields.append(f"{key} = %s")
+                        params.append(patch[key])
+                if "is_active" in patch:
+                    next_active = bool(patch["is_active"])
+                    fields.append("is_active = %s")
+                    params.append(next_active)
+                    if next_active:
+                        if has_deactivated_at:
+                            fields.append("deactivated_at = NULL")
+                        if has_deactivation_reason:
+                            fields.append("deactivation_reason = NULL")
+                    else:
+                        if has_deactivated_at:
+                            fields.append("deactivated_at = now()")
+                        if has_deactivation_reason:
+                            fields.append("deactivation_reason = %s")
+                            params.append((patch.get("deactivation_reason") or "").strip() or "deactivated by admin")
+                elif "deactivation_reason" in patch and has_deactivation_reason:
+                    fields.append("deactivation_reason = %s")
+                    params.append(patch["deactivation_reason"])
+
+                if not fields:
+                    return {"ok": True}
+
                 try:
                     cur.execute(
                         f"""

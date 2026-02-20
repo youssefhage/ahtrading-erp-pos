@@ -217,17 +217,15 @@ def _ensure_company_users_exist(cur, company_id: str, user_ids: list[str]) -> No
         """
         SELECT DISTINCT ur.user_id AS id
         FROM user_roles ur
-        JOIN users u ON u.id = ur.user_id
         WHERE ur.company_id = %s
           AND ur.user_id = ANY(%s::uuid[])
-          AND COALESCE(u.is_active, true) = true
         """,
         (company_id, user_ids),
     )
     found = {str(r["id"]) for r in cur.fetchall()}
     missing = [uid for uid in user_ids if uid not in found]
     if missing:
-        raise HTTPException(status_code=404, detail=f"user not found or inactive: {missing[0]}")
+        raise HTTPException(status_code=404, detail=f"user not found in company: {missing[0]}")
 
 
 @router.post("/devices/register")

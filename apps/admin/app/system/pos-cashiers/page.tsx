@@ -56,27 +56,64 @@ export default function PosCashiersPage() {
     return m;
   }, [cashiers]);
 
-  const employeeOptions = useMemo(
+  const linkedCashierByEmployeeId = useMemo(() => {
+    const m = new Map<string, { cashierId: string; cashierName: string }>();
+    for (const c of cashiers) {
+      const uid = String(c.user_id || "").trim();
+      if (!uid) continue;
+      m.set(uid, { cashierId: c.id, cashierName: c.name });
+    }
+    return m;
+  }, [cashiers]);
+
+  const createEmployeeOptions = useMemo(
     () => [
       { value: "", label: "No linked employee" },
-      ...employees.map((u) => ({
-        value: u.id,
-        label: `${u.full_name?.trim() || u.email}${u.is_active ? "" : " (inactive)"}`,
-      })),
+      ...employees
+        .filter((u) => !linkedCashierByEmployeeId.has(String(u.id || "").trim()))
+        .map((u) => ({
+          value: u.id,
+          label: `${u.full_name?.trim() || u.email}${u.is_active ? "" : " (inactive)"}`,
+        })),
     ],
-    [employees]
+    [employees, linkedCashierByEmployeeId]
+  );
+
+  const editEmployeeOptions = useMemo(
+    () => [
+      { value: "", label: "No linked employee" },
+      ...employees
+        .filter((u) => {
+          const linked = linkedCashierByEmployeeId.get(String(u.id || "").trim());
+          return !linked || linked.cashierId === editId;
+        })
+        .map((u) => ({
+          value: u.id,
+          label: `${u.full_name?.trim() || u.email}${u.is_active ? "" : " (inactive)"}`,
+        })),
+    ],
+    [employees, linkedCashierByEmployeeId, editId]
   );
 
   async function load() {
     setStatus("Loading...");
     try {
-      const [res, emp] = await Promise.all([
+      const [cashiersRes, employeesRes] = await Promise.allSettled([
         apiGet<{ cashiers: CashierRow[] }>("/pos/cashiers"),
-        apiGet<{ employees: EmployeeRow[] }>("/pos/employees").catch(() => ({ employees: [] as EmployeeRow[] })),
+        apiGet<{ employees: EmployeeRow[] }>("/pos/employees"),
       ]);
-      setCashiers(res.cashiers || []);
-      setEmployees(emp.employees || []);
-      setStatus("");
+
+      if (cashiersRes.status !== "fulfilled") throw cashiersRes.reason;
+      setCashiers(cashiersRes.value.cashiers || []);
+
+      if (employeesRes.status === "fulfilled") {
+        setEmployees(employeesRes.value.employees || []);
+        setStatus("");
+      } else {
+        setEmployees([]);
+        const message = employeesRes.reason instanceof Error ? employeesRes.reason.message : String(employeesRes.reason);
+        setStatus(`Cashiers loaded, but employee links are unavailable: ${message}`);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
@@ -97,6 +134,14 @@ export default function PosCashiersPage() {
       setStatus("PIN must be at least 4 digits.");
       return;
     }
+    const selectedUserId = (userId || "").trim();
+    if (selectedUserId) {
+      const linked = linkedCashierByEmployeeId.get(selectedUserId);
+      if (linked) {
+        setStatus(`Employee is already linked to cashier "${linked.cashierName}". Unlink it first.`);
+        return;
+      }
+    }
     setCreating(true);
     setStatus("Creating...");
     try {
@@ -104,7 +149,7 @@ export default function PosCashiersPage() {
         name: name.trim(),
         pin: pin.trim(),
         is_active: active,
-        user_id: userId.trim() || null,
+        user_id: selectedUserId || null,
       });
       setCreateOpen(false);
       setName("");
@@ -112,7 +157,6 @@ export default function PosCashiersPage() {
       setActive(true);
       setUserId("");
       await load();
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
@@ -143,19 +187,27 @@ export default function PosCashiersPage() {
       setStatus("PIN must be at least 4 digits.");
       return;
     }
+    const nextUserId = (editUserId || "").trim();
+    if (nextUserId) {
+      const linked = linkedCashierByEmployeeId.get(nextUserId);
+      if (linked && linked.cashierId !== editId) {
+        setStatus(`Employee is already linked to cashier "${linked.cashierName}". Unlink it first.`);
+        return;
+      }
+    }
     setEditing(true);
     setStatus("Saving...");
     try {
       const patch: Record<string, unknown> = {
         name: editName.trim(),
         is_active: editActive,
-        user_id: editUserId.trim() || null,
       };
+      const currentUserId = String(cashierById.get(editId)?.user_id || "").trim();
+      if (nextUserId !== currentUserId) patch.user_id = nextUserId || null;
       if (editPin.trim()) patch.pin = editPin.trim();
       await apiPatch<{ ok: true }>(`/pos/cashiers/${editId}`, patch);
       setEditOpen(false);
       await load();
-      setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
@@ -197,7 +249,7 @@ export default function PosCashiersPage() {
                       onChange={setUserId}
                       placeholder="No linked employee"
                       searchPlaceholder="Search employees..."
-                      options={employeeOptions}
+                      options={createEmployeeOptions}
                     />
                   </div>
                   <div className="space-y-1">
@@ -285,7 +337,7 @@ export default function PosCashiersPage() {
                   onChange={setEditUserId}
                   placeholder="No linked employee"
                   searchPlaceholder="Search employees..."
-                  options={employeeOptions}
+                  options={editEmployeeOptions}
                 />
               </div>
               <div className="space-y-1">
