@@ -34,6 +34,7 @@ try:
     from .ai_data_hygiene import run_data_hygiene_agent
     from .ai_ap_guard import run_ap_guard_agent
     from .ai_expiry_ops import run_expiry_ops_agent
+    from .ai_pos_shift_variance import run_pos_shift_variance_agent
     from .ai_action_executor import run_executor
     from .supplier_invoice_import_job import run_supplier_invoice_import_job
     from .cycle_count_scheduler import run_cycle_count_scheduler
@@ -52,6 +53,7 @@ except ImportError:  # pragma: no cover
     from ai_data_hygiene import run_data_hygiene_agent
     from ai_ap_guard import run_ap_guard_agent
     from ai_expiry_ops import run_expiry_ops_agent
+    from ai_pos_shift_variance import run_pos_shift_variance_agent
     from ai_action_executor import run_executor
     from supplier_invoice_import_job import run_supplier_invoice_import_job
     from cycle_count_scheduler import run_cycle_count_scheduler
@@ -66,6 +68,7 @@ DEFAULT_JOB_SPECS: dict[str, dict[str, Any]] = {
     "AI_DATA_HYGIENE": {"interval_seconds": 86400, "options_json": {"limit": 300}},
     "AI_AP_GUARD": {"interval_seconds": 3600, "options_json": {"due_soon_days": 7, "limit": 200}},
     "AI_EXPIRY_OPS": {"interval_seconds": 21600, "options_json": {"days": 30, "limit": 200}},
+    "AI_POS_SHIFT_VARIANCE": {"interval_seconds": 86400, "options_json": {"lookback_days": 1, "min_variance_usd": 20, "min_variance_lbp": 2000000, "limit": 200}},
     "AI_PRICING": {
         "interval_seconds": 86400,
         "options_json": {"min_margin_pct": 0.05, "target_margin_pct": 0.15},
@@ -219,6 +222,20 @@ def execute_job(db_url: str, company_id: str, job_code: str, options: dict):
         days = int(options.get("days") or 30)
         limit = int(options.get("limit") or 200)
         run_expiry_ops_agent(db_url, company_id, days=days, limit=limit)
+        return
+    if job_code == "AI_POS_SHIFT_VARIANCE":
+        lookback_days = int(options.get("lookback_days") or 1)
+        min_variance_usd = Decimal(str(options.get("min_variance_usd") or "20"))
+        min_variance_lbp = Decimal(str(options.get("min_variance_lbp") or "2000000"))
+        limit = int(options.get("limit") or 200)
+        run_pos_shift_variance_agent(
+            db_url,
+            company_id,
+            lookback_days=lookback_days,
+            min_variance_usd=min_variance_usd,
+            min_variance_lbp=min_variance_lbp,
+            limit=limit,
+        )
         return
     if job_code == "AI_PRICING":
         min_margin_pct = Decimal(str(options.get("min_margin_pct") or "0.05"))

@@ -4362,7 +4362,14 @@ class Handler(BaseHTTPRequestHandler):
                 shift = res.get('shift')
                 cfg['shift_id'] = shift['id'] if shift else ''
                 save_config(cfg)
-                json_response(self, {'shift': shift})
+                json_response(
+                    self,
+                    {
+                        'shift': shift,
+                        'cash_methods': res.get('cash_methods') or [],
+                        'has_cash_method_mapping': (res.get('has_cash_method_mapping') if 'has_cash_method_mapping' in res else None),
+                    },
+                )
             except URLError as ex:
                 json_response(self, {'error': str(ex)}, status=502)
             return
@@ -4401,7 +4408,14 @@ class Handler(BaseHTTPRequestHandler):
                         "opening_cash_lbp": float(data.get("opening_cash_lbp") or 0),
                     },
                 )
-                json_response(self, {'shift': shift})
+                json_response(
+                    self,
+                    {
+                        'shift': shift,
+                        'cash_methods': res.get('cash_methods') or [],
+                        'has_cash_method_mapping': (res.get('has_cash_method_mapping') if 'has_cash_method_mapping' in res else None),
+                    },
+                )
             except URLError as ex:
                 json_response(self, {'error': str(ex)}, status=502)
             return
@@ -4442,7 +4456,14 @@ class Handler(BaseHTTPRequestHandler):
                         "closing_cash_lbp": float(data.get("closing_cash_lbp") or 0),
                     },
                 )
-                json_response(self, {'shift': res.get('shift')})
+                json_response(
+                    self,
+                    {
+                        'shift': res.get('shift'),
+                        'cash_methods': res.get('cash_methods') or [],
+                        'has_cash_method_mapping': (res.get('has_cash_method_mapping') if 'has_cash_method_mapping' in res else None),
+                    },
+                )
             except URLError as ex:
                 json_response(self, {'error': str(ex)}, status=502)
             return

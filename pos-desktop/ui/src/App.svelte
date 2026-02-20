@@ -629,6 +629,8 @@
   let closingCashUsd = 0;
   let closingCashLbp = 0;
   let shiftClosingTouchedByCompany = { official: false, unofficial: false };
+  let shiftCashMappingByCompany = { official: null, unofficial: null };
+  let shiftCashMethodsByCompany = { official: [], unofficial: [] };
   const _shiftMoney = (value, fallback = null) => {
     if (value == null || value === "") return fallback;
     const n = Number(value);
@@ -652,6 +654,33 @@
       ...(shiftClosingTouchedByCompany || {}),
       [key]: !!touched,
     };
+  };
+  const _setShiftCashSetup = (companyKey = shiftCompanyKey, cashMethods = [], hasCashMethodMapping = null) => {
+    const key = _shiftCompany(companyKey);
+    const normalizedMethods = Array.isArray(cashMethods)
+      ? cashMethods
+        .map((m) => String(m || "").trim())
+        .filter((m) => !!m)
+      : [];
+    shiftCashMethodsByCompany = {
+      ...(shiftCashMethodsByCompany || {}),
+      [key]: normalizedMethods,
+    };
+    const mappingFlag = typeof hasCashMethodMapping === "boolean"
+      ? hasCashMethodMapping
+      : (normalizedMethods.length > 0 ? true : null);
+    shiftCashMappingByCompany = {
+      ...(shiftCashMappingByCompany || {}),
+      [key]: mappingFlag,
+    };
+  };
+  const _shiftHasCashMapping = (companyKey = shiftCompanyKey) => {
+    const key = _shiftCompany(companyKey);
+    return (shiftCashMappingByCompany || {})[key];
+  };
+  const _shiftCashMethods = (companyKey = shiftCompanyKey) => {
+    const key = _shiftCompany(companyKey);
+    return Array.isArray((shiftCashMethodsByCompany || {})[key]) ? (shiftCashMethodsByCompany || {})[key] : [];
   };
   const _shiftExpectedUsdFrom = (srcShift, fallback = 0) => (
     toNum(_shiftPickMoney(srcShift || {}, ["expected_closing_cash_usd", "expected_cash_usd", "cash_expected_usd"], _shiftPickMoney(srcShift || {}, ["opening_cash_usd", "opening_usd"], fallback)), 0)
@@ -989,6 +1018,9 @@
   $: selectedShiftCashierName = normalizeCompanyKey(shiftCompanyKey || originCompanyKey) === "unofficial"
     ? cashierUnofficialName
     : cashierOfficialName;
+  $: selectedShiftHasCashMapping = _shiftHasCashMapping(shiftCompanyKey || originCompanyKey);
+  $: selectedShiftCashMethods = _shiftCashMethods(shiftCompanyKey || originCompanyKey);
+  $: selectedShiftCashMethodsLabel = (selectedShiftCashMethods || []).join(", ");
   $: shiftOpeningUsd = _shiftPickMoney(shift || {}, ["opening_cash_usd", "opening_usd"], 0);
   $: shiftOpeningLbp = _shiftPickMoney(shift || {}, ["opening_cash_lbp", "opening_lbp"], 0);
   $: shiftExpectedCloseUsd = (() => {
@@ -5337,6 +5369,7 @@
       loading = true;
       const res = await apiCallFor(targetCompany, "/shift/status", { method: "POST", body: {} });
       const nextShift = res?.shift || null;
+      _setShiftCashSetup(targetCompany, res?.cash_methods || [], res?.has_cash_method_mapping);
       if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
       shift = nextShift;
       if (nextShift) {
@@ -5374,6 +5407,7 @@
         },
       });
       const nextShift = res?.shift || null;
+      _setShiftCashSetup(targetCompany, res?.cash_methods || [], res?.has_cash_method_mapping);
       if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
       shift = nextShift;
       _setShiftClosingTouched(targetCompany, false);
@@ -5410,6 +5444,7 @@
         },
       });
       const nextShift = res?.shift || null;
+      _setShiftCashSetup(targetCompany, res?.cash_methods || [], res?.has_cash_method_mapping);
       if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
       shift = nextShift;
       _setShiftClosingTouched(targetCompany, false);
@@ -6768,6 +6803,16 @@
             <option value="unofficial">Unofficial ({unofficialConfig.shift_id ? "Open" : "Closed"})</option>
           </select>
           <div class="mt-1 text-[11px] text-muted">Cashier: {selectedShiftCashierName}</div>
+          {#if selectedShiftHasCashMapping === false}
+            <div class="mt-2 rounded-xl border border-amber-500/45 bg-amber-500/15 px-3 py-2">
+              <div class="text-xs font-semibold text-ink">No CASH payment mapping found.</div>
+              <div class="mt-1 text-[11px] text-muted">
+                Expected cash currently excludes sale/refund tenders. Add at least one CASH mapping in Admin.
+              </div>
+            </div>
+          {:else if selectedShiftHasCashMapping === true && selectedShiftCashMethodsLabel}
+            <div class="mt-1 text-[11px] text-muted">Cash methods: {selectedShiftCashMethodsLabel}</div>
+          {/if}
         </div>
         {#if !selectedShiftOpen}
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">

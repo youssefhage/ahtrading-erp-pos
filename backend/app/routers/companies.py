@@ -250,12 +250,13 @@ def create_company(
                       (%s, 'AI_INVENTORY', true, 3600, '{}'::jsonb, now()),
                       (%s, 'AI_PURCHASE', true, 3600, '{}'::jsonb, now()),
                       (%s, 'AI_CRM', true, 86400, '{"inactive_days": 60}'::jsonb, now()),
+                      (%s, 'AI_POS_SHIFT_VARIANCE', true, 86400, '{"lookback_days": 1, "min_variance_usd": 20, "min_variance_lbp": 2000000, "limit": 200}'::jsonb, now()),
                       (%s, 'AI_PRICING', true, 86400, '{"min_margin_pct": 0.05, "target_margin_pct": 0.15}'::jsonb, now()),
                       (%s, 'AI_SHRINKAGE', true, 3600, '{}'::jsonb, now()),
                       (%s, 'AI_EXECUTOR', true, 60, '{}'::jsonb, now())
                     ON CONFLICT (company_id, job_code) DO NOTHING
                     """,
-                    (new_company_id, new_company_id, new_company_id, new_company_id, new_company_id, new_company_id),
+                    (new_company_id, new_company_id, new_company_id, new_company_id, new_company_id, new_company_id, new_company_id),
                 )
 
             return {

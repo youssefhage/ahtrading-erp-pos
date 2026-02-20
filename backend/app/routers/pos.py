@@ -78,6 +78,35 @@ class ShiftCloseIn(BaseModel):
     cashier_id: Optional[str] = None
 
 
+def _assert_non_negative_shift_cash(usd_amount: Decimal, lbp_amount: Decimal, context: str) -> None:
+    usd = Decimal(str(usd_amount or 0))
+    lbp = Decimal(str(lbp_amount or 0))
+    if usd < 0 or lbp < 0:
+        raise HTTPException(status_code=400, detail=f"{context} cash must be >= 0")
+
+
+def _load_cash_methods(cur, company_id: str) -> tuple[list[str], list[str]]:
+    cur.execute(
+        """
+        SELECT method
+        FROM payment_method_mappings
+        WHERE company_id = %s AND role_code = 'CASH'
+        ORDER BY method
+        """,
+        (company_id,),
+    )
+    methods = [str(r["method"]).strip() for r in (cur.fetchall() or []) if str(r.get("method") or "").strip()]
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for method in methods:
+        key = method.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(key)
+    return methods, normalized
+
+
 class PosCustomerCreateIn(BaseModel):
     name: str
     phone: Optional[str] = None
@@ -2208,6 +2237,7 @@ def get_open_shift(device=Depends(require_device)):
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
+            cash_methods, _ = _load_cash_methods(cur, str(device["company_id"]))
             cur.execute(
                 """
                 SELECT id, status, opened_at, opening_cash_usd, opening_cash_lbp
@@ -2231,14 +2261,20 @@ def get_open_shift(device=Depends(require_device)):
                 )
                 row["expected_closing_cash_usd"] = expected_usd
                 row["expected_closing_cash_lbp"] = expected_lbp
-            return {"shift": row}
+            return {
+                "shift": row,
+                "cash_methods": cash_methods,
+                "has_cash_method_mapping": bool(cash_methods),
+            }
 
 
 @router.post("/shifts/open")
 def open_shift(data: ShiftOpenIn, device=Depends(require_device)):
+    _assert_non_negative_shift_cash(data.opening_cash_usd, data.opening_cash_lbp, "opening")
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
+            cash_methods, _ = _load_cash_methods(cur, str(device["company_id"]))
             cur.execute(
                 """
                 SELECT id FROM pos_shifts
@@ -2265,7 +2301,11 @@ def open_shift(data: ShiftOpenIn, device=Depends(require_device)):
                     data.cashier_id,
                 ),
             )
-            return {"shift": cur.fetchone()}
+            return {
+                "shift": cur.fetchone(),
+                "cash_methods": cash_methods,
+                "has_cash_method_mapping": bool(cash_methods),
+            }
 
 
 def _expected_cash(
@@ -2277,16 +2317,7 @@ def _expected_cash(
     opening_cash_usd: Decimal,
     opening_cash_lbp: Decimal,
 ):
-    cur.execute(
-        """
-        SELECT method
-        FROM payment_method_mappings
-        WHERE company_id = %s AND role_code = 'CASH'
-        """,
-        (company_id,),
-    )
-    cash_methods = [r["method"] for r in cur.fetchall()] or []
-    cash_methods_norm = [str(m).strip().lower() for m in cash_methods if str(m or "").strip()]
+    _cash_methods, cash_methods_norm = _load_cash_methods(cur, company_id)
     sales_usd = Decimal("0")
     sales_lbp = Decimal("0")
     if cash_methods_norm:
@@ -2379,9 +2410,11 @@ def _expected_cash(
 
 @router.post("/shifts/{shift_id}/close")
 def close_shift(shift_id: str, data: ShiftCloseIn, device=Depends(require_device)):
+    _assert_non_negative_shift_cash(data.closing_cash_usd, data.closing_cash_lbp, "closing")
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
+            cash_methods, _ = _load_cash_methods(cur, str(device["company_id"]))
             cur.execute(
                 """
                 SELECT id, opened_at, opening_cash_usd, opening_cash_lbp
@@ -2432,7 +2465,11 @@ def close_shift(shift_id: str, data: ShiftCloseIn, device=Depends(require_device
                     shift_id,
                 ),
             )
-            return {"shift": cur.fetchone()}
+            return {
+                "shift": cur.fetchone(),
+                "cash_methods": cash_methods,
+                "has_cash_method_mapping": bool(cash_methods),
+            }
 
 
 @router.get("/shifts/{shift_id}/cash-reconciliation", dependencies=[Depends(require_permission("pos:manage"))])
@@ -2461,16 +2498,7 @@ def shift_cash_reconciliation(shift_id: str, company_id: str = Depends(get_compa
             if not sh:
                 raise HTTPException(status_code=404, detail="shift not found")
 
-            cur.execute(
-                """
-                SELECT method
-                FROM payment_method_mappings
-                WHERE company_id = %s AND role_code = 'CASH'
-                """,
-                (company_id,),
-            )
-            cash_methods = [r["method"] for r in cur.fetchall()] or []
-            cash_methods_norm = [str(m).strip().lower() for m in cash_methods if str(m or "").strip()]
+            cash_methods, cash_methods_norm = _load_cash_methods(cur, company_id)
 
             sales_usd = Decimal("0")
             sales_lbp = Decimal("0")
@@ -2540,6 +2568,7 @@ def shift_cash_reconciliation(shift_id: str, company_id: str = Depends(get_compa
             return {
                 "shift": sh,
                 "cash_methods": cash_methods,
+                "has_cash_method_mapping": bool(cash_methods),
                 "sales_cash_usd": sales_usd,
                 "sales_cash_lbp": sales_lbp,
                 "refunds_cash_usd": refunds_usd,
@@ -2550,6 +2579,70 @@ def shift_cash_reconciliation(shift_id: str, company_id: str = Depends(get_compa
                 "expected_computed_usd": expected_usd,
                 "expected_computed_lbp": expected_lbp,
             }
+
+
+@router.get("/shifts/variance-alerts", dependencies=[Depends(require_permission("pos:manage"))])
+def list_shift_variance_alerts(
+    days: int = 1,
+    min_variance_usd: Decimal = Decimal("20"),
+    min_variance_lbp: Decimal = Decimal("2000000"),
+    limit: int = 100,
+    company_id: str = Depends(get_company_id),
+    _auth=Depends(require_company_access),
+):
+    if days < 1 or days > 60:
+        raise HTTPException(status_code=400, detail="days must be between 1 and 60")
+    if limit < 1 or limit > 1000:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 1000")
+    if min_variance_usd < 0 or min_variance_lbp < 0:
+        raise HTTPException(status_code=400, detail="variance thresholds must be >= 0")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT s.id, s.device_id, d.device_code, s.opened_at, s.closed_at,
+                       s.opening_cash_usd, s.opening_cash_lbp,
+                       s.expected_cash_usd, s.expected_cash_lbp,
+                       s.closing_cash_usd, s.closing_cash_lbp,
+                       s.variance_usd, s.variance_lbp
+                FROM pos_shifts s
+                LEFT JOIN pos_devices d
+                  ON d.company_id = s.company_id
+                 AND d.id = s.device_id
+                WHERE s.company_id = %s
+                  AND s.status = 'closed'
+                  AND s.closed_at >= now() - (%s::int * interval '1 day')
+                  AND (
+                    abs(COALESCE(s.variance_usd, 0)) >= %s
+                    OR abs(COALESCE(s.variance_lbp, 0)) >= %s
+                  )
+                ORDER BY s.closed_at DESC NULLS LAST
+                LIMIT %s
+                """,
+                (company_id, days, min_variance_usd, min_variance_lbp, limit),
+            )
+            rows = cur.fetchall() or []
+
+    max_abs_usd = Decimal("0")
+    max_abs_lbp = Decimal("0")
+    for row in rows:
+        abs_usd = abs(Decimal(str(row.get("variance_usd") or 0)))
+        abs_lbp = abs(Decimal(str(row.get("variance_lbp") or 0)))
+        if abs_usd > max_abs_usd:
+            max_abs_usd = abs_usd
+        if abs_lbp > max_abs_lbp:
+            max_abs_lbp = abs_lbp
+
+    return {
+        "days": days,
+        "thresholds": {"usd": min_variance_usd, "lbp": min_variance_lbp},
+        "alerts_count": len(rows),
+        "max_abs_variance_usd": max_abs_usd,
+        "max_abs_variance_lbp": max_abs_lbp,
+        "alerts": rows,
+    }
 
 
 class CashMovementIn(BaseModel):
