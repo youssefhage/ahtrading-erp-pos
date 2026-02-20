@@ -162,11 +162,6 @@ export function SearchableSelect(props: {
               data-dialog-keepopen="true"
               data-searchable-select-menu="true"
               className="absolute left-0 right-0 z-[80] mt-1 overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
-              onPointerDownCapture={(e) => {
-                // Keep portal interactions local; avoid global pointerdown listeners
-                // (dialog/document outside handlers) from racing the selection commit.
-                e.stopPropagation();
-              }}
             >
               <div className="border-b border-border-subtle p-2">
                 <Input

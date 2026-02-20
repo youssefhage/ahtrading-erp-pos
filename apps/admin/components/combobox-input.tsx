@@ -200,6 +200,7 @@ export function ComboboxInput(props: {
         ? createPortal(
             <div
               ref={menuRef}
+              data-dialog-keepopen="true"
               className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
               style={{
                 position: "fixed",
@@ -223,9 +224,13 @@ export function ComboboxInput(props: {
                           "border-b border-border-subtle last:border-b-0",
                           isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
                         )}
-                        onMouseDown={(e) => e.preventDefault()}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          select(s);
+                        }}
                         onMouseEnter={() => setActive(idx)}
-                        onClick={() => select(s)}
+                        onClick={(e) => e.preventDefault()}
                       >
                         <span className="font-mono text-xs text-foreground">{s}</span>
                       </button>

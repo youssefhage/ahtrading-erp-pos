@@ -393,6 +393,7 @@ export function ItemTypeahead(props: {
         ? createPortal(
             <div
               ref={menuRef}
+              data-dialog-keepopen="true"
               className="z-[70] overflow-hidden rounded-md border border-border bg-bg-elevated shadow-lg"
               style={{
                 position: "fixed",
@@ -445,9 +446,13 @@ export function ItemTypeahead(props: {
                           "border-b border-border-subtle last:border-b-0",
                           isActive ? "bg-primary/15 ring-1 ring-primary/25" : "hover:bg-bg-sunken/50"
                         )}
-                        onMouseDown={(e) => e.preventDefault()}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          select(it);
+                        }}
                         onMouseEnter={() => setActive(idx)}
-                        onClick={() => select(it)}
+                        onClick={(e) => e.preventDefault()}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
