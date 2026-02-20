@@ -118,17 +118,8 @@ services:
       - sh
       - -lc
       - |
-        set -euo pipefail
-        attempt=0
-        until backend/scripts/init_db.sh; do
-          attempt=$$((attempt+1))
-          if [ "$$attempt" -ge 60 ]; then
-            echo "init_db failed after $$attempt attempts" >&2
-            exit 1
-          fi
-          echo "init_db failed; retrying in 2s ($$attempt/60)..." >&2
-          sleep 2
-        done
+        # Keep worker startup resilient: API service already runs DB init/migrations.
+        # Starting the worker directly avoids crash loops when init_db is temporarily noisy.
         exec python3 -m backend.workers.worker_service --db "$$APP_DATABASE_URL"
     networks:
       - default
