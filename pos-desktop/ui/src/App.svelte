@@ -1972,10 +1972,58 @@
     return { ok: true, invoice_id: detail?.invoice?.id || null };
   };
 
+  const _invoicePdfUrlFromCfg = (cfg, invoiceId) => {
+    const invId = String(invoiceId || "").trim();
+    const pb = String(cfg?.print_base_url || "").trim().replace(/\/+$/, "");
+    if (!invId || !pb) return "";
+    const tplRaw = String(cfg?.invoice_template || "official_classic").trim().toLowerCase();
+    const tpl = (tplRaw === "official_classic" || tplRaw === "official_compact" || tplRaw === "standard")
+      ? tplRaw
+      : "official_classic";
+    return `${pb}/exports/sales-invoices/${encodeURIComponent(invId)}/pdf?inline=1&template=${encodeURIComponent(tpl)}`;
+  };
+
+  const _receiptPdfUrlFromCfg = (cfg, invoiceId) => {
+    const invId = String(invoiceId || "").trim();
+    const pb = String(cfg?.print_base_url || "").trim().replace(/\/+$/, "");
+    if (!invId || !pb) return "";
+    return `${pb}/exports/sales-receipts/${encodeURIComponent(invId)}/pdf?inline=1`;
+  };
+
+  const _openPrintWindowWithUrl = (url, receiptWin = null) => {
+    const u = String(url || "").trim();
+    if (!u) return false;
+    try {
+      if (receiptWin && !receiptWin.closed) {
+        receiptWin.location = u;
+        return true;
+      }
+    } catch (_) {}
+    try {
+      window.open(u, "_blank", "noopener,noreferrer");
+      return true;
+    } catch (_) {}
+    return false;
+  };
+
   const _printInvoiceByEventWeb = async (companyKey, eventId, receiptWin = null, { thermal = false } = {}) => {
     const resolved = await _resolveInvoiceByEventWeb(companyKey, eventId);
     const invoiceId = String(resolved?.invoice_id || "").trim();
     if (!invoiceId) throw new Error("invoice not found for event");
+    if (thermal && companyKey !== "official") {
+      const cfg = cfgForCompanyKey(companyKey) || {};
+      const pdfUrl = _receiptPdfUrlFromCfg(cfg, invoiceId);
+      if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
+        return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
+      }
+    }
+    if (!thermal && companyKey === "official") {
+      const cfg = cfgForCompanyKey(companyKey) || {};
+      const pdfUrl = _invoicePdfUrlFromCfg(cfg, invoiceId);
+      if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
+        return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
+      }
+    }
     const detail = await _fetchInvoiceDetailWeb(companyKey, invoiceId);
     await _printInvoiceDetailWeb(companyKey, detail, receiptWin, { thermal });
     return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
@@ -1986,6 +2034,20 @@
     const detail = res?.receipt || null;
     const invoiceId = String(detail?.invoice?.id || "").trim();
     if (!invoiceId) throw new Error("No receipt found for this device.");
+    if (thermal && companyKey !== "official") {
+      const cfg = cfgForCompanyKey(companyKey) || {};
+      const pdfUrl = _receiptPdfUrlFromCfg(cfg, invoiceId);
+      if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
+        return { ok: true, invoice_id: invoiceId };
+      }
+    }
+    if (!thermal && companyKey === "official") {
+      const cfg = cfgForCompanyKey(companyKey) || {};
+      const pdfUrl = _invoicePdfUrlFromCfg(cfg, invoiceId);
+      if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
+        return { ok: true, invoice_id: invoiceId };
+      }
+    }
     await _printInvoiceDetailWeb(companyKey, detail, receiptWin, { thermal });
     return { ok: true, invoice_id: invoiceId };
   };
@@ -2818,7 +2880,11 @@
           const invId = String(resolved?.invoice_id || "").trim();
           const pb = String(cfg.print_base_url || "").trim().replace(/\/+$/, "");
           if (invId && pb) {
-            const u = `${pb}/exports/sales-invoices/${encodeURIComponent(invId)}/pdf?inline=1`;
+            const tplRaw = String(cfg.invoice_template || "official_classic").trim().toLowerCase();
+            const tpl = (tplRaw === "official_classic" || tplRaw === "official_compact" || tplRaw === "standard")
+              ? tplRaw
+              : "official_classic";
+            const u = `${pb}/exports/sales-invoices/${encodeURIComponent(invId)}/pdf?inline=1&template=${encodeURIComponent(tpl)}`;
             if (receiptWin) receiptWin.location = u;
             else window.open(u, "_blank", "noopener,noreferrer");
             return;
