@@ -6768,7 +6768,7 @@
         {:else}
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3">
-              <div class="text-[11px] uppercase tracking-wide text-muted">Expected Cash</div>
+              <div class="text-[11px] uppercase tracking-wide text-muted">Expected Cash (Cash Tenders)</div>
               <div class="mt-1 text-sm font-mono text-ink">USD {toNum(shiftExpectedCloseUsd, 0).toFixed(2)}</div>
               <div class="text-sm font-mono text-ink">{Math.round(toNum(shiftExpectedCloseLbp, 0)).toLocaleString()} LBP</div>
             </div>

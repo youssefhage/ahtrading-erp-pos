@@ -2219,6 +2219,18 @@ def get_open_shift(device=Depends(require_device)):
                 (device["company_id"], device["device_id"]),
             )
             row = cur.fetchone()
+            if row:
+                expected_usd, expected_lbp = _expected_cash(
+                    cur,
+                    str(device["company_id"]),
+                    str(device["device_id"]),
+                    str(row["id"]),
+                    row["opened_at"],
+                    row["opening_cash_usd"],
+                    row["opening_cash_lbp"],
+                )
+                row["expected_closing_cash_usd"] = expected_usd
+                row["expected_closing_cash_lbp"] = expected_lbp
             return {"shift": row}
 
 
