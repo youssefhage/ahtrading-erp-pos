@@ -157,10 +157,10 @@ export function TrialBalancePdf(props: { rows: TrialRow[] }) {
             <View style={s.thead} fixed>
               <Text style={[s.th, { flex: 1.6 }]}>Code</Text>
               <Text style={[s.th, { flex: 5.2 }]}>Account</Text>
-              <Text style={[s.th, s.right, { flex: 1.8 }]}>Dr USD</Text>
-              <Text style={[s.th, s.right, { flex: 1.8 }]}>Cr USD</Text>
-              <Text style={[s.th, s.right, { flex: 1.8 }]}>Dr LL</Text>
-              <Text style={[s.th, s.right, { flex: 1.8 }]}>Cr LL</Text>
+              <Text style={[s.th, s.right, { flex: 1.8 }]}>Debit USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.8 }]}>Credit USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.8 }]}>Debit LL</Text>
+              <Text style={[s.th, s.right, { flex: 1.8 }]}>Credit LL</Text>
             </View>
             {rows.map((r) => (
               <View key={r.account_code} style={s.tr} wrap={false}>
@@ -278,6 +278,14 @@ export function ProfitLossPdf(props: { data: PlRes }) {
 
 export type BsRow = { account_code: string; name_en: string | null; normal_balance: string; balance_usd: string | number; balance_lbp: string | number };
 export type BsRes = { as_of: string; rows: BsRow[] };
+
+function splitBalanceByNormal(normalBalance: string | null | undefined, value: string | number) {
+  const n = Number(value || 0);
+  const isCredit = String(normalBalance || "").toLowerCase() === "credit";
+  if (isCredit) return n >= 0 ? { debit: 0, credit: n } : { debit: Math.abs(n), credit: 0 };
+  return n >= 0 ? { debit: n, credit: 0 } : { debit: 0, credit: Math.abs(n) };
+}
+
 export function BalanceSheetPdf(props: { data: BsRes }) {
   const data = props.data;
   const rows = data.rows || [];
@@ -300,19 +308,23 @@ export function BalanceSheetPdf(props: { data: BsRes }) {
         <View style={s.section}>
           <View style={s.table}>
             <View style={s.thead} fixed>
-              <Text style={[s.th, { flex: 1.6 }]}>Code</Text>
-              <Text style={[s.th, { flex: 5.6 }]}>Account</Text>
-              <Text style={[s.th, { flex: 1.4 }]}>Normal</Text>
-              <Text style={[s.th, s.right, { flex: 2.0 }]}>USD</Text>
-              <Text style={[s.th, s.right, { flex: 2.0 }]}>LL</Text>
+              <Text style={[s.th, { flex: 1.5 }]}>Code</Text>
+              <Text style={[s.th, { flex: 4.3 }]}>Account</Text>
+              <Text style={[s.th, { flex: 1.2 }]}>Normal</Text>
+              <Text style={[s.th, s.right, { flex: 1.5 }]}>Debit USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.5 }]}>Credit USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.5 }]}>Debit LL</Text>
+              <Text style={[s.th, s.right, { flex: 1.5 }]}>Credit LL</Text>
             </View>
             {rows.map((r) => (
               <View key={r.account_code} style={s.tr} wrap={false}>
-                <Text style={[s.td, s.mono, { flex: 1.6 }]}>{r.account_code}</Text>
-                <Text style={[s.td, { flex: 5.6 }]}>{r.name_en || "-"}</Text>
-                <Text style={[s.td, { flex: 1.4 }]}>{r.normal_balance}</Text>
-                <Text style={[s.td, s.right, s.mono, { flex: 2.0 }]}>{fmt(r.balance_usd, 2)}</Text>
-                <Text style={[s.td, s.right, s.mono, { flex: 2.0 }]}>{fmt(r.balance_lbp, 0)}</Text>
+                <Text style={[s.td, s.mono, { flex: 1.5 }]}>{r.account_code}</Text>
+                <Text style={[s.td, { flex: 4.3 }]}>{r.name_en || "-"}</Text>
+                <Text style={[s.td, { flex: 1.2 }]}>{r.normal_balance}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.5 }]}>{fmt(splitBalanceByNormal(r.normal_balance, r.balance_usd).debit, 2)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.5 }]}>{fmt(splitBalanceByNormal(r.normal_balance, r.balance_usd).credit, 2)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.5 }]}>{fmt(splitBalanceByNormal(r.normal_balance, r.balance_lbp).debit, 0)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.5 }]}>{fmt(splitBalanceByNormal(r.normal_balance, r.balance_lbp).credit, 0)}</Text>
               </View>
             ))}
             {rows.length === 0 ? (
@@ -369,10 +381,10 @@ export function GeneralLedgerPdf(props: { rows: GlRow[]; startDate?: string; end
               <Text style={[s.th, { flex: 1.4 }]}>Date</Text>
               <Text style={[s.th, { flex: 1.7 }]}>Journal</Text>
               <Text style={[s.th, { flex: 3.8 }]}>Account</Text>
-              <Text style={[s.th, s.right, { flex: 1.4 }]}>Dr USD</Text>
-              <Text style={[s.th, s.right, { flex: 1.4 }]}>Cr USD</Text>
-              <Text style={[s.th, s.right, { flex: 1.4 }]}>Dr LL</Text>
-              <Text style={[s.th, s.right, { flex: 1.4 }]}>Cr LL</Text>
+              <Text style={[s.th, s.right, { flex: 1.4 }]}>Debit USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.4 }]}>Credit USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.4 }]}>Debit LL</Text>
+              <Text style={[s.th, s.right, { flex: 1.4 }]}>Credit LL</Text>
               <Text style={[s.th, { flex: 3.0 }]}>Memo</Text>
             </View>
             {rows.map((r, idx) => (
@@ -429,6 +441,16 @@ function soaKindLabel(kind: string) {
   return kind || "-";
 }
 
+function soaDebit(value: string | number) {
+  const n = Number(value || 0);
+  return n > 0 ? n : 0;
+}
+
+function soaCredit(value: string | number) {
+  const n = Number(value || 0);
+  return n < 0 ? Math.abs(n) : 0;
+}
+
 export function SoaPdf(props: {
   title: string;
   partyLabel: string;
@@ -464,38 +486,44 @@ export function SoaPdf(props: {
         <View style={s.section}>
           <View style={s.table}>
             <View style={s.thead} fixed>
-              <Text style={[s.th, { flex: 1.4 }]}>Date</Text>
-              <Text style={[s.th, { flex: 1.6 }]}>Type</Text>
-              <Text style={[s.th, { flex: 1.7 }]}>Ref</Text>
-              <Text style={[s.th, { flex: 2.6 }]}>Memo</Text>
-              <Text style={[s.th, s.right, { flex: 1.7 }]}>Delta USD</Text>
-              <Text style={[s.th, s.right, { flex: 1.7 }]}>Delta LL</Text>
-              <Text style={[s.th, s.right, { flex: 1.7 }]}>Balance USD</Text>
-              <Text style={[s.th, s.right, { flex: 1.7 }]}>Balance LL</Text>
+              <Text style={[s.th, { flex: 1.2 }]}>Date</Text>
+              <Text style={[s.th, { flex: 1.3 }]}>Type</Text>
+              <Text style={[s.th, { flex: 1.6 }]}>Ref</Text>
+              <Text style={[s.th, { flex: 2.2 }]}>Memo</Text>
+              <Text style={[s.th, s.right, { flex: 1.4 }]}>Debit USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.4 }]}>Credit USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.4 }]}>Debit LL</Text>
+              <Text style={[s.th, s.right, { flex: 1.4 }]}>Credit LL</Text>
+              <Text style={[s.th, s.right, { flex: 1.6 }]}>Balance USD</Text>
+              <Text style={[s.th, s.right, { flex: 1.6 }]}>Balance LL</Text>
             </View>
 
             {/* Opening row (informational). */}
             <View style={[s.tr, { backgroundColor: "#f6f6f6" }]} wrap={false}>
-              <Text style={[s.td, s.mono, { flex: 1.4 }]}>{props.startDate}</Text>
-              <Text style={[s.td, { flex: 1.6 }]}>Opening</Text>
-              <Text style={[s.td, s.mono, { flex: 1.7 }]} />
-              <Text style={[s.td, { flex: 2.6 }]} />
-              <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(props.openingUsd, 2)}</Text>
-              <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(props.openingLbp, 0)}</Text>
-              <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(props.openingUsd, 2)}</Text>
-              <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(props.openingLbp, 0)}</Text>
+              <Text style={[s.td, s.mono, { flex: 1.2 }]}>{props.startDate}</Text>
+              <Text style={[s.td, { flex: 1.3 }]}>Opening</Text>
+              <Text style={[s.td, s.mono, { flex: 1.6 }]} />
+              <Text style={[s.td, { flex: 2.2 }]} />
+              <Text style={[s.td, s.right, s.mono, { flex: 1.4 }]}>{fmt(0, 2)}</Text>
+              <Text style={[s.td, s.right, s.mono, { flex: 1.4 }]}>{fmt(0, 2)}</Text>
+              <Text style={[s.td, s.right, s.mono, { flex: 1.4 }]}>{fmt(0, 0)}</Text>
+              <Text style={[s.td, s.right, s.mono, { flex: 1.4 }]}>{fmt(0, 0)}</Text>
+              <Text style={[s.td, s.right, s.mono, { flex: 1.6 }]}>{fmt(props.openingUsd, 2)}</Text>
+              <Text style={[s.td, s.right, s.mono, { flex: 1.6 }]}>{fmt(props.openingLbp, 0)}</Text>
             </View>
 
             {rows.map((r, idx) => (
               <View key={`${r.tx_date}:${r.kind}:${idx}`} style={s.tr} wrap={false}>
-                <Text style={[s.td, s.mono, { flex: 1.4 }]}>{r.tx_date}</Text>
-                <Text style={[s.td, { flex: 1.6 }]}>{soaKindLabel(r.kind)}</Text>
-                <Text style={[s.td, s.mono, { flex: 1.7 }]}>{r.ref || ""}</Text>
-                <Text style={[s.td, { flex: 2.6 }]}>{r.memo || ""}</Text>
-                <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(r.delta_usd, 2)}</Text>
-                <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(r.delta_lbp, 0)}</Text>
-                <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(r.balance_usd, 2)}</Text>
-                <Text style={[s.td, s.right, s.mono, { flex: 1.7 }]}>{fmt(r.balance_lbp, 0)}</Text>
+                <Text style={[s.td, s.mono, { flex: 1.2 }]}>{r.tx_date}</Text>
+                <Text style={[s.td, { flex: 1.3 }]}>{soaKindLabel(r.kind)}</Text>
+                <Text style={[s.td, s.mono, { flex: 1.6 }]}>{r.ref || ""}</Text>
+                <Text style={[s.td, { flex: 2.2 }]}>{r.memo || ""}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.4 }]}>{fmt(soaDebit(r.delta_usd), 2)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.4 }]}>{fmt(soaCredit(r.delta_usd), 2)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.4 }]}>{fmt(soaDebit(r.delta_lbp), 0)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.4 }]}>{fmt(soaCredit(r.delta_lbp), 0)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.6 }]}>{fmt(r.balance_usd, 2)}</Text>
+                <Text style={[s.td, s.right, s.mono, { flex: 1.6 }]}>{fmt(r.balance_lbp, 0)}</Text>
               </View>
             ))}
             {rows.length === 0 ? (
@@ -506,14 +534,16 @@ export function SoaPdf(props: {
 
             {/* Closing summary */}
             <View style={[s.tr, { backgroundColor: "#f6f6f6" }]} wrap={false}>
+              <Text style={[s.td, { flex: 1.2 }]} />
+              <Text style={[s.td, { flex: 1.3, fontWeight: 700 }]}>Closing</Text>
+              <Text style={[s.td, { flex: 1.6 }]} />
+              <Text style={[s.td, { flex: 2.2 }]} />
               <Text style={[s.td, { flex: 1.4 }]} />
-              <Text style={[s.td, { flex: 1.6, fontWeight: 700 }]}>Closing</Text>
-              <Text style={[s.td, { flex: 1.7 }]} />
-              <Text style={[s.td, { flex: 2.6 }]} />
-              <Text style={[s.td, { flex: 1.7 }]} />
-              <Text style={[s.td, { flex: 1.7 }]} />
-              <Text style={[s.td, s.right, s.mono, { flex: 1.7, fontWeight: 700 }]}>{fmt(props.closingUsd, 2)}</Text>
-              <Text style={[s.td, s.right, s.mono, { flex: 1.7, fontWeight: 700 }]}>{fmt(props.closingLbp, 0)}</Text>
+              <Text style={[s.td, { flex: 1.4 }]} />
+              <Text style={[s.td, { flex: 1.4 }]} />
+              <Text style={[s.td, { flex: 1.4 }]} />
+              <Text style={[s.td, s.right, s.mono, { flex: 1.6, fontWeight: 700 }]}>{fmt(props.closingUsd, 2)}</Text>
+              <Text style={[s.td, s.right, s.mono, { flex: 1.6, fontWeight: 700 }]}>{fmt(props.closingLbp, 0)}</Text>
             </View>
           </View>
         </View>

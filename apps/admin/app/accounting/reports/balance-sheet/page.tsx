@@ -29,6 +29,13 @@ function fmt(n: string | number, frac = 2) {
   return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: frac });
 }
 
+function splitBalanceByNormal(normalBalance: string | null | undefined, value: string | number) {
+  const n = Number(value || 0);
+  const isCredit = String(normalBalance || "").toLowerCase() === "credit";
+  if (isCredit) return n >= 0 ? { debit: 0, credit: n } : { debit: Math.abs(n), credit: 0 };
+  return n >= 0 ? { debit: n, credit: 0 } : { debit: 0, credit: Math.abs(n) };
+}
+
 function todayIso() {
   const d = new Date();
   const y = d.getFullYear();
@@ -74,22 +81,40 @@ export default function BalanceSheetPage() {
       { id: "name_en", header: "Account", accessor: (r) => r.name_en || "-", sortable: true },
       { id: "normal_balance", header: "Normal", accessor: (r) => r.normal_balance, sortable: true, globalSearch: false },
       {
-        id: "balance_usd",
-        header: "Balance USD",
-        accessor: (r) => Number(r.balance_usd || 0),
+        id: "debit_usd",
+        header: "Debit USD",
+        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_usd).debit,
         align: "right",
         mono: true,
         sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(r.balance_usd, 2)}</span>,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_usd).debit, 2)}</span>,
       },
       {
-        id: "balance_lbp",
-        header: "Balance LL",
-        accessor: (r) => Number(r.balance_lbp || 0),
+        id: "credit_usd",
+        header: "Credit USD",
+        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_usd).credit,
         align: "right",
         mono: true,
         sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(r.balance_lbp, 0)}</span>,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_usd).credit, 2)}</span>,
+      },
+      {
+        id: "debit_lbp",
+        header: "Debit LL",
+        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_lbp).debit,
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_lbp).debit, 0)}</span>,
+      },
+      {
+        id: "credit_lbp",
+        header: "Credit LL",
+        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_lbp).credit,
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_lbp).credit, 0)}</span>,
       },
     ];
   }, []);
@@ -166,7 +191,7 @@ export default function BalanceSheetPage() {
           </CardHeader>
           <CardContent>
             <DataTable<BsRow>
-              tableId="accounting.reports.balance_sheet"
+              tableId="accounting.reports.balance_sheet.v2"
               rows={data?.rows || []}
               columns={columns}
               initialSort={{ columnId: "account_code", dir: "asc" }}

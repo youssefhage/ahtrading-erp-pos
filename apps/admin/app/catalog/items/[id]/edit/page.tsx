@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { Printer, RefreshCw } from "lucide-react";
 
 import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm } from "@/lib/api";
+import { generateEan13Barcode, printBarcodeStickerLabel } from "@/lib/barcode-label";
 import { parseNumberInput } from "@/lib/numbers";
 import { fmtLbp, fmtUsd, fmtUsdLbp } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -543,6 +545,25 @@ export default function ItemEditPage() {
     }
   }
 
+  function generateDraftBarcode() {
+    setNewBarcode(generateEan13Barcode());
+  }
+
+  async function printLabelForBarcode(code: string, uom?: string | null) {
+    const barcode = String(code || "").trim();
+    if (!barcode) return setStatus("Enter or generate a barcode first.");
+    try {
+      await printBarcodeStickerLabel({
+        barcode,
+        sku: editSku || item?.sku || null,
+        name: editName || item?.name || null,
+        uom: String(uom || editUom || item?.unit_of_measure || "").trim() || null,
+      });
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function addConversion(e: React.FormEvent) {
     e.preventDefault();
     if (!item) return;
@@ -1039,7 +1060,34 @@ export default function ItemEditPage() {
             <CardContent className="space-y-3">
               <form onSubmit={addBarcode} className="grid grid-cols-1 gap-2 md:grid-cols-12">
                 <div className="md:col-span-4">
-                  <Input value={newBarcode} onChange={(e) => setNewBarcode(e.target.value)} placeholder="barcode" />
+                  <div className="relative">
+                    <Input value={newBarcode} onChange={(e) => setNewBarcode(e.target.value)} placeholder="barcode" className="pr-20 data-mono" />
+                    <div className="absolute right-1 top-1 flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 px-0"
+                        title="Generate barcode"
+                        aria-label="Generate barcode"
+                        onClick={generateDraftBarcode}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 px-0"
+                        title="Print sticker label"
+                        aria-label="Print sticker label"
+                        onClick={() => printLabelForBarcode(newBarcode, newBarcodeUom || editUom)}
+                        disabled={!newBarcode.trim()}
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
                 </div>
                 <div className="md:col-span-2">
                   <SearchableSelect value={newBarcodeUom} onChange={setNewBarcodeUom} searchPlaceholder="UOM..." options={uomOptions} />
@@ -1115,6 +1163,17 @@ export default function ItemEditPage() {
                         <td className="px-3 py-2 text-xs">{b.is_primary ? "yes" : "no"}</td>
                         <td className="px-3 py-2 text-right">
                           <div className="inline-flex items-center gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8 w-8 px-0"
+                              title="Print sticker label"
+                              aria-label="Print sticker label"
+                              onClick={() => printLabelForBarcode(b.barcode, b.uom_code)}
+                            >
+                              <Printer className="h-3.5 w-3.5" />
+                            </Button>
                             {!b.is_primary ? (
                               <Button type="button" size="sm" variant="outline" onClick={() => updateBarcode(b.id, { is_primary: true })}>
                                 Set Primary

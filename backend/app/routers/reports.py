@@ -1449,23 +1449,29 @@ def customer_soa(
                 "kind",
                 "ref",
                 "memo",
-                "delta_usd",
-                "delta_lbp",
+                "debit_usd",
+                "credit_usd",
+                "debit_lbp",
+                "credit_lbp",
                 "balance_usd",
                 "balance_lbp",
             ]
         )
         # Opening row (informational).
-        writer.writerow([start_date, "opening", "", "", opening_usd, opening_lbp, opening_usd, opening_lbp])
+        writer.writerow([start_date, "opening", "", "", 0, 0, 0, 0, opening_usd, opening_lbp])
         for r in out_rows:
+            du = Decimal(str(r.get("delta_usd") or 0))
+            dl = Decimal(str(r.get("delta_lbp") or 0))
             writer.writerow(
                 [
                     r["tx_date"],
                     r["kind"],
                     r["ref"],
                     r["memo"],
-                    r["delta_usd"],
-                    r["delta_lbp"],
+                    du if du > 0 else 0,
+                    abs(du) if du < 0 else 0,
+                    dl if dl > 0 else 0,
+                    abs(dl) if dl < 0 else 0,
                     r["balance_usd"],
                     r["balance_lbp"],
                 ]
@@ -1649,22 +1655,28 @@ def supplier_soa(
                 "kind",
                 "ref",
                 "memo",
-                "delta_usd",
-                "delta_lbp",
+                "debit_usd",
+                "credit_usd",
+                "debit_lbp",
+                "credit_lbp",
                 "balance_usd",
                 "balance_lbp",
             ]
         )
-        writer.writerow([start_date, "opening", "", "", opening_usd, opening_lbp, opening_usd, opening_lbp])
+        writer.writerow([start_date, "opening", "", "", 0, 0, 0, 0, opening_usd, opening_lbp])
         for r in out_rows:
+            du = Decimal(str(r.get("delta_usd") or 0))
+            dl = Decimal(str(r.get("delta_lbp") or 0))
             writer.writerow(
                 [
                     r["tx_date"],
                     r["kind"],
                     r["ref"],
                     r["memo"],
-                    r["delta_usd"],
-                    r["delta_lbp"],
+                    du if du > 0 else 0,
+                    abs(du) if du < 0 else 0,
+                    dl if dl > 0 else 0,
+                    abs(dl) if dl < 0 else 0,
                     r["balance_usd"],
                     r["balance_lbp"],
                 ]

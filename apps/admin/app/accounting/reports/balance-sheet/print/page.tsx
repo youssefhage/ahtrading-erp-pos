@@ -32,6 +32,13 @@ function fmt(n: string | number, frac = 2) {
   return Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: frac });
 }
 
+function splitBalanceByNormal(normalBalance: string | null | undefined, value: string | number) {
+  const n = Number(value || 0);
+  const isCredit = String(normalBalance || "").toLowerCase() === "credit";
+  if (isCredit) return n >= 0 ? { debit: 0, credit: n } : { debit: Math.abs(n), credit: 0 };
+  return n >= 0 ? { debit: n, credit: 0 } : { debit: 0, credit: Math.abs(n) };
+}
+
 function BalanceSheetPrintInner() {
   const sp = useSearchParams();
   const asOf = sp.get("as_of") || todayIso();
@@ -115,8 +122,10 @@ function BalanceSheetPrintInner() {
                   <th className="px-4 py-2 text-left">Code</th>
                   <th className="px-3 py-2 text-left">Account</th>
                   <th className="px-3 py-2 text-left">Normal</th>
-                  <th className="px-3 py-2 text-right">Balance USD</th>
-                  <th className="px-4 py-2 text-right">Balance LL</th>
+                  <th className="px-3 py-2 text-right">Debit USD</th>
+                  <th className="px-3 py-2 text-right">Credit USD</th>
+                  <th className="px-3 py-2 text-right">Debit LL</th>
+                  <th className="px-4 py-2 text-right">Credit LL</th>
                 </tr>
               </thead>
               <tbody>
@@ -125,13 +134,15 @@ function BalanceSheetPrintInner() {
                     <td className="px-4 py-2 font-mono text-[11px]">{r.account_code}</td>
                     <td className="px-3 py-2 text-sm">{r.name_en || "-"}</td>
                     <td className="px-3 py-2 text-[11px] text-black/70">{r.normal_balance}</td>
-                    <td className="px-3 py-2 text-right font-mono text-[11px]">{fmt(r.balance_usd, 2)}</td>
-                    <td className="px-4 py-2 text-right font-mono text-[11px]">{fmt(r.balance_lbp, 0)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-[11px]">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_usd).debit, 2)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-[11px]">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_usd).credit, 2)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-[11px]">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_lbp).debit, 0)}</td>
+                    <td className="px-4 py-2 text-right font-mono text-[11px]">{fmt(splitBalanceByNormal(r.normal_balance, r.balance_lbp).credit, 0)}</td>
                   </tr>
                 ))}
                 {(data?.rows || []).length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-black/60" colSpan={5}>
+                    <td className="px-4 py-8 text-center text-black/60" colSpan={7}>
                       No rows.
                     </td>
                   </tr>

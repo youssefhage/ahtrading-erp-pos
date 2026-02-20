@@ -2417,7 +2417,7 @@ def close_shift(shift_id: str, data: ShiftCloseIn, device=Depends(require_device
     with get_conn() as conn:
         set_company_context(conn, device["company_id"])
         with conn.cursor() as cur:
-            cash_methods, _ = _load_cash_methods(cur, str(device["company_id"]))
+            cash_methods, cash_methods_norm = _load_cash_methods(cur, str(device["company_id"]))
             cur.execute(
                 """
                 SELECT id, opened_at, opening_cash_usd, opening_cash_lbp

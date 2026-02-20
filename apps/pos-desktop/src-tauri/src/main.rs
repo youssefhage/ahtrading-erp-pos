@@ -158,12 +158,17 @@ fn find_sidecar_exe(app: &tauri::AppHandle) -> Option<PathBuf> {
   // - resource dir root (manual copy)
   // - resource dir `bin/` (convention)
   let res = app.path().resource_dir().ok()?;
-  let candidates = [
-    res.join("pos-agent"),
-    res.join("pos-agent.exe"),
-    res.join("bin").join("pos-agent"),
-    res.join("bin").join("pos-agent.exe"),
-  ];
+  let candidates = if cfg!(target_os = "windows") {
+    vec![
+      res.join("pos-agent.exe"),
+      res.join("bin").join("pos-agent.exe"),
+    ]
+  } else {
+    vec![
+      res.join("pos-agent"),
+      res.join("bin").join("pos-agent"),
+    ]
+  };
   candidates.into_iter().find(|c| c.exists())
 }
 
@@ -227,7 +232,7 @@ fn init_db_with_sidecar(app: &tauri::AppHandle, config_path: &Path, db_path: &Pa
     msg.push_str(&String::from_utf8_lossy(&out.stdout));
   }
   if !out.stderr.is_empty() {
-    msg.push_str("\n");
+    msg.push('\n');
     msg.push_str(&String::from_utf8_lossy(&out.stderr));
   }
   Err(msg.trim().to_string())
@@ -376,6 +381,7 @@ fn start_agents(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn start_setup_agent(
   app: tauri::AppHandle,
   state: tauri::State<'_, Mutex<AgentsState>>,
@@ -496,11 +502,11 @@ fn append_desktop_log(app: &tauri::AppHandle, level: &str, message: &str, stack:
   if let Some(s) = stack {
     let st = s.trim();
     if !st.is_empty() {
-      line.push_str("\n");
+      line.push('\n');
       line.push_str(st);
     }
   }
-  line.push_str("\n");
+  line.push('\n');
   f.write_all(line.as_bytes()).map_err(|e| e.to_string())
 }
 

@@ -37,6 +37,13 @@ type BSRow = {
   balance_lbp: string | number;
 };
 
+function splitBalanceByNormal(normalBalance: string | null | undefined, value: string | number) {
+  const n = Number(value || 0);
+  const isCredit = String(normalBalance || "").toLowerCase() === "credit";
+  if (isCredit) return n >= 0 ? { debit: 0, credit: n } : { debit: Math.abs(n), credit: 0 };
+  return n >= 0 ? { debit: n, credit: 0 } : { debit: 0, credit: Math.abs(n) };
+}
+
 function todayISO() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -72,7 +79,7 @@ export default function ConsolidatedReportsPage() {
       { id: "name_en", header: "Account", accessor: (r) => r.name_en || "", sortable: true },
       {
         id: "debit_usd",
-        header: "Dr USD",
+        header: "Debit USD",
         accessor: (r) => Number(r.debit_usd || 0),
         align: "right",
         mono: true,
@@ -82,7 +89,7 @@ export default function ConsolidatedReportsPage() {
       },
       {
         id: "credit_usd",
-        header: "Cr USD",
+        header: "Credit USD",
         accessor: (r) => Number(r.credit_usd || 0),
         align: "right",
         mono: true,
@@ -92,7 +99,7 @@ export default function ConsolidatedReportsPage() {
       },
       {
         id: "debit_lbp",
-        header: "Dr LL",
+        header: "Debit LL",
         accessor: (r) => Number(r.debit_lbp || 0),
         align: "right",
         mono: true,
@@ -102,7 +109,7 @@ export default function ConsolidatedReportsPage() {
       },
       {
         id: "credit_lbp",
-        header: "Cr LL",
+        header: "Credit LL",
         accessor: (r) => Number(r.credit_lbp || 0),
         align: "right",
         mono: true,
@@ -147,23 +154,43 @@ export default function ConsolidatedReportsPage() {
       { id: "name_en", header: "Account", accessor: (r) => r.name_en || "", sortable: true },
       { id: "normal_balance", header: "Normal", accessor: (r) => r.normal_balance || "", sortable: true, globalSearch: false },
       {
-        id: "balance_usd",
-        header: "Balance USD",
-        accessor: (r) => Number(r.balance_usd || 0),
+        id: "debit_usd",
+        header: "Debit USD",
+        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_usd).debit,
         align: "right",
         mono: true,
         sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.balance_usd)}</span>,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(splitBalanceByNormal(r.normal_balance, r.balance_usd).debit)}</span>,
         globalSearch: false,
       },
       {
-        id: "balance_lbp",
-        header: "Balance LL",
-        accessor: (r) => Number(r.balance_lbp || 0),
+        id: "credit_usd",
+        header: "Credit USD",
+        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_usd).credit,
         align: "right",
         mono: true,
         sortable: true,
-        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.balance_lbp)}</span>,
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(splitBalanceByNormal(r.normal_balance, r.balance_usd).credit)}</span>,
+        globalSearch: false,
+      },
+      {
+        id: "debit_lbp",
+        header: "Debit LL",
+        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_lbp).debit,
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(splitBalanceByNormal(r.normal_balance, r.balance_lbp).debit)}</span>,
+        globalSearch: false,
+      },
+      {
+        id: "credit_lbp",
+        header: "Credit LL",
+        accessor: (r) => splitBalanceByNormal(r.normal_balance, r.balance_lbp).credit,
+        align: "right",
+        mono: true,
+        sortable: true,
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(splitBalanceByNormal(r.normal_balance, r.balance_lbp).credit)}</span>,
         globalSearch: false,
       },
     ];
@@ -398,7 +425,7 @@ export default function ConsolidatedReportsPage() {
           </CardHeader>
           <CardContent>
             <DataTable<BSRow>
-              tableId="accounting.reports.consolidated.bs"
+              tableId="accounting.reports.consolidated.bs.v2"
               rows={bs}
               columns={bsColumns}
               initialSort={{ columnId: "account_code", dir: "asc" }}

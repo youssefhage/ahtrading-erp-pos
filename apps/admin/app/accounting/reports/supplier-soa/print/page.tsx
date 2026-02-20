@@ -40,6 +40,16 @@ function kindLabel(kind: string) {
   return kind || "-";
 }
 
+function debitAmount(value: string | number) {
+  const n = Number(value || 0);
+  return n > 0 ? n : 0;
+}
+
+function creditAmount(value: string | number) {
+  const n = Number(value || 0);
+  return n < 0 ? Math.abs(n) : 0;
+}
+
 export default function SupplierSoaPrintPage() {
   const [supplierId, setSupplierId] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -166,8 +176,10 @@ export default function SupplierSoaPrintPage() {
                   <th className="px-3 py-2 text-left">Type</th>
                   <th className="px-3 py-2 text-left">Ref</th>
                   <th className="px-3 py-2 text-left">Memo</th>
-                  <th className="px-3 py-2 text-right">Delta USD</th>
-                  <th className="px-3 py-2 text-right">Delta LL</th>
+                  <th className="px-3 py-2 text-right">Debit USD</th>
+                  <th className="px-3 py-2 text-right">Credit USD</th>
+                  <th className="px-3 py-2 text-right">Debit LL</th>
+                  <th className="px-3 py-2 text-right">Credit LL</th>
                   <th className="px-4 py-2 text-right">Balance USD</th>
                   <th className="px-4 py-2 text-right">Balance LL</th>
                 </tr>
@@ -179,15 +191,17 @@ export default function SupplierSoaPrintPage() {
                     <td className="px-3 py-2">{kindLabel(r.kind)}</td>
                     <td className="px-3 py-2 font-mono text-[11px]">{r.ref || ""}</td>
                     <td className="px-3 py-2 text-black/70">{r.memo || ""}</td>
-                    <td className="px-3 py-2 text-right font-mono text-[11px]">{fmtUsd(r.delta_usd)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-[11px]">{fmtLbp(r.delta_lbp)}</td>
+                    <td className="px-3 py-2 text-right font-mono text-[11px]">{fmtUsd(debitAmount(r.delta_usd))}</td>
+                    <td className="px-3 py-2 text-right font-mono text-[11px]">{fmtUsd(creditAmount(r.delta_usd))}</td>
+                    <td className="px-3 py-2 text-right font-mono text-[11px]">{fmtLbp(debitAmount(r.delta_lbp))}</td>
+                    <td className="px-3 py-2 text-right font-mono text-[11px]">{fmtLbp(creditAmount(r.delta_lbp))}</td>
                     <td className="px-4 py-2 text-right font-mono text-[11px]">{fmtUsd(r.balance_usd)}</td>
                     <td className="px-4 py-2 text-right font-mono text-[11px]">{fmtLbp(r.balance_lbp)}</td>
                   </tr>
                 ))}
                 {rows.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-black/60" colSpan={8}>
+                    <td className="px-4 py-8 text-center text-black/60" colSpan={10}>
                       {supplierId ? "No transactions in range." : "Missing supplier_id."}
                     </td>
                   </tr>

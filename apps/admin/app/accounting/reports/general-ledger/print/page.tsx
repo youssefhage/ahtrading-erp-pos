@@ -115,10 +115,10 @@ function GeneralLedgerPrintInner() {
                   <th className="px-4 py-2 text-left">Date</th>
                   <th className="px-3 py-2 text-left">Journal</th>
                   <th className="px-3 py-2 text-left">Account</th>
-                  <th className="px-3 py-2 text-right">Dr USD</th>
-                  <th className="px-3 py-2 text-right">Cr USD</th>
-                  <th className="px-3 py-2 text-right">Dr LL</th>
-                  <th className="px-3 py-2 text-right">Cr LL</th>
+                  <th className="px-3 py-2 text-right">Debit USD</th>
+                  <th className="px-3 py-2 text-right">Credit USD</th>
+                  <th className="px-3 py-2 text-right">Debit LL</th>
+                  <th className="px-3 py-2 text-right">Credit LL</th>
                   <th className="px-4 py-2 text-left">Memo</th>
                 </tr>
               </thead>

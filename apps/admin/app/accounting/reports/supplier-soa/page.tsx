@@ -62,6 +62,16 @@ function kindLabel(kind: string) {
   return kind || "-";
 }
 
+function debitAmount(value: string | number) {
+  const n = Number(value || 0);
+  return n > 0 ? n : 0;
+}
+
+function creditAmount(value: string | number) {
+  const n = Number(value || 0);
+  return n < 0 ? Math.abs(n) : 0;
+}
+
 export default function SupplierSoaPage() {
   const [status, setStatus] = useState("");
   const [data, setData] = useState<SoaRes | null>(null);
@@ -79,19 +89,37 @@ export default function SupplierSoaPage() {
       { id: "ref", header: "Ref", accessor: (r) => r.ref || "", mono: true },
       { id: "memo", header: "Memo", accessor: (r) => r.memo || "" },
       {
-        id: "delta_usd",
-        header: "Delta USD",
-        accessor: (r) => Number(r.delta_usd || 0),
-        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(r.delta_usd)}</span>,
+        id: "debit_usd",
+        header: "Debit USD",
+        accessor: (r) => debitAmount(r.delta_usd),
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(debitAmount(r.delta_usd))}</span>,
         align: "right",
         mono: true,
         sortable: true,
       },
       {
-        id: "delta_lbp",
-        header: "Delta LL",
-        accessor: (r) => Number(r.delta_lbp || 0),
-        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(r.delta_lbp)}</span>,
+        id: "credit_usd",
+        header: "Credit USD",
+        accessor: (r) => creditAmount(r.delta_usd),
+        cell: (r) => <span className="data-mono ui-tone-usd">{fmtUsd(creditAmount(r.delta_usd))}</span>,
+        align: "right",
+        mono: true,
+        sortable: true,
+      },
+      {
+        id: "debit_lbp",
+        header: "Debit LL",
+        accessor: (r) => debitAmount(r.delta_lbp),
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(debitAmount(r.delta_lbp))}</span>,
+        align: "right",
+        mono: true,
+        sortable: true,
+      },
+      {
+        id: "credit_lbp",
+        header: "Credit LL",
+        accessor: (r) => creditAmount(r.delta_lbp),
+        cell: (r) => <span className="data-mono ui-tone-lbp">{fmtLbp(creditAmount(r.delta_lbp))}</span>,
         align: "right",
         mono: true,
         sortable: true,
@@ -316,7 +344,7 @@ export default function SupplierSoaPage() {
         </CardHeader>
         <CardContent>
           <DataTable
-            tableId="reports.supplier-soa.v1"
+            tableId="reports.supplier-soa.v2"
             rows={data?.rows || []}
             columns={columns}
             getRowId={(r, idx) => `${r.doc_id}:${idx}`}

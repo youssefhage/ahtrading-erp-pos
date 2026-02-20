@@ -103,7 +103,7 @@ export default function GeneralLedgerPage() {
       },
       {
         id: "debit_usd",
-        header: "Dr USD",
+        header: "Debit USD",
         accessor: (r) => Number(r.debit_usd || 0),
         align: "right",
         mono: true,
@@ -112,7 +112,7 @@ export default function GeneralLedgerPage() {
       },
       {
         id: "credit_usd",
-        header: "Cr USD",
+        header: "Credit USD",
         accessor: (r) => Number(r.credit_usd || 0),
         align: "right",
         mono: true,
@@ -121,7 +121,7 @@ export default function GeneralLedgerPage() {
       },
       {
         id: "debit_lbp",
-        header: "Dr LL",
+        header: "Debit LL",
         accessor: (r) => Number(r.debit_lbp || 0),
         align: "right",
         mono: true,
@@ -130,7 +130,7 @@ export default function GeneralLedgerPage() {
       },
       {
         id: "credit_lbp",
-        header: "Cr LL",
+        header: "Credit LL",
         accessor: (r) => Number(r.credit_lbp || 0),
         align: "right",
         mono: true,

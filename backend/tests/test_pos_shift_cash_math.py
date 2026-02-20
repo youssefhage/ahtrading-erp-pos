@@ -1,8 +1,10 @@
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
 
+from backend.app.routers import pos as pos_router
 from backend.app.routers.pos import _assert_non_negative_shift_cash, _expected_cash
 
 
@@ -105,3 +107,88 @@ def test_assert_non_negative_shift_cash_rejects_negative_values():
     assert ex.value.status_code == 400
     assert "opening cash must be >= 0" in str(ex.value.detail)
 
+
+def test_close_shift_uses_cash_method_normalization(monkeypatch):
+    captured = {"cash_methods_norm": None}
+
+    class _FakeCursorForClose:
+        def __init__(self):
+            self._row = None
+
+        def execute(self, sql, params=None):
+            text = " ".join(str(sql or "").lower().split())
+            if "from pos_shifts" in text and "status = 'open'" in text:
+                self._row = {
+                    "id": "shift-1",
+                    "opened_at": datetime(2026, 1, 1, 8, 0, 0),
+                    "opening_cash_usd": Decimal("10"),
+                    "opening_cash_lbp": Decimal("100000"),
+                }
+                return
+            if "update pos_shifts" in text and "returning id, status, closed_at" in text:
+                self._row = {
+                    "id": "shift-1",
+                    "status": "closed",
+                    "closed_at": datetime(2026, 1, 1, 9, 0, 0),
+                    "expected_cash_usd": Decimal("40"),
+                    "expected_cash_lbp": Decimal("400000"),
+                    "variance_usd": Decimal("0"),
+                    "variance_lbp": Decimal("0"),
+                }
+                return
+            raise AssertionError(f"unexpected SQL in test cursor: {text}")
+
+        def fetchone(self):
+            return self._row
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeConnForClose:
+        def __init__(self):
+            self._cursor = _FakeCursorForClose()
+
+        def cursor(self):
+            return self._cursor
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_expected_cash(
+        cur,
+        company_id,
+        device_id,
+        shift_id,
+        opened_at,
+        opening_cash_usd,
+        opening_cash_lbp,
+        cash_methods_norm=None,
+    ):
+        captured["cash_methods_norm"] = list(cash_methods_norm or [])
+        return Decimal("40"), Decimal("400000")
+
+    monkeypatch.setattr(pos_router, "get_conn", lambda: _FakeConnForClose())
+    monkeypatch.setattr(pos_router, "set_company_context", lambda conn, company_id: None)
+    monkeypatch.setattr(pos_router, "_load_cash_methods", lambda cur, company_id: (["Cash"], ["cash"]))
+    monkeypatch.setattr(pos_router, "_expected_cash", _fake_expected_cash)
+
+    payload = pos_router.ShiftCloseIn(
+        closing_cash_usd=Decimal("40"),
+        closing_cash_lbp=Decimal("400000"),
+        notes="close shift",
+        cashier_id="cashier-1",
+    )
+    res = pos_router.close_shift(
+        "shift-1",
+        payload,
+        device={"company_id": "company-1", "device_id": "device-1"},
+    )
+
+    assert captured["cash_methods_norm"] == ["cash"]
+    assert (res.get("shift") or {}).get("status") == "closed"

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -15,6 +15,14 @@ const agentUiDist = join(repoRoot, "pos-desktop", "ui", "dist");
 
 function sidecarExists() {
   return existsSync(unixBinary) || existsSync(windowsBinary);
+}
+
+function requiredSidecarExists() {
+  return process.platform === "win32" ? existsSync(windowsBinary) : existsSync(unixBinary);
+}
+
+function requiredSidecarPath() {
+  return process.platform === "win32" ? windowsBinary : unixBinary;
 }
 
 function run(cmd, args, { cwd = repoRoot } = {}) {
@@ -75,7 +83,7 @@ function buildWithPython() {
   return false;
 }
 
-if (!sidecarExists()) {
+if (!requiredSidecarExists()) {
   let built = false;
   if (process.platform !== "win32") {
     const builder = join(repoRoot, "pos-desktop", "packaging", "build_pos_agent.sh");
@@ -85,33 +93,42 @@ if (!sidecarExists()) {
     }
   }
 
-  if (!built && !sidecarExists()) {
+  if (!built && !requiredSidecarExists()) {
     built = buildWithPython();
   }
 
-  if (!built && !sidecarExists()) {
+  if (!built && !requiredSidecarExists()) {
     console.error("[pos-desktop] failed to build POS sidecar automatically.");
     process.exit(1);
   }
 }
 
-if (!sidecarExists()) {
+if (!requiredSidecarExists()) {
   console.error("[pos-desktop] missing sidecar binary.");
-  console.error("[pos-desktop] expected one of:");
-  console.error(`  - ${unixBinary}`);
-  console.error(`  - ${windowsBinary}`);
-  console.error(
-    "[pos-desktop] on macOS/Linux run: ./pos-desktop/packaging/build_pos_agent.sh"
-  );
+  console.error(`[pos-desktop] expected: ${requiredSidecarPath()}`);
+  if (process.platform === "win32") {
+    console.error("[pos-desktop] run this build on Windows so PyInstaller can emit pos-agent.exe.");
+  } else {
+    console.error("[pos-desktop] on macOS/Linux run: ./pos-desktop/packaging/build_pos_agent.sh");
+  }
   process.exit(1);
 }
 
 mkdirSync(targetBinDir, { recursive: true });
-if (existsSync(unixBinary)) {
-  copyFileSync(unixBinary, join(targetBinDir, "pos-agent"));
-  console.log("[pos-desktop] copied sidecar: pos-agent");
+for (const stale of [join(targetBinDir, "pos-agent"), join(targetBinDir, "pos-agent.exe")]) {
+  if (existsSync(stale)) {
+    try {
+      unlinkSync(stale);
+    } catch {
+      // Ignore stale cleanup errors.
+    }
+  }
 }
-if (existsSync(windowsBinary)) {
+
+if (process.platform === "win32") {
   copyFileSync(windowsBinary, join(targetBinDir, "pos-agent.exe"));
   console.log("[pos-desktop] copied sidecar: pos-agent.exe");
+} else {
+  copyFileSync(unixBinary, join(targetBinDir, "pos-agent"));
+  console.log("[pos-desktop] copied sidecar: pos-agent");
 }

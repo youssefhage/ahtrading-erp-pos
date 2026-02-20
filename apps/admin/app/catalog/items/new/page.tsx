@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Printer, RefreshCw } from "lucide-react";
 
 import { apiGet, apiPost } from "@/lib/api";
+import { generateEan13Barcode, printBarcodeStickerLabel } from "@/lib/barcode-label";
 import { ErrorBanner } from "@/components/error-banner";
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
@@ -83,6 +85,25 @@ export default function NewItemPage() {
     }
   }
 
+  function generateBarcode() {
+    setBarcode(generateEan13Barcode());
+  }
+
+  async function printBarcodeLabel() {
+    const code = barcode.trim();
+    if (!code) return setStatus("Enter or generate a barcode first.");
+    try {
+      await printBarcodeStickerLabel({
+        barcode: code,
+        sku: sku.trim() || null,
+        name: name.trim() || null,
+        uom: uom.trim() || null,
+      });
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -134,7 +155,33 @@ export default function NewItemPage() {
             </div>
             <div className="space-y-1 md:col-span-4">
               <label className="text-xs font-medium text-fg-muted">Primary Barcode (optional)</label>
-              <Input value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="barcode" disabled={creating || loading} />
+              <div className="flex items-center gap-1">
+                <Input value={barcode} onChange={(e) => setBarcode(e.target.value)} placeholder="barcode" disabled={creating || loading} className="data-mono" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-10 w-10 px-0"
+                  title="Generate barcode"
+                  aria-label="Generate barcode"
+                  onClick={generateBarcode}
+                  disabled={creating || loading}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-10 w-10 px-0"
+                  title="Print sticker label"
+                  aria-label="Print sticker label"
+                  onClick={printBarcodeLabel}
+                  disabled={creating || loading || !barcode.trim()}
+                >
+                  <Printer className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             <div className="space-y-1 md:col-span-3">
               <label className="text-xs font-medium text-fg-muted">Tax Code</label>
