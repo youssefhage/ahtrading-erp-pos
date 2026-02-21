@@ -445,7 +445,6 @@
   let fetchDataPendingBackground = true;
   let fetchDataDrainPromise = null;
   let webHostUnsupported = false;
-  let webSetupFirstTime = false;
   let webHostHint = "";
   let runtimeVersionText = `pos-web v${POS_UI_VERSION}`;
   let webEventInvoiceMap = new Map();
@@ -463,12 +462,8 @@
     const hasSavedCloudConfig =
       (!!String(config?.device_id || "").trim() && !!String(config?.device_token || "").trim()) ||
       (!!String(unofficialConfig?.device_id || "").trim() && !!String(unofficialConfig?.device_token || "").trim());
-    status = hasSavedCloudConfig ? "Ready" : "Web Setup Mode";
+    status = hasSavedCloudConfig ? "Ready" : "Cloud Mode";
     error = "";
-    if (!hasSavedCloudConfig) {
-      activeScreen = "settings";
-      try { localStorage.setItem(SCREEN_STORAGE_KEY, "settings"); } catch (_) {}
-    }
   };
 
   // Unified: map "official/unofficial" keys onto (origin agent) + (other agent).
@@ -1045,7 +1040,6 @@
     : "Auto sync is on. Use Send Queue only if queued events stay pending. Use Refresh Now after Admin updates.";
   $: originCompanyKey = _detectOriginCompanyKey(config.company_id);
   $: otherCompanyKey = originCompanyKey === "official" ? "unofficial" : "official";
-  $: webSetupFirstTime = webHostUnsupported && !_hasCloudDeviceConfig(originCompanyKey);
   
   $: currencyPrimary = (config.pricing_currency || "USD").toUpperCase();
   $: shiftText = `O:${config.shift_id ? "Open" : "Closed"} · U:${unofficialConfig.shift_id ? "Open" : "Closed"}`;
@@ -1503,7 +1497,7 @@
     const deviceId = String(cfg.device_id || "").trim();
     const deviceToken = String(cfg.device_token || "").trim();
     if (!deviceId || !deviceToken) {
-      const err = new Error("Device is not connected. Run Express Setup first.");
+      const err = new Error("Device is not connected. Configure this company in Settings.");
       err.status = 400;
       throw err;
     }
@@ -2413,7 +2407,7 @@
           edge_ok: false,
           edge_auth_ok: false,
           mode: "cloud-setup",
-          error: "Device is not connected. Run Express Setup first.",
+          error: "Device is not connected. Configure this company in Settings.",
         };
       }
       try {
@@ -2797,7 +2791,7 @@
 
     if (method === "POST" && pathname === "/sync/pull") {
       if (!String(cfg?.device_id || "").trim() || !String(cfg?.device_token || "").trim()) {
-        throw new Error("Device is not connected. Run Express Setup first.");
+        throw new Error("Device is not connected. Configure this company in Settings.");
       }
       const sync = {};
       const failures = [];
@@ -2826,7 +2820,7 @@
           .map((step) => step.reason);
         const allDeviceTokenErrors = rejectedReasons.length > 0 && rejectedReasons.every((reason) => _isDeviceTokenError(reason));
         if (allDeviceTokenErrors) {
-          const err = new Error(`Device credentials are invalid for ${companyKey}. Reconnect this company from Settings > Express Setup.`);
+          const err = new Error(`Device credentials are invalid for ${companyKey}. Reconnect this company from Settings.`);
           err.payload = { sync, failures, mode: "cloud-setup", invalid_device_token: true };
           throw err;
         }
@@ -2838,7 +2832,7 @@
     }
     if (method === "POST" && pathname === "/sync/push") {
       if (!String(cfg?.device_id || "").trim() || !String(cfg?.device_token || "").trim()) {
-        throw new Error("Device is not connected. Run Express Setup first.");
+        throw new Error("Device is not connected. Configure this company in Settings.");
       }
       const localRes = await _flushWebLocalOutbox(companyKey, { limit: 30 });
       const listRes = await _webPosCall(companyKey, "/pos/outbox/device?limit=150", { method: "GET" });
@@ -2884,7 +2878,7 @@
       if (failed.length) {
         const allDeviceTokenErrors = failed.length > 0 && failed.every((row) => _isDeviceTokenError(row?.error || ""));
         if (allDeviceTokenErrors) {
-          const err = new Error(`Device credentials are invalid for ${companyKey}. Reconnect this company from Settings > Express Setup.`);
+          const err = new Error(`Device credentials are invalid for ${companyKey}. Reconnect this company from Settings.`);
           err.payload = { sent, failed, summary: summary || null, mode: "cloud-setup", invalid_device_token: true };
           throw err;
         }
@@ -3362,7 +3356,8 @@
 
   const runFetchData = async ({ background = false } = {}) => {
     if (webHostUnsupported && !_hasCloudDeviceConfig(originCompanyKey)) {
-      status = "Web Setup Mode";
+      status = "Cloud Mode";
+      error = "";
       return;
     }
     const showBusy = !background;
@@ -5901,7 +5896,7 @@
   cashierOfficialManager={cashierOfficialManager}
   cashierUnofficialManager={cashierUnofficialManager}
   shiftText={shiftText}
-  showTabs={!webSetupFirstTime}
+  showTabs={true}
   plainBackground={activeScreen === "pos"}
 >
   <svelte:fragment slot="tabs">
@@ -5950,7 +5945,7 @@
       class={`${tabBase} ml-auto ${activeScreen === "settings" ? tabOn : tabOff}`}
       on:click={() => setActiveScreen("settings")}
       type="button"
-      title="Connectivity & setup"
+      title="Connectivity & settings"
     >
       Settings
     </button>
@@ -5960,7 +5955,6 @@
     {@const topBtnBase = "h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm disabled:opacity-60"}
     {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
     {@const topBtnWarn = "border-amber-500/40 bg-amber-500/15 text-ink hover:bg-amber-500/25"}
-    {#if !webSetupFirstTime}
     <button
       class={topBtnBase}
       on:click={syncPull}
@@ -6113,23 +6107,6 @@
         </div>
       {/if}
     </div>
-    {:else}
-      <a
-        class="h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm inline-flex items-center"
-        href="https://download.melqard.com"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        Download POS Desktop
-      </a>
-      <button
-        class={topBtnBase}
-        on:click={() => { try { window.open("http://127.0.0.1:7070", "_blank", "noopener,noreferrer"); } catch (_) {} }}
-        type="button"
-      >
-        Open Local POS
-      </button>
-    {/if}
   </svelte:fragment>
 
   {#if activeScreen === "pos"}
@@ -6252,39 +6229,9 @@
       resolveByTerm={resolveByTerm}
     />
   {:else}
-    {#if webSetupFirstTime}
-      <section class="glass-panel rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 mb-4">
-        <h2 class="text-lg font-extrabold text-ink">First-Time Setup</h2>
-        <p class="mt-1 text-sm text-muted">
-          Complete cloud onboarding once, then POS and Items will remain available without Web Setup mode.
-        </p>
-        {#if _hasCloudDeviceConfig(originCompanyKey)}
-          <div class="mt-3 flex flex-wrap gap-2">
-            <button
-              class="px-4 py-2 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-extrabold hover:bg-accent-hover transition-colors"
-              on:click={async () => { setActiveScreen("pos"); await fetchData(); }}
-              type="button"
-            >
-              Continue To POS
-            </button>
-            <button
-              class="px-4 py-2 rounded-xl border border-ink/10 bg-ink/5 text-ink hover:bg-ink/10 font-semibold transition-colors"
-              on:click={async () => { setActiveScreen("items"); await fetchData(); }}
-              type="button"
-            >
-              Open Items
-            </button>
-          </div>
-        {/if}
-        {#if webHostHint}
-          <p class="mt-1 text-xs text-amber-300">{webHostHint}</p>
-        {/if}
-      </section>
-    {/if}
     <SettingsScreen
       officialConfig={config}
       unofficialConfig={unofficialConfig}
-      isWebSetupMode={webSetupFirstTime}
       isCloudOnlyMode={webHostUnsupported}
       unofficialEnabled={true}
       unofficialStatus={unofficialStatus}
@@ -6301,10 +6248,6 @@
       onVatDisplayModeChange={onVatDisplayModeChange}
       showPriceDisplayControls={showPriceDisplayControls}
       onShowPriceDisplayControlsChange={onShowPriceDisplayControlsChange}
-      setupLogin={setupLogin}
-      setupBranches={setupBranches}
-      setupDevices={setupDevices}
-      setupRegisterDevice={setupRegisterDevice}
       versionText={runtimeVersionText}
     />
   {/if}

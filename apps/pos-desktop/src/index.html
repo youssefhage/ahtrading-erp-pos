@@ -15,7 +15,7 @@
           <div class="brand-mark">POS</div>
           <div>
             <h1>Melqard POS Desktop</h1>
-            <p>Set up local POS agents with fast, reliable controls.</p>
+            <p>Desktop launches the same POS web app directly. Configure business credentials inside POS Settings.</p>
           </div>
         </div>
         <div class="topbar-right">
@@ -23,99 +23,40 @@
         </div>
       </header>
 
-      <section class="glass card-setup">
-        <h2>POS Settings</h2>
-        <p class="muted">
-          Configure this terminal directly from here using values from Admin → System → POS Devices, then click
-          <strong>Start POS</strong>.
-        </p>
-
-        <label class="field">
-          <span>Cloud API URL</span>
-          <input id="edgeUrl" placeholder="https://app.melqard.com/api" />
-        </label>
-
-        <details class="advanced">
-          <summary>Import Config JSON (optional)</summary>
-          <div class="details-body">
-            <label class="field">
-              <span>Config JSON (paste)</span>
-              <textarea id="setupPack" rows="5" placeholder='{"cloud_api_base_url":"https://app.melqard.com/api", "...": "..."}'></textarea>
-            </label>
-            <div class="row compact">
-              <button id="applyPackBtn" class="ghost" type="button">Apply Config</button>
-              <button id="clearPackBtn" class="ghost" type="button">Clear</button>
-            </div>
-          </div>
-        </details>
-
-        <p class="muted">
-          For each company, set device credentials generated in Admin → System → POS Devices.
-        </p>
-
-        <div class="grid2 compact">
-          <label class="field">
-            <span>Primary Agent Port</span>
-            <input id="portOfficial" type="number" value="7070" />
-          </label>
-          <label class="field">
-            <span>Secondary Agent Port</span>
-            <input id="portUnofficial" type="number" value="7072" />
-          </label>
-        </div>
-
-        <div class="grid2 compact">
-          <label class="field">
-            <span>Primary Company ID</span>
-            <input id="companyOfficial" placeholder="00000000-0000-0000-0000-000000000001" />
-          </label>
-          <label class="field">
-            <span>Secondary Company ID</span>
-            <input id="companyUnofficial" placeholder="00000000-0000-0000-0000-000000000002" />
-          </label>
-        </div>
-
-        <div class="grid2 compact">
-          <label class="field">
-            <span>Primary Device ID</span>
-            <input id="deviceIdOfficial" placeholder="UUID from Admin" />
-          </label>
-          <label class="field">
-            <span>Primary Device Token</span>
-            <input id="deviceTokenOfficial" placeholder="Token from Admin" />
-          </label>
-        </div>
-
-        <div class="grid2 compact">
-          <label class="field">
-            <span>Secondary Device ID</span>
-            <input id="deviceIdUnofficial" placeholder="UUID from Admin" />
-          </label>
-          <label class="field">
-            <span>Secondary Device Token</span>
-            <input id="deviceTokenUnofficial" placeholder="Token from Admin" />
-          </label>
-        </div>
-
-        <div id="setupNote" class="status muted setup-note" aria-live="polite"></div>
+      <section class="hidden-bootstrap" hidden aria-hidden="true">
+        <input id="edgeUrl" />
+        <input id="portOfficial" type="number" value="7070" />
+        <input id="portUnofficial" type="number" value="7072" />
+        <input id="companyOfficial" />
+        <input id="companyUnofficial" />
+        <input id="deviceIdOfficial" />
+        <input id="deviceTokenOfficial" />
+        <input id="deviceIdUnofficial" />
+        <input id="deviceTokenUnofficial" />
+        <textarea id="setupPack"></textarea>
       </section>
 
       <section class="glass card-compact">
-        <h2>Runtime Actions</h2>
-        <div class="actions-row">
+        <h2>Launch</h2>
+        <p class="muted">POS will open directly. Use POS → Settings for company/device configuration.</p>
+        <div class="actions-row actions-main">
           <button id="startBtn" class="primary">Start POS</button>
           <button id="openBtn" class="ghost">Open POS</button>
-          <button id="updateBtn" class="ghost">Check Updates</button>
-          <button id="updateDownloadBtn" class="ghost update-download" type="button" disabled>
-            <span>Download Update</span>
-            <span id="updateBadge" class="update-pill">No update available</span>
-          </button>
+          <details id="moreMenu" class="more-menu">
+            <summary class="ghost more-summary">More</summary>
+            <div class="more-menu-panel">
+              <button id="updateBtn" class="ghost" type="button">Check Updates</button>
+              <button id="updateDownloadBtn" class="ghost update-download" type="button" disabled>
+                <span>Download Update</span>
+                <span id="updateBadge" class="update-pill">No update available</span>
+              </button>
+              <button id="diagBtn" class="ghost" type="button">Connection Diagnostics</button>
+              <button id="showDesktopLogsBtn" class="ghost" type="button">Show Desktop Logs</button>
+              <button id="copyDebugBtn" class="ghost" type="button">Copy Debug Report</button>
+            </div>
+          </details>
         </div>
-        <div class="actions-row">
-          <button id="diagBtn" class="ghost">Connection Diagnostics</button>
-          <button id="showDesktopLogsBtn" class="ghost" type="button">Show Desktop Logs</button>
-          <button id="copyDebugBtn" class="ghost" type="button">Copy Debug Report</button>
-        </div>
+        <div id="setupNote" class="status muted setup-note" aria-live="polite"></div>
         <div id="status" class="status"></div>
         <div id="diag" class="status muted"></div>
       </section>
@@ -124,7 +65,7 @@
         <h2>Notes</h2>
         <ul>
           <li>This app starts 2 local agents: Primary + Secondary.</li>
-          <li>Unified POS opens at <code>http://127.0.0.1:7070</code>.</li>
+          <li>POS opens directly on startup at <code>http://127.0.0.1:7070</code>.</li>
           <li>Sales are queued locally if the server is unreachable; they sync when back online.</li>
         </ul>
       </section>

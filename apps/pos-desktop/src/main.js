@@ -559,8 +559,8 @@ async function load() {
   if (el("setupPack")) el("setupPack").value = (await loadPersistedSecret(KEY_PACK)) || "";
   el("portOfficial").value = localStorage.getItem(KEY_PORT_OFFICIAL) || "7070";
   el("portUnofficial").value = localStorage.getItem(KEY_PORT_UNOFFICIAL) || "7072";
-  el("companyOfficial").value = localStorage.getItem(KEY_CO_OFFICIAL) || "00000000-0000-0000-0000-000000000001";
-  el("companyUnofficial").value = localStorage.getItem(KEY_CO_UNOFFICIAL) || "00000000-0000-0000-0000-000000000002";
+  el("companyOfficial").value = localStorage.getItem(KEY_CO_OFFICIAL) || "";
+  el("companyUnofficial").value = localStorage.getItem(KEY_CO_UNOFFICIAL) || "";
   el("deviceIdOfficial").value = localStorage.getItem(KEY_DEV_ID_OFFICIAL) || "";
   el("deviceTokenOfficial").value = (await loadPersistedSecret(KEY_DEV_TOK_OFFICIAL)) || "";
   el("deviceIdUnofficial").value = localStorage.getItem(KEY_DEV_ID_UNOFFICIAL) || "";
@@ -1754,43 +1754,18 @@ function validateStartConfiguration() {
     "edgeUrl",
     "portOfficial",
     "portUnofficial",
-    "companyOfficial",
-    "companyUnofficial",
-    "deviceIdOfficial",
-    "deviceIdUnofficial",
-    "deviceTokenOfficial",
-    "deviceTokenUnofficial",
   ];
   for (const id of fieldIds) clearInputError(id);
 
   const cloudUrl = validateCloudUrl(el("edgeUrl").value);
   const edgeLanUrl = "";
   const { portOfficial, portUnofficial } = collectSetupPorts();
-  const companyOfficial = String(el("companyOfficial").value || "").trim();
-  const companyUnofficial = String(el("companyUnofficial").value || "").trim();
-  const deviceIdOfficial = String(el("deviceIdOfficial").value || "").trim();
-  const deviceTokenOfficial = String(el("deviceTokenOfficial").value || "").trim();
-  const deviceIdUnofficial = String(el("deviceIdUnofficial").value || "").trim();
-  const deviceTokenUnofficial = String(el("deviceTokenUnofficial").value || "").trim();
-
-  if (!UUID_RE.test(companyOfficial)) throwFieldError("companyOfficial", "Primary company ID is required and must be a UUID.");
-  if (!UUID_RE.test(companyUnofficial)) throwFieldError("companyUnofficial", "Secondary company ID is required and must be a UUID.");
-  if (!UUID_RE.test(deviceIdOfficial)) throwFieldError("deviceIdOfficial", "Primary device ID is required and must be a UUID.");
-  if (!deviceTokenOfficial) throwFieldError("deviceTokenOfficial", "Primary device token is required.");
-  if (!UUID_RE.test(deviceIdUnofficial)) throwFieldError("deviceIdUnofficial", "Secondary device ID is required and must be a UUID.");
-  if (!deviceTokenUnofficial) throwFieldError("deviceTokenUnofficial", "Secondary device token is required.");
 
   return {
     cloudUrl,
     edgeLanUrl,
     portOfficial,
     portUnofficial,
-    companyOfficial,
-    companyUnofficial,
-    deviceIdOfficial,
-    deviceTokenOfficial,
-    deviceIdUnofficial,
-    deviceTokenUnofficial,
   };
 }
 
@@ -1813,24 +1788,12 @@ async function start() {
     edgeLanUrl,
     portOfficial,
     portUnofficial,
-    companyOfficial,
-    companyUnofficial,
-    deviceIdOfficial,
-    deviceTokenOfficial,
-    deviceIdUnofficial,
-    deviceTokenUnofficial,
   } = cfg;
 
   localStorage.setItem(KEY_EDGE, cloudUrl);
   localStorage.setItem(KEY_EDGE_LAN, "");
   localStorage.setItem(KEY_PORT_OFFICIAL, String(portOfficial));
   localStorage.setItem(KEY_PORT_UNOFFICIAL, String(portUnofficial));
-  localStorage.setItem(KEY_CO_OFFICIAL, companyOfficial);
-  localStorage.setItem(KEY_CO_UNOFFICIAL, companyUnofficial);
-  localStorage.setItem(KEY_DEV_ID_OFFICIAL, deviceIdOfficial);
-  localStorage.setItem(KEY_DEV_ID_UNOFFICIAL, deviceIdUnofficial);
-  await persistSecret(KEY_DEV_TOK_OFFICIAL, deviceTokenOfficial);
-  await persistSecret(KEY_DEV_TOK_UNOFFICIAL, deviceTokenUnofficial);
 
   setStatus("Starting local agents…");
   setDiag("");
@@ -1840,12 +1803,12 @@ async function start() {
       edgeLanUrl,
       portOfficial,
       portUnofficial,
-      companyOfficial,
-      companyUnofficial,
-      deviceIdOfficial,
-      deviceTokenOfficial,
-      deviceIdUnofficial,
-      deviceTokenUnofficial,
+      companyOfficial: null,
+      companyUnofficial: null,
+      deviceIdOfficial: null,
+      deviceTokenOfficial: null,
+      deviceIdUnofficial: null,
+      deviceTokenUnofficial: null,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -2133,6 +2096,11 @@ async function copyDebugReport() {
   }
 }
 
+function closeMoreMenu() {
+  const menu = el("moreMenu");
+  if (menu && menu.open) menu.open = false;
+}
+
 // Quiet update check on launch (best-effort). If unavailable/offline, ignore.
 setTimeout(() => {
   checkForUpdates({ silent: true })
@@ -2140,13 +2108,34 @@ setTimeout(() => {
     .catch(() => null);
 }, 1200);
 
-el("startBtn").addEventListener("click", start);
-el("openBtn").addEventListener("click", openPos);
-el("updateBtn").addEventListener("click", () => checkForUpdates({ silent: false }));
-if (el("updateDownloadBtn")) el("updateDownloadBtn").addEventListener("click", downloadUpdateNow);
-el("diagBtn").addEventListener("click", runDiagnostics);
-if (el("showDesktopLogsBtn")) el("showDesktopLogsBtn").addEventListener("click", showDesktopLogs);
-if (el("copyDebugBtn")) el("copyDebugBtn").addEventListener("click", copyDebugReport);
+el("startBtn").addEventListener("click", async () => {
+  closeMoreMenu();
+  await start();
+});
+el("openBtn").addEventListener("click", async () => {
+  closeMoreMenu();
+  await openPos();
+});
+if (el("updateBtn")) el("updateBtn").addEventListener("click", () => {
+  closeMoreMenu();
+  checkForUpdates({ silent: false });
+});
+if (el("updateDownloadBtn")) el("updateDownloadBtn").addEventListener("click", async () => {
+  closeMoreMenu();
+  await downloadUpdateNow();
+});
+if (el("diagBtn")) el("diagBtn").addEventListener("click", async () => {
+  closeMoreMenu();
+  await runDiagnostics();
+});
+if (el("showDesktopLogsBtn")) el("showDesktopLogsBtn").addEventListener("click", async () => {
+  closeMoreMenu();
+  await showDesktopLogs();
+});
+if (el("copyDebugBtn")) el("copyDebugBtn").addEventListener("click", async () => {
+  closeMoreMenu();
+  await copyDebugReport();
+});
 for (const id of [
   "edgeUrl",
   "portOfficial",
@@ -2197,7 +2186,15 @@ if (el("clearPackBtn")) el("clearPackBtn").addEventListener("click", () => {
   setStatus("Cleared config JSON payload.");
 });
 installReplaceOnTypeBehavior();
-load().catch(() => {});
+
+let autoLaunchTried = false;
+async function autoLaunchPosOnce() {
+  if (autoLaunchTried) return;
+  autoLaunchTried = true;
+  await start();
+}
+
+load().then(() => autoLaunchPosOnce()).catch(() => {});
 loadAppVersion().then(() => {
   setVersionLabel();
 }).catch(() => {});

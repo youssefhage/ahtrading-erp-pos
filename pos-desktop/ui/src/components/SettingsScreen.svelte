@@ -1,7 +1,6 @@
 <script>
   export let officialConfig = {};
   export let unofficialConfig = {};
-  export let isWebSetupMode = false;
   export let isCloudOnlyMode = false;
   export let unofficialEnabled = true;
   export let unofficialStatus = "Pending";
@@ -95,7 +94,7 @@
 
   $: off = copyFrom(officialConfig);
   $: un = copyFrom(unofficialConfig);
-  $: dualOnboardingEnabled = isWebSetupMode || unofficialEnabled;
+  $: dualOnboardingEnabled = !!unofficialEnabled;
   $: if (!String(sharedCloudUrl || "").trim()) {
     sharedCloudUrl = String(off.cloud_api_base_url || un.cloud_api_base_url || "").trim();
   }
@@ -765,12 +764,9 @@
           <div>
             <div class="text-[10px] font-bold uppercase tracking-[0.2em] text-muted mb-1">Unified Mode</div>
             <div class="text-sm text-ink/90 leading-snug max-w-md">
-              {#if isWebSetupMode}
-                First-time cloud onboarding mode is active.
-              {:else if isCloudOnlyMode}
-                Cloud mode is active for both companies.
-              {:else}
-                Desktop uses cloud setup by default. Other Agent URL is optional.
+              POS opens directly. Configure company and device credentials from POS Settings.
+              {#if !isCloudOnlyMode}
+                Other Agent URL remains optional.
               {/if}
             </div>
           </div>
@@ -823,6 +819,7 @@
         </div>
       </div>
 
+      {#if false}
       <div class="glass-panel rounded-xl p-5 border border-white/5 bg-surface/20">
         <div class="flex items-start justify-between gap-3 mb-4">
           <div>
@@ -1050,6 +1047,7 @@
           </div>
         {/if}
       </div>
+      {/if}
     </div>
   </section>
 
