@@ -2,6 +2,7 @@
 import argparse
 import html
 import json
+import math
 import os
 import shutil
 import sqlite3
@@ -2267,6 +2268,90 @@ def verify_cashier_pin_online(pin: str, cfg: dict):
 
 
 def upsert_catalog(items):
+    def _norm_uom_code(v, fallback="pcs"):
+        u = str(v or "").strip()
+        return u or str(fallback or "pcs").strip() or "pcs"
+
+    def _to_pos_factor(v, fallback=1.0):
+        try:
+            f = float(v)
+        except Exception:
+            f = float(fallback or 1.0)
+        if not math.isfinite(f) or f <= 0:
+            f = float(fallback or 1.0)
+        return f
+
+    def _catalog_uom_rows(it):
+        item_id = str(it.get("id") or "").strip()
+        if not item_id:
+            return []
+        base_uom = _norm_uom_code(it.get("unit_of_measure"), "pcs")
+        rows = []
+        seen_uom_factor = set()
+
+        # Real barcode rows first (keeps scan behavior intact).
+        for idx, b in enumerate((it.get("barcodes") or []), start=1):
+            if not isinstance(b, dict):
+                continue
+            uom = _norm_uom_code(b.get("uom_code"), base_uom)
+            factor = _to_pos_factor(b.get("qty_factor"), 1.0)
+            bf_key = (uom.upper(), round(factor, 6))
+            seen_uom_factor.add(bf_key)
+            barcode = str(b.get("barcode") or "").strip() or None
+            bid = str(b.get("id") or "").strip() or f"bc-{item_id}-{idx}-{uom}-{factor:.6f}"
+            rows.append(
+                {
+                    "id": bid,
+                    "item_id": item_id,
+                    "barcode": barcode,
+                    "qty_factor": factor,
+                    "uom_code": uom,
+                    "label": (str(b.get("label") or "").strip() or None),
+                    "is_primary": bool(b.get("is_primary")),
+                }
+            )
+
+        # Then add conversion-only UOMs as non-scannable options.
+        for conv in (it.get("uom_conversions") or []):
+            if not isinstance(conv, dict):
+                continue
+            if conv.get("is_active") is False:
+                continue
+            uom = _norm_uom_code(conv.get("uom_code") or conv.get("uom"), base_uom)
+            factor = _to_pos_factor(conv.get("qty_factor") if "qty_factor" in conv else conv.get("to_base_factor"), 1.0)
+            bf_key = (uom.upper(), round(factor, 6))
+            if bf_key in seen_uom_factor:
+                continue
+            seen_uom_factor.add(bf_key)
+            rows.append(
+                {
+                    "id": str(conv.get("id") or "").strip() or f"uom-{item_id}-{uom}",
+                    "item_id": item_id,
+                    "barcode": None,
+                    "qty_factor": factor,
+                    "uom_code": uom,
+                    "label": (str(conv.get("label") or "").strip() or uom),
+                    "is_primary": (uom.upper() == base_uom.upper() and abs(factor - 1.0) < 1e-9),
+                }
+            )
+
+        # Guardrail: always keep base UOM selectable.
+        base_key = (base_uom.upper(), 1.0)
+        if base_key not in seen_uom_factor:
+            rows.append(
+                {
+                    "id": f"uom-{item_id}-{base_uom}-base",
+                    "item_id": item_id,
+                    "barcode": None,
+                    "qty_factor": 1.0,
+                    "uom_code": base_uom,
+                    "label": base_uom,
+                    "is_primary": True,
+                }
+            )
+
+        return rows
+
     with db_connect() as conn:
         cur = conn.cursor()
         for it in items:
@@ -2324,8 +2409,8 @@ def upsert_catalog(items):
 
             # Keep item barcodes in sync.
             cur.execute("DELETE FROM local_item_barcodes_cache WHERE item_id = ?", (it.get("id"),))
-            # Multi-barcodes / pack factors
-            for b in (it.get("barcodes") or []):
+            # Multi-barcodes / pack factors (+ conversion-only UOM options).
+            for b in _catalog_uom_rows(it):
                 cur.execute(
                     """
                     INSERT INTO local_item_barcodes_cache (id, item_id, barcode, qty_factor, uom_code, label, is_primary, updated_at)
@@ -2340,8 +2425,8 @@ def upsert_catalog(items):
                       updated_at=excluded.updated_at
                     """,
                     (
-                        b.get("id") or f"bc-{it.get('id')}-{b.get('barcode')}",
-                        it.get("id"),
+                        b.get("id"),
+                        b.get("item_id"),
                         b.get("barcode"),
                         float(b.get("qty_factor") or 1),
                         b.get("uom_code"),
@@ -2674,6 +2759,8 @@ def list_shift_invoice_events(shift_id: str = "", limit: int = 120):
     out = []
     seen_events = set()
     returns_by_event = {}
+    cashier_name_by_id = {}
+    customer_name_by_id = {}
     with db_connect() as conn:
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
@@ -2700,6 +2787,31 @@ def list_shift_invoice_events(shift_id: str = "", limit: int = 120):
                 (fetch_lim,),
             )
         rows = cur.fetchall()
+        cur.execute(
+            """
+            SELECT id, name
+            FROM local_cashiers_cache
+            ORDER BY name
+            """
+        )
+        for cr in cur.fetchall():
+            cid = str(cr["id"] or "").strip()
+            if not cid:
+                continue
+            cashier_name_by_id[cid] = str(cr["name"] or "").strip() or cid
+
+        cur.execute(
+            """
+            SELECT id, name
+            FROM local_customers_cache
+            ORDER BY name
+            """
+        )
+        for rr in cur.fetchall():
+            cid = str(rr["id"] or "").strip()
+            if not cid:
+                continue
+            customer_name_by_id[cid] = str(rr["name"] or "").strip() or cid
 
         cur.execute(
             """
@@ -2756,6 +2868,12 @@ def list_shift_invoice_events(shift_id: str = "", limit: int = 120):
             outbox_status = str(outbox.get("status") or "").strip() or None
 
         totals = _sale_payload_totals(payload)
+        receipt_meta = payload.get("receipt_meta") if isinstance(payload.get("receipt_meta"), dict) else {}
+        pilot_meta = receipt_meta.get("pilot") if isinstance(receipt_meta.get("pilot"), dict) else {}
+        cashier_id = str(r["cashier_id"] or payload.get("cashier_id") or "").strip()
+        customer_id = str(payload.get("customer_id") or pilot_meta.get("customer_id_applied") or "").strip()
+        cashier_name = cashier_name_by_id.get(cashier_id) if cashier_id else None
+        customer_name = customer_name_by_id.get(customer_id) if customer_id else None
         payment_method = str(details.get("payment_method") or "").strip().lower()
         if not payment_method:
             payments = payload.get("payments") if isinstance(payload.get("payments"), list) else []
@@ -2782,7 +2900,10 @@ def list_shift_invoice_events(shift_id: str = "", limit: int = 120):
                 "audit_id": int(r["id"]),
                 "created_at": r["created_at"],
                 "company_id": r["company_id"],
-                "cashier_id": r["cashier_id"],
+                "cashier_id": (cashier_id or None),
+                "cashier_name": (cashier_name or None),
+                "customer_id": (customer_id or None),
+                "customer_name": (customer_name or None),
                 "shift_id": r["shift_id"],
                 "event_id": event_id,
                 "status": (outbox_status or str(r["status"] or "").strip() or "unknown"),

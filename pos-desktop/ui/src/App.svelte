@@ -1892,6 +1892,16 @@
     const saleTotals = _salePayloadTotalsWeb(payload || {});
     const returnTotals = _returnPayloadTotalsWeb(payload || {});
     const receiptMeta = (payload?.receipt_meta && typeof payload.receipt_meta === "object") ? payload.receipt_meta : {};
+    const cashierId = String(payload?.cashier_id || "").trim();
+    const customerId = eventType === "sale.returned" ? "" : String(payload?.customer_id || "").trim();
+    const cashierPool = companyKey === otherCompanyKey ? unofficialCashiers : cashiers;
+    const customerPool = companyKey === otherCompanyKey ? unofficialCustomers : customers;
+    const cashierName = cashierId
+      ? String((cashierPool || []).find((c) => String(c?.id || "").trim() === cashierId)?.name || "").trim()
+      : "";
+    const customerName = customerId
+      ? String((customerPool || []).find((c) => String(c?.id || "").trim() === customerId)?.name || "").trim()
+      : "";
     const auditDetailsBase = {
       event_type: eventType,
       idempotency_key: idempotencyKey || null,
@@ -1900,6 +1910,9 @@
       invoice_id: String(payload?.invoice_id || "").trim() || null,
       source_invoice_id: String(receiptMeta?.source_invoice_id || payload?.invoice_id || "").trim() || null,
       source_invoice_event_id: String(receiptMeta?.source_invoice_event_id || "").trim() || null,
+      cashier_name: cashierName || null,
+      customer_id: customerId || null,
+      customer_name: customerName || null,
       line_count: eventType === "sale.returned" ? returnTotals.line_count : saleTotals.line_count,
       subtotal_usd: eventType === "sale.returned" ? returnTotals.subtotal_usd : saleTotals.subtotal_usd,
       subtotal_lbp: eventType === "sale.returned" ? returnTotals.subtotal_lbp : saleTotals.subtotal_lbp,
@@ -2618,15 +2631,68 @@
       const barcodes = [];
       for (const it of (catalog?.items || [])) {
         const itemId = String(it?.id || "").trim();
-        for (const b of (it?.barcodes || [])) {
+        if (!itemId) continue;
+        const baseUom = String(it?.unit_of_measure || "pcs").trim() || "pcs";
+        const seenUomFactor = new Set();
+        const pushRow = ({ id = "", barcode = null, qtyFactor = 1, uomCode = "", label = "", isPrimary = false } = {}) => {
+          const uom = String(uomCode || baseUom).trim() || baseUom;
+          const factor = Math.max(1e-9, toNum(qtyFactor, 1) || 1);
+          const key = `${uom.toUpperCase()}|${factor.toFixed(6)}`;
+          seenUomFactor.add(key);
           barcodes.push({
-            id: b?.id || `${itemId}:${b?.barcode || ""}`,
+            id: String(id || "").trim() || `uom:${itemId}:${uom}:${factor.toFixed(6)}`,
             item_id: itemId,
-            barcode: b?.barcode,
-            qty_factor: toNum(b?.qty_factor, 1),
-            uom_code: b?.uom_code || it?.unit_of_measure || "pcs",
+            barcode: barcode ? String(barcode).trim() : null,
+            qty_factor: factor,
+            uom_code: uom,
+            label: String(label || "").trim(),
+            is_primary: !!isPrimary,
+          });
+          return key;
+        };
+
+        let barcodeIdx = 0;
+        for (const b of (it?.barcodes || [])) {
+          const uom = String(b?.uom_code || baseUom).trim() || baseUom;
+          const factor = Math.max(1e-9, toNum(b?.qty_factor, 1) || 1);
+          barcodeIdx += 1;
+          pushRow({
+            id: b?.id || `bc:${itemId}:${barcodeIdx}:${uom}:${factor.toFixed(6)}`,
+            barcode: b?.barcode || null,
+            qtyFactor: factor,
+            uomCode: uom,
             label: b?.label || "",
-            is_primary: !!b?.is_primary,
+            isPrimary: !!b?.is_primary,
+          });
+        }
+
+        for (const c of (it?.uom_conversions || [])) {
+          if (!c || typeof c !== "object") continue;
+          if (c?.is_active === false) continue;
+          const uom = String(c?.uom_code || c?.uom || baseUom).trim() || baseUom;
+          const hasQtyFactor = Object.prototype.hasOwnProperty.call(c, "qty_factor");
+          const factor = Math.max(1e-9, toNum(hasQtyFactor ? c?.qty_factor : c?.to_base_factor, 1) || 1);
+          const key = `${uom.toUpperCase()}|${factor.toFixed(6)}`;
+          if (seenUomFactor.has(key)) continue;
+          pushRow({
+            id: c?.id || `uom:${itemId}:${uom}:${factor.toFixed(6)}`,
+            barcode: null,
+            qtyFactor: factor,
+            uomCode: uom,
+            label: c?.label || uom,
+            isPrimary: (uom.toUpperCase() === baseUom.toUpperCase() && Math.abs(factor - 1) < 1e-9),
+          });
+        }
+
+        const baseKey = `${baseUom.toUpperCase()}|${(1).toFixed(6)}`;
+        if (!seenUomFactor.has(baseKey)) {
+          pushRow({
+            id: `uom:${itemId}:${baseUom}:1.000000`,
+            barcode: null,
+            qtyFactor: 1,
+            uomCode: baseUom,
+            label: baseUom,
+            isPrimary: true,
           });
         }
       }
@@ -2889,6 +2955,22 @@
     if (method === "POST" && pathname === "/shift/invoices") {
       const shiftId = String(body?.shift_id || shiftIdForCompany(companyKey) || "").trim();
       const limit = Math.max(1, Math.min(SHIFT_INVOICES_MAX, toNum(body?.limit, 120)));
+      const cashierRows = companyKey === otherCompanyKey ? unofficialCashiers : cashiers;
+      const customerRows = companyKey === otherCompanyKey ? unofficialCustomers : customers;
+      const cashierNameById = new Map();
+      const customerNameById = new Map();
+      for (const cashier of (cashierRows || [])) {
+        const cid = String(cashier?.id || "").trim();
+        if (!cid) continue;
+        const name = String(cashier?.name || "").trim();
+        cashierNameById.set(cid, name || cid);
+      }
+      for (const customer of (customerRows || [])) {
+        const cid = String(customer?.id || "").trim();
+        if (!cid) continue;
+        const name = String(customer?.name || "").trim();
+        customerNameById.set(cid, name || cid);
+      }
       const returnsBySourceEvent = new Map();
       for (const row of _webAuditRowsFor(companyKey)) {
         if (String(row?.action || "").trim() !== "return.submit") continue;
@@ -2914,6 +2996,10 @@
         .map((row) => {
           const details = row?.details && typeof row.details === "object" ? row.details : {};
           const eventId = String(row?.event_id || "").trim();
+          const cashierId = String(row?.cashier_id || details?.cashier_id || "").trim();
+          const customerId = String(details?.customer_id || row?.customer_id || "").trim();
+          const cashierName = String(details?.cashier_name || cashierNameById.get(cashierId) || "").trim() || null;
+          const customerName = String(details?.customer_name || customerNameById.get(customerId) || "").trim() || null;
           const totalUsd = toNum(details?.total_usd, 0);
           const totalLbp = Math.round(toNum(details?.total_lbp, 0));
           const refundSummary = returnsBySourceEvent.get(eventId) || {
@@ -2935,7 +3021,10 @@
           return {
             created_at: row?.created_at || null,
             company_id: row?.company_id || null,
-            cashier_id: row?.cashier_id || null,
+            cashier_id: cashierId || null,
+            cashier_name: cashierName,
+            customer_id: customerId || null,
+            customer_name: customerName,
             shift_id: row?.shift_id || null,
             event_id: eventId || null,
             status: String(row?.status || "").trim() || "unknown",
@@ -7473,6 +7562,10 @@
             {@const refundStatus = String(row?.refund_status || "none").trim().toLowerCase() || "none"}
             {@const fullyRefunded = refundStatus === "refunded"}
             {@const docNo = String(invoice?.invoice_no || detailRow?.invoice_no || "").trim()}
+            {@const cashierName = String(row?.cashier_name || "").trim()}
+            {@const cashierId = String(row?.cashier_id || "").trim()}
+            {@const customerName = String(row?.customer_name || invoice?.customer_name || "").trim()}
+            {@const customerId = String(row?.customer_id || invoice?.customer_id || "").trim()}
             <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2.5">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
@@ -7493,7 +7586,10 @@
                     {/if}
                   </div>
                   <div class="text-[11px] text-muted mt-1">
-                    {_queueAgeText(row?.created_at)} · Cashier: <span class="font-mono text-ink/90">{String(row?.cashier_id || "—")}</span>
+                    {_queueAgeText(row?.created_at)} · Cashier: <span class="text-ink/90">{cashierName || cashierId || "—"}</span>
+                  </div>
+                  <div class="text-[11px] text-muted mt-0.5">
+                    Customer: <span class="text-ink/90">{customerName || customerId || "Walk-in"}</span>
                   </div>
                   <div class="text-[11px] text-muted mt-0.5">
                     Event: <span class="font-mono text-ink/90">{_shortQueueEventId(row?.event_id || "")}</span>

@@ -1447,7 +1447,8 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
                        i.updated_at,
                        COALESCE(plp.price_usd, p.price_usd) AS price_usd,
                        COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
-                       COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes
+                       COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes,
+                       COALESCE(uc.uom_conversions, '[]'::jsonb) AS uom_conversions
                 FROM items i
                 LEFT JOIN LATERAL (
                     SELECT price_usd, price_lbp
@@ -1489,6 +1490,28 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
                      AND UPPER(c.uom_code) = UPPER(b.uom_code)
                     WHERE b.company_id = i.company_id AND b.item_id = i.id
                 ) bc ON true
+                LEFT JOIN LATERAL (
+                    SELECT jsonb_agg(
+                        jsonb_build_object(
+                          'uom_code', conv.uom_code,
+                          'qty_factor', conv.to_base_factor,
+                          'is_active', true
+                        )
+                        ORDER BY
+                          CASE WHEN conv.uom_code = UPPER(COALESCE(i.unit_of_measure, '')) THEN 0 ELSE 1 END,
+                          conv.uom_code
+                    ) AS uom_conversions
+                    FROM (
+                      SELECT UPPER(c.uom_code) AS uom_code, c.to_base_factor
+                      FROM item_uom_conversions c
+                      WHERE c.company_id = i.company_id
+                        AND c.item_id = i.id
+                        AND c.is_active = true
+                      UNION
+                      SELECT UPPER(COALESCE(i.unit_of_measure, '')) AS uom_code, 1::numeric AS to_base_factor
+                      WHERE COALESCE(i.unit_of_measure, '') <> ''
+                    ) conv
+                ) uc ON true
                 WHERE i.is_active = true
                 ORDER BY i.sku
                 """
@@ -1538,10 +1561,12 @@ def catalog_delta(
                          COALESCE(plp.price_usd, p.price_usd) AS price_usd,
                          COALESCE(plp.price_lbp, p.price_lbp) AS price_lbp,
                          COALESCE(bc.barcodes, '[]'::jsonb) AS barcodes,
+                         COALESCE(uc.uom_conversions, '[]'::jsonb) AS uom_conversions,
                          GREATEST(
                            i.updated_at,
                            COALESCE(pm.last_price_created_at, i.updated_at),
                            COALESCE(plm.last_pl_price_created_at, i.updated_at),
+                           COALESCE(cm.last_uom_conversion_updated_at, i.updated_at),
                            COALESCE(bm.last_barcode_updated_at, i.updated_at)
                          ) AS changed_at
                   FROM items i
@@ -1583,6 +1608,12 @@ def catalog_delta(
                       WHERE b.company_id = i.company_id AND b.item_id = i.id
                   ) bm ON true
                   LEFT JOIN LATERAL (
+                      SELECT MAX(updated_at) AS last_uom_conversion_updated_at
+                      FROM item_uom_conversions c
+                      WHERE c.company_id = i.company_id
+                        AND c.item_id = i.id
+                  ) cm ON true
+                  LEFT JOIN LATERAL (
                       SELECT jsonb_agg(
                           jsonb_build_object(
                             'id', b.id,
@@ -1602,10 +1633,33 @@ def catalog_delta(
                        AND UPPER(c.uom_code) = UPPER(b.uom_code)
                       WHERE b.company_id = i.company_id AND b.item_id = i.id
                   ) bc ON true
+                  LEFT JOIN LATERAL (
+                      SELECT jsonb_agg(
+                          jsonb_build_object(
+                            'uom_code', conv.uom_code,
+                            'qty_factor', conv.to_base_factor,
+                            'is_active', true
+                          )
+                          ORDER BY
+                            CASE WHEN conv.uom_code = UPPER(COALESCE(i.unit_of_measure, '')) THEN 0 ELSE 1 END,
+                            conv.uom_code
+                      ) AS uom_conversions
+                      FROM (
+                        SELECT UPPER(c.uom_code) AS uom_code, c.to_base_factor
+                        FROM item_uom_conversions c
+                        WHERE c.company_id = i.company_id
+                          AND c.item_id = i.id
+                          AND c.is_active = true
+                        UNION
+                        SELECT UPPER(COALESCE(i.unit_of_measure, '')) AS uom_code, 1::numeric AS to_base_factor
+                        WHERE COALESCE(i.unit_of_measure, '') <> ''
+                      ) conv
+                  ) uc ON true
                   WHERE i.is_active = true
                     AND (
                       i.updated_at > %s OR COALESCE(pm.last_price_created_at, 'epoch'::timestamptz) > %s
                      OR COALESCE(bm.last_barcode_updated_at, 'epoch'::timestamptz) > %s
+                     OR COALESCE(cm.last_uom_conversion_updated_at, 'epoch'::timestamptz) > %s
                      OR COALESCE(plm.last_pl_price_created_at, 'epoch'::timestamptz) > %s
                     )
                 )
@@ -1620,6 +1674,7 @@ def catalog_delta(
                     default_pl_id,
                     default_pl_id,
                     default_pl_id,
+                    since,
                     since,
                     since,
                     since,
