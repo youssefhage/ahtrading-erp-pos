@@ -2124,6 +2124,13 @@
     const docNo = String(inv?.receipt_no || inv?.invoice_no || "").trim();
     const docDate = _fmtDateTime(inv?.created_at || inv?.invoice_date || "");
     const customerName = String(inv?.customer_name || "Walk-in Customer").trim();
+    const invoiceTplRaw = String(cfg?.invoice_template || "official_classic").trim().toLowerCase();
+    const invoiceTpl = (invoiceTplRaw === "official_compact" || invoiceTplRaw === "standard")
+      ? "official_compact"
+      : "official_classic";
+    const receiptTplRaw = String(cfg?.receipt_template || "classic").trim().toLowerCase();
+    const receiptTpl = receiptTplRaw === "compact" ? "compact" : "classic";
+    const useCompact = thermal ? (receiptTpl === "compact") : (invoiceTpl === "official_compact");
     const paymentHtml = payments.length
       ? payments
         .map((p) => {
@@ -2140,26 +2147,52 @@
           <tr>
             <td>${_escapeHtml(String(ln?.item_name || ln?.item_sku || "Item"))}</td>
             <td class="r">${_fmtMoney(ln?.qty, 2)}</td>
+            ${useCompact ? "" : `<td class="r">${_fmtMoney(ln?.unit_price_lbp, 2)}</td>`}
             <td class="r">${_fmtMoney(ln?.line_total_lbp, 2)}</td>
           </tr>
         `).join("")
       : lines.map((ln, i) => `
           <tr>
-            <td>${i + 1}</td>
+            ${useCompact ? "" : `<td>${i + 1}</td>`}
             <td>${_escapeHtml(String(ln?.item_name || ln?.item_sku || "Item"))}</td>
             <td class="r">${_fmtMoney(ln?.qty, 2)}</td>
-            <td class="r">${_fmtMoney(ln?.unit_price_usd, 2)}</td>
+            ${useCompact ? "" : `<td class="r">${_fmtMoney(ln?.unit_price_usd, 2)}</td>`}
             <td class="r">${_fmtMoney(ln?.line_total_usd, 2)}</td>
-            <td class="r">${_fmtMoney(ln?.line_total_lbp, 2)}</td>
+            ${useCompact ? "" : `<td class="r">${_fmtMoney(ln?.line_total_lbp, 2)}</td>`}
           </tr>
         `).join("");
 
     const pageSize = thermal ? "80mm auto" : "A4";
     const margin = thermal ? "4mm" : "10mm";
     const thCols = thermal
-      ? "<th>Item</th><th class='r'>Qty</th><th class='r'>LBP</th>"
-      : "<th>#</th><th>Item</th><th class='r'>Qty</th><th class='r'>Unit USD</th><th class='r'>Line USD</th><th class='r'>Line LBP</th>";
-    const noLinesColspan = thermal ? 3 : 6;
+      ? (useCompact
+        ? "<th>Item</th><th class='r'>Qty</th><th class='r'>LBP</th>"
+        : "<th>Item</th><th class='r'>Qty</th><th class='r'>Unit LBP</th><th class='r'>Line LBP</th>")
+      : (useCompact
+        ? "<th>Item</th><th class='r'>Qty</th><th class='r'>Line USD</th>"
+        : "<th>#</th><th>Item</th><th class='r'>Qty</th><th class='r'>Unit USD</th><th class='r'>Line USD</th><th class='r'>Line LBP</th>");
+    const noLinesColspan = thermal ? (useCompact ? 3 : 4) : (useCompact ? 3 : 6);
+    const subtitle = thermal
+      ? `RECEIPT ${useCompact ? "COMPACT" : "CLASSIC"}`
+      : `INVOICE ${useCompact ? "COMPACT" : "CLASSIC"}`;
+    const metaRows = thermal
+      ? `
+      <div><strong>No:</strong> ${_escapeHtml(docNo || "-")}</div>
+      <div><strong>Date:</strong> ${_escapeHtml(docDate || "-")}</div>
+      <div><strong>Customer:</strong> ${_escapeHtml(customerName)}</div>
+      `
+      : (useCompact
+        ? `
+      <div><strong>No:</strong> ${_escapeHtml(docNo || "-")}</div>
+      <div><strong>Date:</strong> ${_escapeHtml(docDate || "-")}</div>
+      <div><strong>Customer:</strong> ${_escapeHtml(customerName)}</div>
+      `
+        : `
+      <div><strong>No:</strong> ${_escapeHtml(docNo || "-")}</div>
+      <div><strong>Date:</strong> ${_escapeHtml(docDate || "-")}</div>
+      <div><strong>Customer:</strong> ${_escapeHtml(customerName)}</div>
+      <div><strong>Status:</strong> ${_escapeHtml(String(inv?.status || "").toUpperCase() || "-")}</div>
+      `);
 
     return `<!doctype html>
 <html>
@@ -2189,13 +2222,10 @@
   <div class="wrap">
     <div class="hd">
       <div class="name">${_escapeHtml(companyName)}</div>
-      <div class="muted">${thermal ? "RECEIPT" : "INVOICE"}</div>
+      <div class="muted">${subtitle}</div>
     </div>
     <div class="grid">
-      <div><strong>No:</strong> ${_escapeHtml(docNo || "-")}</div>
-      <div><strong>Date:</strong> ${_escapeHtml(docDate || "-")}</div>
-      <div><strong>Customer:</strong> ${_escapeHtml(customerName)}</div>
-      <div><strong>Status:</strong> ${_escapeHtml(String(inv?.status || "").toUpperCase() || "-")}</div>
+      ${metaRows}
     </div>
     <table>
       <thead><tr>${thCols}</tr></thead>
