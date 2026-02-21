@@ -2076,12 +2076,71 @@ def _resolve_sales_invoice_from_event(cfg: dict, event_id: str) -> dict:
     }
     post_json(f"{base.rstrip('/')}/pos/outbox/submit", bundle, headers=device_headers(cfg))
 
-    # Process it now (synchronous best-effort).
-    res = post_json(f"{base.rstrip('/')}/pos/outbox/process-one", {"event_id": ev["event_id"]}, headers=device_headers(cfg))
-    inv_id = str(res.get("invoice_id") or "").strip()
-    inv_no = str(res.get("invoice_no") or "").strip()
+    def _extract_invoice_id(payload) -> str:
+        if not isinstance(payload, dict):
+            return ""
+
+        def dig(obj, *path):
+            cur = obj
+            for key in path:
+                if not isinstance(cur, dict):
+                    return ""
+                cur = cur.get(key)
+            return str(cur or "").strip()
+
+        candidates = [
+            dig(payload, "invoice_id"),
+            dig(payload, "invoice", "id"),
+            dig(payload, "sale", "invoice", "id"),
+            dig(payload, "result", "invoice_id"),
+            dig(payload, "result", "invoice", "id"),
+            dig(payload, "process", "invoice_id"),
+            dig(payload, "process", "invoice", "id"),
+            dig(payload, "process", "sale", "invoice", "id"),
+            dig(payload, "submit", "invoice_id"),
+            dig(payload, "submit", "invoice", "id"),
+            dig(payload, "data", "invoice_id"),
+            dig(payload, "data", "invoice", "id"),
+            dig(payload, "event", "invoice_id"),
+            dig(payload, "event", "invoice", "id"),
+        ]
+        for value in candidates:
+            if value:
+                return value
+        return ""
+
+    res = {}
+    inv_id = ""
+    inv_no = ""
+    # Invoice creation can be briefly eventual right after submit/process.
+    for delay_s in (0.0, 0.22, 0.52, 1.0):
+        if delay_s > 0:
+            time.sleep(delay_s)
+        res = post_json(
+            f"{base.rstrip('/')}/pos/outbox/process-one",
+            {"event_id": ev["event_id"]},
+            headers=device_headers(cfg),
+        )
+        inv_id = _extract_invoice_id(res)
+        inv_no = str(res.get("invoice_no") or "").strip()
+        if inv_id:
+            break
+        # Best-effort fallback for API variants that expose invoice lookup by event.
+        by_event_url = f"{base.rstrip('/')}/pos/sales-invoices/by-event/{quote(ev['event_id'])}"
+        by_event, _status, _detail = _setup_req_json_safe(
+            by_event_url,
+            method="GET",
+            headers=device_headers(cfg),
+            timeout_s=8.0,
+        )
+        if by_event is not None:
+            inv_id = _extract_invoice_id(by_event)
+            if inv_id and not inv_no:
+                inv_no = str((by_event.get("invoice") or {}).get("invoice_no") or by_event.get("invoice_no") or "").strip()
+            if inv_id:
+                break
     if not inv_id:
-        raise ValueError("event processed but invoice_id was not returned")
+        raise ValueError("invoice is still being generated; retry in a few seconds")
     # Keep "edge" as an alias for older callers.
     return {"invoice_id": inv_id, "invoice_no": (inv_no or None), "sync": res, "edge": res}
 

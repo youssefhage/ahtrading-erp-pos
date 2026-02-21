@@ -1905,13 +1905,62 @@
     if (!eid) throw new Error("event_id is required");
     const cached = webEventInvoiceMap.get(eid);
     if (cached) return { event_id: eid, invoice_id: cached };
-    const processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
-      method: "POST",
-      body: { event_id: eid, force: true },
-    });
-    const invoiceId = String(processed?.invoice_id || "").trim();
-    if (invoiceId) webEventInvoiceMap.set(eid, invoiceId);
-    return { event_id: eid, invoice_id: invoiceId || null };
+
+    const extractInvoiceId = (payload) => {
+      if (!payload || typeof payload !== "object") return "";
+      const candidates = [
+        payload?.invoice_id,
+        payload?.invoice?.id,
+        payload?.sale?.invoice?.id,
+        payload?.result?.invoice_id,
+        payload?.result?.invoice?.id,
+        payload?.process?.invoice_id,
+        payload?.process?.invoice?.id,
+        payload?.process?.sale?.invoice?.id,
+        payload?.submit?.invoice_id,
+        payload?.submit?.invoice?.id,
+        payload?.data?.invoice_id,
+        payload?.data?.invoice?.id,
+        payload?.event?.invoice_id,
+        payload?.event?.invoice?.id,
+      ];
+      for (const raw of candidates) {
+        const v = String(raw || "").trim();
+        if (v) return v;
+      }
+      return "";
+    };
+
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, toNum(ms, 0))));
+    const attemptsMs = [0, 220, 520, 1000];
+    for (const delayMs of attemptsMs) {
+      if (delayMs > 0) await wait(delayMs);
+
+      let invoiceId = "";
+      try {
+        const processed = await _webPosCall(companyKey, "/pos/outbox/process-one", {
+          method: "POST",
+          body: { event_id: eid, force: true },
+        });
+        invoiceId = extractInvoiceId(processed);
+      } catch (_) {}
+      if (invoiceId) {
+        webEventInvoiceMap.set(eid, invoiceId);
+        return { event_id: eid, invoice_id: invoiceId };
+      }
+
+      // Some server builds expose direct invoice lookup by event.
+      try {
+        const byEvent = await _webPosCall(companyKey, `/pos/sales-invoices/by-event/${encodeURIComponent(eid)}`, { method: "GET" });
+        invoiceId = extractInvoiceId(byEvent);
+      } catch (_) {}
+      if (invoiceId) {
+        webEventInvoiceMap.set(eid, invoiceId);
+        return { event_id: eid, invoice_id: invoiceId };
+      }
+    }
+
+    return { event_id: eid, invoice_id: null };
   };
 
   const _fetchInvoiceDetailWeb = async (companyKey, invoiceId) => {
@@ -2148,7 +2197,9 @@
   const _printInvoiceByEventWeb = async (companyKey, eventId, receiptWin = null, { thermal = false } = {}) => {
     const resolved = await _resolveInvoiceByEventWeb(companyKey, eventId);
     const invoiceId = String(resolved?.invoice_id || "").trim();
-    if (!invoiceId) throw new Error("invoice not found for event");
+    if (!invoiceId) {
+      throw new Error("Invoice is still being generated. Please retry in a few seconds.");
+    }
     if (thermal && companyKey !== "official") {
       const cfg = cfgForCompanyKey(companyKey) || {};
       const pdfUrl = _receiptPdfUrlFromCfg(companyKey, cfg, invoiceId);
