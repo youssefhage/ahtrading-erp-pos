@@ -4,7 +4,7 @@ import hashlib
 import json
 from datetime import datetime, date, timedelta
 from typing import Optional
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import uuid
 import psycopg
 from psycopg.rows import dict_row
@@ -98,14 +98,20 @@ def q_points(v: Decimal) -> Decimal:
 
 UOM_Q6 = Decimal("0.000001")
 UOM_Q4 = Decimal("0.0001")
+UOM_Q4_HALF_STEP = Decimal("0.00005")
 
 
 def _q6(v: Decimal) -> Decimal:
-    return v.quantize(UOM_Q6)
+    return v.quantize(UOM_Q6, rounding=ROUND_HALF_UP)
 
 
 def _q4(v: Decimal) -> Decimal:
-    return v.quantize(UOM_Q4)
+    return v.quantize(UOM_Q4, rounding=ROUND_HALF_UP)
+
+
+def _legacy_factor_compatible(f_in: Decimal, expected: Decimal) -> bool:
+    # Accept either the same rounded 4dp bucket or a tiny half-step drift.
+    return _q4(f_in) == _q4(expected) or (f_in - expected).copy_abs() <= UOM_Q4_HALF_STEP
 
 
 def _norm_uom_code(v) -> str | None:
@@ -194,7 +200,7 @@ def _resolve_line_uom(
         if f_in <= 0:
             raise ValueError(f"{line_label}: qty_factor must be > 0")
         if f_in != expected:
-            if _q4(f_in) != _q4(expected):
+            if not _legacy_factor_compatible(f_in, expected):
                 raise ValueError(f"{line_label}: qty_factor mismatch for uom {u} (expected {expected}, got {f_in})")
             factor_for_consistency = f_in
         else:

@@ -55,6 +55,25 @@ def test_resolve_line_uom_derives_entered_qty_from_legacy_factor_when_missing():
     assert resolved["qty_entered"] == Decimal("1.000000")
 
 
+def test_resolve_line_uom_accepts_tiny_legacy_half_step_drift():
+    base_uom_by_item, factors_by_item = _ctx()
+    resolved = resolve_line_uom(
+        line_label="sale line",
+        item_id="item-1",
+        qty_base=Decimal("0.083283"),
+        qty_entered=Decimal("1"),
+        uom="PC",
+        qty_factor=Decimal("0.083283"),
+        base_uom_by_item=base_uom_by_item,
+        factors_by_item=factors_by_item,
+        strict_factor=True,
+    )
+
+    assert resolved["uom"] == "PC"
+    assert resolved["qty_factor"] == Decimal("0.083333")
+    assert resolved["qty_entered"] == Decimal("1.000000")
+
+
 def test_resolve_line_uom_rejects_real_factor_mismatch():
     base_uom_by_item, factors_by_item = _ctx()
     with pytest.raises(HTTPException) as ex:

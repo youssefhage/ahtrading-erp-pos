@@ -9,6 +9,7 @@ from fastapi import HTTPException
 QTY_EPSILON = Decimal("0.000001")
 Q6 = Decimal("0.000001")
 Q4 = Decimal("0.0001")
+Q4_HALF_STEP = Decimal("0.00005")
 
 
 def norm_uom_code(v: Optional[str]) -> Optional[str]:
@@ -24,6 +25,12 @@ def q6(v: Decimal) -> Decimal:
 def q4(v: Decimal) -> Decimal:
     # Backward compatibility with legacy barcode factors stored at 4 decimals.
     return v.quantize(Q4, rounding=ROUND_HALF_UP)
+
+
+def legacy_factor_compatible(f_in: Decimal, expected: Decimal) -> bool:
+    # Accept either the same rounded 4dp bucket or a tiny half-step drift.
+    # This keeps sales resilient when older clients/cache still send 4dp factors.
+    return q4(f_in) == q4(expected) or (f_in - expected).copy_abs() <= Q4_HALF_STEP
 
 
 def load_item_uom_context(cur, company_id: str, item_ids: list[str]) -> tuple[dict[str, str], dict[str, dict[str, Decimal]]]:
@@ -128,7 +135,7 @@ def resolve_line_uom(
         if f_in <= 0:
             raise HTTPException(status_code=400, detail=f"{line_label}: qty_factor must be > 0")
         if strict_factor and f_in != expected:
-            if q4(f_in) != q4(expected):
+            if not legacy_factor_compatible(f_in, expected):
                 raise HTTPException(
                     status_code=400,
                     detail=f"{line_label}: qty_factor mismatch for uom {uom_norm} (expected {expected}, got {f_in})",
