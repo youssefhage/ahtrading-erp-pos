@@ -674,7 +674,8 @@ def list_all_barcodes(company_id: str = Depends(get_company_id)):
                 LEFT JOIN item_uom_conversions c
                   ON c.company_id = b.company_id
                  AND c.item_id = b.item_id
-                 AND c.uom_code = b.uom_code
+                 AND c.is_active = true
+                 AND UPPER(c.uom_code) = UPPER(b.uom_code)
                 WHERE b.company_id = %s
                 ORDER BY item_id, is_primary DESC, created_at ASC
                 """,
@@ -1799,7 +1800,8 @@ def list_item_barcodes(item_id: str, company_id: str = Depends(get_company_id)):
                     LEFT JOIN item_uom_conversions c
                       ON c.company_id = b.company_id
                      AND c.item_id = b.item_id
-                     AND c.uom_code = b.uom_code
+                     AND c.is_active = true
+                     AND UPPER(c.uom_code) = UPPER(b.uom_code)
                     WHERE b.company_id = %s AND b.item_id = %s
                     ORDER BY is_primary DESC, created_at ASC
                     """,

@@ -1485,7 +1485,8 @@ def catalog(company_id: Optional[uuid.UUID] = None, device=Depends(require_devic
                     LEFT JOIN item_uom_conversions c
                       ON c.company_id = b.company_id
                      AND c.item_id = b.item_id
-                     AND c.uom_code = b.uom_code
+                     AND c.is_active = true
+                     AND UPPER(c.uom_code) = UPPER(b.uom_code)
                     WHERE b.company_id = i.company_id AND b.item_id = i.id
                 ) bc ON true
                 WHERE i.is_active = true
@@ -1597,7 +1598,8 @@ def catalog_delta(
                       LEFT JOIN item_uom_conversions c
                         ON c.company_id = b.company_id
                        AND c.item_id = b.item_id
-                       AND c.uom_code = b.uom_code
+                       AND c.is_active = true
+                       AND UPPER(c.uom_code) = UPPER(b.uom_code)
                       WHERE b.company_id = i.company_id AND b.item_id = i.id
                   ) bc ON true
                   WHERE i.is_active = true
