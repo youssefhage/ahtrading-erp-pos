@@ -272,11 +272,6 @@
                     {/if}
                   </div>
                 </div>
-                {#if isActive}
-                  <span class="shrink-0 px-2 py-1 rounded-lg border border-accent/30 bg-accent/10 text-[10px] font-extrabold tracking-wide text-accent shadow-[0_0_10px_rgba(45,212,191,0.2)]">
-                    Selected
-                  </span>
-                {/if}
               </div>
               {#if item.barcode}
                 <div class="mt-1.5 text-[10px] text-muted/60 truncate font-mono">

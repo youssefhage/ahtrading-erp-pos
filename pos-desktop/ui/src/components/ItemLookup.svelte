@@ -364,11 +364,6 @@
 	                  </div>
 	                  
                     <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
-                      {#if selectedInList}
-                        <span class="px-2 py-0.5 rounded-md border border-accent/40 bg-accent/15 text-[9px] font-extrabold text-accent uppercase tracking-wide">
-                          Selected
-                        </span>
-                      {/if}
                       {#if it.barcode}
                          <span class="font-mono text-xs opacity-70 bg-black/20 px-1.5 py-0.5 rounded">{it.barcode}</span>
                       {/if}

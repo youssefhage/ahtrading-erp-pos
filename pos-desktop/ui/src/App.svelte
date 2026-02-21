@@ -2092,6 +2092,29 @@
     }
   };
 
+  const _withDeviceAuthForPrintUrl = (rawUrl, cfg = null) => {
+    const baseUrl = String(rawUrl || "").trim();
+    if (!baseUrl) return "";
+    const localCfg = cfg || {};
+    const deviceId = String(localCfg?.device_id || "").trim();
+    const deviceToken = String(localCfg?.device_token || "").trim();
+    if (!deviceId || !deviceToken) return baseUrl;
+
+    try {
+      const url = new URL(baseUrl, window.location.origin);
+      const currentOrigin = String(window.location.origin || "").trim().toLowerCase();
+      const targetOrigin = String(url.origin || "").trim().toLowerCase();
+      const isCrossOrigin = !!currentOrigin && !!targetOrigin && currentOrigin !== targetOrigin;
+      // Avoid leaking device credentials in same-origin URLs where cookies/session can be used.
+      if (!isCrossOrigin) return url.toString();
+      url.searchParams.set("x_device_id", deviceId);
+      url.searchParams.set("x_device_token", deviceToken);
+      return url.toString();
+    } catch (_) {
+      return baseUrl;
+    }
+  };
+
   const _invoicePdfUrlFromCfg = (companyKey, cfg, invoiceId) => {
     const invId = String(invoiceId || "").trim();
     const pb = _resolvePrintBaseUrl(companyKey, cfg);
@@ -2100,14 +2123,16 @@
     const tpl = (tplRaw === "official_classic" || tplRaw === "official_compact" || tplRaw === "standard")
       ? tplRaw
       : "official_classic";
-    return `${pb}/exports/sales-invoices/${encodeURIComponent(invId)}/pdf?inline=1&template=${encodeURIComponent(tpl)}`;
+    const raw = `${pb}/exports/sales-invoices/${encodeURIComponent(invId)}/pdf?inline=1&template=${encodeURIComponent(tpl)}`;
+    return _withDeviceAuthForPrintUrl(raw, cfg);
   };
 
   const _receiptPdfUrlFromCfg = (companyKey, cfg, invoiceId) => {
     const invId = String(invoiceId || "").trim();
     const pb = _resolvePrintBaseUrl(companyKey, cfg);
     if (!invId || !pb) return "";
-    return `${pb}/exports/sales-receipts/${encodeURIComponent(invId)}/pdf?inline=1`;
+    const raw = `${pb}/exports/sales-receipts/${encodeURIComponent(invId)}/pdf?inline=1`;
+    return _withDeviceAuthForPrintUrl(raw, cfg);
   };
 
   const _openPrintWindowWithUrl = (url, receiptWin = null) => {
