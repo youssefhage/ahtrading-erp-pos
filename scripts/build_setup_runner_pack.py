@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Build a lightweight "Setup Runner" zip for Windows/macOS when the Setup Desktop
-installer isn't available yet.
+Build a lightweight "Setup Runner" zip for Windows/macOS.
 
 This pack contains:
 - onboard_onprem_pos.py (the guided runner)
@@ -44,8 +43,7 @@ def main() -> int:
         f"""\
         Melqard Setup Runner (v{args.version})
 
-        This is a fallback for Windows/macOS when "Setup Desktop" installers are not available yet.
-        It provisions the on-prem local server and exports POS device packs.
+        This package provisions the on-prem local server and exports POS device packs.
 
         Requirements (install once on the server machine):
         - Docker Desktop (Windows/macOS)

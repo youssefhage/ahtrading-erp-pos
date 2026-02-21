@@ -77,7 +77,7 @@ On each POS register machine:
 
 Option A (recommended): **Melqard POS Desktop** (Tauri)
 1. Install the latest POS Desktop from the downloads page.
-2. Paste the `tauri-launcher-prefill.json` (from onboarding output) into the **Setup Pack** field.
+2. Paste the `tauri-launcher-prefill.json` (from onboarding output) into the **Import Config JSON** field.
 3. Start agents (Official + Unofficial) from the Desktop app and open the cashier UI.
 
 Option B (manual): run two Python agents (example ports)

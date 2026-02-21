@@ -24,164 +24,80 @@
       </header>
 
       <section class="glass card-setup">
-        <h2>Store Setup</h2>
-        <p class="muted">Recommended: Quick Setup (log in once, pick companies, and launch). Use Setup Pack only for manual recovery.</p>
+        <h2>POS Settings</h2>
+        <p class="muted">
+          Configure this terminal directly from here using values from Admin → System → POS Devices, then click
+          <strong>Start POS</strong>.
+        </p>
 
         <label class="field">
           <span>Cloud API URL</span>
           <input id="edgeUrl" placeholder="https://app.melqard.com/api" />
         </label>
 
-        <div class="callout">
-          <div class="callout-head">
-            <h3>Quick Setup</h3>
-            <span class="status-chip">Supported by backend</span>
-          </div>
-          <p class="muted">
-            Sign in, pick your main company, and start POS. Add a secondary company only if your terminal must run both books.
-          </p>
-          <div class="setup-flow" id="setupFlow" aria-label="Quick setup progress">
-            <div class="setup-step setup-step--active" data-setup-step="account">1. Account</div>
-            <div class="setup-step" data-setup-step="company">2. Company</div>
-            <div class="setup-step" data-setup-step="permissions">3. Permissions</div>
-            <div class="setup-step" data-setup-step="register">4. Device</div>
-            <div class="setup-step" data-setup-step="start">5. Launch</div>
-          </div>
-          <div id="setupChecklist" class="setup-checklist muted" aria-live="polite">
-            Enter Cloud API URL and credentials, then click Log In.
-          </div>
-
-          <div class="grid2 compact">
-            <label class="field">
-              <span>Email</span>
-              <input id="setupEmail" placeholder="name@company.com" autocomplete="username" />
-            </label>
-            <label class="field">
-              <span>Password</span>
-              <input id="setupPassword" type="password" placeholder="Your password" autocomplete="current-password" />
-            </label>
-          </div>
-
-          <div id="setupMfaWrap" class="grid2 compact mfa-wrap" style="display: none;">
-            <label class="field">
-              <span>MFA Code</span>
-              <input id="setupMfaCode" inputmode="numeric" placeholder="123456" />
-            </label>
-            <label class="field field-inline-btn">
-              <span>&nbsp;</span>
-              <button id="setupVerifyMfaBtn" class="ghost" type="button">Verify MFA</button>
-            </label>
-          </div>
-
-          <div class="row compact">
-            <button id="setupLoginBtn" class="primary" type="button">Log In</button>
-            <button id="setupClearBtn" class="ghost" type="button">Clear</button>
-          </div>
-
-          <div class="grid2 compact">
-            <label class="field">
-              <span>Primary Company</span>
-              <select id="setupCompanyOfficial"></select>
-            </label>
-            <label class="field">
-              <span>Primary POS Source</span>
-              <select id="setupDeviceSelectOfficial"></select>
-            </label>
-          </div>
-
-          <label class="field">
-            <span>Branch (optional)</span>
-            <select id="setupBranch"></select>
-          </label>
-
-          <label class="field" style="display: flex; align-items: center; gap: 8px;">
-            <input id="setupDualMode" type="checkbox" />
-            <span>Use a secondary company/device on this terminal</span>
-          </label>
-
-          <div id="setupSecondaryWrap" class="grid2 compact" style="display: none;">
-            <label class="field">
-              <span>Secondary Company</span>
-              <select id="setupCompanyUnofficial"></select>
-            </label>
-            <label class="field">
-              <span>Secondary POS Source</span>
-              <select id="setupDeviceSelectUnofficial"></select>
-            </label>
-          </div>
-
-          <div class="row compact">
-            <button id="setupApplyBtn" class="primary" type="button">Generate Setup and Start POS</button>
-          </div>
-          <div id="setupNote" class="status muted setup-note" aria-live="polite"></div>
-        </div>
-
         <details class="advanced">
-          <summary>Setup Pack (manual import)</summary>
+          <summary>Import Config JSON (optional)</summary>
           <div class="details-body">
             <label class="field">
-              <span>Setup Pack (paste JSON)</span>
+              <span>Config JSON (paste)</span>
               <textarea id="setupPack" rows="5" placeholder='{"cloud_api_base_url":"https://app.melqard.com/api", "...": "..."}'></textarea>
             </label>
             <div class="row compact">
-              <button id="applyPackBtn" class="ghost" type="button">Apply Pack</button>
+              <button id="applyPackBtn" class="ghost" type="button">Apply Config</button>
               <button id="clearPackBtn" class="ghost" type="button">Clear</button>
             </div>
           </div>
         </details>
 
-        <details class="advanced">
-          <summary>Advanced</summary>
-          <div class="details-body">
-            <p class="muted">
-              For each company, set POS device credentials created in Admin → System → POS Devices.
-              The agent pulls defaults after first sync.
-            </p>
-            <div class="grid2 compact">
-              <label class="field">
-                <span>Primary Agent Port</span>
-                <input id="portOfficial" type="number" value="7070" />
-              </label>
-              <label class="field">
-                <span>Secondary Agent Port</span>
-                <input id="portUnofficial" type="number" value="7072" />
-              </label>
-            </div>
+        <p class="muted">
+          For each company, set device credentials generated in Admin → System → POS Devices.
+        </p>
 
-            <div class="grid2 compact">
-              <label class="field">
-                <span>Primary Company ID</span>
-                <input id="companyOfficial" placeholder="00000000-0000-0000-0000-000000000001" />
-              </label>
-              <label class="field">
-                <span>Secondary Company ID</span>
-                <input id="companyUnofficial" placeholder="00000000-0000-0000-0000-000000000002" />
-              </label>
-            </div>
+        <div class="grid2 compact">
+          <label class="field">
+            <span>Primary Agent Port</span>
+            <input id="portOfficial" type="number" value="7070" />
+          </label>
+          <label class="field">
+            <span>Secondary Agent Port</span>
+            <input id="portUnofficial" type="number" value="7072" />
+          </label>
+        </div>
 
-            <div class="grid2 compact">
-              <label class="field">
-                <span>Primary Device ID</span>
-                <input id="deviceIdOfficial" placeholder="UUID from Portal" />
-              </label>
-              <label class="field">
-                <span>Primary Device Token</span>
-                <input id="deviceTokenOfficial" placeholder="Token from Portal" />
-              </label>
-            </div>
+        <div class="grid2 compact">
+          <label class="field">
+            <span>Primary Company ID</span>
+            <input id="companyOfficial" placeholder="00000000-0000-0000-0000-000000000001" />
+          </label>
+          <label class="field">
+            <span>Secondary Company ID</span>
+            <input id="companyUnofficial" placeholder="00000000-0000-0000-0000-000000000002" />
+          </label>
+        </div>
 
-            <div class="grid2 compact">
-              <label class="field">
-                <span>Secondary Device ID</span>
-                <input id="deviceIdUnofficial" placeholder="UUID from Portal" />
-              </label>
-              <label class="field">
-                <span>Secondary Device Token</span>
-                <input id="deviceTokenUnofficial" placeholder="Token from Portal" />
-              </label>
-            </div>
-          </div>
-        </details>
+        <div class="grid2 compact">
+          <label class="field">
+            <span>Primary Device ID</span>
+            <input id="deviceIdOfficial" placeholder="UUID from Admin" />
+          </label>
+          <label class="field">
+            <span>Primary Device Token</span>
+            <input id="deviceTokenOfficial" placeholder="Token from Admin" />
+          </label>
+        </div>
+
+        <div class="grid2 compact">
+          <label class="field">
+            <span>Secondary Device ID</span>
+            <input id="deviceIdUnofficial" placeholder="UUID from Admin" />
+          </label>
+          <label class="field">
+            <span>Secondary Device Token</span>
+            <input id="deviceTokenUnofficial" placeholder="Token from Admin" />
+          </label>
+        </div>
+
+        <div id="setupNote" class="status muted setup-note" aria-live="polite"></div>
       </section>
 
       <section class="glass card-compact">

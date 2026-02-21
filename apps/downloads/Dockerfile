@@ -8,10 +8,9 @@ FROM nginx:alpine
 
 # Create initial structure so Docker named volume gets these folders on first run.
 # (Docker copies existing dir contents into an empty named volume on initial mount.)
-RUN mkdir -p /updates/pos /updates/portal /updates/setup /updates/site \
+RUN mkdir -p /updates/pos /updates/portal /updates/site \
   && printf "%s\n" "Upload artifacts for POS Desktop here." > /updates/pos/README.txt \
   && printf "%s\n" "Upload artifacts for Admin Desktop here. (Legacy path: portal)" > /updates/portal/README.txt \
-  && printf "%s\n" "Upload artifacts for Setup Desktop here." > /updates/setup/README.txt \
   && printf "%s\n" "Downloads landing page (index.html + style.css) written by the API." > /updates/site/README.txt
 
 COPY apps/downloads/nginx.conf /etc/nginx/conf.d/default.conf

@@ -46,13 +46,6 @@ APP_CONFIG = {
         "stable_installer_mac": "MelqardPortal-Setup-latest.dmg",
         "title": "Melqard Admin Desktop",
     },
-    "setup": {
-        "tauri_conf": Path("apps/setup-desktop/src-tauri/tauri.conf.json"),
-        "stable_installer_win_msi": "MelqardInstaller-Setup-latest.msi",
-        "stable_installer_win_exe": "MelqardInstaller-Setup-latest.exe",
-        "stable_installer_mac": "MelqardInstaller-Setup-latest.dmg",
-        "title": "Melqard Setup Desktop",
-    },
 }
 
 def _safe_filename(name: str) -> str:
@@ -262,8 +255,8 @@ def main() -> int:
     ap.add_argument("--dist-dir", default="dist", help="Directory containing downloaded CI artifacts")
     ap.add_argument(
         "--apps",
-        default="pos,portal,setup",
-        help="Comma-separated list of apps to publish (default: pos,portal,setup).",
+        default="pos,portal",
+        help="Comma-separated list of apps to publish (default: pos,portal).",
     )
     ap.add_argument(
         "--keep-versions",

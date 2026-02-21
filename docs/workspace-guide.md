@@ -6,7 +6,6 @@ This guide helps new contributors find the right files quickly and avoid editing
 ## Top-Level Map
 - `apps/admin` web ERP app (Next.js)
 - `apps/pos-desktop` desktop wrapper (Tauri) and desktop release versioning
-- `apps/setup-desktop` desktop onboarding installer (Tauri)
 - `backend` FastAPI API, workers, DB migrations/seeds
 - `pos-desktop/ui` shared POS frontend UI (Svelte)
 - `deploy` deployment helpers and on-prem docs

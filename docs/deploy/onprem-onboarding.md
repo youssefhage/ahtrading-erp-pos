@@ -10,8 +10,6 @@ Use the installer launcher:
 ./scripts/setup_installer.sh
 ```
 
-Or (recommended for stores) install **Setup Desktop** from the downloads page and run it. Setup Desktop can run without a repo clone (it ships a bundled local-node stack that pulls prebuilt images).
-
 ## Windows Prereqs (If Using The Zip Runner)
 
 If you're running the fallback zip runner (`run_setup.ps1`) on Windows:
@@ -50,7 +48,7 @@ On success, it creates:
 - `deploy/edge/onboarding/<timestamp>/pos-device-packs/*.json`
   - Ready-to-use configs for the Python POS agent.
 - `deploy/edge/onboarding/<timestamp>/tauri-launcher-prefill.json`
-  - Paste into the POS Desktop launcher using the Setup Pack field.
+  - Paste into POS Desktop **Import Config JSON** field.
 
 Security note: device packs contain `device_token` secrets. Keep the folder private.
 

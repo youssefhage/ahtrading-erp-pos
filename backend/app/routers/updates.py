@@ -147,7 +147,7 @@ def _find_latest_installer_rel(app: str, platform: str) -> str:
     if app_key == "admin":
         app_key = "portal"
 
-    if app_key not in {"pos", "portal", "setup"}:
+    if app_key not in {"pos", "portal"}:
         raise HTTPException(status_code=400, detail="invalid app")
     if plat not in {"windows", "macos"}:
         raise HTTPException(status_code=400, detail="invalid platform")
@@ -157,8 +157,6 @@ def _find_latest_installer_rel(app: str, platform: str) -> str:
         ("pos", "macos"): "MelqardPOS-Setup-latest.dmg",
         ("portal", "windows"): ["MelqardPortal-Setup-latest.msi", "MelqardPortal-Setup-latest.exe"],
         ("portal", "macos"): "MelqardPortal-Setup-latest.dmg",
-        ("setup", "windows"): ["MelqardInstaller-Setup-latest.msi", "MelqardInstaller-Setup-latest.exe"],
-        ("setup", "macos"): "MelqardInstaller-Setup-latest.dmg",
     }[(app_key, plat)]
 
     ext_allow = (".msi", ".exe") if plat == "windows" else (".dmg",)
@@ -211,13 +209,6 @@ def _find_latest_installer_rel(app: str, platform: str) -> str:
         stable = (app_root / nm).resolve()
         if stable.exists() and stable.is_file():
             return str(stable.relative_to(base))
-
-    # Setup Desktop isn't always available on Windows (CI/build machine missing).
-    # Provide a stable fallback to the Setup Runner zip when present.
-    if app_key == "setup" and plat == "windows":
-        runner = (app_root / "MelqardSetupRunner-latest.zip").resolve()
-        if runner.exists() and runner.is_file():
-            return str(runner.relative_to(base))
 
     # Last fallback: scan all app files.
     rel = _pick_from_tree(app_root)
@@ -352,8 +343,8 @@ def purge_updates(
         raise HTTPException(status_code=500, detail="updates dir is not mounted")
 
     apps_in = [(a or "").strip().lower() for a in (data.apps or [])]
-    apps = apps_in if apps_in else ["pos", "portal", "setup"]
-    allowed = {"pos", "portal", "setup"}
+    apps = apps_in if apps_in else ["pos", "portal"]
+    allowed = {"pos", "portal"}
     apps = [a for a in apps if a in allowed]
     if not apps:
         raise HTTPException(status_code=400, detail="no valid apps")
@@ -362,13 +353,6 @@ def purge_updates(
     stable_by_app = {
         "pos": {"MelqardPOS-Setup-latest.msi", "MelqardPOS-Setup-latest.exe", "MelqardPOS-Setup-latest.dmg"},
         "portal": {"MelqardPortal-Setup-latest.msi", "MelqardPortal-Setup-latest.exe", "MelqardPortal-Setup-latest.dmg"},
-        "setup": {
-            "MelqardInstaller-Setup-latest.msi",
-            "MelqardInstaller-Setup-latest.exe",
-            "MelqardInstaller-Setup-latest.dmg",
-            # Fallback for Windows when Setup Desktop isn't published yet.
-            "MelqardSetupRunner-latest.zip",
-        },
     }
 
     removed: list[dict] = []

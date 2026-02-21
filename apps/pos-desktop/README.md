@@ -21,30 +21,14 @@ npm install
 npm run build
 ```
 
-## Setup Pack (recommended for onboarding)
+## Configuration
+Install POS Desktop directly, then configure it from the in-app **POS Settings** screen:
+1. Set the Cloud API URL (example: `https://app.melqard.com/api`)
+2. Enter primary/secondary company IDs
+3. Enter primary/secondary device IDs and device tokens
+4. Click **Start POS**
 
-## Quick Setup (recommended)
-If you have a cloud API and a user account with permission `pos:manage`, you can onboard a terminal without copying tokens:
-1. Enter API URL (example: `https://app.melqard.com/api`)
-2. Login
-3. Select Official + Unofficial companies (and optional branch)
-4. Generate Setup + Start POS
-
-The app will register POS devices and write the local agent config automatically.
-
-The on-prem onboarding runner exports:
-- `deploy/edge/onboarding/<timestamp>/tauri-launcher-prefill.json`
-
-Tip: generate this with the installer launcher:
-```bash
-./scripts/setup_installer.sh
-```
-
-In POS Desktop, paste this JSON into the **Setup Pack** box and click **Apply Pack**.
-This auto-fills:
-- API URL
-- Official/Unofficial company IDs
-- Device IDs + tokens
+Optional: paste a JSON payload in **Import Config JSON** and click **Apply Config** to auto-fill settings.
 
 ### Installer builds
 - macOS DMG:

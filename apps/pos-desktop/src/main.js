@@ -9,7 +9,6 @@ const KEY_DEV_ID_OFFICIAL = "ahtrading.posDesktop.deviceIdOfficial";
 const KEY_DEV_TOK_OFFICIAL = "ahtrading.posDesktop.deviceTokenOfficial";
 const KEY_DEV_ID_UNOFFICIAL = "ahtrading.posDesktop.deviceIdUnofficial";
 const KEY_DEV_TOK_UNOFFICIAL = "ahtrading.posDesktop.deviceTokenUnofficial";
-const KEY_SETUP_EMAIL = "ahtrading.posDesktop.setupEmail";
 const DEBUG_MAX_LINES = 320;
 let APP_VERSION = "unknown";
 
@@ -450,7 +449,7 @@ function parsePack(raw) {
   try {
     obj = JSON.parse(text);
   } catch (e) {
-    throw new Error("Invalid JSON in setup pack.");
+    throw new Error("Invalid JSON in config payload.");
   }
   if (!obj || typeof obj !== "object") throw new Error("Setup pack must be a JSON object.");
   return obj;
@@ -557,7 +556,7 @@ async function load() {
   el("edgeUrl").value = localStorage.getItem(KEY_EDGE) || "https://app.melqard.com/api";
   if (el("edgeLanUrl")) el("edgeLanUrl").value = localStorage.getItem(KEY_EDGE_LAN) || "";
   await migrateSecretsFromLocalStorage();
-  el("setupPack").value = (await loadPersistedSecret(KEY_PACK)) || "";
+  if (el("setupPack")) el("setupPack").value = (await loadPersistedSecret(KEY_PACK)) || "";
   el("portOfficial").value = localStorage.getItem(KEY_PORT_OFFICIAL) || "7070";
   el("portUnofficial").value = localStorage.getItem(KEY_PORT_UNOFFICIAL) || "7072";
   el("companyOfficial").value = localStorage.getItem(KEY_CO_OFFICIAL) || "00000000-0000-0000-0000-000000000001";
@@ -566,13 +565,10 @@ async function load() {
   el("deviceTokenOfficial").value = (await loadPersistedSecret(KEY_DEV_TOK_OFFICIAL)) || "";
   el("deviceIdUnofficial").value = localStorage.getItem(KEY_DEV_ID_UNOFFICIAL) || "";
   el("deviceTokenUnofficial").value = (await loadPersistedSecret(KEY_DEV_TOK_UNOFFICIAL)) || "";
-  if (el("setupEmail")) el("setupEmail").value = localStorage.getItem(KEY_SETUP_EMAIL) || "";
   setVersionLabel();
   setStatus("");
   setDiag("");
   setSetupNote("");
-  setQuickSetupStage("account", "active", "Enter Cloud API URL and credentials, then click Log In.");
-  updateQuickSetupActionState();
 }
 
 async function waitForAgent(port, timeoutMs = 8000) {
@@ -1252,8 +1248,6 @@ async function quickSetupLogin() {
     } catch (e) {
       return quickSetupFail(e instanceof Error ? e.message : String(e), "edgeUrl");
     }
-    localStorage.setItem(KEY_SETUP_EMAIL, email);
-
     const { cloudUrl, portOfficial } = await ensureAgentsRunningForSetup();
     quickSetup.apiBaseUrl = cloudUrl;
     const base = agentBase(portOfficial);
@@ -1917,7 +1911,7 @@ async function start() {
   const uiOk = await checkLatestUnifiedUi(portOfficial);
   if (!uiOk) {
     setStatus("Could not verify Unified UI. Opening POS anyway…");
-    setSetupNote("Could not verify Unified UI from setup checks. Attempting open anyway.", "warn");
+    setSetupNote("Could not verify Unified UI health. Attempting open anyway.", "warn");
     appendDebugLine(buildStartSnapshot());
   }
   window.location.href = buildUnifiedUiUrl(portOfficial);
@@ -2107,7 +2101,7 @@ async function copyDebugReport() {
       `user_agent=${navigator.userAgent}`,
       ``,
       `status=${status}`,
-      `setup_note=${setup}`,
+      `settings_note=${setup}`,
       `api_url=${edgeUrl}`,
       `ports=primary:${portOfficial}, secondary:${portUnofficial}`,
       ``,
@@ -2153,104 +2147,30 @@ if (el("updateDownloadBtn")) el("updateDownloadBtn").addEventListener("click", d
 el("diagBtn").addEventListener("click", runDiagnostics);
 if (el("showDesktopLogsBtn")) el("showDesktopLogsBtn").addEventListener("click", showDesktopLogs);
 if (el("copyDebugBtn")) el("copyDebugBtn").addEventListener("click", copyDebugReport);
-if (el("setupCompanyOfficial")) {
-  fillSelect(el("setupCompanyOfficial"), [], { placeholder: "Log in to load companies…" });
-  fillSelect(el("setupCompanyUnofficial"), [], { placeholder: "Log in to load companies…" });
-  fillSelect(el("setupBranch"), [], { placeholder: "Log in to load branches…" });
-  fillSelect(el("setupDeviceSelectOfficial"), [], { placeholder: "Log in and select POS source..." });
-  fillSelect(el("setupDeviceSelectUnofficial"), [], { placeholder: "Log in and select POS source..." });
-  el("setupLoginBtn").addEventListener("click", () => quickSetupLogin());
-  el("setupVerifyMfaBtn").addEventListener("click", () => quickSetupVerifyMfa());
-  el("setupClearBtn").addEventListener("click", quickSetupClear);
-  el("setupApplyBtn").addEventListener("click", () => quickSetupApply());
-  if (el("setupPassword")) {
-    el("setupPassword").addEventListener("keydown", (ev) => {
-      if (ev.key !== "Enter") return;
-      ev.preventDefault();
-      quickSetupLogin();
-    });
-  }
-  if (el("setupMfaCode")) {
-    el("setupMfaCode").addEventListener("keydown", (ev) => {
-      if (ev.key !== "Enter") return;
-      ev.preventDefault();
-      quickSetupVerifyMfa();
-    });
-  }
-  for (const id of ["setupEmail", "setupPassword", "setupMfaCode", "edgeUrl"]) {
-    const n = el(id);
-    if (!n) continue;
-    n.addEventListener("input", () => {
-      clearInputError(id);
-      updateQuickSetupActionState();
-    });
-  }
-  if (el("setupDeviceSelectOfficial")) {
-    el("setupDeviceSelectOfficial").addEventListener("change", () => {
-      applySetupDeviceSelection("official");
-      clearInputError("setupDeviceSelectOfficial");
-      updateQuickSetupActionState();
-    });
-  }
-  if (el("setupDeviceSelectUnofficial")) {
-    el("setupDeviceSelectUnofficial").addEventListener("change", () => {
-      applySetupDeviceSelection("unofficial");
-      clearInputError("setupDeviceSelectUnofficial");
-      updateQuickSetupActionState();
-    });
-  }
-  for (const id of ["portOfficial", "portUnofficial", "setupCompanyOfficial", "setupCompanyUnofficial", "setupBranch"]) {
-    const n = el(id);
-    if (!n) continue;
-    n.addEventListener("change", () => {
-      clearInputError(id);
-      updateQuickSetupActionState();
-    });
-  }
-  if (el("setupBranch")) {
-    el("setupBranch").addEventListener("change", () => {
-      const selected = selectedSetupDevice("official");
-      const branchId = String(el("setupBranch")?.value || "").trim();
-      const deviceBranchId = String(selected?.branch_id || "").trim();
-      if (selected && branchId && deviceBranchId && branchId !== deviceBranchId) {
-        const branchLabel = String(selected?.branch_name || deviceBranchId).trim() || deviceBranchId;
-        setSetupNote(`Primary POS source is assigned to ${branchLabel}; setup will use the device branch.`, "warn");
-      }
-    });
-  }
-  el("setupCompanyOfficial").addEventListener("change", () => {
-    syncQuickSetupSecondarySelection();
-    setQuickSetupStage("company", "active", "Company selected. Loading branches and waiting for POS source selection.");
-    quickSetupLoadBranches().catch(() => {});
-    quickSetupRefreshDevicePicker("official", { silent: true }).catch(() => {});
-    if (!quickSetupDualModeEnabled()) {
-      quickSetupRefreshDevicePicker("unofficial", { silent: true }).catch(() => {});
-    }
-  });
-  if (el("setupCompanyUnofficial")) {
-    el("setupCompanyUnofficial").addEventListener("change", () => {
-      setQuickSetupStage("company", "active", "Company mapping updated.");
-      quickSetupRefreshDevicePicker("unofficial", { silent: true }).catch(() => {});
-    });
-  }
-  if (el("setupDualMode")) {
-    el("setupDualMode").addEventListener("change", () => {
-      updateQuickSetupModeUI();
-      if (quickSetupDualModeEnabled()) {
-        quickSetupRefreshDevicePicker("unofficial", { silent: true }).catch(() => {});
-      }
-    });
-  }
-  updateQuickSetupModeUI();
-  setQuickSetupStage("account", "active", "Enter Cloud API URL and credentials, then click Log In.");
+for (const id of [
+  "edgeUrl",
+  "portOfficial",
+  "portUnofficial",
+  "companyOfficial",
+  "companyUnofficial",
+  "deviceIdOfficial",
+  "deviceIdUnofficial",
+  "deviceTokenOfficial",
+  "deviceTokenUnofficial",
+]) {
+  const n = el(id);
+  if (!n) continue;
+  n.addEventListener("input", () => clearInputError(id));
+  n.addEventListener("change", () => clearInputError(id));
 }
-el("applyPackBtn").addEventListener("click", () => {
+
+if (el("applyPackBtn")) el("applyPackBtn").addEventListener("click", () => {
   const raw = el("setupPack").value;
   void persistSecret(KEY_PACK, raw);
   try {
     const pack = parsePack(raw);
     if (!pack) {
-      setStatus("Paste a setup pack first.");
+      setStatus("Paste a config JSON payload first.");
       return;
     }
     applyPackObject(pack);
@@ -2271,10 +2191,10 @@ el("applyPackBtn").addEventListener("click", () => {
     setStatus(`Setup pack error: ${e instanceof Error ? e.message : String(e)}`);
   }
 });
-el("clearPackBtn").addEventListener("click", () => {
+if (el("clearPackBtn")) el("clearPackBtn").addEventListener("click", () => {
   el("setupPack").value = "";
   void persistSecret(KEY_PACK, "");
-  setStatus("Cleared setup pack.");
+  setStatus("Cleared config JSON payload.");
 });
 installReplaceOnTypeBehavior();
 load().catch(() => {});

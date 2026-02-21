@@ -8,8 +8,6 @@ This folder contains application entry points and wrappers.
   Main ERP web application (Next.js).
 - `pos-desktop`:
   Tauri desktop wrapper for POS distribution, updater, and installers.
-- `setup-desktop`:
-  Tauri onboarding/installer utility for on-prem setup workflows.
 - `admin-desktop`:
   Tauri wrapper for Admin web app usage as desktop app.
 - `downloads`:

@@ -69,12 +69,10 @@ Open: http://localhost:7070
 Official invoices print as **A4 PDFs** and unofficial invoices print as **thermal receipts**. Setup and printer mapping guide:
 - `docs/pos-printing.md`
 
-## On-Prem Onboarding Runner
-For guided EDGE + POS provisioning:
-```bash
-./scripts/setup_installer.sh
-```
-Details: `docs/deploy/onprem-onboarding.md`
+## POS Desktop Install (Direct)
+- Download POS Desktop directly from the downloads page.
+- Configure terminal credentials inside POS Desktop **POS Settings**.
+- Start POS from the same screen.
 
 ## Notes
 - Migrations + seeds are applied via `backend/scripts/init_db.sh`.

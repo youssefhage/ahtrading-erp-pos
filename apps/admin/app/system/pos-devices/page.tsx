@@ -726,13 +726,13 @@ async function resetToken(device: DeviceRow) {
       {devices.length === 0 ? (
         <Section
           title="Create Your First POS Device"
-          description="Register a device, then copy a full setup pack with all required fields."
+          description="Register a device, then copy a full POS config payload with all required fields."
           actions={<Button onClick={() => setRegisterOpen(true)} disabled={busy}>Register Device</Button>}
         >
           <ol className="list-decimal space-y-1 pl-5 text-sm text-fg-subtle">
             <li>Click Register Device, choose an optional Branch, and set a device code like POS-01.</li>
-            <li>Set Cloud/Edge API URLs once, then copy the generated setup JSON.</li>
-            <li>Paste the JSON in POS Desktop Setup Pack (or copy individual fields in POS Settings), then Save.</li>
+            <li>Set Cloud/Edge API URLs once, then copy the generated config JSON.</li>
+            <li>Paste the JSON in POS Desktop Import Config JSON (or copy individual fields in POS Settings), then Save.</li>
             <li>Sync to verify the agent can connect.</li>
           </ol>
         </Section>
@@ -740,8 +740,8 @@ async function resetToken(device: DeviceRow) {
 
       {lastSetup ? (
         <Section
-          title="POS Setup Pack"
-          description="Everything needed for POS setup after register/reset. Copy values directly into the POS Settings screen."
+          title="POS Config Bundle"
+          description="Everything needed for POS configuration after register/reset. Copy values directly into the POS Settings screen."
         >
           <div className="space-y-3 text-sm">
             <div className="space-y-2 rounded-md border border-border bg-bg-sunken/20 p-3">
@@ -818,25 +818,25 @@ async function resetToken(device: DeviceRow) {
             {launcherSetupPayload ? (
               <div className="space-y-1">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-medium text-fg-muted">POS Desktop Setup Pack JSON</div>
+                  <div className="text-xs font-medium text-fg-muted">POS Desktop Config JSON</div>
                 </div>
                 <ViewRaw
                   value={launcherSetupPayload}
-                  label="Desktop Setup JSON"
+                  label="Desktop Config JSON"
                   defaultOpen={false}
-                  downloadName={`pos-desktop-setup-${lastSetup.device_code || "device"}.json`}
+                  downloadName={`pos-desktop-config-${lastSetup.device_code || "device"}.json`}
                 />
               </div>
             ) : null}
 
             {lastSetup.device_token ? null : (
               <div className="rounded-md border border-border-strong bg-bg-elevated p-3 text-xs text-fg-subtle">
-                Token was not returned (device already existed). Click <strong>Reset Token & Setup</strong> on that device to generate a fresh setup pack.
+                Token was not returned (device already existed). Click <strong>Reset Token & Config</strong> on that device to generate a fresh config payload.
               </div>
             )}
 
             <div className="rounded-md border border-border bg-bg-sunken/20 p-3 text-xs text-fg-subtle">
-              Fastest flow: copy <strong>POS Desktop Setup Pack JSON</strong> to POS Desktop launcher. Manual flow: paste individual values in POS Settings, then Save and Sync.
+              Fastest flow: copy <strong>POS Desktop Config JSON</strong> to POS Desktop launcher. Manual flow: paste individual values in POS Settings, then Save and Sync.
             </div>
           </div>
         </Section>
@@ -904,7 +904,7 @@ async function resetToken(device: DeviceRow) {
                       Assign Cashiers
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => resetToken(d)} disabled={busy}>
-                      Reset Token & Setup
+                      Reset Token & Config
                     </Button>
                     <ConfirmButton
                       variant="outline"
