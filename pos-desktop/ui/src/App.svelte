@@ -2162,13 +2162,8 @@
         return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
       }
     }
-    if (!thermal && companyKey === "official") {
-      const cfg = cfgForCompanyKey(companyKey) || {};
-      const pdfUrl = _invoicePdfUrlFromCfg(companyKey, cfg, invoiceId);
-      if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
-        return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
-      }
-    }
+    // For official invoices, prefer in-app HTML print flow (print dialog)
+    // over opening export PDF URLs, to avoid browser download behavior.
     const detail = await _fetchInvoiceDetailWeb(companyKey, invoiceId);
     await _printInvoiceDetailWeb(companyKey, detail, receiptWin, { thermal });
     return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
@@ -2186,13 +2181,8 @@
         return { ok: true, invoice_id: invoiceId };
       }
     }
-    if (!thermal && companyKey === "official") {
-      const cfg = cfgForCompanyKey(companyKey) || {};
-      const pdfUrl = _invoicePdfUrlFromCfg(companyKey, cfg, invoiceId);
-      if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
-        return { ok: true, invoice_id: invoiceId };
-      }
-    }
+    // For official invoices, prefer in-app HTML print flow (print dialog)
+    // over opening export PDF URLs, to avoid browser download behavior.
     await _printInvoiceDetailWeb(companyKey, detail, receiptWin, { thermal });
     return { ok: true, invoice_id: invoiceId };
   };

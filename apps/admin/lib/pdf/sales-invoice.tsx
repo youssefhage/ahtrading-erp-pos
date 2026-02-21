@@ -353,6 +353,10 @@ const official = StyleSheet.create({
     fontSize: 9,
     color: "#111",
     lineHeight: 1.28,
+    flexDirection: "column",
+  },
+  contentFlow: {
+    flexGrow: 1,
   },
   topRow: {
     flexDirection: "row",
@@ -365,7 +369,8 @@ const official = StyleSheet.create({
   companyName: {
     fontSize: 25,
     fontWeight: 700,
-    marginBottom: 6,
+    lineHeight: 1.1,
+    marginBottom: 8,
   },
   companyInfoLine: {
     marginBottom: 3,
@@ -520,7 +525,7 @@ const official = StyleSheet.create({
     fontWeight: 700,
   },
   signRow: {
-    marginTop: 34,
+    marginTop: 18,
     flexDirection: "row",
     justifyContent: "space-between",
   },
@@ -550,6 +555,9 @@ const official = StyleSheet.create({
     color: "#777",
     textAlign: "right",
     fontFamily: "Courier",
+  },
+  footerWrap: {
+    marginTop: "auto",
   },
 });
 
@@ -592,192 +600,196 @@ function OfficialInvoiceTemplate(props: {
   return (
     <Document title={`Sales Invoice ${docNo}`}>
       <Page size="A4" style={official.page} wrap>
-        <View style={official.topRow}>
-          <View style={official.companyBlock}>
-            <Text style={official.companyName}>{OFFICIAL_HEADER_NAME}</Text>
-            <Text style={official.companyInfoMono}>{OFFICIAL_HEADER_TAX_ID}</Text>
-            <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_ADDRESS}</Text>
-            <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_CONTACT}</Text>
+        <View style={official.contentFlow}>
+          <View style={official.topRow}>
+            <View style={official.companyBlock}>
+              <Text style={official.companyName}>{OFFICIAL_HEADER_NAME}</Text>
+              <Text style={official.companyInfoMono}>{OFFICIAL_HEADER_TAX_ID}</Text>
+              <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_ADDRESS}</Text>
+              <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_CONTACT}</Text>
+            </View>
+
+            <View style={official.titleWrap}>
+              <Text style={official.titleText}>Invoice</Text>
+              <Text style={official.invoiceNo}>{docNo}</Text>
+            </View>
           </View>
 
-          <View style={official.titleWrap}>
-            <Text style={official.titleText}>Invoice</Text>
-            <Text style={official.invoiceNo}>{docNo}</Text>
+          <View style={official.splitRow}>
+            <View style={official.col}>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Sales order No.</Text>
+                <Text style={official.kvValue}>{inv.receipt_no || docNo}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Sales Person</Text>
+                <Text style={official.kvValue}>{metaString(meta, "sales_person", "salesperson") || "-"}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Route</Text>
+                <Text style={official.kvValue}>{metaString(meta, "route", "route_name") || "-"}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Reference</Text>
+                <Text style={official.kvValue}>{metaString(meta, "reference", "po_no") || inv.id.slice(0, 12)}</Text>
+              </View>
+
+              <Text style={official.blockTitle}>Primary Address</Text>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Customer No.</Text>
+                <Text style={official.kvValue}>{customerNo}</Text>
+              </View>
+              <Text style={official.bodyLine}>{customerName}</Text>
+              {primaryLines.map((ln, idx) => (
+                <Text key={`primary-${idx}`} style={official.bodyLine}>
+                  {ln}
+                </Text>
+              ))}
+              <View style={[official.kvRow, { marginTop: 2 }]}>
+                <Text style={official.kvLabel}>Tel</Text>
+                <Text style={official.kvValue}>{customerPhone}</Text>
+              </View>
+            </View>
+
+            <View style={official.col}>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Document Date</Text>
+                <Text style={official.kvValue}>{fmtUsDate(inv.invoice_date)}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Due Date</Text>
+                <Text style={official.kvValue}>{fmtUsDate(inv.due_date)}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Payment Terms</Text>
+                <Text style={official.kvValue}>{paymentTerms(inv)}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Currency</Text>
+                <Text style={official.kvValue}>{inv.settlement_currency || inv.pricing_currency || "USD"}</Text>
+              </View>
+
+              <Text style={official.blockTitle}>Delivery Address</Text>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Customer No.</Text>
+                <Text style={official.kvValue}>{customerNo}</Text>
+              </View>
+              <Text style={official.bodyLine}>{customerName}</Text>
+              {deliveryLines.map((ln, idx) => (
+                <Text key={`delivery-${idx}`} style={official.bodyLine}>
+                  {ln}
+                </Text>
+              ))}
+              <View style={[official.kvRow, { marginTop: 2 }]}>
+                <Text style={official.kvLabel}>Tel</Text>
+                <Text style={official.kvValue}>{customerPhone}</Text>
+              </View>
+            </View>
           </View>
-        </View>
 
-        <View style={official.splitRow}>
-          <View style={official.col}>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Sales order No.</Text>
-              <Text style={official.kvValue}>{inv.receipt_no || docNo}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Sales Person</Text>
-              <Text style={official.kvValue}>{metaString(meta, "sales_person", "salesperson") || "-"}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Route</Text>
-              <Text style={official.kvValue}>{metaString(meta, "route", "route_name") || "-"}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Reference</Text>
-              <Text style={official.kvValue}>{metaString(meta, "reference", "po_no") || inv.id.slice(0, 12)}</Text>
+          <View style={official.tableWrap}>
+            <View style={official.headRow} fixed>
+              <View style={[official.cell, { flex: 1.25 }]}>
+                <Text style={[official.cellHead, official.left]}>Item</Text>
+              </View>
+              <View style={[official.cell, { flex: 3.2 }]}>
+                <Text style={[official.cellHead, official.left]}>Description</Text>
+              </View>
+              <View style={[official.cell, { flex: 1.05 }]}>
+                <Text style={[official.cellHead, official.right]}>Quantity</Text>
+              </View>
+              <View style={[official.cell, { flex: 0.85 }]}>
+                <Text style={[official.cellHead, official.center]}>UOM</Text>
+              </View>
+              <View style={[official.cell, { flex: 1.3 }]}>
+                <Text style={[official.cellHead, official.right]}>Unit price</Text>
+              </View>
+              <View style={[official.cell, { flex: 1.2 }]}>
+                <Text style={[official.cellHead, official.center]}>Discount %</Text>
+              </View>
+              <View style={[official.cell, { flex: 1.35 }]}>
+                <Text style={[official.cellHead, official.right]}>Discount Amount</Text>
+              </View>
+              <View style={[official.cell, { flex: 1.3, borderRightWidth: 0 }]}>
+                <Text style={[official.cellHead, official.right]}>Amount</Text>
+              </View>
             </View>
 
-            <Text style={official.blockTitle}>Primary Address</Text>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Customer No.</Text>
-              <Text style={official.kvValue}>{customerNo}</Text>
-            </View>
-            <Text style={official.bodyLine}>{customerName}</Text>
-            {primaryLines.map((ln, idx) => (
-              <Text key={`primary-${idx}`} style={official.bodyLine}>
-                {ln}
-              </Text>
+            {lines.map((l) => (
+              <View key={l.id} style={official.row} wrap={false}>
+                <View style={[official.cell, { flex: 1.25 }]}>
+                  <Text style={[official.left, { fontFamily: "Courier", fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
+                </View>
+                <View style={[official.cell, { flex: 3.2 }]}>
+                  <Text style={[official.left, { fontSize: 8.5 }]}>{l.item_name || "-"}</Text>
+                </View>
+                <View style={[official.cell, { flex: 1.05 }]}>
+                  <Text style={official.right}>{fmtQty(lineQty(l))}</Text>
+                </View>
+                <View style={[official.cell, { flex: 0.85 }]}>
+                  <Text style={[official.center, { fontSize: 8.3 }]}>{String(l.uom || "").trim() || "-"}</Text>
+                </View>
+                <View style={[official.cell, { flex: 1.3 }]}>
+                  <Text style={official.right}>{fmtPlainMoney(lineUnitPrice(l))}</Text>
+                </View>
+                <View style={[official.cell, { flex: 1.2 }]}>
+                  <Text style={[official.center, { fontFamily: "Courier" }]}>{lineDiscountPct(l)}</Text>
+                </View>
+                <View style={[official.cell, { flex: 1.35 }]}>
+                  <Text style={official.right}>{fmtPlainMoney(lineDiscountAmount(l))}</Text>
+                </View>
+                <View style={[official.cell, { flex: 1.3, borderRightWidth: 0 }]}>
+                  <Text style={official.right}>{fmtPlainMoney(l.line_total_usd)}</Text>
+                </View>
+              </View>
             ))}
-            <View style={[official.kvRow, { marginTop: 2 }]}> 
-              <Text style={official.kvLabel}>Tel</Text>
-              <Text style={official.kvValue}>{customerPhone}</Text>
-            </View>
+
+            {lines.length === 0 ? (
+              <View style={official.row}>
+                <View style={[official.cell, { flex: 1, borderRightWidth: 0, paddingVertical: 8 }]}>
+                  <Text style={[official.center, { color: "#666" }]}>No items.</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
 
-          <View style={official.col}>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Document Date</Text>
-              <Text style={official.kvValue}>{fmtUsDate(inv.invoice_date)}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Due Date</Text>
-              <Text style={official.kvValue}>{fmtUsDate(inv.due_date)}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Payment Terms</Text>
-              <Text style={official.kvValue}>{paymentTerms(inv)}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Currency</Text>
-              <Text style={official.kvValue}>{inv.settlement_currency || inv.pricing_currency || "USD"}</Text>
+          <View style={official.afterTable}>
+            <View style={official.leftFoot}>
+              <Text style={official.qtyLine}>Total Qty HL   {fmtQty(totalQty)}</Text>
+              <Text style={official.wordsLine}>{amountInWordsUsd(totalUsd)}</Text>
+              <Text style={official.noteLine}>Amount to be Cashed in USD Notes and VAT to be paid in LBP at Sayrafa rate.</Text>
             </View>
 
-            <Text style={official.blockTitle}>Delivery Address</Text>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Customer No.</Text>
-              <Text style={official.kvValue}>{customerNo}</Text>
-            </View>
-            <Text style={official.bodyLine}>{customerName}</Text>
-            {deliveryLines.map((ln, idx) => (
-              <Text key={`delivery-${idx}`} style={official.bodyLine}>
-                {ln}
-              </Text>
-            ))}
-            <View style={[official.kvRow, { marginTop: 2 }]}> 
-              <Text style={official.kvLabel}>Tel</Text>
-              <Text style={official.kvValue}>{customerPhone}</Text>
+            <View style={official.totalsBox}>
+              <View style={official.totalRow}>
+                <Text style={official.totalLabel}>Total Amount Before VAT</Text>
+                <Text style={official.totalValue}>{fmtPlainMoney(beforeVat)}</Text>
+              </View>
+              <View style={official.totalRow}>
+                <Text style={official.totalLabel}>{`VAT ${vatPctLabel}`.trim()}</Text>
+                <Text style={official.totalValue}>{fmtPlainMoney(taxUsd)}</Text>
+              </View>
+              <View style={[official.totalRow, official.grandRow, { borderBottomWidth: 0 }]}>
+                <Text style={official.grandLabel}>Total Amount Incl. VAT</Text>
+                <Text style={official.grandValue}>{fmtPlainMoney(totalUsd)}</Text>
+              </View>
             </View>
           </View>
         </View>
 
-        <View style={official.tableWrap}>
-          <View style={official.headRow} fixed>
-            <View style={[official.cell, { flex: 1.25 }]}> 
-              <Text style={[official.cellHead, official.left]}>Item</Text>
-            </View>
-            <View style={[official.cell, { flex: 3.2 }]}> 
-              <Text style={[official.cellHead, official.left]}>Description</Text>
-            </View>
-            <View style={[official.cell, { flex: 1.05 }]}> 
-              <Text style={[official.cellHead, official.right]}>Quantity</Text>
-            </View>
-            <View style={[official.cell, { flex: 0.85 }]}> 
-              <Text style={[official.cellHead, official.center]}>UOM</Text>
-            </View>
-            <View style={[official.cell, { flex: 1.3 }]}> 
-              <Text style={[official.cellHead, official.right]}>Unit price</Text>
-            </View>
-            <View style={[official.cell, { flex: 1.2 }]}> 
-              <Text style={[official.cellHead, official.center]}>Discount %</Text>
-            </View>
-            <View style={[official.cell, { flex: 1.35 }]}> 
-              <Text style={[official.cellHead, official.right]}>Discount Amount</Text>
-            </View>
-            <View style={[official.cell, { flex: 1.3, borderRightWidth: 0 }]}> 
-              <Text style={[official.cellHead, official.right]}>Amount</Text>
-            </View>
+        <View style={official.footerWrap}>
+          <View style={official.signRow}>
+            <Text style={official.sign}>Receiver&apos;s Name & Signature</Text>
+            <Text style={official.sign}>Stamp Duty Paid</Text>
           </View>
 
-          {lines.map((l) => (
-            <View key={l.id} style={official.row} wrap={false}>
-              <View style={[official.cell, { flex: 1.25 }]}> 
-                <Text style={[official.left, { fontFamily: "Courier", fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
-              </View>
-              <View style={[official.cell, { flex: 3.2 }]}> 
-                <Text style={[official.left, { fontSize: 8.5 }]}>{l.item_name || "-"}</Text>
-              </View>
-              <View style={[official.cell, { flex: 1.05 }]}> 
-                <Text style={official.right}>{fmtQty(lineQty(l))}</Text>
-              </View>
-              <View style={[official.cell, { flex: 0.85 }]}> 
-                <Text style={[official.center, { fontSize: 8.3 }]}>{String(l.uom || "").trim() || "-"}</Text>
-              </View>
-              <View style={[official.cell, { flex: 1.3 }]}> 
-                <Text style={official.right}>{fmtPlainMoney(lineUnitPrice(l))}</Text>
-              </View>
-              <View style={[official.cell, { flex: 1.2 }]}> 
-                <Text style={[official.center, { fontFamily: "Courier" }]}>{lineDiscountPct(l)}</Text>
-              </View>
-              <View style={[official.cell, { flex: 1.35 }]}> 
-                <Text style={official.right}>{fmtPlainMoney(lineDiscountAmount(l))}</Text>
-              </View>
-              <View style={[official.cell, { flex: 1.3, borderRightWidth: 0 }]}> 
-                <Text style={official.right}>{fmtPlainMoney(l.line_total_usd)}</Text>
-              </View>
-            </View>
-          ))}
-
-          {lines.length === 0 ? (
-            <View style={official.row}>
-              <View style={[official.cell, { flex: 1, borderRightWidth: 0, paddingVertical: 8 }]}> 
-                <Text style={[official.center, { color: "#666" }]}>No items.</Text>
-              </View>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={official.afterTable}>
-          <View style={official.leftFoot}>
-            <Text style={official.qtyLine}>Total Qty HL   {fmtQty(totalQty)}</Text>
-            <Text style={official.wordsLine}>{amountInWordsUsd(totalUsd)}</Text>
-            <Text style={official.noteLine}>Amount to be Cashed in USD Notes and VAT to be paid in LBP at Sayrafa rate.</Text>
+          <View style={official.brandFooter}>
+            <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_TAGLINE}</Text>
+            <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_LEGAL}</Text>
           </View>
 
-          <View style={official.totalsBox}>
-            <View style={official.totalRow}>
-              <Text style={official.totalLabel}>Total Amount Before VAT</Text>
-              <Text style={official.totalValue}>{fmtPlainMoney(beforeVat)}</Text>
-            </View>
-            <View style={official.totalRow}>
-              <Text style={official.totalLabel}>{`VAT ${vatPctLabel}`.trim()}</Text>
-              <Text style={official.totalValue}>{fmtPlainMoney(taxUsd)}</Text>
-            </View>
-            <View style={[official.totalRow, official.grandRow, { borderBottomWidth: 0 }]}> 
-              <Text style={official.grandLabel}>Total Amount Incl. VAT</Text>
-              <Text style={official.grandValue}>{fmtPlainMoney(totalUsd)}</Text>
-            </View>
-          </View>
+          <Text style={official.trace}>Ref {inv.id} · Generated {generatedAtStamp()}</Text>
         </View>
-
-        <View style={official.signRow}>
-          <Text style={official.sign}>Receiver&apos;s Name & Signature</Text>
-          <Text style={official.sign}>Stamp Duty Paid</Text>
-        </View>
-
-        <View style={official.brandFooter}>
-          <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_TAGLINE}</Text>
-          <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_LEGAL}</Text>
-        </View>
-
-        <Text style={official.trace}>Ref {inv.id} · Generated {generatedAtStamp()}</Text>
       </Page>
     </Document>
   );
@@ -849,183 +861,187 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
   return (
     <Document title={`Sales Invoice ${docNo}`}>
       <Page size="A4" style={official.page} wrap>
-        <View style={official.topRow}>
-          <View style={official.companyBlock}>
-            <Text style={official.companyName}>{OFFICIAL_HEADER_NAME}</Text>
-            <Text style={official.companyInfoMono}>{OFFICIAL_HEADER_TAX_ID}</Text>
-            <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_ADDRESS}</Text>
-            <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_CONTACT}</Text>
-          </View>
-
-          <View style={official.titleWrap}>
-            <Text style={official.titleText}>Invoice</Text>
-            <Text style={official.invoiceNo}>{docNo}</Text>
-          </View>
-        </View>
-
-        <View style={official.splitRow}>
-          <View style={official.col}>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Sales order No.</Text>
-              <Text style={official.kvValue}>{inv.receipt_no || docNo}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Sales Person</Text>
-              <Text style={official.kvValue}>{metaString(meta, "sales_person", "salesperson") || "-"}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Route</Text>
-              <Text style={official.kvValue}>{metaString(meta, "route", "route_name") || "-"}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Reference</Text>
-              <Text style={official.kvValue}>{metaString(meta, "reference", "po_no") || inv.id.slice(0, 12)}</Text>
+        <View style={official.contentFlow}>
+          <View style={official.topRow}>
+            <View style={official.companyBlock}>
+              <Text style={official.companyName}>{OFFICIAL_HEADER_NAME}</Text>
+              <Text style={official.companyInfoMono}>{OFFICIAL_HEADER_TAX_ID}</Text>
+              <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_ADDRESS}</Text>
+              <Text style={official.companyInfoLine}>{OFFICIAL_HEADER_CONTACT}</Text>
             </View>
 
-            <Text style={official.blockTitle}>Primary Address</Text>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Customer No.</Text>
-              <Text style={official.kvValue}>{customerNo}</Text>
-            </View>
-            <Text style={official.bodyLine}>{customerName}</Text>
-            {primaryLines.map((ln, idx) => (
-              <Text key={`primary-temp-${idx}`} style={official.bodyLine}>
-                {ln}
-              </Text>
-            ))}
-            <View style={[official.kvRow, { marginTop: 2 }]}>
-              <Text style={official.kvLabel}>Tel</Text>
-              <Text style={official.kvValue}>{customerPhone}</Text>
+            <View style={official.titleWrap}>
+              <Text style={official.titleText}>Invoice</Text>
+              <Text style={official.invoiceNo}>{docNo}</Text>
             </View>
           </View>
 
-          <View style={official.col}>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Document Date</Text>
-              <Text style={official.kvValue}>{fmtUsDate(inv.invoice_date)}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Due Date</Text>
-              <Text style={official.kvValue}>{fmtUsDate(inv.due_date)}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Payment Terms</Text>
-              <Text style={official.kvValue}>{paymentTerms(inv)}</Text>
-            </View>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Currency</Text>
-              <Text style={official.kvValue}>{inv.settlement_currency || inv.pricing_currency || "USD"}</Text>
-            </View>
-
-            <Text style={official.blockTitle}>Delivery Address</Text>
-            <View style={official.kvRow}>
-              <Text style={official.kvLabel}>Customer No.</Text>
-              <Text style={official.kvValue}>{customerNo}</Text>
-            </View>
-            <Text style={official.bodyLine}>{customerName}</Text>
-            {deliveryLines.map((ln, idx) => (
-              <Text key={`delivery-temp-${idx}`} style={official.bodyLine}>
-                {ln}
-              </Text>
-            ))}
-            <View style={[official.kvRow, { marginTop: 2 }]}>
-              <Text style={official.kvLabel}>Tel</Text>
-              <Text style={official.kvValue}>{customerPhone}</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={official.tableWrap}>
-          <View style={official.headRow} fixed>
-            <View style={[official.cell, { flex: 1.35 }]}>
-              <Text style={[official.cellHead, official.left]}>Item</Text>
-            </View>
-            <View style={[official.cell, { flex: 3.45 }]}>
-              <Text style={[official.cellHead, official.left]}>Description</Text>
-            </View>
-            <View style={[official.cell, { flex: 1.05 }]}>
-              <Text style={[official.cellHead, official.right]}>Quantity</Text>
-            </View>
-            <View style={[official.cell, { flex: 0.9 }]}>
-              <Text style={[official.cellHead, official.center]}>UOM</Text>
-            </View>
-            <View style={[official.cell, { flex: 1.6 }]}>
-              <Text style={[official.cellHead, official.right]}>Unit Price</Text>
-            </View>
-            <View style={[official.cell, { flex: 1.65, borderRightWidth: 0 }]}>
-              <Text style={[official.cellHead, official.right]}>Amount</Text>
-            </View>
-          </View>
-
-          {printRows.map((r) => {
-            const l = r.line;
-            return (
-              <View key={l.id} style={official.row} wrap={false}>
-                <View style={[official.cell, { flex: 1.35 }]}>
-                  <Text style={[official.left, { fontFamily: "Courier", fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
-                </View>
-                <View style={[official.cell, { flex: 3.45 }]}>
-                  <Text style={[official.left, { fontSize: 8.5 }]}>{l.item_name || "-"}</Text>
-                </View>
-                <View style={[official.cell, { flex: 1.05 }]}>
-                  <Text style={official.right}>{fmtQty(r.qty)}</Text>
-                </View>
-                <View style={[official.cell, { flex: 0.9 }]}>
-                  <Text style={[official.center, { fontSize: 8.3 }]}>{String(l.uom || "").trim() || "-"}</Text>
-                </View>
-                <View style={[official.cell, { flex: 1.6 }]}>
-                  <Text style={official.right}>{fmtPlainMoney(r.unitPriceInclVat)}</Text>
-                </View>
-                <View style={[official.cell, { flex: 1.65, borderRightWidth: 0 }]}>
-                  <Text style={official.right}>{fmtPlainMoney(r.amountInclVat)}</Text>
-                </View>
+          <View style={official.splitRow}>
+            <View style={official.col}>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Sales order No.</Text>
+                <Text style={official.kvValue}>{inv.receipt_no || docNo}</Text>
               </View>
-            );
-          })}
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Sales Person</Text>
+                <Text style={official.kvValue}>{metaString(meta, "sales_person", "salesperson") || "-"}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Route</Text>
+                <Text style={official.kvValue}>{metaString(meta, "route", "route_name") || "-"}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Reference</Text>
+                <Text style={official.kvValue}>{metaString(meta, "reference", "po_no") || inv.id.slice(0, 12)}</Text>
+              </View>
 
-          {lines.length === 0 ? (
-            <View style={official.row}>
-              <View style={[official.cell, { flex: 1, borderRightWidth: 0, paddingVertical: 8 }]}>
-                <Text style={[official.center, { color: "#666" }]}>No items.</Text>
+              <Text style={official.blockTitle}>Primary Address</Text>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Customer No.</Text>
+                <Text style={official.kvValue}>{customerNo}</Text>
+              </View>
+              <Text style={official.bodyLine}>{customerName}</Text>
+              {primaryLines.map((ln, idx) => (
+                <Text key={`primary-temp-${idx}`} style={official.bodyLine}>
+                  {ln}
+                </Text>
+              ))}
+              <View style={[official.kvRow, { marginTop: 2 }]}>
+                <Text style={official.kvLabel}>Tel</Text>
+                <Text style={official.kvValue}>{customerPhone}</Text>
               </View>
             </View>
-          ) : null}
-        </View>
 
-        <View style={official.afterTable}>
-          <View style={official.leftFoot}>
-            <Text style={official.qtyLine}>Total Qty HL   {fmtQty(totalQty)}</Text>
-            <Text style={official.wordsLine}>{amountInWordsUsd(totalUsd)}</Text>
-            <Text style={official.noteLine}>Prices shown are VAT-inclusive while VAT is temporarily reported as 0% on invoices.</Text>
+            <View style={official.col}>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Document Date</Text>
+                <Text style={official.kvValue}>{fmtUsDate(inv.invoice_date)}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Due Date</Text>
+                <Text style={official.kvValue}>{fmtUsDate(inv.due_date)}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Payment Terms</Text>
+                <Text style={official.kvValue}>{paymentTerms(inv)}</Text>
+              </View>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Currency</Text>
+                <Text style={official.kvValue}>{inv.settlement_currency || inv.pricing_currency || "USD"}</Text>
+              </View>
+
+              <Text style={official.blockTitle}>Delivery Address</Text>
+              <View style={official.kvRow}>
+                <Text style={official.kvLabel}>Customer No.</Text>
+                <Text style={official.kvValue}>{customerNo}</Text>
+              </View>
+              <Text style={official.bodyLine}>{customerName}</Text>
+              {deliveryLines.map((ln, idx) => (
+                <Text key={`delivery-temp-${idx}`} style={official.bodyLine}>
+                  {ln}
+                </Text>
+              ))}
+              <View style={[official.kvRow, { marginTop: 2 }]}>
+                <Text style={official.kvLabel}>Tel</Text>
+                <Text style={official.kvValue}>{customerPhone}</Text>
+              </View>
+            </View>
           </View>
 
-          <View style={official.totalsBox}>
-            <View style={official.totalRow}>
-              <Text style={official.totalLabel}>Total Amount Before VAT</Text>
-              <Text style={official.totalValue}>{fmtPlainMoney(totalUsd)}</Text>
+          <View style={official.tableWrap}>
+            <View style={official.headRow} fixed>
+              <View style={[official.cell, { flex: 1.35 }]}>
+                <Text style={[official.cellHead, official.left]}>Item</Text>
+              </View>
+              <View style={[official.cell, { flex: 3.45 }]}>
+                <Text style={[official.cellHead, official.left]}>Description</Text>
+              </View>
+              <View style={[official.cell, { flex: 1.05 }]}>
+                <Text style={[official.cellHead, official.right]}>Quantity</Text>
+              </View>
+              <View style={[official.cell, { flex: 0.9 }]}>
+                <Text style={[official.cellHead, official.center]}>UOM</Text>
+              </View>
+              <View style={[official.cell, { flex: 1.6 }]}>
+                <Text style={[official.cellHead, official.right]}>Unit Price</Text>
+              </View>
+              <View style={[official.cell, { flex: 1.65, borderRightWidth: 0 }]}>
+                <Text style={[official.cellHead, official.right]}>Amount</Text>
+              </View>
             </View>
-            <View style={official.totalRow}>
-              <Text style={official.totalLabel}>VAT 0%</Text>
-              <Text style={official.totalValue}>{fmtPlainMoney(0)}</Text>
+
+            {printRows.map((r) => {
+              const l = r.line;
+              return (
+                <View key={l.id} style={official.row} wrap={false}>
+                  <View style={[official.cell, { flex: 1.35 }]}>
+                    <Text style={[official.left, { fontFamily: "Courier", fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
+                  </View>
+                  <View style={[official.cell, { flex: 3.45 }]}>
+                    <Text style={[official.left, { fontSize: 8.5 }]}>{l.item_name || "-"}</Text>
+                  </View>
+                  <View style={[official.cell, { flex: 1.05 }]}>
+                    <Text style={official.right}>{fmtQty(r.qty)}</Text>
+                  </View>
+                  <View style={[official.cell, { flex: 0.9 }]}>
+                    <Text style={[official.center, { fontSize: 8.3 }]}>{String(l.uom || "").trim() || "-"}</Text>
+                  </View>
+                  <View style={[official.cell, { flex: 1.6 }]}>
+                    <Text style={official.right}>{fmtPlainMoney(r.unitPriceInclVat)}</Text>
+                  </View>
+                  <View style={[official.cell, { flex: 1.65, borderRightWidth: 0 }]}>
+                    <Text style={official.right}>{fmtPlainMoney(r.amountInclVat)}</Text>
+                  </View>
+                </View>
+              );
+            })}
+
+            {lines.length === 0 ? (
+              <View style={official.row}>
+                <View style={[official.cell, { flex: 1, borderRightWidth: 0, paddingVertical: 8 }]}>
+                  <Text style={[official.center, { color: "#666" }]}>No items.</Text>
+                </View>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={official.afterTable}>
+            <View style={official.leftFoot}>
+              <Text style={official.qtyLine}>Total Qty HL   {fmtQty(totalQty)}</Text>
+              <Text style={official.wordsLine}>{amountInWordsUsd(totalUsd)}</Text>
+              <Text style={official.noteLine}>Prices shown are VAT-inclusive while VAT is temporarily reported as 0% on invoices.</Text>
             </View>
-            <View style={[official.totalRow, official.grandRow, { borderBottomWidth: 0 }]}>
-              <Text style={official.grandLabel}>Total Amount Incl. VAT</Text>
-              <Text style={official.grandValue}>{fmtPlainMoney(totalUsd)}</Text>
+
+            <View style={official.totalsBox}>
+              <View style={official.totalRow}>
+                <Text style={official.totalLabel}>Total Amount Before VAT</Text>
+                <Text style={official.totalValue}>{fmtPlainMoney(totalUsd)}</Text>
+              </View>
+              <View style={official.totalRow}>
+                <Text style={official.totalLabel}>VAT 0%</Text>
+                <Text style={official.totalValue}>{fmtPlainMoney(0)}</Text>
+              </View>
+              <View style={[official.totalRow, official.grandRow, { borderBottomWidth: 0 }]}>
+                <Text style={official.grandLabel}>Total Amount Incl. VAT</Text>
+                <Text style={official.grandValue}>{fmtPlainMoney(totalUsd)}</Text>
+              </View>
             </View>
           </View>
         </View>
 
-        <View style={official.signRow}>
-          <Text style={official.sign}>Receiver&apos;s Name & Signature</Text>
-          <Text style={official.sign}>Stamp Duty Paid</Text>
-        </View>
+        <View style={official.footerWrap}>
+          <View style={official.signRow}>
+            <Text style={official.sign}>Receiver&apos;s Name & Signature</Text>
+            <Text style={official.sign}>Stamp Duty Paid</Text>
+          </View>
 
-        <View style={official.brandFooter}>
-          <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_TAGLINE}</Text>
-          <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_LEGAL}</Text>
-        </View>
+          <View style={official.brandFooter}>
+            <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_TAGLINE}</Text>
+            <Text style={official.brandFooterLine}>{OFFICIAL_FOOTER_LEGAL}</Text>
+          </View>
 
-        <Text style={official.trace}>Ref {inv.id} · Generated {generatedAtStamp()}</Text>
+          <Text style={official.trace}>Ref {inv.id} · Generated {generatedAtStamp()}</Text>
+        </View>
       </Page>
     </Document>
   );

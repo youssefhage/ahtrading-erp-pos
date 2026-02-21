@@ -112,6 +112,17 @@
     if (!includeVat) return base;
     return base * (1 + lineVatRate(line));
   };
+  const selectedUomUnitPrice = (line, includeVat = false) => {
+    const factor = Math.max(1e-9, toNum(line?.qty_factor, 1) || 1);
+    return unitTotalPrice(line, includeVat) * factor;
+  };
+
+  const confirmClearCart = () => {
+    if (!Array.isArray(cart) || cart.length === 0) return;
+    const ok = window.confirm("Clear all items from the current sale?");
+    if (!ok) return;
+    clearCart();
+  };
 </script>
 
 <section class="glass-panel rounded-3xl flex flex-col h-full w-full overflow-hidden relative group/panel">
@@ -126,7 +137,7 @@
       <span class="px-2.5 py-1 rounded-lg bg-surface-highlight border border-white/5 text-xs font-mono text-muted">{cart.length} items</span>
       {#if cart.length > 0}
         <button 
-          on:click={clearCart} 
+          on:click={confirmClearCart}
           class="text-xs font-bold text-red-400 hover:text-red-300 transition-colors px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/10 hover:border-red-500/20 active:scale-95"
         >
           Clear
@@ -173,10 +184,8 @@
         {@const vatRate = lineVatRate(line)}
         {@const lineAmountEx = lineTotalAmount(line, false)}
         {@const lineAmountInc = lineTotalAmount(line, true)}
-        {@const unitPriceEx = unitTotalPrice(line, false)}
-        {@const unitPriceInc = unitTotalPrice(line, true)}
         {@const lineAmountPrimary = vatMode === "ex" ? lineAmountEx : lineAmountInc}
-        {@const unitPricePrimary = vatMode === "ex" ? unitPriceEx : unitPriceInc}
+        {@const unitPricePrimary = vatMode === "ex" ? selectedUomUnitPrice(line, false) : selectedUomUnitPrice(line, true)}
         {@const preDiscBase = currencyPrimary === "USD" ? toNum(line.pre_discount_unit_price_usd, 0) : toNum(line.pre_discount_unit_price_lbp, 0)}
         <div class="group relative grid grid-cols-[minmax(0,1fr)_120px_140px_130px] gap-3 p-3.5 rounded-2xl bg-surface/40 hover:bg-surface/60 border border-white/5 hover:border-white/10 transition-all duration-200 shadow-sm hover:shadow-md">
           <div class="min-w-0 pr-2">
