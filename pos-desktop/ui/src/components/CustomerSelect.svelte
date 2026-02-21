@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
 
   export let activeCustomer = null;
   export let customerResults = [];
@@ -35,6 +35,8 @@
   let itemEls = [];
   let newCustomerNameEl = null;
   let showAdvancedFields = false;
+  let rootEl = null;
+  let searchUiOpen = false;
 
   const clearTimer = () => {
     if (timer) {
@@ -57,6 +59,7 @@
 
   const onInputKeyDown = (e) => {
     if (!e) return;
+    searchUiOpen = true;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       if ((customerResults || []).length === 0) scheduleSearch(true);
@@ -79,6 +82,7 @@
     }
     if (e.key === "Escape") {
       activeIndex = -1;
+      searchUiOpen = false;
       return;
     }
   };
@@ -108,6 +112,11 @@
     showAdvancedFields = false;
   }
 
+  $: if (activeCustomer || addCustomerMode) {
+    searchUiOpen = false;
+    activeIndex = -1;
+  }
+
   // Keep the highlighted row visible while using arrow keys.
   $: (async () => {
     if (!listEl) return;
@@ -119,10 +128,24 @@
     }
   })();
 
+  onMount(() => {
+    const onDocPointerDown = (e) => {
+      if (!searchUiOpen) return;
+      const target = e?.target;
+      if (!rootEl || (target && rootEl.contains(target))) return;
+      searchUiOpen = false;
+      activeIndex = -1;
+    };
+    document.addEventListener("pointerdown", onDocPointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDocPointerDown, true);
+    };
+  });
+
   onDestroy(() => clearTimer());
 </script>
 
-<div class="glass-panel p-3.5 rounded-2xl space-y-3 relative z-30 group/customer transition-all duration-300 hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-white/5 bg-surface/30 backdrop-blur-md">
+<div bind:this={rootEl} class="glass-panel p-3.5 rounded-2xl space-y-3 relative z-30 group/customer transition-all duration-300 hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-white/5 bg-surface/30 backdrop-blur-md">
   <div class="absolute inset-0 bg-gradient-to-br from-white/5 via-transparent to-transparent opacity-50 rounded-[2rem] pointer-events-none"></div>
 
   <div class="relative z-10 flex items-center justify-between">
@@ -302,13 +325,14 @@
             bind:value={customerSearch}
             on:keydown={onInputKeyDown}
             on:input={() => scheduleSearch(false)}
-            aria-expanded={customerResults.length > 0}
+            on:focus={() => { searchUiOpen = true; }}
+            aria-expanded={searchUiOpen && customerResults.length > 0}
             aria-activedescendant={activeIndex >= 0 ? `custopt-${activeIndex}` : undefined}
           />
         </div>
         <button 
           class="p-2.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/20 transition-all hover:shadow-[0_0_15px_rgba(99,102,241,0.15)] active:scale-[0.95]"
-          on:click={() => scheduleSearch(true)}
+          on:click={() => { searchUiOpen = true; scheduleSearch(true); }}
           title="Search"
           aria-label="Search"
         >
@@ -330,7 +354,7 @@
         </div>
       {/if}
       
-      {#if customerResults.length > 0}
+      {#if searchUiOpen && customerResults.length > 0}
         <div
           class="absolute top-full left-0 right-0 mt-3 glass-popover rounded-xl z-[60] max-h-72 overflow-y-auto custom-scrollbar shadow-2xl ring-1 ring-black/5"
           bind:this={listEl}
