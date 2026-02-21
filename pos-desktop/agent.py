@@ -2562,6 +2562,251 @@ def list_audit_logs(limit: int = 200):
         return rows
 
 
+def _sale_payload_totals(payload: dict) -> dict:
+    data = payload if isinstance(payload, dict) else {}
+    lines = data.get("lines") if isinstance(data.get("lines"), list) else []
+    subtotal_usd = 0.0
+    subtotal_lbp = 0.0
+    for ln in lines:
+        if not isinstance(ln, dict):
+            continue
+        try:
+            subtotal_usd += float(ln.get("line_total_usd") or 0)
+        except Exception:
+            pass
+        try:
+            subtotal_lbp += float(ln.get("line_total_lbp") or 0)
+        except Exception:
+            pass
+
+    tax = data.get("tax") if isinstance(data.get("tax"), dict) else {}
+    try:
+        tax_usd = float(tax.get("tax_usd") or 0)
+    except Exception:
+        tax_usd = 0.0
+    try:
+        tax_lbp = float(tax.get("tax_lbp") or 0)
+    except Exception:
+        tax_lbp = 0.0
+
+    total_usd = subtotal_usd + tax_usd
+    total_lbp = subtotal_lbp + tax_lbp
+    return {
+        "subtotal_usd": round(subtotal_usd, 2),
+        "subtotal_lbp": int(round(subtotal_lbp)),
+        "tax_usd": round(tax_usd, 2),
+        "tax_lbp": int(round(tax_lbp)),
+        "total_usd": round(total_usd, 2),
+        "total_lbp": int(round(total_lbp)),
+        "line_count": len(lines),
+    }
+
+
+def _return_payload_totals(payload: dict) -> dict:
+    data = payload if isinstance(payload, dict) else {}
+    lines = data.get("lines") if isinstance(data.get("lines"), list) else []
+    subtotal_usd = 0.0
+    subtotal_lbp = 0.0
+    for ln in lines:
+        if not isinstance(ln, dict):
+            continue
+        try:
+            subtotal_usd += float(ln.get("line_total_usd") or 0)
+        except Exception:
+            pass
+        try:
+            subtotal_lbp += float(ln.get("line_total_lbp") or 0)
+        except Exception:
+            pass
+
+    tax = data.get("tax") if isinstance(data.get("tax"), dict) else {}
+    try:
+        tax_usd = float(tax.get("tax_usd") or 0)
+    except Exception:
+        tax_usd = 0.0
+    try:
+        tax_lbp = float(tax.get("tax_lbp") or 0)
+    except Exception:
+        tax_lbp = 0.0
+    try:
+        fee_usd = float(data.get("restocking_fee_usd") or 0)
+    except Exception:
+        fee_usd = 0.0
+    try:
+        fee_lbp = float(data.get("restocking_fee_lbp") or 0)
+    except Exception:
+        fee_lbp = 0.0
+    total_usd = max(0.0, subtotal_usd + tax_usd - fee_usd)
+    total_lbp = max(0.0, subtotal_lbp + tax_lbp - fee_lbp)
+    return {
+        "subtotal_usd": round(subtotal_usd, 2),
+        "subtotal_lbp": int(round(subtotal_lbp)),
+        "tax_usd": round(tax_usd, 2),
+        "tax_lbp": int(round(tax_lbp)),
+        "restocking_fee_usd": round(fee_usd, 2),
+        "restocking_fee_lbp": int(round(fee_lbp)),
+        "total_usd": round(total_usd, 2),
+        "total_lbp": int(round(total_lbp)),
+        "line_count": len(lines),
+    }
+
+
+def _empty_return_summary() -> dict:
+    return {
+        "refund_count": 0,
+        "refunded_total_usd": 0.0,
+        "refunded_total_lbp": 0,
+    }
+
+
+def _merge_return_summary(target: dict, add: dict) -> dict:
+    out = target if isinstance(target, dict) else _empty_return_summary()
+    out["refund_count"] = int(out.get("refund_count") or 0) + int(add.get("refund_count") or 0)
+    out["refunded_total_usd"] = round(float(out.get("refunded_total_usd") or 0) + float(add.get("refunded_total_usd") or 0), 2)
+    out["refunded_total_lbp"] = int(round(float(out.get("refunded_total_lbp") or 0) + float(add.get("refunded_total_lbp") or 0)))
+    return out
+
+
+def list_shift_invoice_events(shift_id: str = "", limit: int = 120):
+    lim = max(1, min(500, int(limit or 120)))
+    shift = str(shift_id or "").strip()
+    fetch_lim = max(lim * 4, 120)
+    out = []
+    seen_events = set()
+    returns_by_event = {}
+    with db_connect() as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        if shift:
+            cur.execute(
+                """
+                SELECT id, created_at, action, company_id, cashier_id, shift_id, event_id, status, details_json
+                FROM pos_audit_log
+                WHERE action = 'sale.submit' AND shift_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (shift, fetch_lim),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT id, created_at, action, company_id, cashier_id, shift_id, event_id, status, details_json
+                FROM pos_audit_log
+                WHERE action = 'sale.submit'
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (fetch_lim,),
+            )
+        rows = cur.fetchall()
+
+        cur.execute(
+            """
+            SELECT event_id, payload_json, status, created_at
+            FROM pos_outbox_events
+            WHERE event_type = 'sale.returned'
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (max(fetch_lim * 6, 300),),
+        )
+        return_rows = cur.fetchall()
+        for rr in return_rows:
+            payload = {}
+            try:
+                payload = json.loads(rr["payload_json"] or "{}")
+            except Exception:
+                payload = {}
+            if not isinstance(payload, dict):
+                continue
+            payload_shift = str(payload.get("shift_id") or "").strip()
+            if shift and payload_shift and payload_shift != shift:
+                continue
+            receipt_meta = payload.get("receipt_meta") if isinstance(payload.get("receipt_meta"), dict) else {}
+            source_event_id = str(receipt_meta.get("source_invoice_event_id") or "").strip()
+            if not source_event_id:
+                continue
+            ret_totals = _return_payload_totals(payload)
+            summary_add = {
+                "refund_count": 1,
+                "refunded_total_usd": float(ret_totals.get("total_usd") or 0),
+                "refunded_total_lbp": int(ret_totals.get("total_lbp") or 0),
+            }
+            current = returns_by_event.get(source_event_id) or _empty_return_summary()
+            returns_by_event[source_event_id] = _merge_return_summary(current, summary_add)
+
+    for r in rows:
+        event_id = str(r["event_id"] or "").strip()
+        if not event_id or event_id in seen_events:
+            continue
+        seen_events.add(event_id)
+
+        details = None
+        try:
+            details = json.loads(r["details_json"]) if r["details_json"] else None
+        except Exception:
+            details = None
+        details = details if isinstance(details, dict) else {}
+        payload = {}
+        outbox_status = None
+        outbox = _get_outbox_event(event_id)
+        if isinstance(outbox, dict):
+            payload = outbox.get("payload") if isinstance(outbox.get("payload"), dict) else {}
+            outbox_status = str(outbox.get("status") or "").strip() or None
+
+        totals = _sale_payload_totals(payload)
+        payment_method = str(details.get("payment_method") or "").strip().lower()
+        if not payment_method:
+            payments = payload.get("payments") if isinstance(payload.get("payments"), list) else []
+            if payments and isinstance(payments[0], dict):
+                payment_method = str(payments[0].get("method") or "").strip().lower()
+            if not payment_method:
+                payment_method = "credit" if not payments else "cash"
+
+        refund_summary = returns_by_event.get(event_id) or _empty_return_summary()
+        total_usd = float(totals.get("total_usd") or 0)
+        total_lbp = int(totals.get("total_lbp") or 0)
+        refunded_usd = float(refund_summary.get("refunded_total_usd") or 0)
+        refunded_lbp = int(refund_summary.get("refunded_total_lbp") or 0)
+        refund_count = int(refund_summary.get("refund_count") or 0)
+        if refund_count <= 0:
+            refund_status = "none"
+        elif (total_usd > 0 and refunded_usd >= (total_usd - 0.01)) or (total_usd <= 0 and total_lbp > 0 and refunded_lbp >= max(0, total_lbp - 1)) or (total_usd <= 0 and total_lbp <= 0 and (refunded_usd > 0 or refunded_lbp > 0)):
+            refund_status = "refunded"
+        else:
+            refund_status = "partial"
+
+        out.append(
+            {
+                "audit_id": int(r["id"]),
+                "created_at": r["created_at"],
+                "company_id": r["company_id"],
+                "cashier_id": r["cashier_id"],
+                "shift_id": r["shift_id"],
+                "event_id": event_id,
+                "status": (outbox_status or str(r["status"] or "").strip() or "unknown"),
+                "audit_status": (str(r["status"] or "").strip() or None),
+                "outbox_status": outbox_status,
+                "payment_method": payment_method or None,
+                "line_count": int(totals.get("line_count") or 0),
+                "subtotal_usd": float(totals.get("subtotal_usd") or 0),
+                "subtotal_lbp": int(totals.get("subtotal_lbp") or 0),
+                "tax_usd": float(totals.get("tax_usd") or 0),
+                "tax_lbp": int(totals.get("tax_lbp") or 0),
+                "total_usd": total_usd,
+                "total_lbp": total_lbp,
+                "refund_count": refund_count,
+                "refunded_total_usd": refunded_usd,
+                "refunded_total_lbp": refunded_lbp,
+                "refund_status": refund_status,
+            }
+        )
+        if len(out) >= lim:
+            break
+    return out
+
+
 def build_sale_payload(cart, config, pricing_currency, exchange_rate, customer_id, payment_method, shift_id, cashier_id):
     lines = []
     base_usd = 0
@@ -3574,6 +3819,34 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, {"ok": True, "event_id": event_id, **res})
             return
 
+        if parsed.path == "/api/invoices/detail-by-event":
+            data = self.read_json()
+            cfg = load_config()
+            event_id = str(data.get("event_id") or "").strip()
+            if not event_id:
+                json_response(self, {"error": "event_id is required"}, status=400)
+                return
+            try:
+                resolved = _resolve_sales_invoice_from_event(cfg, event_id)
+                base = _require_api_base(cfg)
+                detail = fetch_json(
+                    f"{base.rstrip('/')}/pos/sales-invoices/{quote(str(resolved['invoice_id']))}",
+                    headers=device_headers(cfg),
+                )
+            except Exception as ex:
+                json_response(self, {"error": "detail_failed", "detail": str(ex)}, status=502)
+                return
+            json_response(
+                self,
+                {
+                    "ok": True,
+                    "event_id": event_id,
+                    **resolved,
+                    "detail": detail,
+                },
+            )
+            return
+
         if parsed.path == "/api/invoices/print-by-event":
             data = self.read_json()
             cfg = load_config()
@@ -3598,6 +3871,21 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
 
+            add_audit_log(
+                "invoice.reprint",
+                company_id=(cfg.get("company_id") or None),
+                cashier_id=(str(data.get("cashier_id") or cfg.get("cashier_id") or "").strip() or None),
+                shift_id=(str(data.get("shift_id") or cfg.get("shift_id") or "").strip() or None),
+                event_id=event_id,
+                status="ok",
+                details={
+                    "invoice_id": resolved.get("invoice_id"),
+                    "invoice_no": resolved.get("invoice_no"),
+                    "printer": printer,
+                    "copies": copies,
+                    "template": invoice_template,
+                },
+            )
             json_response(
                 self,
                 {
@@ -3609,6 +3897,25 @@ class Handler(BaseHTTPRequestHandler):
                     **resolved,
                 },
             )
+            return
+
+        if parsed.path == "/api/audit/log":
+            data = self.read_json()
+            cfg = load_config()
+            action = str(data.get("action") or "").strip()
+            if not action:
+                json_response(self, {"error": "action is required"}, status=400)
+                return
+            add_audit_log(
+                action,
+                company_id=(cfg.get("company_id") or None),
+                cashier_id=(str(data.get("cashier_id") or cfg.get("cashier_id") or "").strip() or None),
+                shift_id=(str(data.get("shift_id") or cfg.get("shift_id") or "").strip() or None),
+                event_id=(str(data.get("event_id") or "").strip() or None),
+                status=(str(data.get("status") or "").strip() or None),
+                details=data.get("details"),
+            )
+            json_response(self, {"ok": True})
             return
 
         if parsed.path == "/api/customers/create":
@@ -4475,6 +4782,25 @@ class Handler(BaseHTTPRequestHandler):
                 )
             except URLError as ex:
                 json_response(self, {'error': str(ex)}, status=502)
+            return
+
+        if parsed.path == '/api/shift/invoices':
+            data = self.read_json()
+            cfg = load_config()
+            shift_id = str(data.get("shift_id") or cfg.get("shift_id") or "").strip()
+            try:
+                limit = int(data.get("limit") or 120)
+            except Exception:
+                limit = 120
+            rows = list_shift_invoice_events(shift_id=shift_id, limit=limit)
+            json_response(
+                self,
+                {
+                    "ok": True,
+                    "shift_id": (shift_id or None),
+                    "invoices": rows,
+                },
+            )
             return
 
         if parsed.path == '/api/shift/open':

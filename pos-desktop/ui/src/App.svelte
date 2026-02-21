@@ -45,6 +45,7 @@
   const WEB_LOCAL_OUTBOX_MAX = 800;
   const WEB_LOCAL_AUDIT_MAX = 500;
   const CART_DRAFTS_MAX = 50;
+  const SHIFT_INVOICES_MAX = 160;
   const MANAGER_APPROVAL_TTL_MS = 2 * 60 * 1000;
   const POS_UI_VERSION = String(posUiPackage?.version || "").trim() || "dev";
 
@@ -571,6 +572,7 @@
   // Checkout State
   let showPaymentModal = false;
   let saleMode = "sale"; // "sale" | "return"
+  let returnSourceContext = null; // { companyKey, eventId, invoiceId, mode, suggestedMethod }
   let checkoutInFlight = false;
 
   // Admin unlock (POS agent can require a local admin PIN when LAN-exposed)
@@ -583,6 +585,7 @@
   let showPrintingModal = false;
   let showQueueDrawer = false;
   let showAuditDrawer = false;
+  let showShiftInvoicesDrawer = false;
   let showCartDraftsDrawer = false;
   let showShortcutsGuide = false;
   let showTopMoreActions = false;
@@ -598,6 +601,13 @@
   let queuePayloadError = "";
   let queuePayloadEvent = null;
   let queuePayloadText = "";
+  let shiftInvoicesLoading = false;
+  let shiftInvoicesError = "";
+  let shiftInvoices = [];
+  let shiftInvoiceDetailsByKey = {};
+  let shiftInvoiceLoadingByKey = {};
+  let shiftInvoiceExpandedByKey = {};
+  let shiftInvoiceActionBusyKey = "";
   let cartDraftName = "";
   let cartDrafts = [];
   let keepDraftCopyOnResume = false;
@@ -840,6 +850,29 @@
   const _isQueueRetrying = (ev) => {
     const key = _queueRetryKey(ev);
     return !!key && queueRetryingKeys.has(key);
+  };
+  const _shiftInvoiceKey = (row) => {
+    const companyKey = normalizeCompanyKey(row?.companyKey || "official");
+    const eventId = String(row?.event_id || "").trim();
+    return `${companyKey}:${eventId}`;
+  };
+  const _shiftInvoiceDetailFor = (row) => shiftInvoiceDetailsByKey?.[_shiftInvoiceKey(row)] || null;
+  const _shiftInvoiceIsLoading = (row) => !!shiftInvoiceLoadingByKey?.[_shiftInvoiceKey(row)];
+  const _shiftInvoiceIsExpanded = (row) => !!shiftInvoiceExpandedByKey?.[_shiftInvoiceKey(row)];
+  const _shiftInvoiceBadgeTone = (statusRaw) => {
+    const status = String(statusRaw || "").trim().toLowerCase();
+    if (!status) return "border-ink/20 bg-ink/10 text-ink";
+    if (status === "acked") return "border-emerald-500/35 bg-emerald-500/12 text-emerald-300";
+    if (status === "pending" || status === "queued") return "border-amber-500/35 bg-amber-500/12 text-amber-300";
+    if (status.includes("fail") || status === "dead") return "border-red-500/35 bg-red-500/12 text-red-300";
+    return "border-ink/20 bg-ink/10 text-ink";
+  };
+  const _shiftInvoiceRefundTone = (statusRaw) => {
+    const status = String(statusRaw || "").trim().toLowerCase();
+    if (!status || status === "none") return "border-ink/20 bg-ink/10 text-ink";
+    if (status === "partial") return "border-amber-500/35 bg-amber-500/12 text-amber-300";
+    if (status === "refunded") return "border-emerald-500/35 bg-emerald-500/12 text-emerald-300";
+    return "border-ink/20 bg-ink/10 text-ink";
   };
   const _copyText = async (value) => {
     const text = String(value || "");
@@ -1755,6 +1788,39 @@
       skip_stock_moves: !!payload.skip_stock_moves,
     };
   };
+  const _salePayloadTotalsWeb = (payload = {}) => {
+    const lines = Array.isArray(payload?.lines) ? payload.lines : [];
+    let subtotalUsd = 0;
+    let subtotalLbp = 0;
+    for (const ln of lines) {
+      subtotalUsd += toNum(ln?.line_total_usd, 0);
+      subtotalLbp += toNum(ln?.line_total_lbp, 0);
+    }
+    const tax = (payload?.tax && typeof payload.tax === "object") ? payload.tax : {};
+    const taxUsd = toNum(tax?.tax_usd, 0);
+    const taxLbp = toNum(tax?.tax_lbp, 0);
+    return {
+      line_count: lines.length,
+      subtotal_usd: Math.round((subtotalUsd + Number.EPSILON) * 100) / 100,
+      subtotal_lbp: Math.round(subtotalLbp),
+      tax_usd: Math.round((taxUsd + Number.EPSILON) * 100) / 100,
+      tax_lbp: Math.round(taxLbp),
+      total_usd: Math.round((subtotalUsd + taxUsd + Number.EPSILON) * 100) / 100,
+      total_lbp: Math.round(subtotalLbp + taxLbp),
+    };
+  };
+  const _returnPayloadTotalsWeb = (payload = {}) => {
+    const saleLike = _salePayloadTotalsWeb(payload);
+    const feeUsd = toNum(payload?.restocking_fee_usd, 0);
+    const feeLbp = toNum(payload?.restocking_fee_lbp, 0);
+    return {
+      ...saleLike,
+      restocking_fee_usd: Math.round((feeUsd + Number.EPSILON) * 100) / 100,
+      restocking_fee_lbp: Math.round(feeLbp),
+      total_usd: Math.max(0, Math.round((saleLike.total_usd - feeUsd + Number.EPSILON) * 100) / 100),
+      total_lbp: Math.max(0, Math.round(saleLike.total_lbp - feeLbp)),
+    };
+  };
 
   const _isPermanentCloudError = (err) => {
     const statusCode = toNum(err?.status, 0);
@@ -1823,13 +1889,34 @@
   const _submitAndProcessPosEventWeb = async (companyKey, eventType, payload, idempotencyKey = "") => {
     const localEvent = _appendWebLocalOutboxEvent(companyKey, eventType, payload, idempotencyKey);
     const action = eventType === "sale.returned" ? "return.submit" : "sale.submit";
+    const saleTotals = _salePayloadTotalsWeb(payload || {});
+    const returnTotals = _returnPayloadTotalsWeb(payload || {});
+    const receiptMeta = (payload?.receipt_meta && typeof payload.receipt_meta === "object") ? payload.receipt_meta : {};
+    const auditDetailsBase = {
+      event_type: eventType,
+      idempotency_key: idempotencyKey || null,
+      payment_method: String(payload?.payment_method || "").trim().toLowerCase() || null,
+      refund_method: String(payload?.refund_method || payload?.payment_method || "").trim().toLowerCase() || null,
+      invoice_id: String(payload?.invoice_id || "").trim() || null,
+      source_invoice_id: String(receiptMeta?.source_invoice_id || payload?.invoice_id || "").trim() || null,
+      source_invoice_event_id: String(receiptMeta?.source_invoice_event_id || "").trim() || null,
+      line_count: eventType === "sale.returned" ? returnTotals.line_count : saleTotals.line_count,
+      subtotal_usd: eventType === "sale.returned" ? returnTotals.subtotal_usd : saleTotals.subtotal_usd,
+      subtotal_lbp: eventType === "sale.returned" ? returnTotals.subtotal_lbp : saleTotals.subtotal_lbp,
+      tax_usd: eventType === "sale.returned" ? returnTotals.tax_usd : saleTotals.tax_usd,
+      tax_lbp: eventType === "sale.returned" ? returnTotals.tax_lbp : saleTotals.tax_lbp,
+      total_usd: eventType === "sale.returned" ? returnTotals.total_usd : saleTotals.total_usd,
+      total_lbp: eventType === "sale.returned" ? returnTotals.total_lbp : saleTotals.total_lbp,
+      return_total_usd: eventType === "sale.returned" ? returnTotals.total_usd : null,
+      return_total_lbp: eventType === "sale.returned" ? returnTotals.total_lbp : null,
+    };
     _appendWebAudit(companyKey, {
       action,
       cashier_id: String(payload?.cashier_id || "").trim() || null,
       shift_id: String(payload?.shift_id || "").trim() || null,
       event_id: String(localEvent?.event_id || "").trim(),
       status: "queued_local",
-      details: { event_type: eventType, idempotency_key: idempotencyKey || null },
+      details: auditDetailsBase,
     });
     try {
       const remote = await _submitAndProcessPosEventWebRemote(companyKey, eventType, payload, idempotencyKey);
@@ -1840,7 +1927,7 @@
         shift_id: String(payload?.shift_id || "").trim() || null,
         event_id: String(remote?.event_id || "").trim() || null,
         status: "acked",
-        details: { event_type: eventType, idempotent_replay: !!remote?.idempotent_replay },
+        details: { ...auditDetailsBase, idempotent_replay: !!remote?.idempotent_replay },
       });
       return remote;
     } catch (e) {
@@ -1859,7 +1946,7 @@
         shift_id: String(payload?.shift_id || "").trim() || null,
         event_id: String(localEvent?.event_id || "").trim(),
         status: nextStatus,
-        details: { event_type: eventType, error: e?.message || String(e) },
+        details: { ...auditDetailsBase, error: e?.message || String(e) },
       });
       if (permanent) {
         const err = new Error(e?.message || "Cloud processing rejected this event.");
@@ -2695,6 +2782,19 @@
       const limit = Math.max(1, toNum(params.get("limit"), 120));
       return { audit: _webAuditRowsFor(companyKey).slice(0, limit) };
     }
+    if (method === "POST" && pathname === "/audit/log") {
+      const action = String(body?.action || "").trim();
+      if (!action) throw new Error("action is required");
+      _appendWebAudit(companyKey, {
+        action,
+        cashier_id: String(body?.cashier_id || cashierIdForCompany(companyKey) || "").trim() || null,
+        shift_id: String(body?.shift_id || shiftIdForCompany(companyKey) || "").trim() || null,
+        event_id: String(body?.event_id || "").trim() || null,
+        status: String(body?.status || "").trim() || null,
+        details: body?.details ?? null,
+      });
+      return { ok: true };
+    }
     if (method === "GET" && pathname === "/outbox/event") {
       const eventId = String(params.get("event_id") || "").trim();
       if (!eventId) throw new Error("event_id is required");
@@ -2786,6 +2886,86 @@
       const shiftId = String(res?.shift?.id || "").trim();
       _setCfgForCompanyKey(companyKey, { shift_id: shiftId });
       return { shift: res?.shift || null };
+    }
+    if (method === "POST" && pathname === "/shift/invoices") {
+      const shiftId = String(body?.shift_id || shiftIdForCompany(companyKey) || "").trim();
+      const limit = Math.max(1, Math.min(SHIFT_INVOICES_MAX, toNum(body?.limit, 120)));
+      const returnsBySourceEvent = new Map();
+      for (const row of _webAuditRowsFor(companyKey)) {
+        if (String(row?.action || "").trim() !== "return.submit") continue;
+        const details = row?.details && typeof row.details === "object" ? row.details : {};
+        const sourceEventId = String(details?.source_invoice_event_id || "").trim();
+        if (!sourceEventId) continue;
+        const prev = returnsBySourceEvent.get(sourceEventId) || {
+          refund_count: 0,
+          refunded_total_usd: 0,
+          refunded_total_lbp: 0,
+        };
+        prev.refund_count += 1;
+        prev.refunded_total_usd += toNum(details?.return_total_usd, toNum(details?.total_usd, 0));
+        prev.refunded_total_lbp += toNum(details?.return_total_lbp, toNum(details?.total_lbp, 0));
+        returnsBySourceEvent.set(sourceEventId, prev);
+      }
+      const rows = _webAuditRowsFor(companyKey)
+        .filter((row) => {
+          if (String(row?.action || "").trim() !== "sale.submit") return false;
+          if (!shiftId) return true;
+          return String(row?.shift_id || "").trim() === shiftId;
+        })
+        .map((row) => {
+          const details = row?.details && typeof row.details === "object" ? row.details : {};
+          const eventId = String(row?.event_id || "").trim();
+          const totalUsd = toNum(details?.total_usd, 0);
+          const totalLbp = Math.round(toNum(details?.total_lbp, 0));
+          const refundSummary = returnsBySourceEvent.get(eventId) || {
+            refund_count: 0,
+            refunded_total_usd: 0,
+            refunded_total_lbp: 0,
+          };
+          const refundedUsd = Math.round((toNum(refundSummary.refunded_total_usd, 0) + Number.EPSILON) * 100) / 100;
+          const refundedLbp = Math.round(toNum(refundSummary.refunded_total_lbp, 0));
+          const refundCount = Math.max(0, Math.round(toNum(refundSummary.refund_count, 0)));
+          let refundStatus = "none";
+          if (refundCount > 0) {
+            if ((totalUsd > 0 && refundedUsd >= (totalUsd - 0.01)) || (totalUsd <= 0 && totalLbp > 0 && refundedLbp >= Math.max(0, totalLbp - 1)) || (totalUsd <= 0 && totalLbp <= 0 && (refundedUsd > 0 || refundedLbp > 0))) {
+              refundStatus = "refunded";
+            } else {
+              refundStatus = "partial";
+            }
+          }
+          return {
+            created_at: row?.created_at || null,
+            company_id: row?.company_id || null,
+            cashier_id: row?.cashier_id || null,
+            shift_id: row?.shift_id || null,
+            event_id: eventId || null,
+            status: String(row?.status || "").trim() || "unknown",
+            audit_status: String(row?.status || "").trim() || null,
+            outbox_status: null,
+            payment_method: String(details?.payment_method || "").trim().toLowerCase() || null,
+            line_count: Math.max(0, Math.round(toNum(details?.line_count, 0))),
+            subtotal_usd: toNum(details?.subtotal_usd, 0),
+            subtotal_lbp: Math.round(toNum(details?.subtotal_lbp, 0)),
+            tax_usd: toNum(details?.tax_usd, 0),
+            tax_lbp: Math.round(toNum(details?.tax_lbp, 0)),
+            total_usd: totalUsd,
+            total_lbp: totalLbp,
+            refund_count: refundCount,
+            refunded_total_usd: refundedUsd,
+            refunded_total_lbp: refundedLbp,
+            refund_status: refundStatus,
+          };
+        });
+      const seen = new Set();
+      const unique = [];
+      for (const row of rows) {
+        const eventId = String(row?.event_id || "").trim();
+        if (!eventId || seen.has(eventId)) continue;
+        seen.add(eventId);
+        unique.push(row);
+        if (unique.length >= limit) break;
+      }
+      return { ok: true, shift_id: shiftId || null, invoices: unique };
     }
     if (method === "POST" && pathname === "/shift/open") {
       const cashierId = cashierIdForCompany(companyKey, body?.cashier_id);
@@ -2995,6 +3175,15 @@
       if (!eventId) throw new Error("event_id is required");
       const resolved = await _resolveInvoiceByEventWeb(companyKey, eventId);
       return { ok: true, event_id: resolved.event_id, invoice_id: resolved.invoice_id || null };
+    }
+    if (method === "POST" && pathname === "/invoices/detail-by-event") {
+      const eventId = String(body?.event_id || "").trim();
+      if (!eventId) throw new Error("event_id is required");
+      const resolved = await _resolveInvoiceByEventWeb(companyKey, eventId);
+      const invoiceId = String(resolved?.invoice_id || "").trim();
+      if (!invoiceId) throw new Error("Invoice is still being generated. Please retry in a few seconds.");
+      const detail = await _fetchInvoiceDetailWeb(companyKey, invoiceId);
+      return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId, detail };
     }
     if (method === "POST" && pathname === "/invoices/print-by-event") {
       const eventId = String(body?.event_id || "").trim();
@@ -3233,6 +3422,273 @@
   const openAuditDrawer = async () => {
     showAuditDrawer = true;
     await loadAuditEvents();
+  };
+  const loadShiftInvoices = async () => {
+    shiftInvoicesLoading = true;
+    shiftInvoicesError = "";
+    try {
+      const targets = ["official", "unofficial"];
+      const results = await Promise.allSettled(
+        targets.map((companyKey) => {
+          const shiftId = String(shiftIdForCompany(companyKey) || "").trim();
+          if (!shiftId) return Promise.resolve({ ok: true, invoices: [] });
+          return apiCallFor(companyKey, "/shift/invoices", {
+            method: "POST",
+            body: { shift_id: shiftId, limit: SHIFT_INVOICES_MAX },
+          });
+        }),
+      );
+      const merged = [];
+      const failures = [];
+      for (let i = 0; i < targets.length; i += 1) {
+        const companyKey = targets[i];
+        const result = results[i];
+        if (result.status !== "fulfilled") {
+          failures.push(`${companyKey}: ${result.reason?.message || "failed"}`);
+          continue;
+        }
+        for (const row of (result.value?.invoices || [])) {
+          merged.push({ ...(row || {}), companyKey });
+        }
+      }
+      merged.sort((a, b) => (Date.parse(String(b?.created_at || "")) || 0) - (Date.parse(String(a?.created_at || "")) || 0));
+      shiftInvoices = merged.slice(0, SHIFT_INVOICES_MAX);
+      if (shiftInvoices.length === 0 && failures.length) {
+        shiftInvoicesError = failures.join(" | ");
+      }
+    } catch (e) {
+      shiftInvoicesError = e?.message || "Unable to load shift invoices.";
+      shiftInvoices = [];
+    } finally {
+      shiftInvoicesLoading = false;
+    }
+  };
+  const openShiftInvoicesDrawer = async () => {
+    showTopMoreActions = false;
+    showShiftInvoicesDrawer = true;
+    await loadShiftInvoices();
+  };
+  const closeShiftInvoicesDrawer = () => {
+    showShiftInvoicesDrawer = false;
+  };
+  const loadShiftInvoiceDetail = async (row, { force = false } = {}) => {
+    const eventId = String(row?.event_id || "").trim();
+    if (!eventId) return null;
+    const companyKey = normalizeCompanyKey(row?.companyKey || "official");
+    const key = _shiftInvoiceKey(row);
+    if (!force && shiftInvoiceDetailsByKey?.[key]) return shiftInvoiceDetailsByKey[key];
+    shiftInvoiceLoadingByKey = { ...(shiftInvoiceLoadingByKey || {}), [key]: true };
+    try {
+      const res = await apiCallFor(companyKey, "/invoices/detail-by-event", {
+        method: "POST",
+        body: { event_id: eventId },
+      });
+      const detail = res?.detail || null;
+      const invoice = detail?.invoice || {};
+      const next = {
+        event_id: eventId,
+        invoice_id: String(res?.invoice_id || invoice?.id || "").trim() || null,
+        invoice_no: String(invoice?.invoice_no || res?.invoice_no || "").trim() || null,
+        detail,
+      };
+      shiftInvoiceDetailsByKey = { ...(shiftInvoiceDetailsByKey || {}), [key]: next };
+      return next;
+    } catch (e) {
+      reportError(e?.message || "Unable to load invoice detail.");
+      return null;
+    } finally {
+      const nextLoading = { ...(shiftInvoiceLoadingByKey || {}) };
+      delete nextLoading[key];
+      shiftInvoiceLoadingByKey = nextLoading;
+    }
+  };
+  const toggleShiftInvoiceDetail = async (row) => {
+    const key = _shiftInvoiceKey(row);
+    if (!key || key.endsWith(":")) return;
+    const currently = !!shiftInvoiceExpandedByKey?.[key];
+    shiftInvoiceExpandedByKey = { ...(shiftInvoiceExpandedByKey || {}), [key]: !currently };
+    if (!currently) {
+      await loadShiftInvoiceDetail(row);
+    }
+  };
+  const _invoiceLineToCartLine = (line, companyKey) => {
+    const normalizedCompany = normalizeCompanyKey(companyKey || "official");
+    const itemId = String(line?.item_id || "").trim();
+    const qtyFactor = Math.max(1e-9, toNum(line?.qty_factor, 1) || 1);
+    const qty = Math.max(0, toNum(line?.qty, 0));
+    const fallbackEntered = qtyFactor > 0 ? (qty / qtyFactor) : qty;
+    const qtyEntered = Math.max(0, toNum(line?.qty_entered, fallbackEntered));
+    const uom = String(line?.uom || "pcs").trim() || "pcs";
+    const unitUsd = toNum(line?.unit_price_usd, 0);
+    const unitLbp = toNum(line?.unit_price_lbp, 0);
+    const preUsd = toNum(line?.pre_discount_unit_price_usd, unitUsd);
+    const preLbp = toNum(line?.pre_discount_unit_price_lbp, unitLbp);
+    return {
+      key: _cartLineKey(normalizedCompany, itemId, qtyFactor, uom),
+      companyKey: normalizedCompany,
+      id: itemId,
+      sku: String(line?.item_sku || "").trim(),
+      name: String(line?.item_name || line?.item_sku || itemId || "Item").trim(),
+      unit_of_measure: uom,
+      list_price_usd: preUsd,
+      list_price_lbp: preLbp,
+      price_usd: unitUsd,
+      price_lbp: unitLbp,
+      qty_factor: qtyFactor,
+      qty_entered: qtyEntered,
+      qty,
+      uom,
+      tax_code_id: line?.item_tax_code_id || line?.tax_code_id || null,
+      batch_no: null,
+      expiry_date: null,
+      pre_discount_unit_price_usd: preUsd,
+      pre_discount_unit_price_lbp: preLbp,
+      discount_pct: toNum(line?.discount_pct, 0),
+      discount_amount_usd: toNum(line?.discount_amount_usd, 0),
+      discount_amount_lbp: toNum(line?.discount_amount_lbp, 0),
+      applied_promotion_id: line?.applied_promotion_id || null,
+      applied_promotion_item_id: line?.applied_promotion_item_id || null,
+    };
+  };
+  const reprintShiftInvoice = async (row) => {
+    const eventId = String(row?.event_id || "").trim();
+    if (!eventId) {
+      reportError("Event ID is missing.");
+      return;
+    }
+    const companyKey = normalizeCompanyKey(row?.companyKey || "official");
+    const key = _shiftInvoiceKey(row);
+    shiftInvoiceActionBusyKey = key;
+    try {
+      await apiCallFor(companyKey, "/invoices/print-by-event", {
+        method: "POST",
+        body: { event_id: eventId, shift_id: row?.shift_id || null },
+      });
+      await apiCallFor(companyKey, "/audit/log", {
+        method: "POST",
+        body: {
+          action: "invoice.reprint",
+          status: "ok",
+          event_id: eventId,
+          shift_id: row?.shift_id || null,
+          details: { source: "shift_invoices" },
+        },
+      }).catch(() => {});
+      reportNotice(`Reprint sent (${companyKey}).`);
+    } catch (e) {
+      reportError(e?.message || "Unable to reprint invoice.");
+    } finally {
+      shiftInvoiceActionBusyKey = "";
+    }
+  };
+  const duplicateShiftInvoiceToCart = async (row) => {
+    const eventId = String(row?.event_id || "").trim();
+    if (!eventId) {
+      reportError("Event ID is missing.");
+      return;
+    }
+    const companyKey = normalizeCompanyKey(row?.companyKey || "official");
+    const key = _shiftInvoiceKey(row);
+    shiftInvoiceActionBusyKey = key;
+    try {
+      const payload = await loadShiftInvoiceDetail(row);
+      const detail = payload?.detail || null;
+      const lines = Array.isArray(detail?.lines) ? detail.lines : [];
+      if (!lines.length) throw new Error("Invoice has no lines to duplicate.");
+      if ((cart || []).length > 0) {
+        const ok = window.confirm("Replace current cart with this invoice lines?");
+        if (!ok) return;
+      }
+      cart = lines.map((ln) => _invoiceLineToCartLine(ln, companyKey));
+      saleMode = "sale";
+      returnSourceContext = null;
+      checkoutIntentId = "";
+      const customerId = String(detail?.invoice?.customer_id || "").trim();
+      if (customerId) {
+        const pool = companyKey === otherCompanyKey ? unofficialCustomers : customers;
+        const existing = (pool || []).find((c) => String(c?.id || "").trim() === customerId) || null;
+        activeCustomer = existing || {
+          id: customerId,
+          name: String(detail?.invoice?.customer_name || customerId).trim() || customerId,
+        };
+      } else {
+        activeCustomer = null;
+      }
+      await apiCallFor(companyKey, "/audit/log", {
+        method: "POST",
+        body: {
+          action: "invoice.duplicate_to_cart",
+          status: "staged",
+          event_id: eventId,
+          shift_id: row?.shift_id || null,
+          details: { invoice_id: payload?.invoice_id || null },
+        },
+      }).catch(() => {});
+      showShiftInvoicesDrawer = false;
+      reportNotice(`Loaded invoice into cart (${companyKey}).`);
+    } catch (e) {
+      reportError(e?.message || "Unable to duplicate invoice into cart.");
+    } finally {
+      shiftInvoiceActionBusyKey = "";
+    }
+  };
+  const stageShiftInvoiceReturn = async (row, { mode = "refund" } = {}) => {
+    const eventId = String(row?.event_id || "").trim();
+    if (!eventId) {
+      reportError("Event ID is missing.");
+      return;
+    }
+    if (String(row?.refund_status || "").trim().toLowerCase() === "refunded") {
+      reportError("This invoice is already fully refunded.");
+      return;
+    }
+    const companyKey = normalizeCompanyKey(row?.companyKey || "official");
+    const key = _shiftInvoiceKey(row);
+    shiftInvoiceActionBusyKey = key;
+    try {
+      const payload = await loadShiftInvoiceDetail(row);
+      const detail = payload?.detail || null;
+      const lines = Array.isArray(detail?.lines) ? detail.lines : [];
+      if (!lines.length) throw new Error("Invoice has no lines to refund.");
+      if ((cart || []).length > 0) {
+        const ok = window.confirm("Replace current cart with this return lines?");
+        if (!ok) return;
+      }
+      cart = lines.map((ln) => _invoiceLineToCartLine(ln, companyKey));
+      saleMode = "return";
+      returnSourceContext = {
+        companyKey,
+        eventId,
+        invoiceId: String(payload?.invoice_id || detail?.invoice?.id || "").trim() || null,
+        mode: mode === "void" ? "void" : "refund",
+        suggestedMethod: String(detail?.payments?.[0]?.method || "cash").trim().toLowerCase() || "cash",
+      };
+      activeCustomer = null;
+      checkoutIntentId = "";
+      await apiCallFor(companyKey, "/audit/log", {
+        method: "POST",
+        body: {
+          action: mode === "void" ? "invoice.void_started" : "invoice.refund_started",
+          status: "staged",
+          event_id: eventId,
+          shift_id: row?.shift_id || null,
+          details: {
+            invoice_id: returnSourceContext?.invoiceId || null,
+            suggested_method: returnSourceContext?.suggestedMethod || null,
+          },
+        },
+      }).catch(() => {});
+      showShiftInvoicesDrawer = false;
+      if (mode === "void") {
+        reportNotice(`Void flow staged. Use Return checkout and select method (${returnSourceContext?.suggestedMethod || "cash"}).`);
+      } else {
+        reportNotice(`Refund flow staged. Use Return checkout and select method (${returnSourceContext?.suggestedMethod || "cash"}).`);
+      }
+    } catch (e) {
+      reportError(e?.message || "Unable to stage return from invoice.");
+    } finally {
+      shiftInvoiceActionBusyKey = "";
+    }
   };
   const copyQueueEventId = async (ev) => {
     const eventId = _queueEventId(ev);
@@ -4374,11 +4830,14 @@
 
   const removeLine = (index) => {
     cart = cart.filter((_, i) => i !== index);
+    if ((cart || []).length === 0) returnSourceContext = null;
     checkoutIntentId = "";
   };
 
   const clearCartAll = () => {
     cart = [];
+    returnSourceContext = null;
+    if (saleMode !== "sale") saleMode = "sale";
     checkoutIntentId = "";
   };
 
@@ -4930,6 +5389,22 @@
     try {
       // Returns: enforce company-correct routing (single company or split by company).
       if (saleMode !== "sale") {
+        const stagedReturnContext = (returnSourceContext && typeof returnSourceContext === "object")
+          ? { ...(returnSourceContext || {}) }
+          : null;
+        const contextForCompany = (companyKey) => {
+          if (!stagedReturnContext) return null;
+          const stagedCompany = normalizeCompanyKey(stagedReturnContext?.companyKey || "");
+          const target = normalizeCompanyKey(companyKey || "");
+          if (!stagedCompany || stagedCompany !== target) return null;
+          const invoiceId = String(stagedReturnContext?.invoiceId || "").trim();
+          if (!invoiceId) return null;
+          return {
+            invoiceId,
+            eventId: String(stagedReturnContext?.eventId || "").trim() || null,
+            mode: String(stagedReturnContext?.mode || "refund").trim() || "refund",
+          };
+        };
         const mapReturnLines = (lines) => {
           return (lines || []).map((line) => ({
             id: line.id,
@@ -4947,13 +5422,23 @@
         const cfgFor = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
         const returnForCompany = async (companyKey, lines) => {
           const cfg = cfgFor(companyKey);
+          const sourceCtx = contextForCompany(companyKey);
+          const receiptMeta = sourceCtx
+            ? {
+              source_invoice_id: sourceCtx.invoiceId,
+              source_invoice_event_id: sourceCtx.eventId,
+              return_mode: sourceCtx.mode,
+            }
+            : null;
           return apiCallFor(companyKey, "/return", {
             method: "POST",
             body: {
               idempotency_key: `${checkoutIntent}:return:${companyKey}`,
               cart: mapReturnLines(lines),
+              invoice_id: sourceCtx?.invoiceId || null,
               customer_id: null,
               payment_method,
+              receipt_meta: receiptMeta,
               pricing_currency: cfg.pricing_currency,
               exchange_rate: cfg.exchange_rate,
               shift_id: cfg.shift_id || null,
@@ -5003,6 +5488,7 @@
           }
           cart = [];
           activeCustomer = null;
+          returnSourceContext = null;
           checkoutIntentId = "";
           reportNotice(`Split return complete: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}`);
           return;
@@ -5015,6 +5501,7 @@
         reportNotice(`Return complete (${returnCompany}): ${res.event_id}`);
         cart = [];
         activeCustomer = null;
+        returnSourceContext = null;
         checkoutIntentId = "";
         await fetchData();
         try {
@@ -5033,6 +5520,128 @@
         return;
       }
 
+      const _custText = (value) => String(value || "").trim();
+      const _custLower = (value) => _custText(value).toLowerCase();
+      const _custDigits = (value) => _custText(value).replace(/\D+/g, "");
+      const _toNonNegativeInt = (value, fallback = 0) => {
+        const n = Number.parseInt(String(value ?? "").trim(), 10);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.max(0, n);
+      };
+
+      const _matchCustomerFromRows = (rows, probe) => {
+        const list = Array.isArray(rows) ? rows : [];
+        const probeId = _custText(probe?.id);
+        const probeMembership = _custLower(probe?.membership_no);
+        const probePhoneDigits = _custDigits(probe?.phone);
+        const probeEmail = _custLower(probe?.email);
+        const probeName = _custLower(probe?.name);
+
+        // 1) Exact id match.
+        if (probeId) {
+          const byId = list.find((row) => _custText(row?.id) === probeId);
+          if (byId && _custText(byId?.id)) return byId;
+        }
+        // 2) Stable identifiers.
+        if (probeMembership) {
+          const byMembership = list.find((row) => _custLower(row?.membership_no) === probeMembership);
+          if (byMembership && _custText(byMembership?.id)) return byMembership;
+        }
+        if (probeEmail) {
+          const byEmail = list.find((row) => _custLower(row?.email) === probeEmail);
+          if (byEmail && _custText(byEmail?.id)) return byEmail;
+        }
+        if (probePhoneDigits) {
+          const byPhone = list.find((row) => _custDigits(row?.phone) === probePhoneDigits);
+          if (byPhone && _custText(byPhone?.id)) return byPhone;
+        }
+        // 3) Fallback by exact normalized name.
+        if (probeName) {
+          const byName = list.find((row) => _custLower(row?.name) === probeName);
+          if (byName && _custText(byName?.id)) return byName;
+        }
+        return null;
+      };
+
+      const _seedCustomerPayload = () => {
+        const src = activeCustomer || {};
+        const name = _custText(src?.name);
+        if (!name) return null;
+        const rawPartyType = _custLower(src?.party_type);
+        const rawCustomerType = _custLower(src?.customer_type);
+        const membershipNo = _custText(src?.membership_no);
+        return {
+          name,
+          phone: _custText(src?.phone) || null,
+          email: _custText(src?.email) || null,
+          party_type: rawPartyType === "business" ? "business" : "individual",
+          customer_type: ["retail", "wholesale", "b2b"].includes(rawCustomerType) ? rawCustomerType : "retail",
+          legal_name: _custText(src?.legal_name) || null,
+          membership_no: membershipNo || null,
+          tax_id: _custText(src?.tax_id) || null,
+          vat_no: _custText(src?.vat_no) || null,
+          notes: _custText(src?.notes) || null,
+          marketing_opt_in: !!src?.marketing_opt_in,
+          is_member: !!membershipNo || !!src?.is_member,
+          payment_terms_days: _toNonNegativeInt(src?.payment_terms_days, 0),
+          is_active: src?.is_active !== false,
+        };
+      };
+
+      const _cacheCustomerForCompany = (companyKey, customer) => {
+        const c = customer && typeof customer === "object" ? customer : null;
+        const id = _custText(c?.id);
+        if (!id) return;
+        if (companyKey === otherCompanyKey) {
+          const rest = (unofficialCustomers || []).filter((row) => _custText(row?.id) !== id);
+          unofficialCustomers = [c, ...rest];
+          return;
+        }
+        const rest = (customers || []).filter((row) => _custText(row?.id) !== id);
+        customers = [c, ...rest];
+      };
+
+      const _ensureCustomerInCompany = async (companyKey) => {
+        if (!activeCustomer) return null;
+        const seed = _seedCustomerPayload();
+        if (!seed || !_custText(seed?.name)) return null;
+
+        const localRows = companyKey === otherCompanyKey ? (unofficialCustomers || []) : (customers || []);
+        const localMatch = _matchCustomerFromRows(localRows, activeCustomer);
+        const localId = _custText(localMatch?.id);
+        if (localId) return localId;
+
+        const remoteQueries = [
+          _custText(seed.membership_no),
+          _custText(seed.email),
+          _custText(seed.phone),
+          _custText(seed.name),
+        ].filter((q, i, arr) => q.length >= 2 && arr.indexOf(q) === i);
+
+        for (const q of remoteQueries.slice(0, 3)) {
+          try {
+            const res = await apiCallFor(companyKey, `/customers?query=${encodeURIComponent(q)}`);
+            const rows = Array.isArray(res?.customers) ? res.customers : [];
+            const match = _matchCustomerFromRows(rows, activeCustomer);
+            const foundId = _custText(match?.id);
+            if (foundId) {
+              _cacheCustomerForCompany(companyKey, match);
+              return foundId;
+            }
+          } catch (_) {}
+        }
+
+        const created = await apiCallFor(companyKey, "/customers/create", {
+          method: "POST",
+          body: seed,
+        });
+        const createdCustomer = (created && typeof created?.customer === "object") ? created.customer : null;
+        const createdId = _custText(createdCustomer?.id);
+        if (!createdId) return null;
+        _cacheCustomerForCompany(companyKey, createdCustomer);
+        return createdId;
+      };
+
       const cartCompanies = cartCompaniesSet();
       const mixedCompanies = cartCompanies.size > 1;
       const inferredPrimary = primaryCompanyFromCart();
@@ -5048,13 +5657,24 @@
         try {
           const res = await apiCallFor(companyKey, `/customers/by-id?customer_id=${encodeURIComponent(requested_customer_id)}`);
           const ok = !!(res && res.customer && res.customer.id);
-          if (!ok && payment_method === "credit") {
+          if (ok) return requested_customer_id;
+
+          const provisionedId = await _ensureCustomerInCompany(companyKey);
+          if (provisionedId) {
+            if (provisionedId !== requested_customer_id) {
+              reportNotice(`Customer was linked in ${companyKey} for this sale.`);
+            }
+            return provisionedId;
+          }
+
+          if (payment_method === "credit") {
             throw new Error(`Customer not found on ${companyKey}. Credit sale requires a valid customer.`);
           }
-          return ok ? requested_customer_id : null;
-        } catch (e) {
-          if (payment_method === "credit") throw e;
           return null;
+        } catch (e) {
+          // For non-credit, don't block checkout if customer link/provision fails.
+          if (payment_method !== "credit") return null;
+          throw e;
         }
       };
 
@@ -5858,6 +6478,11 @@
         showCartDraftsDrawer = false;
         return;
       }
+      if (e.key === "Escape" && showShiftInvoicesDrawer) {
+        e.preventDefault();
+        showShiftInvoicesDrawer = false;
+        return;
+      }
       if (e.key === "Escape" && showShortcutsGuide) {
         e.preventDefault();
         showShortcutsGuide = false;
@@ -6046,10 +6671,22 @@
     >
       Shift
     </button>
+    <button
+      class={topBtnBase}
+      on:click={openShiftInvoicesDrawer}
+      disabled={loading}
+      title="Review invoices from the active shift"
+      type="button"
+    >
+      Invoices
+    </button>
     {#if activeScreen === "pos"}
       <button
         class={`${topBtnBase} ${saleMode === "return" ? topBtnActive : "text-muted"}`}
-        on:click={() => { saleMode = (saleMode === "sale" ? "return" : "sale"); }}
+        on:click={() => {
+          saleMode = (saleMode === "sale" ? "return" : "sale");
+          if (saleMode === "sale") returnSourceContext = null;
+        }}
         title="Toggle return mode"
         type="button"
       >
@@ -6086,6 +6723,15 @@
             type="button"
           >
             Audit
+          </button>
+          <button
+            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            on:click={() => { showTopMoreActions = false; openShiftInvoicesDrawer(); }}
+            disabled={loading}
+            title="Review invoices from this shift"
+            type="button"
+          >
+            Shift Invoices
           </button>
           <button
             class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
@@ -6756,6 +7402,189 @@
               <div class="text-xs text-muted">Cashier: <span class="font-mono text-ink/90">{cashierId || "—"}</span></div>
               {#if eventId}
                 <div class="text-xs text-muted">Event: <span class="font-mono text-ink/90">{_shortQueueEventId(eventId)}</span></div>
+              {/if}
+            </article>
+          {/each}
+        {/if}
+      </div>
+    </aside>
+  </div>
+{/if}
+
+{#if showShiftInvoicesDrawer}
+  <div class="fixed inset-0 z-[73]">
+    <button
+      class="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      type="button"
+      aria-label="Close shift invoices drawer"
+      on:click={closeShiftInvoicesDrawer}
+    ></button>
+    <aside class="absolute right-0 top-0 h-full w-full max-w-3xl bg-surface border-l border-ink/10 shadow-2xl overflow-hidden flex flex-col">
+      <header class="p-5 border-b border-ink/10 flex items-center justify-between gap-3">
+        <div>
+          <h2 class="text-xl font-bold text-ink">Shift Invoices</h2>
+          <p class="text-sm text-muted mt-1">Review posted sales, reprint, duplicate to cart, and stage refund/void safely.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+            on:click={loadShiftInvoices}
+            disabled={shiftInvoicesLoading || loading}
+            type="button"
+          >
+            {shiftInvoicesLoading ? "Refreshing..." : "Refresh"}
+          </button>
+          <button
+            class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+            on:click={closeShiftInvoicesDrawer}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+      </header>
+
+      <div class="flex-1 overflow-y-auto p-5 space-y-3">
+        {#if shiftInvoicesLoading && shiftInvoices.length === 0}
+          <div class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-5 text-sm text-muted">
+            Loading shift invoices...
+          </div>
+        {:else if shiftInvoicesError}
+          <div class="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-5 text-sm text-red-200 break-words">
+            {shiftInvoicesError}
+          </div>
+        {:else if shiftInvoices.length === 0}
+          <div class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-5 text-sm text-muted">
+            No invoice events found for current shift.
+          </div>
+        {:else}
+          {#each shiftInvoices as row}
+            {@const key = _shiftInvoiceKey(row)}
+            {@const detailRow = _shiftInvoiceDetailFor(row)}
+            {@const detail = detailRow?.detail || null}
+            {@const invoice = detail?.invoice || null}
+            {@const lines = Array.isArray(detail?.lines) ? detail.lines : []}
+            {@const statusText = String(row?.status || "unknown").trim() || "unknown"}
+            {@const busy = shiftInvoiceActionBusyKey === key}
+            {@const totalUsd = invoice ? toNum(invoice?.total_usd, 0) : toNum(row?.total_usd, 0)}
+            {@const totalLbp = invoice ? toNum(invoice?.total_lbp, 0) : toNum(row?.total_lbp, 0)}
+            {@const refundCount = Math.max(0, Math.round(toNum(row?.refund_count, 0)))}
+            {@const refundedUsd = toNum(row?.refunded_total_usd, 0)}
+            {@const refundedLbp = Math.round(toNum(row?.refunded_total_lbp, 0))}
+            {@const refundStatus = String(row?.refund_status || "none").trim().toLowerCase() || "none"}
+            {@const fullyRefunded = refundStatus === "refunded"}
+            {@const docNo = String(invoice?.invoice_no || detailRow?.invoice_no || "").trim()}
+            <article class="rounded-xl border border-ink/10 bg-ink/5 px-4 py-3 space-y-2.5">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${row?.companyKey === "unofficial" ? "border-amber-500/35 bg-amber-500/12 text-amber-300" : "border-emerald-500/35 bg-emerald-500/12 text-emerald-300"}`}>
+                      {row?.companyKey === "unofficial" ? "Unofficial" : "Official"}
+                    </span>
+                    <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${_shiftInvoiceBadgeTone(statusText)}`}>
+                      {statusText}
+                    </span>
+                    <span class={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${_shiftInvoiceRefundTone(refundStatus)}`}>
+                      {refundStatus === "refunded" ? "Refunded" : (refundStatus === "partial" ? "Partially Refunded" : "No Refund")}
+                    </span>
+                    {#if docNo}
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border border-accent/35 bg-accent/12 text-accent">
+                        {docNo}
+                      </span>
+                    {/if}
+                  </div>
+                  <div class="text-[11px] text-muted mt-1">
+                    {_queueAgeText(row?.created_at)} · Cashier: <span class="font-mono text-ink/90">{String(row?.cashier_id || "—")}</span>
+                  </div>
+                  <div class="text-[11px] text-muted mt-0.5">
+                    Event: <span class="font-mono text-ink/90">{_shortQueueEventId(row?.event_id || "")}</span>
+                  </div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="text-xs text-muted">Total</div>
+                  <div class="text-sm font-mono text-ink">USD {_fmtMoney(totalUsd, 2)}</div>
+                  <div class="text-xs font-mono text-ink/80">{Math.round(totalLbp).toLocaleString()} LBP</div>
+                  {#if refundCount > 0}
+                    <div class="text-[11px] text-muted mt-1">Refunded</div>
+                    <div class="text-xs font-mono text-ink/80">USD {_fmtMoney(refundedUsd, 2)}</div>
+                    <div class="text-xs font-mono text-ink/70">{refundedLbp.toLocaleString()} LBP</div>
+                  {/if}
+                </div>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-ink/15 bg-ink/5 text-ink hover:bg-ink/10 transition-colors disabled:opacity-60"
+                  type="button"
+                  on:click={() => toggleShiftInvoiceDetail(row)}
+                  disabled={busy}
+                >
+                  {_shiftInvoiceIsExpanded(row) ? "Hide Details" : "View Details"}
+                </button>
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-accent/40 bg-accent/15 text-accent hover:bg-accent/25 transition-colors disabled:opacity-60"
+                  type="button"
+                  on:click={() => reprintShiftInvoice(row)}
+                  disabled={busy}
+                >
+                  {busy ? "Working..." : "Reprint"}
+                </button>
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-ink/15 bg-ink/5 text-ink hover:bg-ink/10 transition-colors disabled:opacity-60"
+                  type="button"
+                  on:click={() => duplicateShiftInvoiceToCart(row)}
+                  disabled={busy}
+                >
+                  Duplicate to Cart
+                </button>
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-amber-500/35 bg-amber-500/12 text-amber-300 hover:bg-amber-500/22 transition-colors disabled:opacity-60"
+                  type="button"
+                  on:click={() => stageShiftInvoiceReturn(row, { mode: "refund" })}
+                  disabled={busy || fullyRefunded}
+                  title={fullyRefunded ? "Invoice already fully refunded." : "Stage refund flow"}
+                >
+                  Refund
+                </button>
+                <button
+                  class="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-red-500/35 bg-red-500/12 text-red-300 hover:bg-red-500/22 transition-colors disabled:opacity-60"
+                  type="button"
+                  on:click={() => stageShiftInvoiceReturn(row, { mode: "void" })}
+                  disabled={busy || fullyRefunded}
+                  title={fullyRefunded ? "Invoice already fully refunded." : "Stage void flow as return reversal"}
+                >
+                  Void
+                </button>
+              </div>
+              {#if _shiftInvoiceIsExpanded(row)}
+                <div class="rounded-lg border border-ink/10 bg-surface/50 p-3 space-y-2">
+                  {#if _shiftInvoiceIsLoading(row)}
+                    <div class="text-[12px] text-muted">Loading invoice details...</div>
+                  {:else if !detail}
+                    <div class="text-[12px] text-muted">Detail unavailable. Try Refresh then View Details again.</div>
+                  {:else}
+                    <div class="text-[11px] text-muted">
+                      Customer: <span class="text-ink">{String(invoice?.customer_name || invoice?.customer_id || "Walk-in")}</span>
+                      {" · "}Date: <span class="text-ink">{_fmtDateTime(invoice?.created_at || invoice?.invoice_date || row?.created_at || "") || "-"}</span>
+                    </div>
+                    {#if lines.length === 0}
+                      <div class="text-[12px] text-muted">No invoice lines.</div>
+                    {:else}
+                      <div class="max-h-44 overflow-auto divide-y divide-ink/10 rounded-lg border border-ink/10 bg-ink/5">
+                        {#each lines as ln}
+                          <div class="px-3 py-2 flex items-center justify-between gap-3 text-[12px]">
+                            <div class="min-w-0">
+                              <div class="text-ink font-semibold truncate">{String(ln?.item_name || ln?.item_sku || ln?.item_id || "Item")}</div>
+                              <div class="text-[11px] text-muted">Qty {toNum(ln?.qty_entered, toNum(ln?.qty, 0))} {String(ln?.uom || "").trim() || ""}</div>
+                            </div>
+                            <div class="text-right font-mono text-ink/90 shrink-0">
+                              USD {_fmtMoney(toNum(ln?.line_total_usd, 0), 2)}
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
+                  {/if}
+                </div>
               {/if}
             </article>
           {/each}
