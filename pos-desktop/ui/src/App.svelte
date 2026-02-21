@@ -2287,16 +2287,23 @@
     if (!invoiceId) {
       throw new Error("Invoice is still being generated. Please retry in a few seconds.");
     }
-    if (thermal && companyKey !== "official") {
-      const cfg = cfgForCompanyKey(companyKey) || {};
-      const pdfUrl = _receiptPdfUrlFromCfg(companyKey, cfg, invoiceId);
-      if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
-        return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
+    let detail = null;
+    try {
+      detail = await _fetchInvoiceDetailWeb(companyKey, invoiceId);
+    } catch (e) {
+      const statusCode = toNum(e?.status, 0);
+      // Some backends can lag on per-invoice read while last receipt is already available.
+      // For thermal unofficial printing, fall back to last receipt detail instead of export URLs.
+      if (thermal && companyKey !== "official" && (statusCode === 404 || statusCode === 409)) {
+        const last = await _fetchLastReceiptDetailWeb(companyKey);
+        detail = last?.receipt || null;
+      } else {
+        throw e;
       }
     }
-    // For official invoices, prefer in-app HTML print flow (print dialog)
-    // over opening export PDF URLs, to avoid browser download behavior.
-    const detail = await _fetchInvoiceDetailWeb(companyKey, invoiceId);
+    if (!detail || typeof detail !== "object") {
+      throw new Error("Invoice details are not available yet. Please retry.");
+    }
     await _printInvoiceDetailWeb(companyKey, detail, receiptWin, { thermal });
     return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId };
   };
@@ -2306,15 +2313,7 @@
     const detail = res?.receipt || null;
     const invoiceId = String(detail?.invoice?.id || "").trim();
     if (!invoiceId) throw new Error("No receipt found for this device.");
-    if (thermal && companyKey !== "official") {
-      const cfg = cfgForCompanyKey(companyKey) || {};
-      const pdfUrl = _receiptPdfUrlFromCfg(companyKey, cfg, invoiceId);
-      if (_openPrintWindowWithUrl(pdfUrl, receiptWin)) {
-        return { ok: true, invoice_id: invoiceId };
-      }
-    }
-    // For official invoices, prefer in-app HTML print flow (print dialog)
-    // over opening export PDF URLs, to avoid browser download behavior.
+    // Prefer in-app HTML print flow (print dialog) over export PDF URLs.
     await _printInvoiceDetailWeb(companyKey, detail, receiptWin, { thermal });
     return { ok: true, invoice_id: invoiceId };
   };
