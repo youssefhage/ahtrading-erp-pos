@@ -15,7 +15,7 @@
           <div class="brand-mark">POS</div>
           <div>
             <h1>Melqard POS Desktop</h1>
-            <p>Desktop launches the same POS web app directly. Configure business credentials inside POS Settings.</p>
+            <p>Desktop opens POS directly like a normal app. Device/company credentials are managed inside POS Settings.</p>
           </div>
         </div>
         <div class="topbar-right">
@@ -36,12 +36,24 @@
         <textarea id="setupPack"></textarea>
       </section>
 
-      <section class="glass card-compact">
-        <h2>Launch</h2>
-        <p class="muted">POS will open directly. Use POS → Settings for company/device configuration.</p>
+      <section id="bootCard" class="glass card-compact boot-card" aria-live="polite">
+        <div class="boot-row">
+          <div class="boot-spinner" aria-hidden="true"></div>
+          <div>
+            <h2>Starting POS</h2>
+            <p class="muted">Please wait while desktop starts local services and opens POS.</p>
+          </div>
+        </div>
+        <div id="bootStatus" class="status"></div>
+        <div id="bootSetupNote" class="status muted setup-note"></div>
+      </section>
+
+      <section id="recoveryCard" class="glass card-compact" hidden>
+        <h2>Troubleshooting</h2>
+        <p class="muted">POS could not launch automatically. Retry once, then open diagnostics if needed.</p>
         <div class="actions-row actions-main">
-          <button id="startBtn" class="primary">Start POS</button>
-          <button id="openBtn" class="ghost">Open POS</button>
+          <button id="startBtn" class="primary">Retry Launch</button>
+          <button id="openBtn" class="ghost">Open If Running</button>
           <details id="moreMenu" class="more-menu">
             <summary class="ghost more-summary">More</summary>
             <div class="more-menu-panel">
@@ -61,7 +73,7 @@
         <div id="diag" class="status muted"></div>
       </section>
 
-      <section class="glass card-notes">
+      <section id="notesCard" class="glass card-notes" hidden>
         <h2>Notes</h2>
         <ul>
           <li>This app starts 2 local agents: Primary + Secondary.</li>

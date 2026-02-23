@@ -13,10 +13,21 @@ use tauri::Manager;
 
 const KEYRING_SERVICE: &str = "MelqardPOSDesktop";
 
+#[derive(Clone, Debug)]
+struct AgentRuntime {
+  port: u16,
+  config_path: PathBuf,
+  db_path: PathBuf,
+  log_path: PathBuf,
+}
+
 #[derive(Default)]
 struct AgentsState {
   official: Option<Child>,
   unofficial: Option<Child>,
+  official_spec: Option<AgentRuntime>,
+  unofficial_spec: Option<AgentRuntime>,
+  watchdog_started: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -210,6 +221,116 @@ fn spawn_agent(
   cmd.spawn()
 }
 
+fn spawn_agent_from_spec(app: &tauri::AppHandle, spec: &AgentRuntime) -> std::io::Result<Child> {
+  spawn_agent(app, spec.port, &spec.config_path, &spec.db_path, &spec.log_path)
+}
+
+fn ensure_watchdog_running(app: &tauri::AppHandle) {
+  let should_start = {
+    let state: tauri::State<'_, Mutex<AgentsState>> = app.state();
+    let mut st = state.lock().unwrap();
+    if st.watchdog_started {
+      false
+    } else {
+      st.watchdog_started = true;
+      true
+    }
+  };
+  if !should_start {
+    return;
+  }
+
+  let app_handle = app.clone();
+  std::thread::spawn(move || loop {
+    std::thread::sleep(Duration::from_secs(2));
+
+    let mut restart_official: Option<AgentRuntime> = None;
+    let mut restart_unofficial: Option<AgentRuntime> = None;
+    {
+      let state: tauri::State<'_, Mutex<AgentsState>> = app_handle.state();
+      let mut st = state.lock().unwrap();
+
+      if let Some(child) = st.official.as_mut() {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+          st.official = None;
+        }
+      }
+      if let Some(child) = st.unofficial.as_mut() {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+          st.unofficial = None;
+        }
+      }
+
+      if st.official.is_none() {
+        if let Some(spec) = st.official_spec.clone() {
+          if is_port_available(spec.port) {
+            restart_official = Some(spec);
+          }
+        }
+      }
+      if st.unofficial.is_none() {
+        if let Some(spec) = st.unofficial_spec.clone() {
+          if is_port_available(spec.port) {
+            restart_unofficial = Some(spec);
+          }
+        }
+      }
+    }
+
+    if let Some(spec) = restart_official {
+      match spawn_agent_from_spec(&app_handle, &spec) {
+        Ok(child) => {
+          let state: tauri::State<'_, Mutex<AgentsState>> = app_handle.state();
+          let mut st = state.lock().unwrap();
+          if st.official.is_none() {
+            st.official = Some(child);
+            let _ = append_desktop_log(
+              &app_handle,
+              "warn",
+              &format!("watchdog restarted primary agent on port {}", spec.port),
+              None,
+            );
+          }
+        }
+        Err(e) => {
+          let _ = append_desktop_log(
+            &app_handle,
+            "error",
+            &format!("watchdog failed to restart primary agent: {}", e),
+            None,
+          );
+        }
+      }
+    }
+
+    if let Some(spec) = restart_unofficial {
+      match spawn_agent_from_spec(&app_handle, &spec) {
+        Ok(child) => {
+          let state: tauri::State<'_, Mutex<AgentsState>> = app_handle.state();
+          let mut st = state.lock().unwrap();
+          if st.unofficial.is_none() {
+            st.unofficial = Some(child);
+            let _ = append_desktop_log(
+              &app_handle,
+              "warn",
+              &format!("watchdog restarted secondary agent on port {}", spec.port),
+              None,
+            );
+          }
+        }
+        Err(e) => {
+          let _ = append_desktop_log(
+            &app_handle,
+            "error",
+            &format!("watchdog failed to restart secondary agent: {}", e),
+            None,
+          );
+        }
+      }
+    }
+  });
+}
+
 fn init_db_with_sidecar(app: &tauri::AppHandle, config_path: &Path, db_path: &Path) -> Result<(), String> {
   let sidecar = find_sidecar_exe(app)
     .ok_or_else(|| "pos-agent sidecar not found (bundle it for production builds)".to_string())?;
@@ -273,6 +394,61 @@ fn secure_delete(key: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn suggest_port_pair(start_official: u16, start_unofficial: u16, max_attempts: Option<u16>) -> Result<serde_json::Value, String> {
+  let mut off = if start_official < 1024 { 7070 } else { start_official };
+  let mut un = if start_unofficial < 1024 { 7072 } else { start_unofficial };
+  if off == un {
+    un = un.saturating_add(2);
+  }
+  let attempts = max_attempts.unwrap_or(24).max(1).min(200);
+  for i in 0..attempts {
+    if i > 0 {
+      off = off.saturating_add(2);
+      un = un.saturating_add(2);
+    }
+    if off == un {
+      break;
+    }
+    if is_port_available(off) && is_port_available(un) {
+      return Ok(serde_json::json!({
+        "port_official": off,
+        "port_unofficial": un,
+      }));
+    }
+  }
+  Err("No free port pair found near configured ports.".to_string())
+}
+
+#[tauri::command]
+fn load_launcher_prefill(app: tauri::AppHandle) -> Result<Option<serde_json::Value>, String> {
+  let data = app_data_dir(&app);
+  let mut candidates = vec![
+    data.join("tauri-launcher-prefill.json"),
+    data.join("bootstrap").join("tauri-launcher-prefill.json"),
+    data.join("config").join("tauri-launcher-prefill.json"),
+  ];
+  if let Ok(res) = app.path().resource_dir() {
+    candidates.push(res.join("tauri-launcher-prefill.json"));
+    candidates.push(res.join("bootstrap").join("tauri-launcher-prefill.json"));
+  }
+  for p in candidates {
+    if !p.exists() {
+      continue;
+    }
+    let raw = fs::read_to_string(&p).map_err(|e| e.to_string())?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    if !parsed.is_object() {
+      continue;
+    }
+    return Ok(Some(serde_json::json!({
+      "source": p.to_string_lossy().to_string(),
+      "pack": parsed,
+    })));
+  }
+  Ok(None)
+}
+
+#[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn start_agents(
   app: tauri::AppHandle,
@@ -304,6 +480,18 @@ fn start_agents(
   let logs_dir = data.join("logs");
   let official_log = logs_dir.join("official.log");
   let unofficial_log = logs_dir.join("unofficial.log");
+  let official_spec = AgentRuntime {
+    port: port_official,
+    config_path: official_cfg.clone(),
+    db_path: official_db.clone(),
+    log_path: official_log.clone(),
+  };
+  let unofficial_spec = AgentRuntime {
+    port: port_unofficial,
+    config_path: unofficial_cfg.clone(),
+    db_path: unofficial_db.clone(),
+    log_path: unofficial_log.clone(),
+  };
 
   let official_busy = !is_port_available(port_official);
   let unofficial_busy = !is_port_available(port_unofficial);
@@ -356,6 +544,8 @@ fn start_agents(
   }
 
   let mut st = state.lock().unwrap();
+  st.official_spec = Some(official_spec);
+  st.unofficial_spec = Some(unofficial_spec);
   if st.official.is_none() && !official_busy {
     let child = spawn_agent(&app, port_official, &official_cfg, &official_db, &official_log)
       .map_err(|e| e.to_string())?;
@@ -382,6 +572,8 @@ fn start_agents(
     }
   }
 
+  drop(st);
+  ensure_watchdog_running(&app);
   Ok(())
 }
 
@@ -410,6 +602,12 @@ fn start_setup_agent(
   let official_db = data.join("official").join("pos.sqlite");
   let logs_dir = data.join("logs");
   let official_log = logs_dir.join("official.log");
+  let official_spec = AgentRuntime {
+    port: port_official,
+    config_path: official_cfg.clone(),
+    db_path: official_db.clone(),
+    log_path: official_log.clone(),
+  };
 
   let official_busy = !is_port_available(port_official);
   if official_busy && !is_agent_health_ok(port_official) {
@@ -437,6 +635,7 @@ fn start_setup_agent(
   }
 
   let mut st = state.lock().unwrap();
+  st.official_spec = Some(official_spec);
   if st.official.is_none() && !official_busy {
     let child = spawn_agent(&app, port_official, &official_cfg, &official_db, &official_log)
       .map_err(|e| e.to_string())?;
@@ -451,6 +650,8 @@ fn start_setup_agent(
     }
   }
 
+  drop(st);
+  ensure_watchdog_running(&app);
   Ok(())
 }
 
@@ -463,6 +664,8 @@ fn stop_agents(state: tauri::State<'_, Mutex<AgentsState>>) -> Result<(), String
   if let Some(mut c) = st.unofficial.take() {
     let _ = c.kill();
   }
+  st.official_spec = None;
+  st.unofficial_spec = None;
   Ok(())
 }
 
@@ -570,6 +773,8 @@ fn main() {
       secure_get,
       secure_set,
       secure_delete,
+      suggest_port_pair,
+      load_launcher_prefill,
       app_version
     ])
     .run(tauri::generate_context!())

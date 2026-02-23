@@ -218,6 +218,26 @@ h3 {
   gap: 10px;
 }
 
+.boot-card {
+  gap: 12px;
+}
+
+.boot-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.boot-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-top-color: rgba(53, 215, 160, 0.9);
+  animation: spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+
 .card-notes {
   margin-bottom: 6px;
 }
@@ -613,5 +633,11 @@ li {
 
   .topbar p {
     max-width: 100%;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }

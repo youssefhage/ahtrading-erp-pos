@@ -9,6 +9,7 @@ const KEY_DEV_ID_OFFICIAL = "ahtrading.posDesktop.deviceIdOfficial";
 const KEY_DEV_TOK_OFFICIAL = "ahtrading.posDesktop.deviceTokenOfficial";
 const KEY_DEV_ID_UNOFFICIAL = "ahtrading.posDesktop.deviceIdUnofficial";
 const KEY_DEV_TOK_UNOFFICIAL = "ahtrading.posDesktop.deviceTokenUnofficial";
+const KEY_PREFILL_SOURCE = "ahtrading.posDesktop.prefillSource";
 const DEBUG_MAX_LINES = 320;
 let APP_VERSION = "unknown";
 
@@ -17,6 +18,9 @@ const debugState = {
 };
 
 let availableUpdate = null;
+const launcherUi = {
+  mode: "booting",
+};
 
 async function tauriInvoke(cmd, args = {}) {
   const fn = globalThis?.__TAURI_INTERNALS__?.invoke;
@@ -271,12 +275,27 @@ function focusField(id) {
 }
 
 function setStatus(msg) {
-  el("status").textContent = msg || "";
+  const text = msg || "";
+  const s = el("status");
+  if (s) s.textContent = text;
+  const b = el("bootStatus");
+  if (b) b.textContent = text;
 }
 
 function setDiag(msg) {
   const n = el("diag");
   if (n) n.textContent = msg || "";
+}
+
+function setLauncherMode(mode) {
+  const next = String(mode || "").trim().toLowerCase() === "recovery" ? "recovery" : "booting";
+  launcherUi.mode = next;
+  const bootCard = el("bootCard");
+  const recoveryCard = el("recoveryCard");
+  const notesCard = el("notesCard");
+  if (bootCard) bootCard.hidden = next !== "booting";
+  if (recoveryCard) recoveryCard.hidden = next !== "recovery";
+  if (notesCard) notesCard.hidden = next !== "recovery";
 }
 
 function setVersionLabel() {
@@ -348,13 +367,23 @@ async function persistDesktopLog(level, message, stack = "") {
 }
 
 function setSetupNote(msg, level = "info") {
+  const text = msg || "";
   const n = el("setupNote");
-  if (!n) return;
-  n.textContent = msg || "";
-  n.classList.remove("setup-note--error", "setup-note--warn", "setup-note--success");
-  if (level === "error") n.classList.add("setup-note--error");
-  else if (level === "warn") n.classList.add("setup-note--warn");
-  else if (level === "success") n.classList.add("setup-note--success");
+  if (n) {
+    n.textContent = text;
+    n.classList.remove("setup-note--error", "setup-note--warn", "setup-note--success");
+    if (level === "error") n.classList.add("setup-note--error");
+    else if (level === "warn") n.classList.add("setup-note--warn");
+    else if (level === "success") n.classList.add("setup-note--success");
+  }
+  const b = el("bootSetupNote");
+  if (b) {
+    b.textContent = text;
+    b.classList.remove("setup-note--error", "setup-note--warn", "setup-note--success");
+    if (level === "error") b.classList.add("setup-note--error");
+    else if (level === "warn") b.classList.add("setup-note--warn");
+    else if (level === "success") b.classList.add("setup-note--success");
+  }
 }
 
 function setSetupChecklist(msg) {
@@ -411,6 +440,7 @@ function reportFatal(err, ctx = "Error") {
   const msg = p.message;
   setStatus(`${ctx}: ${msg}`);
   setSetupNote(`${ctx}: ${msg}`, "error");
+  if (launcherUi.mode === "booting") setLauncherMode("recovery");
   appendDebugLine(`[${fmtNow()}] [error] ${ctx}: ${msg}`);
   if (p.stack) appendDebugLine(p.stack);
   persistDesktopLog("error", `${ctx}: ${msg}`, p.stack);
@@ -500,6 +530,53 @@ function applyPackObject(pack) {
   }
 }
 
+function hasPersistedDeviceSetup() {
+  const companyOfficial = String(el("companyOfficial")?.value || "").trim();
+  const companyUnofficial = String(el("companyUnofficial")?.value || "").trim();
+  const deviceIdOfficial = String(el("deviceIdOfficial")?.value || "").trim();
+  const deviceIdUnofficial = String(el("deviceIdUnofficial")?.value || "").trim();
+  const tokenOfficial = String(el("deviceTokenOfficial")?.value || "").trim();
+  const tokenUnofficial = String(el("deviceTokenUnofficial")?.value || "").trim();
+  return !!(companyOfficial || companyUnofficial || deviceIdOfficial || deviceIdUnofficial || tokenOfficial || tokenUnofficial);
+}
+
+async function persistCurrentBootstrapFields() {
+  localStorage.setItem(KEY_EDGE, normalizeUrl(el("edgeUrl")?.value || ""));
+  localStorage.setItem(KEY_PORT_OFFICIAL, String(el("portOfficial")?.value || "7070"));
+  localStorage.setItem(KEY_PORT_UNOFFICIAL, String(el("portUnofficial")?.value || "7072"));
+  localStorage.setItem(KEY_CO_OFFICIAL, String(el("companyOfficial")?.value || "").trim());
+  localStorage.setItem(KEY_CO_UNOFFICIAL, String(el("companyUnofficial")?.value || "").trim());
+  localStorage.setItem(KEY_DEV_ID_OFFICIAL, String(el("deviceIdOfficial")?.value || "").trim());
+  localStorage.setItem(KEY_DEV_ID_UNOFFICIAL, String(el("deviceIdUnofficial")?.value || "").trim());
+  await persistSecret(KEY_DEV_TOK_OFFICIAL, String(el("deviceTokenOfficial")?.value || "").trim());
+  await persistSecret(KEY_DEV_TOK_UNOFFICIAL, String(el("deviceTokenUnofficial")?.value || "").trim());
+}
+
+async function maybeAutoApplyInstallerPrefill() {
+  let payload = null;
+  try {
+    payload = await tauriInvoke("load_launcher_prefill");
+  } catch {
+    return false;
+  }
+  if (!payload || typeof payload !== "object") return false;
+  const pack = payload?.pack;
+  if (!pack || typeof pack !== "object") return false;
+  const source = String(payload?.source || "installer-prefill").trim() || "installer-prefill";
+  const alreadyAppliedSource = String(localStorage.getItem(KEY_PREFILL_SOURCE) || "").trim();
+  if (hasPersistedDeviceSetup()) return false;
+  if (alreadyAppliedSource === source) return false;
+
+  applyPackObject(pack);
+  await persistCurrentBootstrapFields();
+  await persistSecret(KEY_PACK, JSON.stringify(pack));
+  localStorage.setItem(KEY_PREFILL_SOURCE, source);
+  const sourceName = source.split(/[\\/]/).pop() || source;
+  setSetupNote(`Installer config loaded automatically (${sourceName}).`, "success");
+  reportInfo(`Auto-imported installer prefill from ${source}`, "Bootstrap");
+  return true;
+}
+
 function isEditableTextInput(node) {
   if (!(node instanceof HTMLInputElement)) return false;
   const type = String(node.type || "text").toLowerCase();
@@ -569,6 +646,7 @@ async function load() {
   setStatus("");
   setDiag("");
   setSetupNote("");
+  await maybeAutoApplyInstallerPrefill();
 }
 
 async function waitForAgent(port, timeoutMs = 8000) {
@@ -1769,6 +1847,85 @@ function validateStartConfiguration() {
   };
 }
 
+function isPortConflictErrorMessage(msg) {
+  const text = String(msg || "").toLowerCase();
+  if (!text) return false;
+  return (
+    text.includes("already in use")
+    || text.includes("occupied by an older/manual")
+    || text.includes("blocks desktop access")
+    || (text.includes("port") && text.includes("occupied"))
+  );
+}
+
+function applyPortPair(portOfficial, portUnofficial) {
+  const off = Number(portOfficial || 7070);
+  const un = Number(portUnofficial || 7072);
+  if (Number.isFinite(off)) el("portOfficial").value = String(off);
+  if (Number.isFinite(un)) el("portUnofficial").value = String(un);
+  localStorage.setItem(KEY_PORT_OFFICIAL, String(off));
+  localStorage.setItem(KEY_PORT_UNOFFICIAL, String(un));
+}
+
+async function startAgentsWithPortRecovery({ cloudUrl, edgeLanUrl, portOfficial, portUnofficial }) {
+  let currentOfficial = Number(portOfficial || 7070);
+  let currentUnofficial = Number(portUnofficial || 7072);
+  const maxRetries = 8;
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      await tauriInvoke("start_agents", {
+        edgeUrl: cloudUrl,
+        edgeLanUrl,
+        portOfficial: currentOfficial,
+        portUnofficial: currentUnofficial,
+        companyOfficial: null,
+        companyUnofficial: null,
+        deviceIdOfficial: null,
+        deviceTokenOfficial: null,
+        deviceIdUnofficial: null,
+        deviceTokenUnofficial: null,
+      });
+      return {
+        portOfficial: currentOfficial,
+        portUnofficial: currentUnofficial,
+        recovered: attempt > 0,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!isPortConflictErrorMessage(msg) || attempt >= maxRetries) {
+        if (e && typeof e === "object") {
+          e.portOfficial = currentOfficial;
+          e.portUnofficial = currentUnofficial;
+        }
+        throw e;
+      }
+      let nextOfficial = currentOfficial + 2;
+      let nextUnofficial = currentUnofficial + 2;
+      try {
+        const suggested = await tauriInvoke("suggest_port_pair", {
+          startOfficial: nextOfficial,
+          startUnofficial: nextUnofficial,
+          maxAttempts: 60,
+        });
+        const sOff = Number(suggested?.port_official);
+        const sUn = Number(suggested?.port_unofficial);
+        if (Number.isInteger(sOff) && Number.isInteger(sUn) && sOff !== sUn) {
+          nextOfficial = sOff;
+          nextUnofficial = sUn;
+        }
+      } catch {
+        // fallback to incremental shift
+      }
+      currentOfficial = nextOfficial;
+      currentUnofficial = nextUnofficial;
+      setStatus(`Port conflict detected. Retrying on ${currentOfficial}/${currentUnofficial}…`);
+      setSetupNote(`Port conflict detected. Auto-switching to ${currentOfficial}/${currentUnofficial}.`, "warn");
+      appendDebugLine(`[${fmtNow()}] [warn] Port conflict; retrying start on ${currentOfficial}/${currentUnofficial}`);
+    }
+  }
+  throw new Error("Unable to find available ports for POS agents.");
+}
+
 async function start() {
   let cfg = null;
   try {
@@ -1781,7 +1938,7 @@ async function start() {
     }
     setStatus(msg);
     setSetupNote(msg, "error");
-    return;
+    return false;
   }
   const {
     cloudUrl,
@@ -1792,27 +1949,29 @@ async function start() {
 
   localStorage.setItem(KEY_EDGE, cloudUrl);
   localStorage.setItem(KEY_EDGE_LAN, "");
-  localStorage.setItem(KEY_PORT_OFFICIAL, String(portOfficial));
-  localStorage.setItem(KEY_PORT_UNOFFICIAL, String(portUnofficial));
+  applyPortPair(portOfficial, portUnofficial);
 
   setStatus("Starting local agents…");
   setDiag("");
+  let activePortOfficial = portOfficial;
+  let activePortUnofficial = portUnofficial;
   try {
-    await tauriInvoke("start_agents", {
-      edgeUrl: cloudUrl,
+    const started = await startAgentsWithPortRecovery({
+      cloudUrl,
       edgeLanUrl,
       portOfficial,
       portUnofficial,
-      companyOfficial: null,
-      companyUnofficial: null,
-      deviceIdOfficial: null,
-      deviceTokenOfficial: null,
-      deviceIdUnofficial: null,
-      deviceTokenUnofficial: null,
     });
+    activePortOfficial = Number(started?.portOfficial || portOfficial);
+    activePortUnofficial = Number(started?.portUnofficial || portUnofficial);
+    applyPortPair(activePortOfficial, activePortUnofficial);
+    if (started?.recovered) {
+      setSetupNote(`Desktop recovered from a busy port and switched to ${activePortOfficial}/${activePortUnofficial}.`, "warn");
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const primaryUiAvailable = await checkLatestUnifiedUi(portOfficial);
+    const attemptedOfficial = Number(e?.portOfficial || activePortOfficial || portOfficial);
+    const primaryUiAvailable = await checkLatestUnifiedUi(attemptedOfficial);
     if (primaryUiAvailable) {
       setStatus("Primary POS is already running. Opening POS…");
       setSetupNote(
@@ -1820,8 +1979,8 @@ async function start() {
         "warn",
       );
       appendDebugLine(`[${fmtNow()}] [warn] start_agents degraded; primary UI is reachable. Error: ${msg}`);
-      window.location.href = buildUnifiedUiUrl(portOfficial);
-      return;
+      window.location.href = buildUnifiedUiUrl(attemptedOfficial);
+      return true;
     }
     setStatus(`Failed to start agents: ${msg}`);
     setSetupNote(`Start POS failed: ${msg}`, "error");
@@ -1838,13 +1997,13 @@ async function start() {
     } catch {
       // ignore
     }
-    return;
+    return false;
   }
 
   setStatus("Waiting for agents to start…");
   const [okA, okB] = await Promise.all([
-    waitForAgent(portOfficial, 10000),
-    waitForAgent(portUnofficial, 10000),
+    waitForAgent(activePortOfficial, 10000),
+    waitForAgent(activePortUnofficial, 10000),
   ]);
   if (!okA || !okB) {
     setStatus(`Agent startup incomplete. Primary=${okA ? "ok" : "missing"} Secondary=${okB ? "ok" : "missing"}`);
@@ -1867,8 +2026,8 @@ async function start() {
   }
 
   const [stA, stB] = await Promise.all([
-    fetchSyncStatus(portOfficial),
-    fetchSyncStatus(portUnofficial),
+    fetchSyncStatus(activePortOfficial),
+    fetchSyncStatus(activePortUnofficial),
   ]);
   const diagLines = [fmtSyncDiag("Primary", stA), fmtSyncDiag("Secondary", stB)];
   const authWarnings = [syncAuthNotice("Primary", stA), syncAuthNotice("Secondary", stB)].filter(Boolean);
@@ -1882,22 +2041,27 @@ async function start() {
   } else {
     setStatus("Opening POS…");
   }
-  const uiOk = await checkLatestUnifiedUi(portOfficial);
+  const uiOk = await checkLatestUnifiedUi(activePortOfficial);
   if (!uiOk) {
-    setStatus("Could not verify Unified UI. Opening POS anyway…");
-    setSetupNote("Could not verify Unified UI health. Attempting open anyway.", "warn");
+    setStatus("POS is not reachable after startup.");
+    setSetupNote("Automatic launch failed. Use Retry Launch, then open diagnostics if needed.", "error");
     appendDebugLine(buildStartSnapshot());
+    return false;
   }
-  window.location.href = buildUnifiedUiUrl(portOfficial);
+  window.location.href = buildUnifiedUiUrl(activePortOfficial);
+  return true;
 }
 
 async function openPos() {
   const portOfficial = Number(el("portOfficial").value || 7070);
   const uiOk = await checkLatestUnifiedUi(portOfficial);
   if (!uiOk) {
-    setStatus("Could not verify Unified UI. Opening POS anyway…");
+    setStatus("No running POS session found on Primary port.");
+    setSetupNote("Use Retry Launch to start POS services first.", "warn");
+    return false;
   }
   window.location.href = buildUnifiedUiUrl(portOfficial);
+  return true;
 }
 
 function getUpdateVersion(update) {
@@ -2121,11 +2285,14 @@ setTimeout(() => {
 
 el("startBtn").addEventListener("click", async () => {
   closeMoreMenu();
-  await start();
+  setLauncherMode("booting");
+  const ok = await start();
+  if (!ok) setLauncherMode("recovery");
 });
 el("openBtn").addEventListener("click", async () => {
   closeMoreMenu();
-  await openPos();
+  const ok = await openPos();
+  if (!ok) setLauncherMode("recovery");
 });
 if (el("updateBtn")) el("updateBtn").addEventListener("click", () => {
   closeMoreMenu();
@@ -2164,9 +2331,9 @@ for (const id of [
   n.addEventListener("change", () => clearInputError(id));
 }
 
-if (el("applyPackBtn")) el("applyPackBtn").addEventListener("click", () => {
+if (el("applyPackBtn")) el("applyPackBtn").addEventListener("click", async () => {
   const raw = el("setupPack").value;
-  void persistSecret(KEY_PACK, raw);
+  await persistSecret(KEY_PACK, raw);
   try {
     const pack = parsePack(raw);
     if (!pack) {
@@ -2174,16 +2341,8 @@ if (el("applyPackBtn")) el("applyPackBtn").addEventListener("click", () => {
       return;
     }
     applyPackObject(pack);
-    // Persist everything immediately so Start POS doesn't lose it.
-    localStorage.setItem(KEY_EDGE, normalizeUrl(el("edgeUrl").value));
-    localStorage.setItem(KEY_PORT_OFFICIAL, String(el("portOfficial").value || "7070"));
-    localStorage.setItem(KEY_PORT_UNOFFICIAL, String(el("portUnofficial").value || "7072"));
-    localStorage.setItem(KEY_CO_OFFICIAL, String(el("companyOfficial").value || "").trim());
-    localStorage.setItem(KEY_CO_UNOFFICIAL, String(el("companyUnofficial").value || "").trim());
-    localStorage.setItem(KEY_DEV_ID_OFFICIAL, String(el("deviceIdOfficial").value || "").trim());
-    localStorage.setItem(KEY_DEV_ID_UNOFFICIAL, String(el("deviceIdUnofficial").value || "").trim());
-    void persistSecret(KEY_DEV_TOK_OFFICIAL, String(el("deviceTokenOfficial").value || "").trim());
-    void persistSecret(KEY_DEV_TOK_UNOFFICIAL, String(el("deviceTokenUnofficial").value || "").trim());
+    await persistCurrentBootstrapFields();
+    localStorage.setItem(KEY_PREFILL_SOURCE, "manual");
 
     setStatus("Setup pack applied.");
     setDiag("");
@@ -2202,6 +2361,7 @@ let autoLaunchTried = false;
 async function autoLaunchPosOnce() {
   if (autoLaunchTried) return;
   autoLaunchTried = true;
+  setLauncherMode("booting");
   let portOfficial = 7070;
   try {
     portOfficial = parsePort(el("portOfficial")?.value, "Primary agent port");
@@ -2214,10 +2374,18 @@ async function autoLaunchPosOnce() {
     window.location.href = buildUnifiedUiUrl(portOfficial);
     return;
   }
-  await start();
+  const started = await start();
+  if (!started) {
+    setLauncherMode("recovery");
+    setStatus("POS could not launch automatically.");
+    setSetupNote("Retry Launch to start POS. If it still fails, open diagnostics from More.", "error");
+  }
 }
 
-load().then(() => autoLaunchPosOnce()).catch(() => {});
+load().then(() => autoLaunchPosOnce()).catch((e) => {
+  reportFatal(e, "Desktop boot failed");
+  setLauncherMode("recovery");
+});
 loadAppVersion().then(() => {
   setVersionLabel();
 }).catch(() => {});
