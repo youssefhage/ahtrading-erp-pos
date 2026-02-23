@@ -15,21 +15,33 @@
 BEGIN;
 
 -- 1) Normalize legacy 4dp reciprocal-like factors to canonical 6dp.
+WITH candidates AS (
+    SELECT c.id,
+           c.to_base_factor AS old_factor,
+           (
+             SELECT ROUND((1::numeric / n)::numeric, 6)
+             FROM generate_series(2, 1000) AS s(n)
+             WHERE ROUND((1::numeric / n)::numeric, 4) = ROUND(c.to_base_factor, 4)
+             ORDER BY ABS(ROUND((1::numeric / n)::numeric, 6) - c.to_base_factor), n
+             LIMIT 1
+           ) AS new_factor
+    FROM item_uom_conversions c
+    WHERE c.to_base_factor > 0
+      AND c.to_base_factor < 1
+      AND c.to_base_factor = ROUND(c.to_base_factor, 4)
+),
+to_fix AS (
+    SELECT id, old_factor, new_factor
+    FROM candidates
+    WHERE new_factor IS NOT NULL
+      AND ABS(new_factor - old_factor) > 0
+      AND ABS(new_factor - old_factor) <= 0.00005
+)
 UPDATE item_uom_conversions c
-SET to_base_factor = cand.f6,
+SET to_base_factor = f.new_factor,
     updated_at = now()
-FROM LATERAL (
-    SELECT ROUND((1::numeric / n)::numeric, 6) AS f6
-    FROM generate_series(2, 1000) AS s(n)
-    WHERE ROUND((1::numeric / n)::numeric, 4) = ROUND(c.to_base_factor, 4)
-    ORDER BY ABS(ROUND((1::numeric / n)::numeric, 6) - c.to_base_factor), n
-    LIMIT 1
-) cand
-WHERE c.to_base_factor > 0
-  AND c.to_base_factor < 1
-  AND c.to_base_factor = ROUND(c.to_base_factor, 4)
-  AND ABS(cand.f6 - c.to_base_factor) > 0
-  AND ABS(cand.f6 - c.to_base_factor) <= 0.00005;
+FROM to_fix f
+WHERE f.id = c.id;
 
 -- Keep barcode factors aligned with canonical conversions.
 UPDATE item_barcodes b
