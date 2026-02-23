@@ -732,6 +732,17 @@
   $: selectedCashierName = selectedCashierCompanyKey === otherCompanyKey ? cashierUnofficialName : cashierOfficialName;
   $: selectedCashierSignedIn = !!selectedCashierId;
   $: cashierChoices = selectedCashierCompanyKey === otherCompanyKey ? unofficialCashiers : cashiers;
+  $: selectedCashierLogin = cashierChoices.find((c) => String(c?.id || "").trim() === String(cashierLoginCashierId || "").trim()) || null;
+  $: selectedCashierLoginName = String(selectedCashierLogin?.name || "").trim();
+  $: selectedCashierMatchesCurrent = selectedCashierSignedIn
+    && String(cashierLoginCashierId || "").trim()
+    && String(cashierLoginCashierId || "").trim() === String(selectedCashierId || "").trim();
+  $: cashierPrimaryActionLabel = !selectedCashierSignedIn
+    ? "Sign In"
+    : (selectedCashierMatchesCurrent ? "Re-authenticate" : "Switch Cashier");
+  $: cashierPrimaryActionTitle = !selectedCashierSignedIn
+    ? "Sign in cashier with PIN"
+    : (selectedCashierMatchesCurrent ? "Re-authenticate current cashier with PIN" : "Switch cashier with PIN");
   $: {
     const options = Array.isArray(cashierChoices) ? cashierChoices : [];
     const ids = new Set(options.map((c) => String(c?.id || "").trim()).filter((id) => !!id));
@@ -747,6 +758,21 @@
   $: cashierModalSubtitle = selectedCashierSignedIn
     ? `${selectedCashierName} is signed in for selected company. Enter PIN to switch cashier, or sign out current.`
     : "No cashier is signed in for selected company. Enter PIN to sign in.";
+  $: cashierSessionHintTone = selectedCashierSignedIn ? "warn" : "info";
+  $: cashierSessionHint = !selectedCashierSignedIn
+    ? (
+      selectedCashierLoginName
+        ? `No cashier session is active. Enter PIN to sign in ${selectedCashierLoginName}.`
+        : "No cashier session is active. Select cashier and enter PIN to sign in."
+    )
+    : (
+      selectedCashierMatchesCurrent
+        ? `${selectedCashierName} is already signed in. Enter PIN to re-authenticate, or use Sign Out Current to end this session.`
+        : `${selectedCashierName} is signed in. Enter PIN to switch to ${selectedCashierLoginName || "selected cashier"}.`
+    );
+  $: cashierSessionHintClass = cashierSessionHintTone === "warn"
+    ? "rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-ink/80"
+    : "rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-ink/80";
   const _normalizeCashierManagerMeta = (value) => {
     if (!value || typeof value !== "object") return null;
     const cashier_id = String(value?.cashier_id || "").trim();
@@ -2118,6 +2144,267 @@
       ? taxLines.reduce((s, r) => s + toNum(r?.tax_lbp, 0), 0)
       : Math.max(0, toNum(inv?.total_lbp, 0) - toNum(inv?.subtotal_lbp, 0));
 
+    if (!thermal && companyKey === "official") {
+      const parseMeta = (raw) => {
+        if (!raw) return {};
+        if (typeof raw === "object") return raw;
+        if (typeof raw === "string") {
+          try {
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === "object" ? parsed : {};
+          } catch (_) {
+            return {};
+          }
+        }
+        return {};
+      };
+      const meta = parseMeta(inv?.receipt_meta);
+      const pickMeta = (...keys) => {
+        for (const key of keys) {
+          const value = meta?.[key];
+          if (value == null) continue;
+          const s = String(value).trim();
+          if (s) return s;
+        }
+        return "";
+      };
+      const parseAddressLines = (value) => {
+        if (!value) return [];
+        if (typeof value === "string") {
+          return value
+            .split(/\r?\n/)
+            .map((v) => String(v || "").trim())
+            .filter((v) => !!v);
+        }
+        if (typeof value === "object") {
+          const line1 = String(value?.line1 || value?.address1 || "").trim();
+          const line2 = String(value?.line2 || value?.address2 || "").trim();
+          const city = String(value?.city || "").trim();
+          const region = String(value?.region || value?.state || "").trim();
+          const country = String(value?.country || "").trim();
+          const postal = String(value?.postal_code || value?.postal || "").trim();
+          const out = [];
+          if (line1) out.push(line1);
+          if (line2) out.push(line2);
+          const place = [city, region, postal].filter(Boolean).join(", ");
+          if (place) out.push(place);
+          if (country) out.push(country);
+          return out;
+        }
+        return [];
+      };
+      const fmtUsDate = (value) => {
+        const raw = String(value || "").trim();
+        if (!raw) return "-";
+        const d = new Date(raw);
+        if (!Number.isNaN(d.getTime())) {
+          const mm = String(d.getMonth() + 1).padStart(2, "0");
+          const dd = String(d.getDate()).padStart(2, "0");
+          const yyyy = String(d.getFullYear());
+          return `${mm}/${dd}/${yyyy}`;
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+          return `${raw.slice(5, 7)}/${raw.slice(8, 10)}/${raw.slice(0, 4)}`;
+        }
+        return raw;
+      };
+      const paymentTerms = (invoiceDate, dueDate) => {
+        const invDate = String(invoiceDate || "").slice(0, 10);
+        const due = String(dueDate || "").slice(0, 10);
+        if (!due || !invDate) return "Pay immediately";
+        const invTs = Date.parse(`${invDate}T00:00:00Z`);
+        const dueTs = Date.parse(`${due}T00:00:00Z`);
+        if (Number.isNaN(invTs) || Number.isNaN(dueTs)) return "Pay immediately";
+        const diff = Math.round((dueTs - invTs) / 86400000);
+        if (diff <= 0) return "Pay immediately";
+        return `Net ${diff} day${diff === 1 ? "" : "s"}`;
+      };
+      const fmtPlainMoney = (value) => (
+        toNum(value, 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      );
+      const fmtPlainQty = (value) => (
+        toNum(value, 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 3 })
+      );
+
+      const docNo = String(inv?.invoice_no || inv?.receipt_no || "").trim() || "(draft)";
+      const companyName = String(cfg?.receipt_company_name || "Antoine Hage Trading").trim() || "Antoine Hage Trading";
+      const companyRegistration = pickMeta("registration_no", "company_registration_no") || "-";
+      const companyVatNo = pickMeta("vat_no", "company_vat_no") || "-";
+      const companyPhone = pickMeta("company_phone", "phone") || "-";
+      const companyAddress = pickMeta("company_address", "address") || "-";
+      const salesOrderNo = String(inv?.receipt_no || docNo).trim() || docNo;
+      const salesPerson = pickMeta("sales_person", "salesperson") || "-";
+      const routeName = pickMeta("route", "route_name") || "-";
+      const referenceNo = pickMeta("reference", "po_no") || String(inv?.id || "").slice(0, 12) || "-";
+      const customerNo = pickMeta("customer_no", "customer_code") || String(inv?.customer_id || "").trim() || "-";
+      const customerName = String(inv?.customer_name || "Walk-in").trim() || "Walk-in";
+      const customerPhone = pickMeta("customer_phone", "phone") || "-";
+      const primaryAddressLines = parseAddressLines(meta?.primary_address || meta?.primaryAddress || meta?.billing_address || meta?.bill_to);
+      const deliveryAddressLines = parseAddressLines(meta?.delivery_address || meta?.deliveryAddress || meta?.ship_to);
+      const primaryLinesHtml = (primaryAddressLines.length ? primaryAddressLines : ["-"])
+        .map((line) => `<div>${_escapeHtml(line)}</div>`)
+        .join("");
+      const deliveryLinesHtml = (deliveryAddressLines.length ? deliveryAddressLines : (primaryAddressLines.length ? primaryAddressLines : ["-"]))
+        .map((line) => `<div>${_escapeHtml(line)}</div>`)
+        .join("");
+
+      const officialTotalQty = lines.reduce((sum, ln) => sum + toNum((ln?.qty_entered ?? ln?.qty), 0), 0);
+      const officialTotalUsd = toNum(inv?.total_usd, 0);
+      const officialBeforeVatComputed = toNum(inv?.subtotal_usd, 0) - toNum(inv?.discount_total_usd, 0);
+      const officialBeforeVat = Math.abs(officialTotalUsd - taxUsd) > 0.009
+        ? (officialTotalUsd - taxUsd)
+        : officialBeforeVatComputed;
+      const officialVatPct = officialBeforeVat > 0 ? (taxUsd / officialBeforeVat) * 100 : 0;
+      const officialVatPctLabel = officialVatPct > 0
+        ? `${officialVatPct.toFixed(Math.abs(officialVatPct % 1) < 1e-6 ? 0 : 2)}%`
+        : "";
+      const vatLabel = officialVatPctLabel ? `VAT ${officialVatPctLabel}` : "VAT";
+      const totalWords = `Only USD ${fmtPlainMoney(officialTotalUsd)}`;
+
+      const officialLineRows = lines.map((ln) => {
+        const rawPct = toNum(ln?.discount_pct, 0);
+        const pct = rawPct <= 1 ? rawPct * 100 : rawPct;
+        const pctText = pct === 0
+          ? "0%"
+          : `${pct.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%`;
+        return `
+          <tr>
+            <td class="br mono">${_escapeHtml(String(ln?.item_sku || ln?.item_id || "").trim() || "-")}</td>
+            <td class="br">${_escapeHtml(String(ln?.item_name || ln?.item_sku || "Item"))}</td>
+            <td class="br r mono">${fmtPlainQty(ln?.qty_entered ?? ln?.qty)}</td>
+            <td class="br c">${_escapeHtml(String(ln?.uom || "").trim() || "-")}</td>
+            <td class="br r mono">${fmtPlainMoney(ln?.unit_price_entered_usd ?? ln?.unit_price_usd)}</td>
+            <td class="br c mono">${_escapeHtml(pctText)}</td>
+            <td class="br r mono">${fmtPlainMoney(ln?.discount_amount_usd || 0)}</td>
+            <td class="r mono">${fmtPlainMoney(ln?.line_total_usd)}</td>
+          </tr>
+        `;
+      }).join("");
+
+      return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${_escapeHtml(docNo)}</title>
+  <style>
+    @page { size: A4; margin: 8mm; }
+    body { margin: 0; color: #111; font-family: "Helvetica Neue", Arial, sans-serif; font-size: 11px; line-height: 1.25; }
+    .page { padding: 2mm; }
+    .top { display: grid; grid-template-columns: 1fr 260px; gap: 18px; margin-bottom: 12px; }
+    .company h1 { margin: 0 0 6px; font-size: 28px; font-weight: 700; letter-spacing: -0.3px; }
+    .kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px; margin-bottom: 2px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .invoice-box { text-align: center; padding-top: 4px; }
+    .invoice-box .label { font-size: 24px; font-weight: 700; }
+    .invoice-box .no { margin-top: 8px; font-size: 20px; font-weight: 700; }
+    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 12px; }
+    .meta .section { min-height: 160px; }
+    .meta .line { display: grid; grid-template-columns: 104px 1fr; gap: 6px; margin-bottom: 2px; }
+    .meta .title { margin-top: 8px; margin-bottom: 4px; font-size: 12px; font-weight: 700; text-decoration: underline; }
+    table.lines { width: 100%; border-collapse: collapse; border: 1px solid rgba(0, 0, 0, 0.45); font-size: 10px; }
+    table.lines th { background: rgba(0, 0, 0, 0.06); border-bottom: 1px solid rgba(0, 0, 0, 0.45); padding: 4px; text-align: left; }
+    table.lines td { border-top: 1px solid rgba(0, 0, 0, 0.2); padding: 4px; vertical-align: top; }
+    .br { border-right: 1px solid rgba(0, 0, 0, 0.2); }
+    .r { text-align: right; }
+    .c { text-align: center; }
+    .summary { display: grid; grid-template-columns: 1fr 340px; gap: 14px; margin-top: 10px; }
+    .summary-left { padding-top: 4px; }
+    .summary-left .qty { font-weight: 700; margin-bottom: 6px; }
+    .summary-left .words { font-style: italic; margin-bottom: 10px; }
+    .summary-right { border: 1px solid rgba(0, 0, 0, 0.45); }
+    .summary-right .row { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0, 0, 0, 0.25); padding: 6px 8px; }
+    .summary-right .row:last-child { border-bottom: 0; background: rgba(0, 0, 0, 0.06); font-weight: 700; font-size: 12px; }
+    .sign { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; margin-top: 40px; text-align: center; font-weight: 700; }
+    .sign div { border-top: 1px solid rgba(0, 0, 0, 0.3); padding-top: 8px; }
+    .footer { margin-top: 12px; text-align: right; font-size: 10px; color: #666; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="top">
+      <div class="company">
+        <h1>${_escapeHtml(companyName)}</h1>
+        <div class="kv"><span>P.O. Box</span><span class="mono">-</span></div>
+        <div class="kv"><span>Tel</span><span class="mono">${_escapeHtml(companyPhone)}</span></div>
+        <div class="kv"><span>Address</span><span>${_escapeHtml(companyAddress)}</span></div>
+        <div class="kv"><span>R.C</span><span class="mono">${_escapeHtml(companyRegistration)}</span></div>
+        <div class="kv"><span>VAT Registration No.</span><span class="mono">${_escapeHtml(companyVatNo)}</span></div>
+      </div>
+      <div class="invoice-box">
+        <div class="label">Invoice</div>
+        <div class="no mono">${_escapeHtml(docNo)}</div>
+      </div>
+    </section>
+
+    <section class="meta">
+      <div class="section">
+        <div class="line"><span><strong>Sales order No.</strong></span><span class="mono">${_escapeHtml(salesOrderNo)}</span></div>
+        <div class="line"><span><strong>Sales Person</strong></span><span class="mono">${_escapeHtml(salesPerson)}</span></div>
+        <div class="line"><span><strong>Route</strong></span><span class="mono">${_escapeHtml(routeName)}</span></div>
+        <div class="line"><span><strong>Reference</strong></span><span class="mono">${_escapeHtml(referenceNo)}</span></div>
+        <div class="title">Primary Address</div>
+        <div class="line"><span><strong>Customer No.</strong></span><span class="mono">${_escapeHtml(customerNo)}</span></div>
+        <div>${_escapeHtml(customerName)}</div>
+        ${primaryLinesHtml}
+        <div class="line"><span><strong>Tel</strong></span><span class="mono">${_escapeHtml(customerPhone)}</span></div>
+      </div>
+      <div class="section">
+        <div class="line"><span><strong>Document Date</strong></span><span class="mono">${_escapeHtml(fmtUsDate(inv?.invoice_date || inv?.created_at))}</span></div>
+        <div class="line"><span><strong>Due Date</strong></span><span class="mono">${_escapeHtml(fmtUsDate(inv?.due_date))}</span></div>
+        <div class="line"><span><strong>Payment Terms</strong></span><span class="mono">${_escapeHtml(paymentTerms(inv?.invoice_date, inv?.due_date))}</span></div>
+        <div class="line"><span><strong>Currency</strong></span><span class="mono">${_escapeHtml(String(inv?.settlement_currency || inv?.pricing_currency || "USD"))}</span></div>
+        <div class="title">Delivery Address</div>
+        <div class="line"><span><strong>Customer No.</strong></span><span class="mono">${_escapeHtml(customerNo)}</span></div>
+        <div>${_escapeHtml(customerName)}</div>
+        ${deliveryLinesHtml}
+        <div class="line"><span><strong>Tel</strong></span><span class="mono">${_escapeHtml(customerPhone)}</span></div>
+      </div>
+    </section>
+
+    <section>
+      <table class="lines">
+        <thead>
+          <tr>
+            <th class="br">Item</th>
+            <th class="br">Description</th>
+            <th class="br r">Quantity</th>
+            <th class="br c">UOM</th>
+            <th class="br r">Unit price</th>
+            <th class="br c">Discount %</th>
+            <th class="br r">Discount Amount</th>
+            <th class="r">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${officialLineRows || `<tr><td colspan="8" style="text-align:center;padding:12px;color:#666;">No lines.</td></tr>`}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="summary">
+      <div class="summary-left">
+        <div class="qty">Total Qty HL ${_escapeHtml(fmtPlainQty(officialTotalQty))}</div>
+        <div class="words">${_escapeHtml(totalWords)}</div>
+        <div>Amount to be cashed in USD notes and VAT to be paid in LBP at Sayrafa rate.</div>
+      </div>
+      <div class="summary-right">
+        <div class="row"><span>Total Amount Before VAT</span><span class="mono">${_escapeHtml(fmtPlainMoney(officialBeforeVat))}</span></div>
+        <div class="row"><span>${_escapeHtml(vatLabel)}</span><span class="mono">${_escapeHtml(fmtPlainMoney(taxUsd))}</span></div>
+        <div class="row"><span>Total Amount Incl. VAT</span><span class="mono">${_escapeHtml(fmtPlainMoney(officialTotalUsd))}</span></div>
+      </div>
+    </section>
+
+    <section class="sign">
+      <div>Receiver's Name & Signature</div>
+      <div>Stamp Duty Paid</div>
+    </section>
+
+    <div class="footer mono">Document ID: ${_escapeHtml(String(inv?.id || "-"))} · Generated: ${_escapeHtml(_fmtDateTime(new Date().toISOString()))}</div>
+  </div>
+</body>
+</html>`;
+    }
+
     const fallbackName = companyKey === "official" ? "Official Invoice" : "Sales Receipt";
     const companyName = String(cfg?.receipt_company_name || fallbackName).trim() || fallbackName;
     const footerText = String(cfg?.receipt_footer_text || "").trim();
@@ -2356,7 +2643,7 @@
     const detail = res?.receipt || null;
     const invoiceId = String(detail?.invoice?.id || "").trim();
     if (!invoiceId) throw new Error("No receipt found for this device.");
-    // Prefer in-app HTML print flow (print dialog) over export PDF URLs.
+    // Use in-app HTML print flow to keep direct print dialog behavior.
     await _printInvoiceDetailWeb(companyKey, detail, receiptWin, { thermal });
     return { ok: true, invoice_id: invoiceId };
   };
@@ -3369,15 +3656,15 @@
     const isCloud = _companyUsesCloudTransport(companyKey);
 
     if (companyKey === "official") {
-      const auto = !!cfg.auto_print_invoice;
-      if (auto && eid) {
+      // Always prefer direct printer spool first for official invoices.
+      // If spool fails (printer offline, mapping missing, etc.), fall back to dialog flow.
+      if (eid) {
         try {
-          if (isCloud) await _printInvoiceByEventWeb(companyKey, eid, receiptWin, { thermal: false });
-          else await apiCallFor(companyKey, "/invoices/print-by-event", { method: "POST", body: { event_id: eid } });
+          await apiCallFor(companyKey, "/invoices/print-by-event", { method: "POST", body: { event_id: eid } });
           try { if (receiptWin) receiptWin.close(); } catch (_) {}
           return;
         } catch (_) {
-          // Fall back to opening the PDF if direct printing fails.
+          // Fall through to browser/dialog print fallback.
         }
       }
       if (eid) {
@@ -7787,6 +8074,9 @@
           Current cashier:
           <span class="font-semibold text-ink/80">{selectedCashierName}</span>
         </div>
+        <div class={cashierSessionHintClass}>
+          {cashierSessionHint}
+        </div>
         <label class="text-xs text-muted uppercase tracking-wider font-bold" for="cashier-select">Cashier</label>
         <select
           id="cashier-select"
@@ -7833,10 +8123,10 @@
             class="flex-[2] py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
             on:click={cashierLogin}
             disabled={loading || !cashierLoginCashierId}
-            title={selectedCashierSignedIn ? "Switch cashier with PIN" : "Sign in cashier with PIN"}
+            title={cashierPrimaryActionTitle}
             type="button"
           >
-            {selectedCashierSignedIn ? "Switch Cashier" : "Sign In"}
+            {cashierPrimaryActionLabel}
           </button>
         </div>
       </div>
