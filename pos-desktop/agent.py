@@ -685,6 +685,58 @@ def _run_cmd(args: list[str], timeout_s: float = 2.5) -> tuple[int, str, str]:
     except Exception as ex:
         return 1, "", str(ex)
 
+def _parse_windows_printers_json(raw: str) -> tuple[list[dict], str | None]:
+    txt = (raw or "").strip()
+    if not txt:
+        return [], None
+    obj = json.loads(txt)
+    rows = obj if isinstance(obj, list) else ([obj] if isinstance(obj, dict) else [])
+    printers: list[dict] = []
+    default_name: str | None = None
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        name = str(r.get("Name") or "").strip()
+        if not name:
+            continue
+        is_def = bool(r.get("Default"))
+        if is_def and not default_name:
+            default_name = name
+        printers.append({"name": name, "is_default": is_def})
+    return printers, default_name
+
+def _parse_windows_printers_wmic(raw: str) -> tuple[list[dict], str | None]:
+    """
+    Parse `wmic printer get Name,Default /format:csv` output.
+    Example lines:
+      Node,Default,Name
+      MY-PC,TRUE,HP LaserJet
+      MY-PC,FALSE,Microsoft Print to PDF
+    """
+    printers: list[dict] = []
+    default_name: str | None = None
+    lines = [ln.strip() for ln in (raw or "").splitlines() if ln.strip()]
+    if not lines:
+        return printers, default_name
+    # Skip header-like rows and parse CSV-ish columns from the right.
+    for ln in lines:
+        low = ln.lower()
+        if low.startswith("node,") or low.startswith("name,") or low.startswith("default,"):
+            continue
+        parts = [p.strip() for p in ln.split(",")]
+        if len(parts) < 3:
+            continue
+        # WMIC CSV columns are generally: Node,Default,Name
+        is_def_txt = parts[-2].strip().lower()
+        name = parts[-1].strip()
+        if not name:
+            continue
+        is_def = is_def_txt in ("true", "yes", "1")
+        if is_def and not default_name:
+            default_name = name
+        printers.append({"name": name, "is_default": is_def})
+    return printers, default_name
+
 def list_system_printers() -> dict:
     """
     Enumerate printers available on this machine (best-effort).
@@ -695,40 +747,62 @@ def list_system_printers() -> dict:
     # Windows: query via PowerShell (Get-Printer).
     if sys.platform.startswith("win"):
         ps = shutil.which("powershell") or shutil.which("pwsh")
-        if not ps:
+        # Use JSON so we can reliably detect default printer.
+        # Some Windows terminals are slow to spawn PowerShell, so use a higher timeout.
+        ps_cmds = []
+        if ps:
+            ps_cmds.append((
+                [ps, "-NoProfile", "-NonInteractive", "-Command",
+                 "Get-Printer | Select-Object Name, Default | ConvertTo-Json -Compress"],
+                12.0,
+                "powershell:get-printer",
+            ))
+            ps_cmds.append((
+                [ps, "-NoProfile", "-NonInteractive", "-Command",
+                 "Get-CimInstance Win32_Printer | Select-Object Name, Default | ConvertTo-Json -Compress"],
+                15.0,
+                "powershell:cim-printer",
+            ))
+
+        attempts: list[str] = []
+        for args, timeout_s, label in ps_cmds:
+            code, stdout, stderr = _run_cmd(args, timeout_s=timeout_s)
+            if code != 0:
+                msg = (stderr or f"{label} failed").strip()
+                attempts.append(f"{label}: {msg}")
+                continue
+            raw = (stdout or "").strip()
+            if not raw:
+                attempts.append(f"{label}: empty output")
+                continue
+            try:
+                printers, default_name = _parse_windows_printers_json(raw)
+                out["printers"] = printers
+                out["default_printer"] = default_name
+                if printers:
+                    return out
+                attempts.append(f"{label}: no printers")
+            except Exception as ex:
+                attempts.append(f"{label}: {str(ex)}")
+
+        # Last-resort fallback for older systems where PowerShell printer cmdlets are flaky.
+        wmic = shutil.which("wmic")
+        if wmic:
+            code, stdout, stderr = _run_cmd([wmic, "printer", "get", "Name,Default", "/format:csv"], timeout_s=8.0)
+            if code == 0:
+                printers, default_name = _parse_windows_printers_wmic(stdout or "")
+                out["printers"] = printers
+                out["default_printer"] = default_name
+                if printers:
+                    return out
+                attempts.append("wmic: no printers")
+            else:
+                attempts.append(f"wmic: {(stderr or 'printer query failed').strip()}")
+
+        if attempts:
+            out["error"] = " ; ".join(attempts)
+        elif not ps:
             out["error"] = "powershell not found"
-            return out
-        # Use JSON so we can reliably detect the default printer too.
-        cmd = "Get-Printer | Select-Object Name, Default | ConvertTo-Json -Compress"
-        code, stdout, stderr = _run_cmd([ps, "-NoProfile", "-Command", cmd], timeout_s=4.0)
-        if code != 0:
-            out["error"] = (stderr or "printer query failed").strip()
-            return out
-        raw = (stdout or "").strip()
-        if not raw:
-            return out
-        try:
-            obj = json.loads(raw)
-        except Exception:
-            # Fallback: older PS / locale noise. At least return names if possible.
-            names = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-            out["printers"] = [{"name": n, "is_default": False} for n in names]
-            return out
-        rows = obj if isinstance(obj, list) else ([obj] if isinstance(obj, dict) else [])
-        printers = []
-        default_name = None
-        for r in rows:
-            if not isinstance(r, dict):
-                continue
-            name = str(r.get("Name") or "").strip()
-            if not name:
-                continue
-            is_def = bool(r.get("Default"))
-            if is_def and not default_name:
-                default_name = name
-            printers.append({"name": name, "is_default": is_def})
-        out["printers"] = printers
-        out["default_printer"] = default_name
         return out
 
     # macOS/Linux: use CUPS tools if available.
