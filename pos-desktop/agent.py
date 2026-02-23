@@ -152,17 +152,17 @@ RECEIPT_TEMPLATES = {
 INVOICE_TEMPLATES = {
     "official_classic": {
         "id": "official_classic",
-        "label": "Official Classic",
-        "description": "Full official layout with delivery/primary address blocks.",
+        "label": "Client Invoice - No VAT (Temporary)",
+        "description": "Temporary official client print mode with VAT hidden on printed invoice.",
     },
     "official_compact": {
         "id": "official_compact",
-        "label": "Official Compact",
-        "description": "Simpler official A4 layout with condensed sections.",
+        "label": "Client Invoice - No VAT (Temporary Alias)",
+        "description": "Legacy alias; currently unified to the same temporary client print output.",
     },
     "standard": {
         "id": "standard",
-        "label": "Standard",
+        "label": "Standard Invoice",
         "description": "General invoice layout used by non-official companies.",
     },
 }

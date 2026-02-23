@@ -15,7 +15,9 @@ const OFFICIAL_FOOTER_TAGLINE =
   "Your trusted partner in food wholesale - serving businesses across Lebanon with consistency, quality, and care.";
 const OFFICIAL_FOOTER_LEGAL =
   "© 2025 Antoine Hage Trading. All rights reserved. | For inquiries, contact us at +96176768630 | Email: info@ahagetrading.com";
-const USE_TEMP_NON_VAT_OFFICIAL_CLASSIC = true;
+// Temporary mode (about 1 month): keep VAT in internal accounting, but
+// mask VAT on customer-facing printed official invoices.
+const USE_TEMP_NON_VAT_OFFICIAL_PRINT = true;
 
 type Company = {
   id: string;
@@ -1302,7 +1304,14 @@ export function SalesInvoicePdf(props: {
   const company = props.company || null;
   const selected = normalizePdfTemplate(props.template);
   const isOfficial = company?.id === OFFICIAL_COMPANY_ID;
-  const OfficialClassicTemplate = USE_TEMP_NON_VAT_OFFICIAL_CLASSIC ? OfficialInvoiceTemplateNonVatTemp : OfficialInvoiceTemplate;
+  const useTempOfficialClientPrint = isOfficial && USE_TEMP_NON_VAT_OFFICIAL_PRINT;
+  const OfficialClassicTemplate = useTempOfficialClientPrint ? OfficialInvoiceTemplateNonVatTemp : OfficialInvoiceTemplate;
+
+  // Unify official customer print behavior during temporary non-VAT window:
+  // regardless of official template selection, use the same client-safe output.
+  if (useTempOfficialClientPrint) {
+    return <OfficialClassicTemplate detail={props.detail} company={props.company} customer={props.customer} addresses={props.addresses} />;
+  }
 
   if (selected === "official_compact") {
     return <OfficialCompactInvoiceTemplate detail={props.detail} company={props.company} customer={props.customer} />;

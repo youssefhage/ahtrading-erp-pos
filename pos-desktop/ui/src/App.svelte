@@ -58,9 +58,9 @@
     { id: "detailed", label: "Detailed", desc: "Adds SKU and unit price details." },
   ];
   const INVOICE_TEMPLATE_OPTIONS = [
-    { id: "official_classic", label: "Official Classic", desc: "Full official A4 with detailed sections." },
-    { id: "official_compact", label: "Official Compact", desc: "Condensed official A4 for faster reading." },
-    { id: "standard", label: "Standard", desc: "General invoice layout (non-official style)." },
+    { id: "official_classic", label: "Client Invoice - No VAT (Temporary)", desc: "Temporary official client print mode with VAT hidden on print." },
+    { id: "official_compact", label: "Client Invoice - No VAT (Temporary Alias)", desc: "Legacy alias; currently unified to the same temporary client print output." },
+    { id: "standard", label: "Standard Invoice", desc: "General invoice layout (non-official style)." },
   ];
   const SHORTCUT_GUIDE_SECTIONS = [
     {

@@ -61,9 +61,9 @@ function taxRateInputToDecimal(raw: string): number {
 }
 
 const SALES_INVOICE_TEMPLATE_OPTIONS = [
-  { id: "official_classic", label: "Official Classic" },
-  { id: "official_compact", label: "Official Compact" },
-  { id: "standard", label: "Standard" },
+  { id: "official_classic", label: "Client Invoice - No VAT (Temporary)" },
+  { id: "official_compact", label: "Client Invoice - No VAT (Temporary Alias)" },
+  { id: "standard", label: "Standard Invoice" },
 ];
 
 export default function ConfigPage() {
@@ -1139,7 +1139,7 @@ export default function ConfigPage() {
 
       <Section
         title="Print Policy"
-        description="Default A4 sales invoice PDF template used by exports and POS print flows."
+        description="Default A4 sales invoice PDF template used by exports and POS print flows (temporary client print mode hides VAT on official invoices)."
         actions={
           <Dialog open={printPolicyOpen} onOpenChange={setPrintPolicyOpen}>
             <DialogTrigger asChild>
@@ -1148,7 +1148,7 @@ export default function ConfigPage() {
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Print Policy</DialogTitle>
-                <DialogDescription>Set the company default template for sales invoice PDFs.</DialogDescription>
+                <DialogDescription>Set the company default template for sales invoice PDFs. Official templates are temporarily unified to client no-VAT print.</DialogDescription>
               </DialogHeader>
               <form
                 onSubmit={async (e) => {
