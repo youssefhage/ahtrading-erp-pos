@@ -281,6 +281,31 @@
   };
 
   const _isAbsoluteHttpUrl = (value) => /^https?:\/\//i.test(String(value || "").trim());
+  const _isFetchNetworkError = (errLike) => {
+    const rawMsg = String(errLike?.message || "").trim().toLowerCase();
+    if (!rawMsg) return false;
+    return rawMsg.includes("failed to fetch") || rawMsg.includes("networkerror") || rawMsg.includes("load failed");
+  };
+  const _sameOriginApiBase = () => {
+    try {
+      const origin = String(window?.location?.origin || "").replace(/\/+$/, "");
+      if (!origin) return "";
+      return `${origin}/api`;
+    } catch (_) {
+      return "";
+    }
+  };
+  const _sameApiBase = (a, b) => {
+    try {
+      const ua = new URL(String(a || ""), window.location.origin);
+      const ub = new URL(String(b || ""), window.location.origin);
+      const pa = String(ua.pathname || "/").replace(/\/+$/, "");
+      const pb = String(ub.pathname || "/").replace(/\/+$/, "");
+      return ua.origin === ub.origin && pa === pb;
+    } catch (_) {
+      return String(a || "").trim().replace(/\/+$/, "") === String(b || "").trim().replace(/\/+$/, "");
+    }
+  };
 
   const _normalizeCloudApiBase = (value) => {
     const v = String(value || "").trim();
@@ -346,6 +371,20 @@
       if (e?.name === "AbortError") {
         const err = new Error("Cloud setup request timed out.");
         err.status = 408;
+        throw err;
+      }
+      if (_isFetchNetworkError(e)) {
+        const fallbackBase = _normalizeCloudApiBase(_sameOriginApiBase());
+        if (fallbackBase && !_sameApiBase(fallbackBase, base)) {
+          try {
+            return await _cloudSetupCall(fallbackBase, path, { method, token, companyId, body, timeoutMs });
+          } catch (fallbackErr) {
+            if (!_isFetchNetworkError(fallbackErr)) throw fallbackErr;
+          }
+        }
+        const err = new Error("Cloud setup request could not reach the server. Verify Cloud API URL and internet connection.");
+        err.status = 0;
+        err.payload = { url, cause: String(e?.message || "network error") };
         throw err;
       }
       throw e;
@@ -1668,6 +1707,12 @@
       if (e?.name === "AbortError") {
         const err = new Error("Cloud POS request timed out.");
         err.status = 408;
+        throw err;
+      }
+      if (_isFetchNetworkError(e)) {
+        const err = new Error("Cloud POS request could not reach the server. Verify internet connection and Cloud API URL in Settings.");
+        err.status = 0;
+        err.payload = { url, cause: String(e?.message || "network error") };
         throw err;
       }
       throw e;
@@ -3713,6 +3758,12 @@
         err.payload = { error: "timeout", timeout_ms: timeoutMs };
         throw err;
       }
+      if (_isFetchNetworkError(e)) {
+        const err = new Error("Local POS agent is unreachable. Restart POS Desktop and verify agent ports in Settings.");
+        err.status = 0;
+        err.payload = { error: "network", url };
+        throw err;
+      }
       throw e;
     } finally {
       clearTimeout(timeoutId);
@@ -5098,6 +5149,22 @@
     const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
     const mfaToken = String(payload?.mfa_token || "").trim();
     const mfaCode = String(payload?.mfa_code || "").trim();
+    if (!apiBaseUrl) throw new Error("Cloud API URL is required.");
+    if (!webHostUnsupported) {
+      const proxyBody = { api_base_url: apiBaseUrl };
+      if (mfaToken) {
+        if (!mfaCode) throw new Error("MFA code is required.");
+        proxyBody.mfa_token = mfaToken;
+        proxyBody.mfa_code = mfaCode;
+      } else {
+        const email = String(payload?.email || "").trim();
+        const password = String(payload?.password || "");
+        if (!email || !password) throw new Error("Email and password are required.");
+        proxyBody.email = email;
+        proxyBody.password = password;
+      }
+      return await apiCallFor(originCompanyKey, "/setup/login", { method: "POST", body: proxyBody, timeoutMs: 25000 });
+    }
     let authRes = null;
     if (mfaToken) {
       if (!mfaCode) throw new Error("MFA code is required.");
@@ -5140,8 +5207,20 @@
     const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
     const token = String(payload?.token || "").trim();
     const companyId = String(payload?.company_id || "").trim();
+    if (!apiBaseUrl) throw new Error("Cloud API URL is required.");
     if (!token) throw new Error("Token is required.");
     if (!companyId) throw new Error("Company is required.");
+    if (!webHostUnsupported) {
+      return await apiCallFor(originCompanyKey, "/setup/branches", {
+        method: "POST",
+        body: {
+          api_base_url: apiBaseUrl,
+          token,
+          company_id: companyId,
+        },
+        timeoutMs: 25000,
+      });
+    }
     try {
       return await _cloudSetupCall(apiBaseUrl, "branches", {
         method: "GET",
@@ -5165,8 +5244,20 @@
     const apiBaseUrl = _normalizeCloudApiBase(payload?.api_base_url || "");
     const token = String(payload?.token || "").trim();
     const companyId = String(payload?.company_id || "").trim();
+    if (!apiBaseUrl) throw new Error("Cloud API URL is required.");
     if (!token) throw new Error("Token is required.");
     if (!companyId) throw new Error("Company is required.");
+    if (!webHostUnsupported) {
+      return await apiCallFor(originCompanyKey, "/setup/devices", {
+        method: "POST",
+        body: {
+          api_base_url: apiBaseUrl,
+          token,
+          company_id: companyId,
+        },
+        timeoutMs: 25000,
+      });
+    }
     try {
       await _cloudSetupCall(apiBaseUrl, "auth/select-company", {
         method: "POST",
@@ -5201,9 +5292,24 @@
     const branchId = String(payload?.branch_id || "").trim();
     const deviceCode = String(payload?.device_code || "").trim();
     const resetToken = payload?.reset_token !== false;
+    if (!apiBaseUrl) throw new Error("Cloud API URL is required.");
     if (!token) throw new Error("Token is required.");
     if (!companyId) throw new Error("Company is required.");
     if (!deviceCode) throw new Error("POS code is required.");
+    if (!webHostUnsupported) {
+      return await apiCallFor(originCompanyKey, "/setup/register-device", {
+        method: "POST",
+        body: {
+          api_base_url: apiBaseUrl,
+          token,
+          company_id: companyId,
+          branch_id: branchId,
+          device_code: deviceCode,
+          reset_token: resetToken,
+        },
+        timeoutMs: 25000,
+      });
+    }
     try {
       await _cloudSetupCall(apiBaseUrl, "auth/select-company", {
         method: "POST",
