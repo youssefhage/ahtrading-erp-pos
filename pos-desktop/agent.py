@@ -497,12 +497,41 @@ def _public_config(cfg: dict) -> dict:
     safe.pop("admin_pin_hash", None)
     return safe
 
+
+def _preflight_legacy_outbox_schema(conn) -> None:
+    """
+    Keep legacy local DBs bootable before loading the full schema script.
+
+    Older POS installs created `pos_outbox_events` without `idempotency_key`.
+    The current schema adds indexes that reference that column, so we must add
+    it first to avoid failing inside `conn.executescript(schema)`.
+    """
+    cur = conn.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pos_outbox_events (
+          event_id TEXT PRIMARY KEY,
+          event_type TEXT,
+          payload_json TEXT,
+          created_at TEXT,
+          status TEXT DEFAULT 'pending',
+          idempotency_key TEXT
+        )
+        """
+    )
+    cur.execute("PRAGMA table_info(pos_outbox_events)")
+    outbox_cols = {r[1] for r in cur.fetchall()}
+    if "idempotency_key" not in outbox_cols:
+        cur.execute("ALTER TABLE pos_outbox_events ADD COLUMN idempotency_key TEXT")
+
+
 def init_db():
     if not os.path.exists(SCHEMA_PATH):
         raise RuntimeError(f"Missing schema file: {SCHEMA_PATH}")
     with open(SCHEMA_PATH, 'r', encoding='utf-8') as f:
         schema = f.read()
     with db_connect() as conn:
+        _preflight_legacy_outbox_schema(conn)
         conn.executescript(schema)
         # SQLite CREATE TABLE IF NOT EXISTS does not add new columns. Keep a tiny
         # runtime migration layer for local caches.

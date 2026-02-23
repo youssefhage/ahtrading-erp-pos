@@ -13,6 +13,7 @@ from psycopg.errors import ForeignKeyViolation, UniqueViolation  # type: ignore
 
 router = APIRouter(prefix="/pos", tags=["pos"])
 SALES_INVOICE_PDF_TEMPLATES = {"official_classic", "official_compact", "standard"}
+OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001"
 
 class PosEvent(BaseModel):
     event_id: uuid.UUID
@@ -32,6 +33,15 @@ def _normalize_sales_invoice_pdf_template(value) -> Optional[str]:
     if not raw:
         return None
     return raw if raw in SALES_INVOICE_PDF_TEMPLATES else None
+
+
+def _effective_sales_invoice_pdf_template(value, company_id: str) -> Optional[str]:
+    tpl = _normalize_sales_invoice_pdf_template(value)
+    # Temporary compliance window: official company customer invoices should not use
+    # the legacy "standard" print layout.
+    if str(company_id or "").strip() == OFFICIAL_COMPANY_ID and tpl == "standard":
+        return "official_classic"
+    return tpl
 
 
 def _load_print_policy(cur, company_id: str) -> dict:
@@ -60,7 +70,7 @@ def _load_print_policy(cur, company_id: str) -> dict:
         except Exception:
             obj = {}
 
-    tpl = _normalize_sales_invoice_pdf_template(obj.get("sales_invoice_pdf_template"))
+    tpl = _effective_sales_invoice_pdf_template(obj.get("sales_invoice_pdf_template"), company_id)
     return {"sales_invoice_pdf_template": tpl}
 
 

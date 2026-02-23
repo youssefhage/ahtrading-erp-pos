@@ -20,6 +20,7 @@ USD_Q = Decimal("0.0001")
 LBP_Q = Decimal("0.01")
 SALES_INVOICE_PDF_TEMPLATES = {"official_classic", "official_compact", "standard"}
 SALES_INVOICE_CHANNELS = {"pos", "admin", "import", "api"}
+OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001"
 
 
 def q_usd(v: Decimal) -> Decimal:
@@ -196,6 +197,15 @@ def _normalize_sales_invoice_pdf_template(value) -> Optional[str]:
     return raw if raw in SALES_INVOICE_PDF_TEMPLATES else None
 
 
+def _effective_sales_invoice_pdf_template(value, company_id: str) -> Optional[str]:
+    tpl = _normalize_sales_invoice_pdf_template(value)
+    # Temporary compliance window: official company customer invoices should not use
+    # the legacy "standard" print layout.
+    if str(company_id or "").strip() == OFFICIAL_COMPANY_ID and tpl == "standard":
+        return "official_classic"
+    return tpl
+
+
 def _normalize_sales_invoice_channel(value) -> Optional[str]:
     raw = str(value or "").strip().lower()
     if not raw:
@@ -229,7 +239,7 @@ def _load_print_policy(cur, company_id: str) -> dict:
         except Exception:
             obj = {}
 
-    tpl = _normalize_sales_invoice_pdf_template(obj.get("sales_invoice_pdf_template"))
+    tpl = _effective_sales_invoice_pdf_template(obj.get("sales_invoice_pdf_template"), company_id)
     return {"sales_invoice_pdf_template": tpl}
 
 def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
