@@ -43,6 +43,34 @@
     return (m === "ex" || m === "inc" || m === "both") ? m : "both";
   })();
   const lineUom = (line) => (line.uom || line.uom_code || line.unit_of_measure || "pcs");
+  const lineManagerDiscountMode = (line) => {
+    const mode = String(line?.manual_discount_mode || "").trim().toLowerCase();
+    if (mode === "pct" || mode === "amount") return mode;
+    return toNum(line?.manual_discount_pct, 0) > 0 ? "pct" : "";
+  };
+  const lineHasManagerDiscount = (line) => {
+    const mode = lineManagerDiscountMode(line);
+    if (mode === "amount") {
+      const amtUsd = Math.max(0, toNum(line?.manual_discount_amount_usd, 0));
+      const amtLbp = Math.max(0, toNum(line?.manual_discount_amount_lbp, 0));
+      return amtUsd > 0 || amtLbp > 0;
+    }
+    if (mode === "pct") return toNum(line?.manual_discount_pct, 0) > 0;
+    return false;
+  };
+  const lineManagerDiscountText = (line) => {
+    const mode = lineManagerDiscountMode(line);
+    if (mode === "amount") {
+      const amount = currencyPrimary === "LBP"
+        ? Math.max(0, toNum(line?.manual_discount_amount_lbp, 0))
+        : Math.max(0, toNum(line?.manual_discount_amount_usd, 0));
+      if (amount <= 0) return "";
+      return `Mgr -${fmtMoney(amount, currencyPrimary)}`;
+    }
+    const pct = Math.max(0, toNum(line?.manual_discount_pct, 0));
+    if (pct <= 0) return "";
+    return `Mgr -${fmtPct(pct)}`;
+  };
 
   const nameSizeClass = (name) => {
     const n = String(name || "").trim().length;
@@ -211,9 +239,9 @@
               <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${vatRate > 0 ? "text-blue-300 border-blue-400/20 bg-blue-500/10" : "text-muted border-white/10 bg-surface-highlight/40"}`}>
                 {vatRate > 0 ? `VAT ${fmtVatPct(vatRate)}` : "No VAT"}
               </span>
-              {#if toNum(line.manual_discount_pct, 0) > 0}
+              {#if lineHasManagerDiscount(line)}
                 <span class="text-[10px] font-bold text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
-                  Mgr -{fmtPct(line.manual_discount_pct)}
+                  {lineManagerDiscountText(line)}
                 </span>
               {/if}
               {#if toNum(line.discount_pct, 0) > 0}
@@ -233,7 +261,7 @@
                 on:click={() => requestManagerDiscount(i)}
                 title={canManagerDiscountLine(line) ? "Apply manager item discount" : "Manager approval required"}
               >
-                <span>{toNum(line.manual_discount_pct, 0) > 0 ? "Edit Discount" : "Discount"}</span>
+                <span>{lineHasManagerDiscount(line) ? "Edit Discount" : "Discount"}</span>
               </button>
             </div>
           </div>

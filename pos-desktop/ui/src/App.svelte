@@ -1707,6 +1707,10 @@
         pre_discount_unit_price_usd: toNum(line.pre_discount_unit_price_usd, 0),
         pre_discount_unit_price_lbp: toNum(line.pre_discount_unit_price_lbp, 0),
         discount_pct: toNum(line.discount_pct, 0),
+        manual_discount_mode: String(line.manual_discount_mode || "").trim().toLowerCase() || null,
+        manual_discount_pct: toNum(line.manual_discount_pct, 0),
+        manual_discount_amount_usd: toNum(line.manual_discount_amount_usd, 0),
+        manual_discount_amount_lbp: toNum(line.manual_discount_amount_lbp, 0),
         discount_amount_usd: toNum(line.discount_amount_usd, 0),
         discount_amount_lbp: toNum(line.discount_amount_lbp, 0),
         applied_promotion_id: line.applied_promotion_id || null,
@@ -4575,7 +4579,13 @@
     const ln = { ...(line || {}) };
     const listUsd = toNum(ln.list_price_usd, toNum(ln.price_usd, 0));
     const listLbp = toNum(ln.list_price_lbp, toNum(ln.price_lbp, 0));
-    const manualDiscPct = _normDiscPct(ln.manual_discount_pct);
+    const rawManualMode = String(ln.manual_discount_mode || "").trim().toLowerCase();
+    const manualPctRaw = _normDiscPct(ln.manual_discount_pct);
+    const manualAmtUsdRaw = Math.max(0, toNum(ln.manual_discount_amount_usd, 0));
+    const manualAmtLbpRaw = Math.max(0, toNum(ln.manual_discount_amount_lbp, 0));
+    let manualMode = (rawManualMode === "amount" || rawManualMode === "pct")
+      ? rawManualMode
+      : (manualPctRaw > 0 ? "pct" : "");
     ln.list_price_usd = listUsd;
     ln.list_price_lbp = listLbp;
 
@@ -4584,8 +4594,8 @@
       // Clear promo metadata and revert unit prices to list.
       ln.price_usd = listUsd;
       ln.price_lbp = listLbp;
-      ln.pre_discount_unit_price_usd = manualDiscPct > 0 ? listUsd : 0;
-      ln.pre_discount_unit_price_lbp = manualDiscPct > 0 ? listLbp : 0;
+      ln.pre_discount_unit_price_usd = 0;
+      ln.pre_discount_unit_price_lbp = 0;
       ln.discount_amount_usd = 0;
       ln.discount_amount_lbp = 0;
       ln.applied_promotion_id = null;
@@ -4601,14 +4611,56 @@
       ln.applied_promotion_item_id = String(best.promoItem?.id || "") || null;
     }
 
-    if (manualDiscPct > 0) {
-      const baseUsd = toNum(ln.price_usd, listUsd);
-      const baseLbp = toNum(ln.price_lbp, listLbp);
-      ln.price_usd = baseUsd > 0 ? (baseUsd * (1 - manualDiscPct)) : baseUsd;
-      ln.price_lbp = baseLbp > 0 ? (baseLbp * (1 - manualDiscPct)) : baseLbp;
+    const baseUsd = toNum(ln.price_usd, listUsd);
+    const baseLbp = toNum(ln.price_lbp, listLbp);
+    const cfg = cfgForCompanyKey(ln?.companyKey || "official") || {};
+    const ex = toNum(cfg?.exchange_rate, 0);
+    let manualApplied = false;
+    if (manualMode === "pct" && manualPctRaw > 0) {
+      ln.price_usd = baseUsd > 0 ? (baseUsd * (1 - manualPctRaw)) : baseUsd;
+      ln.price_lbp = baseLbp > 0 ? (baseLbp * (1 - manualPctRaw)) : baseLbp;
+      manualApplied = true;
+    } else if (manualMode === "amount" && (manualAmtUsdRaw > 0 || manualAmtLbpRaw > 0)) {
+      let offUsd = manualAmtUsdRaw;
+      let offLbp = manualAmtLbpRaw;
+      if (offUsd <= 0 && offLbp > 0 && ex > 0) offUsd = offLbp / ex;
+      if (offLbp <= 0 && offUsd > 0 && ex > 0) offLbp = offUsd * ex;
+      if (offUsd <= 0 && offLbp > 0 && baseLbp > 0 && baseUsd > 0) offUsd = offLbp * (baseUsd / baseLbp);
+      if (offLbp <= 0 && offUsd > 0 && baseUsd > 0 && baseLbp > 0) offLbp = offUsd * (baseLbp / baseUsd);
+      if (offUsd > 0 || offLbp > 0) {
+        ln.price_usd = Math.max(0, baseUsd - Math.max(0, offUsd));
+        ln.price_lbp = Math.max(0, baseLbp - Math.max(0, offLbp));
+        manualApplied = true;
+      }
+    } else {
+      manualMode = "";
     }
-    ln.manual_discount_pct = manualDiscPct;
-    if (manualDiscPct > 0 || !!best) {
+    if (manualApplied || !!best) {
+      ln.pre_discount_unit_price_usd = listUsd;
+      ln.pre_discount_unit_price_lbp = listLbp;
+    } else {
+      ln.pre_discount_unit_price_usd = 0;
+      ln.pre_discount_unit_price_lbp = 0;
+    }
+
+    if (manualMode === "pct" && manualApplied) {
+      ln.manual_discount_mode = "pct";
+      ln.manual_discount_pct = manualPctRaw;
+      ln.manual_discount_amount_usd = 0;
+      ln.manual_discount_amount_lbp = 0;
+    } else if (manualMode === "amount" && manualApplied) {
+      ln.manual_discount_mode = "amount";
+      ln.manual_discount_pct = 0;
+      ln.manual_discount_amount_usd = Math.max(0, manualAmtUsdRaw);
+      ln.manual_discount_amount_lbp = Math.max(0, manualAmtLbpRaw);
+    } else {
+      ln.manual_discount_mode = "";
+      ln.manual_discount_pct = 0;
+      ln.manual_discount_amount_usd = 0;
+      ln.manual_discount_amount_lbp = 0;
+    }
+
+    if (manualApplied || !!best) {
       let effPct = 0;
       if (listUsd > 0) effPct = Math.max(0, (listUsd - toNum(ln.price_usd, listUsd)) / listUsd);
       else if (listLbp > 0) effPct = Math.max(0, (listLbp - toNum(ln.price_lbp, listLbp)) / listLbp);
@@ -4663,7 +4715,10 @@
       pre_discount_unit_price_usd: 0,
       pre_discount_unit_price_lbp: 0,
       discount_pct: 0,
+      manual_discount_mode: "",
       manual_discount_pct: 0,
+      manual_discount_amount_usd: 0,
+      manual_discount_amount_lbp: 0,
       discount_amount_usd: 0,
       discount_amount_lbp: 0,
       applied_promotion_id: null,
@@ -5217,18 +5272,109 @@
     checkoutIntentId = "";
   };
 
-  const _managerDiscountInputPct = (seedPct = 0) => {
-    const seed = Math.max(0, Math.min(100, Math.round(_normDiscPct(seedPct) * 100)));
-    const raw = window.prompt("Manager item discount (%)\nEnter 0 to clear discount.", String(seed));
+  const _clearManagerDiscountSpec = () => ({
+    mode: "",
+    pct: 0,
+    amount_usd: 0,
+    amount_lbp: 0,
+  });
+
+  const _seedManagerDiscountInput = (line) => {
+    const ln = line || {};
+    const mode = String(ln?.manual_discount_mode || "").trim().toLowerCase();
+    const companyKey = normalizeCompanyKey(ln?.companyKey || "official");
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const currency = String(cfg?.pricing_currency || "USD").trim().toUpperCase() === "LBP" ? "LBP" : "USD";
+    if (mode === "amount") {
+      const amount = currency === "LBP"
+        ? Math.max(0, toNum(ln?.manual_discount_amount_lbp, 0))
+        : Math.max(0, toNum(ln?.manual_discount_amount_usd, 0));
+      if (amount > 0) {
+        return currency === "LBP" ? `${Math.round(amount)}` : `${amount.toFixed(2)}`;
+      }
+      return "0";
+    }
+    const pct = _normDiscPct(ln?.manual_discount_pct);
+    return pct > 0 ? `${Math.round(pct * 100)}%` : "0";
+  };
+
+  const _managerDiscountPromptSpec = (line) => {
+    const ln = line || {};
+    const companyKey = normalizeCompanyKey(ln?.companyKey || "official");
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    const currency = String(cfg?.pricing_currency || "USD").trim().toUpperCase() === "LBP" ? "LBP" : "USD";
+    const seed = _seedManagerDiscountInput(ln);
+    const raw = window.prompt(
+      `Manager item discount\nUse % for percentage (example: 10%)\nUse amount in ${currency} per unit (example: ${currency === "LBP" ? "50000" : "1.50"})\nEnter 0 to clear.`,
+      seed,
+    );
     if (raw == null) return null;
     const trimmed = String(raw || "").trim();
     if (!trimmed) return null;
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed)) {
-      reportError("Enter a valid discount percentage (0-100).");
+
+    const compact = trimmed.replace(/\s+/g, "");
+    if (compact === "0" || compact === "0%" || compact === "0.0" || compact === "0.00") {
+      return _clearManagerDiscountSpec();
+    }
+
+    if (compact.endsWith("%")) {
+      const pctRaw = Number(compact.slice(0, -1));
+      if (!Number.isFinite(pctRaw)) {
+        reportError("Enter a valid percentage like 10%.");
+        return null;
+      }
+      const pct = _normDiscPct(pctRaw);
+      if (pct <= 0) return _clearManagerDiscountSpec();
+      return { mode: "pct", pct, amount_usd: 0, amount_lbp: 0 };
+    }
+
+    let amountCurrency = currency;
+    let amountRawText = trimmed;
+    const tagged = trimmed.match(/^\s*(usd|lbp)\s*[:\-]?\s*([0-9]+(?:\.[0-9]+)?)\s*$/i);
+    if (tagged) {
+      amountCurrency = String(tagged[1] || currency).toUpperCase();
+      amountRawText = String(tagged[2] || "").trim();
+    }
+    const amountRaw = Number(String(amountRawText || "").replace(/,/g, ""));
+    if (!Number.isFinite(amountRaw)) {
+      reportError(`Enter amount in ${currency} (or add % for percentage).`);
       return null;
     }
-    return _normDiscPct(parsed);
+    const amount = Math.max(0, amountRaw);
+    if (amount <= 0) return _clearManagerDiscountSpec();
+
+    const ex = toNum(cfg?.exchange_rate, 0);
+    let amountUsd = 0;
+    let amountLbp = 0;
+    if (amountCurrency === "LBP") {
+      amountLbp = amount;
+      if (ex > 0) amountUsd = amount / ex;
+    } else {
+      amountUsd = amount;
+      if (ex > 0) amountLbp = amount * ex;
+    }
+
+    const basePreview = applyPromotionToLine({
+      ...(ln || {}),
+      manual_discount_mode: "",
+      manual_discount_pct: 0,
+      manual_discount_amount_usd: 0,
+      manual_discount_amount_lbp: 0,
+    });
+    const maxPrimary = amountCurrency === "LBP"
+      ? Math.max(0, toNum(basePreview?.price_lbp, 0))
+      : Math.max(0, toNum(basePreview?.price_usd, 0));
+    if (maxPrimary > 0 && amount > maxPrimary + 1e-9) {
+      reportError(`Amount discount cannot exceed unit price (${amountCurrency} ${amountCurrency === "LBP" ? Math.round(maxPrimary).toLocaleString() : maxPrimary.toFixed(2)}).`);
+      return null;
+    }
+
+    return {
+      mode: "amount",
+      pct: 0,
+      amount_usd: Math.max(0, amountUsd),
+      amount_lbp: Math.max(0, amountLbp),
+    };
   };
 
   const _lineIndexByKey = (lineKey, companyKey = "") => {
@@ -5246,12 +5392,28 @@
     return -1;
   };
 
-  const applyManagerDiscountAtLine = (index, pct) => {
+  const applyManagerDiscountAtLine = (index, spec) => {
     const safeIdx = Math.trunc(toNum(index, -1));
     if (safeIdx < 0 || safeIdx >= (cart || []).length) return false;
     const copy = [...cart];
     const current = { ...(copy[safeIdx] || {}) };
-    current.manual_discount_pct = _normDiscPct(pct);
+    const mode = String(spec?.mode || "").trim().toLowerCase();
+    if (mode === "pct") {
+      current.manual_discount_mode = "pct";
+      current.manual_discount_pct = _normDiscPct(spec?.pct);
+      current.manual_discount_amount_usd = 0;
+      current.manual_discount_amount_lbp = 0;
+    } else if (mode === "amount") {
+      current.manual_discount_mode = "amount";
+      current.manual_discount_pct = 0;
+      current.manual_discount_amount_usd = Math.max(0, toNum(spec?.amount_usd, 0));
+      current.manual_discount_amount_lbp = Math.max(0, toNum(spec?.amount_lbp, 0));
+    } else {
+      current.manual_discount_mode = "";
+      current.manual_discount_pct = 0;
+      current.manual_discount_amount_usd = 0;
+      current.manual_discount_amount_lbp = 0;
+    }
     copy[safeIdx] = applyPromotionToLine(current);
     cart = copy;
     checkoutIntentId = "";
@@ -5265,14 +5427,15 @@
       return;
     }
     const ln = cart[safeIdx] || {};
-    const pct = _managerDiscountInputPct(ln?.manual_discount_pct);
-    if (pct == null) return;
-    if (!applyManagerDiscountAtLine(safeIdx, pct)) {
+    const spec = _managerDiscountPromptSpec(ln);
+    if (spec == null) return;
+    if (!applyManagerDiscountAtLine(safeIdx, spec)) {
       reportError("Unable to apply discount.");
       return;
     }
     const name = String(ln?.name || ln?.sku || "item").trim() || "item";
     const companyKey = normalizeCompanyKey(ln?.companyKey || "official");
+    const appliedMode = String(spec?.mode || "").trim().toLowerCase();
     if (_companyUsesCloudTransport(companyKey)) {
       _appendWebAudit(companyKey, {
         action: "cart.manager_discount",
@@ -5283,12 +5446,25 @@
         details: {
           item_id: String(ln?.id || "").trim() || null,
           item_name: name,
-          manual_discount_pct: pct,
+          manual_discount_mode: appliedMode || null,
+          manual_discount_pct: toNum(spec?.pct, 0),
+          manual_discount_amount_usd: toNum(spec?.amount_usd, 0),
+          manual_discount_amount_lbp: toNum(spec?.amount_lbp, 0),
         },
       });
     }
-    if (pct <= 0) reportNotice(`Manager discount cleared on ${name}.`);
-    else reportNotice(`Manager discount ${Math.round(pct * 100)}% applied to ${name}.`);
+    if (!appliedMode) {
+      reportNotice(`Manager discount cleared on ${name}.`);
+    } else if (appliedMode === "amount") {
+      const cfg = cfgForCompanyKey(companyKey) || {};
+      const currency = String(cfg?.pricing_currency || "USD").trim().toUpperCase() === "LBP" ? "LBP" : "USD";
+      const amount = currency === "LBP" ? toNum(spec?.amount_lbp, 0) : toNum(spec?.amount_usd, 0);
+      const amountText = currency === "LBP" ? Math.round(amount).toLocaleString() : amount.toFixed(2);
+      reportNotice(`Manager discount ${amountText} ${currency} per unit applied to ${name}.`);
+    } else {
+      const pct = _normDiscPct(spec?.pct);
+      reportNotice(`Manager discount ${Math.round(pct * 100)}% applied to ${name}.`);
+    }
   };
 
   const _resumePendingManagerAction = async (action) => {
@@ -5476,7 +5652,10 @@
         pre_discount_unit_price_usd: toNum(src?.pre_discount_unit_price_usd, 0),
         pre_discount_unit_price_lbp: toNum(src?.pre_discount_unit_price_lbp, 0),
         discount_pct: toNum(src?.discount_pct, 0),
+        manual_discount_mode: String(src?.manual_discount_mode || "").trim().toLowerCase(),
         manual_discount_pct: toNum(src?.manual_discount_pct, 0),
+        manual_discount_amount_usd: toNum(src?.manual_discount_amount_usd, 0),
+        manual_discount_amount_lbp: toNum(src?.manual_discount_amount_lbp, 0),
         discount_amount_usd: toNum(src?.discount_amount_usd, 0),
         discount_amount_lbp: toNum(src?.discount_amount_lbp, 0),
         applied_promotion_id: src?.applied_promotion_id || null,
@@ -6246,7 +6425,10 @@
           pre_discount_unit_price_usd: toNum(line.pre_discount_unit_price_usd, 0),
           pre_discount_unit_price_lbp: toNum(line.pre_discount_unit_price_lbp, 0),
           discount_pct: toNum(line.discount_pct, 0),
+          manual_discount_mode: String(line.manual_discount_mode || "").trim().toLowerCase() || null,
           manual_discount_pct: toNum(line.manual_discount_pct, 0),
+          manual_discount_amount_usd: toNum(line.manual_discount_amount_usd, 0),
+          manual_discount_amount_lbp: toNum(line.manual_discount_amount_lbp, 0),
           discount_amount_usd: toNum(line.discount_amount_usd, 0),
           discount_amount_lbp: toNum(line.discount_amount_lbp, 0),
           applied_promotion_id: line.applied_promotion_id || null,
