@@ -31,6 +31,7 @@
   const FLAG_OFFICIAL_STORAGE_KEY = "pos_ui_flag_official";
   const VAT_DISPLAY_MODE_STORAGE_KEY = "pos_ui_vat_display_mode";
   const PRICE_DISPLAY_CONTROLS_STORAGE_KEY = "pos_ui_price_display_controls";
+  const LINKED_OPS_MODE_STORAGE_KEY = "pos_ui_linked_ops_mode";
   const THEME_STORAGE_KEY = "pos_ui_theme";
   const SCREEN_STORAGE_KEY = "pos_ui_screen";
   const WEB_CONFIG_OFFICIAL_STORAGE_KEY = "pos_web_config_official";
@@ -48,6 +49,7 @@
   const SHIFT_INVOICES_MAX = 160;
   const MANAGER_APPROVAL_TTL_MS = 2 * 60 * 1000;
   const POS_UI_VERSION = String(posUiPackage?.version || "").trim() || "dev";
+  const POS_COMPANY_KEYS = ["official", "unofficial"];
 
   // These are seeded in backend/db/seeds/seed_companies.sql and used in sample POS configs.
   const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
@@ -548,6 +550,7 @@
   let flagOfficial = false;
   let vatDisplayMode = "both"; // "ex" | "inc" | "both"
   let showPriceDisplayControls = false;
+  let linkedOpsMode = true;
 
   // Layout
   let catalogCollapsed = true;
@@ -732,45 +735,97 @@
     : String(config?.cashier_id || "").trim();
   $: selectedCashierName = selectedCashierCompanyKey === otherCompanyKey ? cashierUnofficialName : cashierOfficialName;
   $: selectedCashierSignedIn = !!selectedCashierId;
-  $: cashierChoices = selectedCashierCompanyKey === otherCompanyKey ? unofficialCashiers : cashiers;
+  const _mergeCashierChoices = (lists = []) => {
+    const byId = new Map();
+    for (const rows of (lists || [])) {
+      for (const row of (rows || [])) {
+        const id = String(row?.id || "").trim();
+        if (!id) continue;
+        if (!byId.has(id)) {
+          byId.set(id, { ...(row || {}), id, name: String(row?.name || "").trim() || id });
+          continue;
+        }
+        const prev = byId.get(id) || {};
+        byId.set(id, {
+          ...prev,
+          ...(row || {}),
+          id,
+          name: String(row?.name || prev?.name || id).trim() || id,
+        });
+      }
+    }
+    return Array.from(byId.values()).sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
+  };
+  $: linkedCashierChoices = _mergeCashierChoices([cashiers, unofficialCashiers]);
+  $: cashierChoices = linkedOpsMode
+    ? linkedCashierChoices
+    : (selectedCashierCompanyKey === otherCompanyKey ? unofficialCashiers : cashiers);
   $: selectedCashierLogin = cashierChoices.find((c) => String(c?.id || "").trim() === String(cashierLoginCashierId || "").trim()) || null;
   $: selectedCashierLoginName = String(selectedCashierLogin?.name || "").trim();
   $: selectedCashierMatchesCurrent = selectedCashierSignedIn
     && String(cashierLoginCashierId || "").trim()
     && String(cashierLoginCashierId || "").trim() === String(selectedCashierId || "").trim();
-  $: cashierPrimaryActionLabel = !selectedCashierSignedIn
-    ? "Sign In"
-    : (selectedCashierMatchesCurrent ? "Re-authenticate" : "Switch Cashier");
-  $: cashierPrimaryActionTitle = !selectedCashierSignedIn
-    ? "Sign in cashier with PIN"
-    : (selectedCashierMatchesCurrent ? "Re-authenticate current cashier with PIN" : "Switch cashier with PIN");
+  $: linkedCashierSignedInOfficial = !!String(config?.cashier_id || "").trim();
+  $: linkedCashierSignedInUnofficial = !!String(unofficialConfig?.cashier_id || "").trim();
+  $: linkedCashierSignedInAny = linkedCashierSignedInOfficial || linkedCashierSignedInUnofficial;
+  $: linkedCashierSignedInBoth = linkedCashierSignedInOfficial && linkedCashierSignedInUnofficial;
+  $: cashierCurrentSessionText = linkedOpsMode
+    ? `Official: ${cashierOfficialName} · Unofficial: ${cashierUnofficialName}`
+    : selectedCashierName;
+  $: cashierPrimaryActionLabel = linkedOpsMode
+    ? (linkedCashierSignedInBoth ? "Switch Both" : "Sign In Both")
+    : (!selectedCashierSignedIn ? "Sign In" : (selectedCashierMatchesCurrent ? "Re-authenticate" : "Switch Cashier"));
+  $: cashierPrimaryActionTitle = linkedOpsMode
+    ? "Apply selected cashier to both companies using PIN"
+    : (!selectedCashierSignedIn
+      ? "Sign in cashier with PIN"
+      : (selectedCashierMatchesCurrent ? "Re-authenticate current cashier with PIN" : "Switch cashier with PIN"));
+  $: cashierSignOutActionLabel = linkedOpsMode ? "Sign Out Both" : "Sign Out Current";
+  $: cashierCanSignOutCurrent = linkedOpsMode ? linkedCashierSignedInAny : selectedCashierSignedIn;
   $: {
     const options = Array.isArray(cashierChoices) ? cashierChoices : [];
     const ids = new Set(options.map((c) => String(c?.id || "").trim()).filter((id) => !!id));
     let nextSelected = String(cashierLoginCashierId || "").trim();
     if (!nextSelected || !ids.has(nextSelected)) {
-      const currentSignedIn = String(selectedCashierId || "").trim();
+      const currentSignedIn = linkedOpsMode
+        ? (
+          [String(config?.cashier_id || "").trim(), String(unofficialConfig?.cashier_id || "").trim()]
+            .find((id) => ids.has(id)) || ""
+        )
+        : String(selectedCashierId || "").trim();
       nextSelected = ids.has(currentSignedIn)
         ? currentSignedIn
         : String(options?.[0]?.id || "").trim();
     }
     if (nextSelected !== cashierLoginCashierId) cashierLoginCashierId = nextSelected;
   }
-  $: cashierModalSubtitle = selectedCashierSignedIn
-    ? `${selectedCashierName} is signed in for selected company. Enter PIN to switch cashier, or sign out current.`
-    : "No cashier is signed in for selected company. Enter PIN to sign in.";
-  $: cashierSessionHintTone = selectedCashierSignedIn ? "warn" : "info";
-  $: cashierSessionHint = !selectedCashierSignedIn
+  $: cashierModalSubtitle = linkedOpsMode
+    ? (linkedCashierSignedInAny
+      ? "Linked mode is on. Enter PIN to sign in or switch cashier for both companies at once."
+      : "Linked mode is on. Enter PIN once to sign in both companies.")
+    : (selectedCashierSignedIn
+      ? `${selectedCashierName} is signed in for selected company. Enter PIN to switch cashier, or sign out current.`
+      : "No cashier is signed in for selected company. Enter PIN to sign in.");
+  $: cashierSessionHintTone = linkedOpsMode
+    ? (linkedCashierSignedInAny ? "warn" : "info")
+    : (selectedCashierSignedIn ? "warn" : "info");
+  $: cashierSessionHint = linkedOpsMode
     ? (
       selectedCashierLoginName
-        ? `No cashier session is active. Enter PIN to sign in ${selectedCashierLoginName}.`
-        : "No cashier session is active. Select cashier and enter PIN to sign in."
+        ? `${cashierCurrentSessionText}. Enter PIN to apply ${selectedCashierLoginName} to both companies.`
+        : `${cashierCurrentSessionText}. Select cashier and enter PIN to apply it to both companies.`
     )
-    : (
-      selectedCashierMatchesCurrent
-        ? `${selectedCashierName} is already signed in. Enter PIN to re-authenticate, or use Sign Out Current to end this session.`
-        : `${selectedCashierName} is signed in. Enter PIN to switch to ${selectedCashierLoginName || "selected cashier"}.`
-    );
+    : (!selectedCashierSignedIn
+      ? (
+        selectedCashierLoginName
+          ? `No cashier session is active. Enter PIN to sign in ${selectedCashierLoginName}.`
+          : "No cashier session is active. Select cashier and enter PIN to sign in."
+      )
+      : (
+        selectedCashierMatchesCurrent
+          ? `${selectedCashierName} is already signed in. Enter PIN to re-authenticate, or use Sign Out Current to end this session.`
+          : `${selectedCashierName} is signed in. Enter PIN to switch to ${selectedCashierLoginName || "selected cashier"}.`
+      ));
   $: cashierSessionHintClass = cashierSessionHintTone === "warn"
     ? "rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-ink/80"
     : "rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-ink/80";
@@ -1112,6 +1167,15 @@
   $: currencyPrimary = (config.pricing_currency || "USD").toUpperCase();
   $: shiftText = `O:${config.shift_id ? "Open" : "Closed"} · U:${unofficialConfig.shift_id ? "Open" : "Closed"}`;
   $: selectedShiftOpen = !!shiftIdForCompany(shiftCompanyKey || originCompanyKey);
+  $: linkedShiftOpenOfficial = !!shiftIdForCompany("official");
+  $: linkedShiftOpenUnofficial = !!shiftIdForCompany("unofficial");
+  $: linkedShiftOpenAny = linkedShiftOpenOfficial || linkedShiftOpenUnofficial;
+  $: linkedShiftOpenBoth = linkedShiftOpenOfficial && linkedShiftOpenUnofficial;
+  $: linkedShiftMissingCompanies = POS_COMPANY_KEYS.filter((k) => !shiftIdForCompany(k));
+  $: shiftModalSelectedOpen = linkedOpsMode ? linkedShiftOpenBoth : selectedShiftOpen;
+  $: shiftModalCompanyStatusText = linkedOpsMode
+    ? `Official: ${linkedShiftOpenOfficial ? "Open" : "Closed"} · Unofficial: ${linkedShiftOpenUnofficial ? "Open" : "Closed"}`
+    : `${normalizeCompanyKey(shiftCompanyKey) === "unofficial" ? "Unofficial" : "Official"}: ${selectedShiftOpen ? "Open shift detected" : "No open shift"}`;
   $: selectedShiftCashierName = normalizeCompanyKey(shiftCompanyKey || originCompanyKey) === "unofficial"
     ? cashierUnofficialName
     : cashierOfficialName;
@@ -1295,8 +1359,9 @@
       throw new Error(`Checkout guardrail: split totals mismatch by ${delta.toFixed(2)} USD.`);
     }
   };
+  const _companyLabel = (key) => (normalizeCompanyKey(key) === "unofficial" ? "Unofficial" : "Official");
   const _companyListText = (keys = []) => (
-    Array.from(new Set((keys || []).map((k) => normalizeCompanyKey(k)))).map((k) => (k === "unofficial" ? "Unofficial" : "Official")).join(", ")
+    Array.from(new Set((keys || []).map((k) => normalizeCompanyKey(k)))).map((k) => _companyLabel(k)).join(", ")
   );
   const requiredCompaniesForCheckout = () => {
     const companies = cartCompaniesSet();
@@ -4999,6 +5064,11 @@
     try { document.documentElement.dataset.theme = theme; } catch (_) {}
   };
 
+  const setLinkedOpsMode = (enabled) => {
+    linkedOpsMode = enabled !== false;
+    _writeStorage(LINKED_OPS_MODE_STORAGE_KEY, linkedOpsMode ? "1" : "0");
+  };
+
   const setActiveScreen = (scr) => {
     const v = (scr === "items" || scr === "settings") ? scr : "pos";
     showTopMoreActions = false;
@@ -6766,16 +6836,43 @@
       return;
     }
     const companyKey = normalizeCompanyKey(cashierCompanyKey || originCompanyKey);
+    const companies = linkedOpsMode ? [...POS_COMPANY_KEYS] : [companyKey];
     try {
       loading = true;
-      const res = await apiCallFor(companyKey, "/cashiers/login", { method: "POST", body: { pin, cashier_id } });
-      if (companyKey === otherCompanyKey) unofficialConfig = { ...unofficialConfig, ...(res?.config || {}) };
-      else config = { ...config, ...(res?.config || {}) };
-      _setCashierManagerMetaFor(companyKey, res?.cashier || null);
+      const results = await Promise.allSettled(
+        companies.map((k) => apiCallFor(k, "/cashiers/login", { method: "POST", body: { pin, cashier_id } })),
+      );
+      const successCompanies = [];
+      const failures = [];
+      let signedCashierName = "";
+      for (let i = 0; i < companies.length; i += 1) {
+        const k = companies[i];
+        const row = results[i];
+        if (row.status === "fulfilled") {
+          successCompanies.push(k);
+          const res = row.value || {};
+          if (!signedCashierName) signedCashierName = String(res?.cashier?.name || "").trim();
+          if (k === otherCompanyKey) unofficialConfig = { ...unofficialConfig, ...(res?.config || {}) };
+          else config = { ...config, ...(res?.config || {}) };
+          _setCashierManagerMetaFor(k, res?.cashier || null);
+          continue;
+        }
+        failures.push(`${_companyLabel(k)}: ${row.reason?.message || "failed"}`);
+      }
+
+      if (!successCompanies.length) {
+        reportError(failures.join(" | ") || "Cashier sign-in failed.");
+        return;
+      }
+
       showCashierModal = false;
       cashierPin = "";
       await fetchData();
-      reportNotice(`Signed in (${companyKey}): ${res?.cashier?.name || "Cashier"}`);
+      const displayName = signedCashierName || selectedCashierLoginName || "Cashier";
+      reportNotice(linkedOpsMode
+        ? `Signed in ${displayName}: ${_companyListText(successCompanies)}`
+        : `Signed in (${_companyLabel(successCompanies[0])}): ${displayName}`);
+      if (failures.length) reportError(`Sign-in incomplete. ${failures.join(" | ")}`);
     } catch (e) {
       reportError(e.message);
     } finally {
@@ -6785,10 +6882,10 @@
 
   const cashierLogout = async (companyKey = "") => {
     const target = String(companyKey || "").trim();
-    const companies = target ? [normalizeCompanyKey(target)] : ["official", "unofficial"];
+    const companies = target ? [normalizeCompanyKey(target)] : [...POS_COMPANY_KEYS];
     const activeCompanies = companies.filter((k) => !!cashierIdForCompany(k));
     if (!activeCompanies.length) {
-      reportNotice(target ? `No cashier signed in (${normalizeCompanyKey(target)}).` : "No cashier is currently signed in.");
+      reportNotice(target ? `No cashier signed in (${_companyLabel(target)}).` : "No cashier is currently signed in.");
       return;
     }
     try {
@@ -6796,16 +6893,31 @@
       const results = await Promise.allSettled(
         activeCompanies.map((k) => apiCallFor(k, "/cashiers/logout", { method: "POST", body: {} })),
       );
+      const successCompanies = [];
+      const failures = [];
       for (let i = 0; i < activeCompanies.length; i += 1) {
         const k = activeCompanies[i];
         const r = results[i];
-        if (r.status !== "fulfilled") continue;
+        if (r.status !== "fulfilled") {
+          failures.push(`${_companyLabel(k)}: ${r.reason?.message || "failed"}`);
+          continue;
+        }
+        successCompanies.push(k);
         _clearCashierManagerMetaFor(k);
         if (k === otherCompanyKey) unofficialConfig = { ...unofficialConfig, ...(r.value?.config || {}) };
         else config = { ...config, ...(r.value?.config || {}) };
       }
-      await fetchData();
-      reportNotice(target ? `Signed out (${normalizeCompanyKey(target)})` : "Signed out (all companies)");
+      if (successCompanies.length) {
+        await fetchData();
+        reportNotice(target
+          ? `Signed out (${_companyLabel(target)})`
+          : `Signed out: ${_companyListText(successCompanies)}`);
+      }
+      if (!successCompanies.length) {
+        reportError(failures.join(" | ") || "Sign-out failed.");
+        return;
+      }
+      if (failures.length) reportError(`Sign-out incomplete. ${failures.join(" | ")}`);
     } catch (e) {
       reportError(e.message);
     } finally {
@@ -6911,6 +7023,12 @@
     }
   };
 
+  const _setShiftSnapshotForCompany = (companyKey, nextShift = null) => {
+    const key = normalizeCompanyKey(companyKey);
+    if (key === otherCompanyKey) unofficialShift = nextShift;
+    if (key === normalizeCompanyKey(shiftCompanyKey || originCompanyKey)) shift = nextShift;
+  };
+
   const shiftRefresh = async (companyKey = shiftCompanyKey, { quiet = false } = {}) => {
     const targetCompany = normalizeCompanyKey(companyKey || shiftCompanyKey || originCompanyKey);
     shiftCompanyKey = targetCompany;
@@ -6920,16 +7038,55 @@
       const nextShift = res?.shift || null;
       _setShiftCashSetup(targetCompany, res?.cash_methods || [], res?.has_cash_method_mapping);
       _setShiftIdForCompany(targetCompany, nextShift?.id || "");
-      if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
-      shift = nextShift;
+      _setShiftSnapshotForCompany(targetCompany, nextShift);
       if (nextShift) {
         _applyShiftExpectedToClosing(targetCompany, nextShift, { preserveTouched: true });
       } else {
         _setShiftClosingTouched(targetCompany, false);
       }
-      if (!quiet) reportNotice(nextShift ? `${targetCompany} shift is open` : `${targetCompany} has no open shift`);
+      if (!quiet) reportNotice(nextShift ? `${_companyLabel(targetCompany)} shift is open` : `${_companyLabel(targetCompany)} has no open shift`);
     } catch (e) {
       reportError(e.message);
+    } finally {
+      loading = false;
+    }
+  };
+
+  const shiftRefreshLinked = async ({ quiet = false } = {}) => {
+    const activeCompany = normalizeCompanyKey(shiftCompanyKey || originCompanyKey);
+    try {
+      loading = true;
+      const results = await Promise.allSettled(
+        POS_COMPANY_KEYS.map((k) => apiCallFor(k, "/shift/status", { method: "POST", body: {} })),
+      );
+      const successCompanies = [];
+      const failures = [];
+      for (let i = 0; i < POS_COMPANY_KEYS.length; i += 1) {
+        const k = POS_COMPANY_KEYS[i];
+        const row = results[i];
+        if (row.status !== "fulfilled") {
+          failures.push(`${_companyLabel(k)}: ${row.reason?.message || "failed"}`);
+          continue;
+        }
+        successCompanies.push(k);
+        const res = row.value || {};
+        const nextShift = res?.shift || null;
+        _setShiftCashSetup(k, res?.cash_methods || [], res?.has_cash_method_mapping);
+        _setShiftIdForCompany(k, nextShift?.id || "");
+        _setShiftSnapshotForCompany(k, nextShift);
+        if (nextShift) {
+          _applyShiftExpectedToClosing(k, nextShift, { preserveTouched: true });
+        } else {
+          _setShiftClosingTouched(k, false);
+        }
+      }
+      shiftCompanyKey = activeCompany;
+      if (!quiet && successCompanies.length) {
+        reportNotice(`Shift status refreshed: ${_companyListText(successCompanies)}`);
+      }
+      if (failures.length) reportError(`Shift refresh incomplete. ${failures.join(" | ")}`);
+    } catch (e) {
+      reportError(e?.message || String(e));
     } finally {
       loading = false;
     }
@@ -6938,34 +7095,63 @@
   const shiftOpen = async (companyKey = shiftCompanyKey) => {
     const targetCompany = normalizeCompanyKey(companyKey || shiftCompanyKey || originCompanyKey);
     shiftCompanyKey = targetCompany;
-    const cashierId = cashierIdForCompany(targetCompany);
-    if (!cashierId) {
-      cashierCompanyKey = targetCompany;
+    const companiesToOpen = linkedOpsMode
+      ? POS_COMPANY_KEYS.filter((k) => !shiftIdForCompany(k))
+      : [targetCompany];
+    if (!companiesToOpen.length) {
+      reportNotice(linkedOpsMode ? "Both companies already have open shifts." : `${_companyLabel(targetCompany)} shift is already open.`);
+      return;
+    }
+    const missingCashierCompanies = companiesToOpen.filter((k) => !cashierIdForCompany(k));
+    if (missingCashierCompanies.length) {
+      cashierCompanyKey = missingCashierCompanies[0] || targetCompany;
       showCashierModal = true;
-      reportError(`Cashier sign-in required before opening shift (${targetCompany}).`);
+      reportError(`Cashier sign-in required before opening shift: ${_companyListText(missingCashierCompanies)}.`);
       return;
     }
     try {
       loading = true;
-      const res = await apiCallFor(targetCompany, "/shift/open", {
-        method: "POST",
-        body: {
-          opening_cash_usd: toNum(openingCashUsd, 0),
-          opening_cash_lbp: toNum(openingCashLbp, 0),
-          cashier_id: cashierId,
-        },
-      });
-      const nextShift = res?.shift || null;
-      _setShiftCashSetup(targetCompany, res?.cash_methods || [], res?.has_cash_method_mapping);
-      _setShiftIdForCompany(targetCompany, nextShift?.id || "");
-      if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
-      shift = nextShift;
-      _setShiftClosingTouched(targetCompany, false);
-      closingCashUsd = toNum(_shiftPickMoney(nextShift, ["opening_cash_usd", "opening_usd"], openingCashUsd), 0);
-      closingCashLbp = toNum(_shiftPickMoney(nextShift, ["opening_cash_lbp", "opening_lbp"], openingCashLbp), 0);
+      const results = await Promise.allSettled(
+        companiesToOpen.map((k) => apiCallFor(k, "/shift/open", {
+          method: "POST",
+          body: {
+            opening_cash_usd: toNum(openingCashUsd, 0),
+            opening_cash_lbp: toNum(openingCashLbp, 0),
+            cashier_id: cashierIdForCompany(k),
+          },
+        })),
+      );
+      const successCompanies = [];
+      const failures = [];
+      let nextForClosing = null;
+      for (let i = 0; i < companiesToOpen.length; i += 1) {
+        const k = companiesToOpen[i];
+        const row = results[i];
+        if (row.status !== "fulfilled") {
+          failures.push(`${_companyLabel(k)}: ${row.reason?.message || "failed"}`);
+          continue;
+        }
+        successCompanies.push(k);
+        const res = row.value || {};
+        const nextShift = res?.shift || null;
+        if (!nextForClosing) nextForClosing = nextShift;
+        _setShiftCashSetup(k, res?.cash_methods || [], res?.has_cash_method_mapping);
+        _setShiftIdForCompany(k, nextShift?.id || "");
+        _setShiftSnapshotForCompany(k, nextShift);
+        _setShiftClosingTouched(k, false);
+      }
+      if (!successCompanies.length) {
+        reportError(failures.join(" | ") || "Shift open failed.");
+        return;
+      }
+      if (nextForClosing) {
+        closingCashUsd = toNum(_shiftPickMoney(nextForClosing, ["opening_cash_usd", "opening_usd"], openingCashUsd), 0);
+        closingCashLbp = toNum(_shiftPickMoney(nextForClosing, ["opening_cash_lbp", "opening_lbp"], openingCashLbp), 0);
+      }
       Promise.resolve().then(() => fetchData({ background: true })).catch(() => {});
-      reportNotice(`Shift opened (${targetCompany})`);
-      showShiftModal = false;
+      reportNotice(`Shift opened: ${_companyListText(successCompanies)}`);
+      if (!failures.length) showShiftModal = false;
+      if (failures.length) reportError(`Shift open incomplete. ${failures.join(" | ")}`);
     } catch (e) {
       reportError(e.message);
     } finally {
@@ -6976,32 +7162,57 @@
   const shiftClose = async (companyKey = shiftCompanyKey) => {
     const targetCompany = normalizeCompanyKey(companyKey || shiftCompanyKey || originCompanyKey);
     shiftCompanyKey = targetCompany;
-    const cashierId = cashierIdForCompany(targetCompany);
-    if (!cashierId) {
-      cashierCompanyKey = targetCompany;
+    const companiesToClose = linkedOpsMode
+      ? POS_COMPANY_KEYS.filter((k) => !!shiftIdForCompany(k))
+      : [targetCompany];
+    if (!companiesToClose.length) {
+      reportNotice(linkedOpsMode ? "No open shifts found to close." : `${_companyLabel(targetCompany)} has no open shift to close.`);
+      return;
+    }
+    const missingCashierCompanies = companiesToClose.filter((k) => !cashierIdForCompany(k));
+    if (missingCashierCompanies.length) {
+      cashierCompanyKey = missingCashierCompanies[0] || targetCompany;
       showCashierModal = true;
-      reportError(`Cashier sign-in required before closing shift (${targetCompany}).`);
+      reportError(`Cashier sign-in required before closing shift: ${_companyListText(missingCashierCompanies)}.`);
       return;
     }
     try {
       loading = true;
-      const res = await apiCallFor(targetCompany, "/shift/close", {
-        method: "POST",
-        body: {
-          closing_cash_usd: toNum(closingCashUsd, 0),
-          closing_cash_lbp: toNum(closingCashLbp, 0),
-          cashier_id: cashierId,
-        },
-      });
-      const nextShift = res?.shift || null;
-      _setShiftCashSetup(targetCompany, res?.cash_methods || [], res?.has_cash_method_mapping);
-      _setShiftIdForCompany(targetCompany, nextShift?.id || "");
-      if (targetCompany === otherCompanyKey) unofficialShift = nextShift;
-      shift = nextShift;
-      _setShiftClosingTouched(targetCompany, false);
+      const results = await Promise.allSettled(
+        companiesToClose.map((k) => apiCallFor(k, "/shift/close", {
+          method: "POST",
+          body: {
+            closing_cash_usd: toNum(closingCashUsd, 0),
+            closing_cash_lbp: toNum(closingCashLbp, 0),
+            cashier_id: cashierIdForCompany(k),
+          },
+        })),
+      );
+      const successCompanies = [];
+      const failures = [];
+      for (let i = 0; i < companiesToClose.length; i += 1) {
+        const k = companiesToClose[i];
+        const row = results[i];
+        if (row.status !== "fulfilled") {
+          failures.push(`${_companyLabel(k)}: ${row.reason?.message || "failed"}`);
+          continue;
+        }
+        successCompanies.push(k);
+        const res = row.value || {};
+        const nextShift = res?.shift || null;
+        _setShiftCashSetup(k, res?.cash_methods || [], res?.has_cash_method_mapping);
+        _setShiftIdForCompany(k, nextShift?.id || "");
+        _setShiftSnapshotForCompany(k, nextShift);
+        _setShiftClosingTouched(k, false);
+      }
+      if (!successCompanies.length) {
+        reportError(failures.join(" | ") || "Shift close failed.");
+        return;
+      }
       Promise.resolve().then(() => fetchData({ background: true })).catch(() => {});
-      reportNotice(`Shift closed (${targetCompany})`);
-      showShiftModal = false;
+      reportNotice(`Shift closed: ${_companyListText(successCompanies)}`);
+      if (!failures.length) showShiftModal = false;
+      if (failures.length) reportError(`Shift close incomplete. ${failures.join(" | ")}`);
     } catch (e) {
       reportError(e.message);
     } finally {
@@ -7084,6 +7295,7 @@
     flagOfficial = _readStorage(FLAG_OFFICIAL_STORAGE_KEY, "") === "1";
     vatDisplayMode = normalizeVatDisplayMode(_readStorage(VAT_DISPLAY_MODE_STORAGE_KEY, "both"));
     showPriceDisplayControls = _readStorage(PRICE_DISPLAY_CONTROLS_STORAGE_KEY, "") === "1";
+    linkedOpsMode = _readStorage(LINKED_OPS_MODE_STORAGE_KEY, "1") !== "0";
 
     theme = _readStorage(THEME_STORAGE_KEY, "dark") || "dark";
     if (theme !== "light" && theme !== "dark") theme = "dark";
@@ -7409,9 +7621,10 @@
     <button
       class={topBtnBase}
       on:click={() => {
-        shiftCompanyKey = checkoutMissingShifts[0] || originCompanyKey;
+        if (!linkedOpsMode) shiftCompanyKey = checkoutMissingShifts[0] || originCompanyKey;
         showShiftModal = true;
-        shiftRefresh(shiftCompanyKey, { quiet: true });
+        if (linkedOpsMode) shiftRefreshLinked({ quiet: true });
+        else shiftRefresh(shiftCompanyKey, { quiet: true });
       }}
       disabled={loading}
       title="Shift open/close"
@@ -7526,6 +7739,14 @@
             type="button"
           >
             Theme: {theme === "light" ? "Light" : "Dark"}
+          </button>
+          <button
+            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            on:click={() => { showTopMoreActions = false; setLinkedOpsMode(!linkedOpsMode); }}
+            title="Toggle linked operations for cashier and shift actions"
+            type="button"
+          >
+            Ops Mode: {linkedOpsMode ? "Linked" : "Individual"}
           </button>
           <button
             class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
@@ -8408,20 +8629,34 @@
         <p class="text-sm text-muted mt-1">{cashierModalSubtitle}</p>
       </div>
       <div class="p-6 space-y-4">
-        <label class="text-xs text-muted uppercase tracking-wider font-bold" for="cashier-company">Company</label>
-        <select
-          id="cashier-company"
-          class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-accent/50 focus:outline-none"
-          bind:value={cashierCompanyKey}
-          on:change={() => { void fetchData({ background: true }); }}
-          disabled={loading}
-        >
-          <option value="official">Official ({cashierOfficialName}{cashierOfficialManager ? " · Manager" : ""})</option>
-          <option value="unofficial">Unofficial ({cashierUnofficialName}{cashierUnofficialManager ? " · Manager" : ""})</option>
-        </select>
+        <label class="flex items-start gap-3 rounded-xl border border-ink/10 bg-ink/5 px-3 py-2.5 cursor-pointer">
+          <input
+            class="mt-0.5"
+            type="checkbox"
+            checked={linkedOpsMode}
+            on:change={(e) => setLinkedOpsMode(!!e?.currentTarget?.checked)}
+          />
+          <span>
+            <span class="block text-xs font-bold uppercase tracking-wider text-ink">Linked Operations</span>
+            <span class="block text-[11px] text-muted">When enabled, cashier sign-in/out updates Official + Unofficial together.</span>
+          </span>
+        </label>
+        {#if !linkedOpsMode}
+          <label class="text-xs text-muted uppercase tracking-wider font-bold" for="cashier-company">Company</label>
+          <select
+            id="cashier-company"
+            class="w-full bg-bg/50 border border-ink/10 rounded-xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-accent/50 focus:outline-none"
+            bind:value={cashierCompanyKey}
+            on:change={() => { void fetchData({ background: true }); }}
+            disabled={loading}
+          >
+            <option value="official">Official ({cashierOfficialName}{cashierOfficialManager ? " · Manager" : ""})</option>
+            <option value="unofficial">Unofficial ({cashierUnofficialName}{cashierUnofficialManager ? " · Manager" : ""})</option>
+          </select>
+        {/if}
         <div class="text-xs text-muted">
-          Current cashier:
-          <span class="font-semibold text-ink/80">{selectedCashierName}</span>
+          Current cashier{linkedOpsMode ? " sessions" : ""}:
+          <span class="font-semibold text-ink/80">{cashierCurrentSessionText}</span>
         </div>
         <div class={cashierSessionHintClass}>
           {cashierSessionHint}
@@ -8461,12 +8696,12 @@
           </button>
           <button
             class="flex-[1.4] py-3 px-4 rounded-xl border border-ink/10 text-muted hover:text-ink hover:bg-ink/5 font-medium transition-colors"
-            on:click={() => cashierLogout(cashierCompanyKey || originCompanyKey)}
-            disabled={loading || !selectedCashierSignedIn}
+            on:click={() => linkedOpsMode ? cashierLogout() : cashierLogout(cashierCompanyKey || originCompanyKey)}
+            disabled={loading || !cashierCanSignOutCurrent}
             type="button"
-            title="Sign out current cashier for selected company"
+            title={linkedOpsMode ? "Sign out cashier for both companies" : "Sign out current cashier for selected company"}
           >
-            Sign Out Current
+            {cashierSignOutActionLabel}
           </button>
           <button
             class="flex-[2] py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98]"
@@ -8543,14 +8778,11 @@
       <div class="p-6 border-b border-ink/10 flex items-center justify-between">
         <div>
           <h2 class="text-xl font-bold text-ink">Shift</h2>
-          <p class="text-sm text-muted mt-1">
-            {normalizeCompanyKey(shiftCompanyKey) === "unofficial" ? "Unofficial" : "Official"}:
-            {selectedShiftOpen ? " Open shift detected" : " No open shift"}
-          </p>
+          <p class="text-sm text-muted mt-1">{shiftModalCompanyStatusText}</p>
         </div>
         <button
           class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
-          on:click={() => shiftRefresh(shiftCompanyKey)}
+          on:click={() => linkedOpsMode ? shiftRefreshLinked() : shiftRefresh(shiftCompanyKey)}
           disabled={loading}
           title="Refresh"
         >
@@ -8559,31 +8791,52 @@
       </div>
 
       <div class="p-6 space-y-5">
+        <label class="flex items-start gap-3 rounded-xl border border-ink/10 bg-ink/5 px-3 py-2.5 cursor-pointer">
+          <input
+            class="mt-0.5"
+            type="checkbox"
+            checked={linkedOpsMode}
+            on:change={(e) => setLinkedOpsMode(!!e?.currentTarget?.checked)}
+          />
+          <span>
+            <span class="block text-xs font-bold uppercase tracking-wider text-ink">Linked Operations</span>
+            <span class="block text-[11px] text-muted">When enabled, shift open/close applies to Official + Unofficial together.</span>
+          </span>
+        </label>
         <div>
-          <label class="text-xs text-muted uppercase tracking-wider font-bold" for="shift-company">Company</label>
-          <select
-            id="shift-company"
-            class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-accent/50 focus:outline-none"
-            bind:value={shiftCompanyKey}
-            on:change={() => shiftRefresh(shiftCompanyKey, { quiet: true })}
-            disabled={loading}
-          >
-            <option value="official">Official ({config.shift_id ? "Open" : "Closed"})</option>
-            <option value="unofficial">Unofficial ({unofficialConfig.shift_id ? "Open" : "Closed"})</option>
-          </select>
-          <div class="mt-1 text-[11px] text-muted">Cashier: {selectedShiftCashierName}</div>
-          {#if selectedShiftHasCashMapping === false}
-            <div class="mt-2 rounded-xl border border-amber-500/45 bg-amber-500/15 px-3 py-2">
-              <div class="text-xs font-semibold text-ink">No CASH payment mapping found.</div>
-              <div class="mt-1 text-[11px] text-muted">
-                Expected cash currently excludes sale/refund tenders. Add at least one CASH mapping in Admin.
-              </div>
+          {#if linkedOpsMode}
+            <div class="rounded-xl border border-ink/10 bg-ink/5 px-3 py-2 text-[11px] text-muted">
+              Cashiers: Official {cashierOfficialName} · Unofficial {cashierUnofficialName}
+              {#if linkedShiftMissingCompanies.length}
+                <div class="mt-1">Missing open shift: <span class="font-semibold text-ink/80">{_companyListText(linkedShiftMissingCompanies)}</span></div>
+              {/if}
             </div>
-          {:else if selectedShiftHasCashMapping === true && selectedShiftCashMethodsLabel}
-            <div class="mt-1 text-[11px] text-muted">Cash methods: {selectedShiftCashMethodsLabel}</div>
+          {:else}
+            <label class="text-xs text-muted uppercase tracking-wider font-bold" for="shift-company">Company</label>
+            <select
+              id="shift-company"
+              class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-4 py-2.5 text-sm font-semibold focus:ring-2 focus:ring-accent/50 focus:outline-none"
+              bind:value={shiftCompanyKey}
+              on:change={() => shiftRefresh(shiftCompanyKey, { quiet: true })}
+              disabled={loading}
+            >
+              <option value="official">Official ({config.shift_id ? "Open" : "Closed"})</option>
+              <option value="unofficial">Unofficial ({unofficialConfig.shift_id ? "Open" : "Closed"})</option>
+            </select>
+            <div class="mt-1 text-[11px] text-muted">Cashier: {selectedShiftCashierName}</div>
+            {#if selectedShiftHasCashMapping === false}
+              <div class="mt-2 rounded-xl border border-amber-500/45 bg-amber-500/15 px-3 py-2">
+                <div class="text-xs font-semibold text-ink">No CASH payment mapping found.</div>
+                <div class="mt-1 text-[11px] text-muted">
+                  Expected cash currently excludes sale/refund tenders. Add at least one CASH mapping in Admin.
+                </div>
+              </div>
+            {:else if selectedShiftHasCashMapping === true && selectedShiftCashMethodsLabel}
+              <div class="mt-1 text-[11px] text-muted">Cash methods: {selectedShiftCashMethodsLabel}</div>
+            {/if}
           {/if}
         </div>
-        {#if !selectedShiftOpen}
+        {#if !shiftModalSelectedOpen}
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label class="text-xs text-muted" for="shift-opening-usd">Opening Cash (USD)</label>
@@ -8608,10 +8861,12 @@
           </div>
           <button
             class="w-full py-3 px-4 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:bg-accent-hover hover:shadow-lg hover:shadow-accent/25 transition-all active:scale-[0.98] disabled:opacity-60"
-            on:click={() => shiftOpen(shiftCompanyKey)}
+            on:click={() => linkedOpsMode ? shiftOpen() : shiftOpen(shiftCompanyKey)}
             disabled={loading}
           >
-            Open Shift
+            {linkedOpsMode
+              ? (linkedShiftMissingCompanies.length ? `Open Missing (${_companyListText(linkedShiftMissingCompanies)})` : "Open Both Shifts")
+              : "Open Shift"}
           </button>
         {:else}
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -8650,7 +8905,14 @@
                 type="number"
                 step="0.01"
                 bind:value={closingCashUsd}
-                on:input={() => markShiftClosingEdited(shiftCompanyKey)}
+                on:input={() => {
+                  if (linkedOpsMode) {
+                    markShiftClosingEdited("official");
+                    markShiftClosingEdited("unofficial");
+                  } else {
+                    markShiftClosingEdited(shiftCompanyKey);
+                  }
+                }}
               />
             </div>
             <div>
@@ -8661,16 +8923,23 @@
                 type="number"
                 step="1"
                 bind:value={closingCashLbp}
-                on:input={() => markShiftClosingEdited(shiftCompanyKey)}
+                on:input={() => {
+                  if (linkedOpsMode) {
+                    markShiftClosingEdited("official");
+                    markShiftClosingEdited("unofficial");
+                  } else {
+                    markShiftClosingEdited(shiftCompanyKey);
+                  }
+                }}
               />
             </div>
           </div>
           <button
             class="w-full py-3 px-4 rounded-xl bg-red-500 text-white font-bold hover:bg-red-400 transition-all active:scale-[0.98] disabled:opacity-60"
-            on:click={() => shiftClose(shiftCompanyKey)}
+            on:click={() => linkedOpsMode ? shiftClose() : shiftClose(shiftCompanyKey)}
             disabled={loading}
           >
-            Close Shift
+            {linkedOpsMode ? "Close Open Shifts" : "Close Shift"}
           </button>
         {/if}
       </div>
