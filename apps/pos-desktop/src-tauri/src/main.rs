@@ -344,11 +344,16 @@ fn start_agents(
   )
   .map_err(|e| e.to_string())?;
 
-  // Preflight DB init to surface schema errors deterministically.
-  init_db_with_sidecar(&app, &official_cfg, &official_db)
-    .map_err(|e| format!("Official agent DB init failed: {e}"))?;
-  init_db_with_sidecar(&app, &unofficial_cfg, &unofficial_db)
-    .map_err(|e| format!("Unofficial agent DB init failed: {e}"))?;
+  // Preflight DB init only for agents we actually need to spawn.
+  // If an agent is already running and healthy on the requested port, reuse it.
+  if !official_busy {
+    init_db_with_sidecar(&app, &official_cfg, &official_db)
+      .map_err(|e| format!("Official agent DB init failed: {e}"))?;
+  }
+  if !unofficial_busy {
+    init_db_with_sidecar(&app, &unofficial_cfg, &unofficial_db)
+      .map_err(|e| format!("Unofficial agent DB init failed: {e}"))?;
+  }
 
   let mut st = state.lock().unwrap();
   if st.official.is_none() && !official_busy {
@@ -426,8 +431,10 @@ fn start_setup_agent(
   )
   .map_err(|e| e.to_string())?;
 
-  init_db_with_sidecar(&app, &official_cfg, &official_db)
-    .map_err(|e| format!("Official agent DB init failed: {e}"))?;
+  if !official_busy {
+    init_db_with_sidecar(&app, &official_cfg, &official_db)
+      .map_err(|e| format!("Official agent DB init failed: {e}"))?;
+  }
 
   let mut st = state.lock().unwrap();
   if st.official.is_none() && !official_busy {

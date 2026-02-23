@@ -1812,6 +1812,17 @@ async function start() {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    const primaryUiAvailable = await checkLatestUnifiedUi(portOfficial);
+    if (primaryUiAvailable) {
+      setStatus("Primary POS is already running. Opening POS…");
+      setSetupNote(
+        `Secondary/background startup issue detected (${msg}). Opening Primary POS now.`,
+        "warn",
+      );
+      appendDebugLine(`[${fmtNow()}] [warn] start_agents degraded; primary UI is reachable. Error: ${msg}`);
+      window.location.href = buildUnifiedUiUrl(portOfficial);
+      return;
+    }
     setStatus(`Failed to start agents: ${msg}`);
     setSetupNote(`Start POS failed: ${msg}`, "error");
     appendDebugLine(buildStartSnapshot());
@@ -2191,6 +2202,18 @@ let autoLaunchTried = false;
 async function autoLaunchPosOnce() {
   if (autoLaunchTried) return;
   autoLaunchTried = true;
+  let portOfficial = 7070;
+  try {
+    portOfficial = parsePort(el("portOfficial")?.value, "Primary agent port");
+  } catch {
+    // keep default launch port
+  }
+  const uiOk = await checkLatestUnifiedUi(portOfficial);
+  if (uiOk) {
+    setStatus("Opening existing POS session…");
+    window.location.href = buildUnifiedUiUrl(portOfficial);
+    return;
+  }
   await start();
 }
 
