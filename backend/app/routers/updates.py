@@ -525,6 +525,8 @@ def get_update_file(rel_path: str):
     """
     # Alias /updates/admin/* -> /updates/portal/* (see note in _find_latest_installer_rel).
     rel_path_norm = (rel_path or "").strip().lstrip("/")
+    if not rel_path_norm:
+        return RedirectResponse(url="/updates/site/index.html", status_code=307)
     if rel_path_norm == "admin" or rel_path_norm.startswith("admin/"):
         rel_path = "portal" + rel_path_norm[len("admin") :]
         rel_path_norm = (rel_path or "").strip().lstrip("/")
@@ -538,7 +540,7 @@ def get_update_file(rel_path: str):
         # page is always /updates/site/index.html.
         if (rel_path_norm or "").rstrip("/") == "site":
             return RedirectResponse(url="/updates/site/index.html", status_code=307)
-        raise HTTPException(status_code=404, detail="not found")
+        return RedirectResponse(url="/updates/site/index.html", status_code=307)
 
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="not found")
