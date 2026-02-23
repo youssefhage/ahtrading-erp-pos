@@ -208,6 +208,14 @@ def _normalize_invoice_template_id(value) -> str:
     return "official_classic"
 
 
+def _effective_invoice_template_id(value, company_id: Optional[str] = None) -> str:
+    tpl = _normalize_invoice_template_id(value)
+    # Temporary policy: official client invoices should never use legacy standard layout.
+    if str(company_id or "").strip() == OFFICIAL_COMPANY_ID and tpl == "standard":
+        return "official_classic"
+    return tpl
+
+
 def _invoice_templates_payload() -> list[dict]:
     return [INVOICE_TEMPLATES[k] for k in ("official_classic", "official_compact", "standard")]
 
@@ -240,7 +248,7 @@ def load_config():
     cfg["receipt_template"] = _normalize_receipt_template_id(cfg.get("receipt_template"))
     cfg["receipt_company_name"] = _clean_receipt_text(cfg.get("receipt_company_name"), fallback="AH Trading", limit=64) or "AH Trading"
     cfg["receipt_footer_text"] = _clean_receipt_text(cfg.get("receipt_footer_text"), fallback="", limit=160)
-    cfg["invoice_template"] = _normalize_invoice_template_id(cfg.get("invoice_template"))
+    cfg["invoice_template"] = _effective_invoice_template_id(cfg.get("invoice_template"), cfg.get("company_id"))
     return cfg
 
 
@@ -2035,7 +2043,10 @@ def _fetch_invoice_pdf(cfg: dict, invoice_id: str, template: Optional[str] = Non
     if not invoice_id:
         raise ValueError("missing invoice_id")
 
-    tpl = _normalize_invoice_template_id(template if template is not None else cfg.get("invoice_template"))
+    tpl = _effective_invoice_template_id(
+        template if template is not None else cfg.get("invoice_template"),
+        cfg.get("company_id"),
+    )
     bases = _print_base_candidates(cfg)
     if not bases:
         raise ValueError("missing print_base_url (Admin URL)")
@@ -3412,7 +3423,7 @@ class Handler(BaseHTTPRequestHandler):
                 self,
                 {
                     "templates": _invoice_templates_payload(),
-                    "selected": _normalize_invoice_template_id(cfg.get("invoice_template")),
+                    "selected": _effective_invoice_template_id(cfg.get("invoice_template"), cfg.get("company_id")),
                 },
             )
             return
@@ -3861,7 +3872,7 @@ class Handler(BaseHTTPRequestHandler):
             if "receipt_footer_text" in data:
                 data["receipt_footer_text"] = _clean_receipt_text(data.get("receipt_footer_text"), fallback="", limit=160)
             if "invoice_template" in data:
-                data["invoice_template"] = _normalize_invoice_template_id(data.get("invoice_template"))
+                data["invoice_template"] = _effective_invoice_template_id(data.get("invoice_template"), cfg.get("company_id"))
             cfg.update(data)
             save_config(cfg)
             json_response(self, {'ok': True, 'config': cfg})
@@ -3978,10 +3989,31 @@ class Handler(BaseHTTPRequestHandler):
 
             printer = (str(data.get("printer") or "").strip() or str(cfg.get("invoice_printer") or "").strip() or None)
             copies = data.get("copies") if "copies" in data else cfg.get("invoice_print_copies")
-            invoice_template = _normalize_invoice_template_id(data.get("template") if "template" in data else cfg.get("invoice_template"))
+            invoice_template = _effective_invoice_template_id(
+                data.get("template") if "template" in data else cfg.get("invoice_template"),
+                cfg.get("company_id"),
+            )
 
             try:
                 resolved = _resolve_sales_invoice_from_event(cfg, event_id)
+                # Resolve template from live invoice policy unless caller explicitly overrides it.
+                if "template" not in data:
+                    try:
+                        base = _require_api_base(cfg)
+                        detail = fetch_json(
+                            f"{base.rstrip('/')}/pos/sales-invoices/{quote(str(resolved['invoice_id']))}",
+                            headers=device_headers(cfg),
+                        )
+                        if isinstance(detail, dict):
+                            pp = detail.get("print_policy")
+                            if isinstance(pp, dict) and "sales_invoice_pdf_template" in pp:
+                                invoice_template = _effective_invoice_template_id(
+                                    pp.get("sales_invoice_pdf_template"),
+                                    cfg.get("company_id"),
+                                )
+                    except Exception:
+                        # Keep local template fallback if detail lookup fails.
+                        pass
                 pdf = _fetch_invoice_pdf(cfg, resolved["invoice_id"], template=invoice_template)
                 _print_pdf_to_printer(pdf, printer=printer, copies=copies)
             except Exception as ex:
@@ -4832,7 +4864,10 @@ class Handler(BaseHTTPRequestHandler):
                 if isinstance(pos_cfg.get("print_policy"), dict):
                     pp = pos_cfg.get("print_policy") or {}
                     if "sales_invoice_pdf_template" in pp:
-                        cfg["invoice_template"] = _normalize_invoice_template_id(pp.get("sales_invoice_pdf_template"))
+                        cfg["invoice_template"] = _effective_invoice_template_id(
+                            pp.get("sales_invoice_pdf_template"),
+                            cfg.get("company_id"),
+                        )
                 vat = pos_cfg.get('vat') or {}
                 if vat.get('id'):
                     cfg['tax_code_id'] = vat['id']

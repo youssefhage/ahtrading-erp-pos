@@ -2580,14 +2580,16 @@
     }
   };
 
-  const _invoicePdfUrlFromCfg = (companyKey, cfg, invoiceId) => {
+  const _invoicePdfUrlFromCfg = (companyKey, cfg, invoiceId, templateOverride = "") => {
     const invId = String(invoiceId || "").trim();
     const pb = _resolvePrintBaseUrl(companyKey, cfg);
     if (!invId || !pb) return "";
-    const tplRaw = String(cfg?.invoice_template || "official_classic").trim().toLowerCase();
-    const tpl = (tplRaw === "official_classic" || tplRaw === "official_compact" || tplRaw === "standard")
+    const tplRaw = String(templateOverride || cfg?.invoice_template || "official_classic").trim().toLowerCase();
+    let tpl = (tplRaw === "official_classic" || tplRaw === "official_compact" || tplRaw === "standard")
       ? tplRaw
       : "official_classic";
+    // Temporary policy for official client invoices.
+    if (companyKey === "official" && tpl === "standard") tpl = "official_classic";
     const raw = `${pb}/exports/sales-invoices/${encodeURIComponent(invId)}/pdf?inline=1&template=${encodeURIComponent(tpl)}`;
     return _withDeviceAuthForPrintUrl(raw, cfg);
   };
@@ -3680,7 +3682,9 @@
           }
           const resolved = await apiCallFor(companyKey, "/invoices/resolve-by-event", { method: "POST", body: { event_id: eid } });
           const invId = String(resolved?.invoice_id || "").trim();
-          const u = _invoicePdfUrlFromCfg(companyKey, cfg, invId);
+          const detailRes = await apiCallFor(companyKey, "/invoices/detail-by-event", { method: "POST", body: { event_id: eid } }).catch(() => null);
+          const policyTpl = String(detailRes?.detail?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
+          const u = _invoicePdfUrlFromCfg(companyKey, cfg, invId, policyTpl);
           if (u) {
             if (receiptWin) receiptWin.location = u;
             else window.open(u, "_blank", "noopener,noreferrer");

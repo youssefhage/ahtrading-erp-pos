@@ -9,6 +9,7 @@ import { SalesInvoicePdf, type SalesInvoiceDetail, type SalesInvoicePdfTemplate 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 const INVOICE_PDF_TEMPLATES = new Set(["official_classic", "official_compact", "standard"]);
+const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -66,11 +67,19 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const filename = `sales-invoice_${no}.pdf`;
     const templateFromQuery = String(template || "").trim().toLowerCase();
     const templateFromPolicy = String(detail?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
-    const effectiveTemplate = INVOICE_PDF_TEMPLATES.has(templateFromQuery)
-      ? templateFromQuery
-      : INVOICE_PDF_TEMPLATES.has(templateFromPolicy)
-        ? templateFromPolicy
+    const isOfficialCompany = String(company?.id || "").trim() === OFFICIAL_COMPANY_ID;
+    // Live company print policy must win over stale local template hints from clients.
+    let effectiveTemplate = INVOICE_PDF_TEMPLATES.has(templateFromPolicy)
+      ? templateFromPolicy
+      : INVOICE_PDF_TEMPLATES.has(templateFromQuery)
+        ? templateFromQuery
         : "";
+    // Temporary compliance policy: official customer invoices should not render the legacy standard layout.
+    if (isOfficialCompany) {
+      if (!effectiveTemplate || effectiveTemplate === "standard") {
+        effectiveTemplate = "official_classic";
+      }
+    }
 
     const renderInvoicePdf = async (selectedTemplate?: string) =>
       pdfResponse({
@@ -82,7 +91,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     try {
       return await renderInvoicePdf(effectiveTemplate || undefined);
     } catch (renderErr) {
-      // If a custom/official template fails for a specific invoice payload, fall back to standard.
+      // Never silently downgrade official company prints to legacy standard.
+      if (isOfficialCompany) throw renderErr;
+      // For non-official templates, keep a safe fallback to standard.
       if ((effectiveTemplate || "").toLowerCase() !== "standard") {
         try {
           return await renderInvoicePdf("standard");

@@ -5,6 +5,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "pos-desktop/**"
       - "apps/pos-desktop/**"
       - "apps/admin-desktop/**"
       - "apps/downloads/**"
