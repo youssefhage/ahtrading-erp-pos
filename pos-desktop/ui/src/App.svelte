@@ -437,6 +437,7 @@
   let notice = "";
   let error = "";
   let pendingCheckoutMethod = "";
+  let pendingManagerAction = null;
   let checkoutIntentId = "";
   let bgSyncWarnAt = 0;
   let bgPullWarnAt = 0;
@@ -839,6 +840,14 @@
   $: _syncCashierManagerMetaFor("unofficial");
   $: cashierOfficialManager = _managerBadgeForCompany("official", activeCashierOfficial);
   $: cashierUnofficialManager = _managerBadgeForCompany("unofficial", activeCashierUnofficial);
+  const _activeCashierIsManagerFor = (companyKey) => {
+    const key = normalizeCompanyKey(companyKey);
+    return key === "unofficial" ? !!cashierUnofficialManager : !!cashierOfficialManager;
+  };
+  const _discountAllowedForCompany = (companyKey) => {
+    const key = normalizeCompanyKey(companyKey);
+    return _activeCashierIsManagerFor(key) || _managerApprovalValidFor(key);
+  };
   const _isoAgeMinutes = (iso) => {
     const t = Date.parse(String(iso || ""));
     if (!Number.isFinite(t)) return 0;
@@ -4566,6 +4575,7 @@
     const ln = { ...(line || {}) };
     const listUsd = toNum(ln.list_price_usd, toNum(ln.price_usd, 0));
     const listLbp = toNum(ln.list_price_lbp, toNum(ln.price_lbp, 0));
+    const manualDiscPct = _normDiscPct(ln.manual_discount_pct);
     ln.list_price_usd = listUsd;
     ln.list_price_lbp = listLbp;
 
@@ -4574,25 +4584,38 @@
       // Clear promo metadata and revert unit prices to list.
       ln.price_usd = listUsd;
       ln.price_lbp = listLbp;
-      ln.pre_discount_unit_price_usd = 0;
-      ln.pre_discount_unit_price_lbp = 0;
-      ln.discount_pct = 0;
+      ln.pre_discount_unit_price_usd = manualDiscPct > 0 ? listUsd : 0;
+      ln.pre_discount_unit_price_lbp = manualDiscPct > 0 ? listLbp : 0;
       ln.discount_amount_usd = 0;
       ln.discount_amount_lbp = 0;
       ln.applied_promotion_id = null;
       ln.applied_promotion_item_id = null;
-      return ln;
+    } else {
+      ln.price_usd = toNum(best.unitUsd, listUsd);
+      ln.price_lbp = toNum(best.unitLbp, listLbp);
+      ln.pre_discount_unit_price_usd = listUsd;
+      ln.pre_discount_unit_price_lbp = listLbp;
+      ln.discount_amount_usd = 0;
+      ln.discount_amount_lbp = 0;
+      ln.applied_promotion_id = String(best.promo?.id || best.promoRow?.id || "") || null;
+      ln.applied_promotion_item_id = String(best.promoItem?.id || "") || null;
     }
 
-    ln.price_usd = toNum(best.unitUsd, listUsd);
-    ln.price_lbp = toNum(best.unitLbp, listLbp);
-    ln.pre_discount_unit_price_usd = listUsd;
-    ln.pre_discount_unit_price_lbp = listLbp;
-    ln.discount_pct = toNum(best.pctScore, 0);
-    ln.discount_amount_usd = 0;
-    ln.discount_amount_lbp = 0;
-    ln.applied_promotion_id = String(best.promo?.id || best.promoRow?.id || "") || null;
-    ln.applied_promotion_item_id = String(best.promoItem?.id || "") || null;
+    if (manualDiscPct > 0) {
+      const baseUsd = toNum(ln.price_usd, listUsd);
+      const baseLbp = toNum(ln.price_lbp, listLbp);
+      ln.price_usd = baseUsd > 0 ? (baseUsd * (1 - manualDiscPct)) : baseUsd;
+      ln.price_lbp = baseLbp > 0 ? (baseLbp * (1 - manualDiscPct)) : baseLbp;
+    }
+    ln.manual_discount_pct = manualDiscPct;
+    if (manualDiscPct > 0 || !!best) {
+      let effPct = 0;
+      if (listUsd > 0) effPct = Math.max(0, (listUsd - toNum(ln.price_usd, listUsd)) / listUsd);
+      else if (listLbp > 0) effPct = Math.max(0, (listLbp - toNum(ln.price_lbp, listLbp)) / listLbp);
+      ln.discount_pct = _normDiscPct(effPct);
+    } else {
+      ln.discount_pct = 0;
+    }
     return ln;
   };
 
@@ -4640,6 +4663,7 @@
       pre_discount_unit_price_usd: 0,
       pre_discount_unit_price_lbp: 0,
       discount_pct: 0,
+      manual_discount_pct: 0,
       discount_amount_usd: 0,
       discount_amount_lbp: 0,
       applied_promotion_id: null,
@@ -5193,6 +5217,124 @@
     checkoutIntentId = "";
   };
 
+  const _managerDiscountInputPct = (seedPct = 0) => {
+    const seed = Math.max(0, Math.min(100, Math.round(_normDiscPct(seedPct) * 100)));
+    const raw = window.prompt("Manager item discount (%)\nEnter 0 to clear discount.", String(seed));
+    if (raw == null) return null;
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      reportError("Enter a valid discount percentage (0-100).");
+      return null;
+    }
+    return _normDiscPct(parsed);
+  };
+
+  const _lineIndexByKey = (lineKey, companyKey = "") => {
+    const key = String(lineKey || "").trim();
+    if (!key) return -1;
+    const wantedCompany = String(companyKey || "").trim();
+    for (let i = 0; i < (cart || []).length; i += 1) {
+      const ln = cart[i];
+      const lnKey = String(ln?.key || "").trim();
+      const lnCompany = normalizeCompanyKey(ln?.companyKey || "official");
+      if (lnKey !== key) continue;
+      if (wantedCompany && lnCompany !== normalizeCompanyKey(wantedCompany)) continue;
+      return i;
+    }
+    return -1;
+  };
+
+  const applyManagerDiscountAtLine = (index, pct) => {
+    const safeIdx = Math.trunc(toNum(index, -1));
+    if (safeIdx < 0 || safeIdx >= (cart || []).length) return false;
+    const copy = [...cart];
+    const current = { ...(copy[safeIdx] || {}) };
+    current.manual_discount_pct = _normDiscPct(pct);
+    copy[safeIdx] = applyPromotionToLine(current);
+    cart = copy;
+    checkoutIntentId = "";
+    return true;
+  };
+
+  const _openManagerDiscountPromptAtLine = (index) => {
+    const safeIdx = Math.trunc(toNum(index, -1));
+    if (safeIdx < 0 || safeIdx >= (cart || []).length) {
+      reportError("Line not found.");
+      return;
+    }
+    const ln = cart[safeIdx] || {};
+    const pct = _managerDiscountInputPct(ln?.manual_discount_pct);
+    if (pct == null) return;
+    if (!applyManagerDiscountAtLine(safeIdx, pct)) {
+      reportError("Unable to apply discount.");
+      return;
+    }
+    const name = String(ln?.name || ln?.sku || "item").trim() || "item";
+    const companyKey = normalizeCompanyKey(ln?.companyKey || "official");
+    if (_companyUsesCloudTransport(companyKey)) {
+      _appendWebAudit(companyKey, {
+        action: "cart.manager_discount",
+        cashier_id: cashierIdForCompany(companyKey) || null,
+        shift_id: shiftIdForCompany(companyKey) || null,
+        event_id: null,
+        status: "ok",
+        details: {
+          item_id: String(ln?.id || "").trim() || null,
+          item_name: name,
+          manual_discount_pct: pct,
+        },
+      });
+    }
+    if (pct <= 0) reportNotice(`Manager discount cleared on ${name}.`);
+    else reportNotice(`Manager discount ${Math.round(pct * 100)}% applied to ${name}.`);
+  };
+
+  const _resumePendingManagerAction = async (action) => {
+    if (!action || typeof action !== "object") return;
+    const kind = String(action?.kind || "").trim();
+    if (kind !== "line-discount") return;
+    const idx = _lineIndexByKey(action?.lineKey, action?.companyKey);
+    if (idx < 0) {
+      reportError("Discount target is no longer in cart.");
+      return;
+    }
+    const line = cart[idx] || {};
+    const companyKey = normalizeCompanyKey(line?.companyKey || action?.companyKey || "official");
+    if (!_discountAllowedForCompany(companyKey)) {
+      reportError("Manager approval is still required.");
+      return;
+    }
+    _openManagerDiscountPromptAtLine(idx);
+  };
+
+  const requestLineManagerDiscount = (index) => {
+    const safeIdx = Math.trunc(toNum(index, -1));
+    if (safeIdx < 0 || safeIdx >= (cart || []).length) return;
+    const line = cart[safeIdx] || {};
+    const companyKey = normalizeCompanyKey(line?.companyKey || "official");
+    if (!ensureCashierForCompanies([companyKey], "applying item discount")) return;
+    if (_discountAllowedForCompany(companyKey)) {
+      _openManagerDiscountPromptAtLine(safeIdx);
+      return;
+    }
+    pendingManagerAction = {
+      kind: "line-discount",
+      companyKey,
+      lineKey: String(line?.key || "").trim(),
+    };
+    managerApprovalPendingCompanies = [companyKey];
+    adminPinMode = "unlock";
+    openAdminPinModal();
+    reportNotice(`Manager approval required before discount (${companyKey}).`);
+  };
+
+  const canManagerDiscountLine = (line) => {
+    const companyKey = normalizeCompanyKey(line?.companyKey || "official");
+    return _discountAllowedForCompany(companyKey);
+  };
+
   const uomOptionsForLine = (line) => {
     const companyKey = line?.companyKey || "official";
     const itemId = String(line?.id || "").trim();
@@ -5334,6 +5476,7 @@
         pre_discount_unit_price_usd: toNum(src?.pre_discount_unit_price_usd, 0),
         pre_discount_unit_price_lbp: toNum(src?.pre_discount_unit_price_lbp, 0),
         discount_pct: toNum(src?.discount_pct, 0),
+        manual_discount_pct: toNum(src?.manual_discount_pct, 0),
         discount_amount_usd: toNum(src?.discount_amount_usd, 0),
         discount_amount_lbp: toNum(src?.discount_amount_lbp, 0),
         applied_promotion_id: src?.applied_promotion_id || null,
@@ -5767,6 +5910,7 @@
     loading = true;
     let payment_method = String(method || "cash").trim().toLowerCase();
     pendingCheckoutMethod = "";
+    pendingManagerAction = null;
     managerApprovalPendingCompanies = [];
     const checkoutIntent = checkoutIntentId || makeIntentId();
     checkoutIntentId = checkoutIntent;
@@ -6102,6 +6246,7 @@
           pre_discount_unit_price_usd: toNum(line.pre_discount_unit_price_usd, 0),
           pre_discount_unit_price_lbp: toNum(line.pre_discount_unit_price_lbp, 0),
           discount_pct: toNum(line.discount_pct, 0),
+          manual_discount_pct: toNum(line.manual_discount_pct, 0),
           discount_amount_usd: toNum(line.discount_amount_usd, 0),
           discount_amount_lbp: toNum(line.discount_amount_lbp, 0),
           applied_promotion_id: line.applied_promotion_id || null,
@@ -6563,6 +6708,13 @@
       adminPin = "";
       await fetchData();
       reportNotice(unlockMsg);
+      const pendingAction = pendingManagerAction;
+      pendingManagerAction = null;
+      if (pendingAction) {
+        setTimeout(() => {
+          _resumePendingManagerAction(pendingAction);
+        }, 0);
+      }
       const retryMethod = String(pendingCheckoutMethod || "").trim().toLowerCase();
       pendingCheckoutMethod = "";
       if (retryMethod) {
@@ -7279,6 +7431,8 @@
           uomOptionsForLine={uomOptionsForLine}
           updateUom={updateLineUom}
           removeLine={removeLine}
+          requestManagerDiscount={requestLineManagerDiscount}
+          canManagerDiscountLine={canManagerDiscountLine}
           clearCart={clearCartAll}
           saveDraft={saveCurrentCartToDraft}
           companyLabelForLine={companyLabel}

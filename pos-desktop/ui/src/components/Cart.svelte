@@ -7,6 +7,8 @@
   export let uomOptionsForLine = (line) => [];
   export let updateUom = (index, opt) => {};
   export let removeLine = (index) => {};
+  export let requestManagerDiscount = (index) => {};
+  export let canManagerDiscountLine = (line) => false;
   export let clearCart = () => {};
   export let saveDraft = () => {};
   export let companyLabelForLine = (line) => "";
@@ -209,11 +211,30 @@
               <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${vatRate > 0 ? "text-blue-300 border-blue-400/20 bg-blue-500/10" : "text-muted border-white/10 bg-surface-highlight/40"}`}>
                 {vatRate > 0 ? `VAT ${fmtVatPct(vatRate)}` : "No VAT"}
               </span>
+              {#if toNum(line.manual_discount_pct, 0) > 0}
+                <span class="text-[10px] font-bold text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
+                  Mgr -{fmtPct(line.manual_discount_pct)}
+                </span>
+              {/if}
               {#if toNum(line.discount_pct, 0) > 0}
                 <span class="text-[10px] font-bold text-accent px-1.5 py-0.5 rounded bg-accent/10 border border-accent/10">
                   -{fmtPct(line.discount_pct)}
                 </span>
               {/if}
+            </div>
+            <div class="mt-2">
+              <button
+                type="button"
+                class={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                  canManagerDiscountLine(line)
+                    ? "border-amber-500/25 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+                    : "border-white/10 bg-surface-highlight/40 text-muted hover:text-ink"
+                }`}
+                on:click={() => requestManagerDiscount(i)}
+                title={canManagerDiscountLine(line) ? "Apply manager item discount" : "Manager approval required"}
+              >
+                <span>{toNum(line.manual_discount_pct, 0) > 0 ? "Edit Discount" : "Discount"}</span>
+              </button>
             </div>
           </div>
 
