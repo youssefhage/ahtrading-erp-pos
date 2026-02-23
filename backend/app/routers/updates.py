@@ -9,7 +9,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 
 router = APIRouter(prefix="/updates", tags=["updates"])
@@ -22,6 +22,7 @@ router = APIRouter(prefix="/updates", tags=["updates"])
 # We deliberately do NOT allow backslashes (Windows path separators) to avoid
 # ambiguity and path traversal surprises.
 _SAFE_PATH_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._/-]*$")
+_VERSION_SEGMENT_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
 
 
 def _updates_dir() -> Path:
@@ -239,37 +240,6 @@ def _find_latest_installer_rel(app: str, platform: str) -> str:
     return str(chosen.relative_to(base))
 
 
-def _html_index(dir_path: Path, rel_dir: str) -> str:
-    # Very small nginx-like directory listing, so staff can click "All files".
-    rel_dir = rel_dir.strip().lstrip("/")
-    title = f"Index of /updates/{rel_dir}".rstrip("/")
-    rows = ['<a href="../">../</a>']
-    for p in sorted(dir_path.iterdir(), key=lambda x: x.name.lower()):
-        name = p.name + ("/" if p.is_dir() else "")
-        try:
-            st = p.stat()
-            size = "" if p.is_dir() else str(st.st_size)
-            mtime = ""
-            try:
-                import datetime as _dt
-
-                mtime = _dt.datetime.utcfromtimestamp(st.st_mtime).strftime("%d-%b-%Y %H:%M")
-            except Exception:
-                mtime = ""
-        except Exception:
-            size = ""
-            mtime = ""
-        rows.append(f'<a href="{p.name}">{name}</a>{" " * max(1, 60 - len(name))}{mtime}{" " * 2}{size}')
-    body = "\n".join(rows)
-    return (
-        "<html><head>"
-        f"<title>{title}</title>"
-        "</head><body>"
-        f"<h1>{title}</h1><hr><pre>{body}</pre><hr>"
-        "</body></html>"
-    )
-
-
 class PurgeUpdatesIn(BaseModel):
     apps: list[str] | None = None  # default: all
     keep_versions: int = 1  # keep only the latest by default
@@ -318,6 +288,36 @@ def _read_latest_version(app_root: Path) -> Optional[str]:
         return v or None
     except Exception:
         return None
+
+
+def _assert_not_outdated_version_path(base: Path, rel_path_norm: str) -> None:
+    """
+    Reject direct file access to non-latest versioned paths.
+
+    This guarantees download.melqard.com cannot keep serving stale installers even
+    if old artifacts were left on disk by a past deployment.
+    """
+    rel = (rel_path_norm or "").strip().lstrip("/")
+    if not rel:
+        return
+    parts = rel.split("/")
+    if len(parts) < 2:
+        return
+    app_key = (parts[0] or "").strip().lower()
+    if app_key == "admin":
+        app_key = "portal"
+    if app_key not in {"pos", "portal"}:
+        return
+    version = (parts[1] or "").strip()
+    if not _VERSION_SEGMENT_RE.match(version):
+        return
+
+    latest_v = _read_latest_version((base / app_key).resolve())
+    if latest_v and version != latest_v:
+        raise HTTPException(
+            status_code=410,
+            detail=f"version {version} is retired; use /updates/{app_key}/latest.json",
+        )
 
 
 @router.post("/purge")
@@ -527,8 +527,10 @@ def get_update_file(rel_path: str):
     rel_path_norm = (rel_path or "").strip().lstrip("/")
     if rel_path_norm == "admin" or rel_path_norm.startswith("admin/"):
         rel_path = "portal" + rel_path_norm[len("admin") :]
+        rel_path_norm = (rel_path or "").strip().lstrip("/")
 
     base = _updates_dir()
+    _assert_not_outdated_version_path(base.resolve(), rel_path_norm)
     target = _resolve_rel_path(rel_path)
 
     if target.exists() and target.is_dir():
@@ -536,8 +538,7 @@ def get_update_file(rel_path: str):
         # page is always /updates/site/index.html.
         if (rel_path_norm or "").rstrip("/") == "site":
             return RedirectResponse(url="/updates/site/index.html", status_code=307)
-        html = _html_index(target, rel_path)
-        return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
+        raise HTTPException(status_code=404, detail="not found")
 
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="not found")
