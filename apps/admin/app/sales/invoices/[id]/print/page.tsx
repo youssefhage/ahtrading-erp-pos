@@ -158,6 +158,18 @@ function fmtPlainQty(v: unknown) {
   });
 }
 
+function hasLineDiscount(line: InvoiceLine) {
+  const rawPct = toNum(line.discount_pct);
+  const pct = rawPct <= 1 ? rawPct * 100 : rawPct;
+  if (Math.abs(pct) > 0.0001) return true;
+  return Math.abs(toNum(line.discount_amount_usd)) > 0.0001;
+}
+
+function displayUom(raw: unknown) {
+  const out = String(raw || "").trim().toUpperCase();
+  return out || "-";
+}
+
 function fmtUsDate(iso?: string | null) {
   const raw = String(iso || "").trim();
   if (!raw) return "-";
@@ -546,9 +558,10 @@ export default function SalesInvoicePrintPage() {
   const officialBeforeVat = Math.abs(officialTotalUsd - officialTaxUsd) > 0.009 ? officialTotalUsd - officialTaxUsd : officialBeforeVatComputed;
   const officialVatPct = officialBeforeVat > 0 ? (officialTaxUsd / officialBeforeVat) * 100 : 0;
   const officialVatPctLabel = officialVatPct > 0 ? `${officialVatPct.toFixed(officialVatPct % 1 === 0 ? 0 : 2)}%` : "";
+  const officialHasLineDiscount = (detail?.lines || []).some(hasLineDiscount);
   const officialPrintedBeforeVatUsd = TEMP_NON_VAT_PRINT ? officialTotalUsd : officialBeforeVat;
   const officialPrintedVatUsd = TEMP_NON_VAT_PRINT ? 0 : officialTaxUsd;
-  const officialPrintedVatLabel = TEMP_NON_VAT_PRINT ? "VAT 0% (Temporary)" : (`VAT ${officialVatPctLabel}`.trim() || "VAT");
+  const officialPrintedVatLabel = TEMP_NON_VAT_PRINT ? "VAT 0%" : (`VAT ${officialVatPctLabel}`.trim() || "VAT");
 
   return (
     <div className="print-paper min-h-screen">
@@ -699,35 +712,35 @@ export default function SalesInvoicePrintPage() {
               </footer>
             </div>
           ) : company?.id === OFFICIAL_COMPANY_ID ? (
-            <div className="space-y-5 text-[11px] leading-tight text-black">
+            <div className="space-y-5 text-[11px] leading-tight text-black font-sans">
               <section className="flex items-start justify-between gap-8">
                 <div className="w-[56%] space-y-1">
                   <h1 className="text-[28px] font-bold tracking-tight">{company.legal_name || company.name}</h1>
                   <div className="grid grid-cols-[120px_1fr] gap-x-2">
                     <span>P.O. Box</span>
-                    <span className="font-mono">-</span>
+                    <span>-</span>
                   </div>
                   <div className="grid grid-cols-[120px_1fr] gap-x-2">
                     <span>Tel</span>
-                    <span className="font-mono">-</span>
+                    <span>-</span>
                   </div>
                   <div className="grid grid-cols-[120px_1fr] gap-x-2">
                     <span>Fax</span>
-                    <span className="font-mono">-</span>
+                    <span>-</span>
                   </div>
                   <div className="grid grid-cols-[120px_1fr] gap-x-2">
                     <span>R.C</span>
-                    <span className="font-mono">{company.registration_no || "-"}</span>
+                    <span>{company.registration_no || "-"}</span>
                   </div>
                   <div className="grid grid-cols-[120px_1fr] gap-x-2">
                     <span>VAT Registration No.</span>
-                    <span className="font-mono">{company.vat_no || "-"}</span>
+                    <span>{company.vat_no || "-"}</span>
                   </div>
                 </div>
 
                 <div className="w-[38%] pt-1 text-center">
                   <div className="text-[24px] font-bold">Invoice</div>
-                  <div className="mt-2 font-mono text-[20px] font-bold">{primaryDocNo}</div>
+                  <div className="mt-2 text-[20px] font-bold">{primaryDocNo}</div>
                 </div>
               </section>
 
@@ -735,25 +748,25 @@ export default function SalesInvoicePrintPage() {
                 <div className="space-y-1">
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Sales order No.</span>
-                    <span className="font-mono">{detail.invoice.receipt_no || primaryDocNo}</span>
+                    <span>{detail.invoice.receipt_no || primaryDocNo}</span>
                   </div>
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Sales Person</span>
-                    <span className="font-mono">{metaString(parseMeta(detail.invoice.receipt_meta), "sales_person", "salesperson") || "-"}</span>
+                    <span>{metaString(parseMeta(detail.invoice.receipt_meta), "sales_person", "salesperson") || "-"}</span>
                   </div>
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Route</span>
-                    <span className="font-mono">{metaString(parseMeta(detail.invoice.receipt_meta), "route", "route_name") || "-"}</span>
+                    <span>{metaString(parseMeta(detail.invoice.receipt_meta), "route", "route_name") || "-"}</span>
                   </div>
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Reference</span>
-                    <span className="font-mono">{metaString(parseMeta(detail.invoice.receipt_meta), "reference", "po_no") || detail.invoice.id.slice(0, 12)}</span>
+                    <span>{metaString(parseMeta(detail.invoice.receipt_meta), "reference", "po_no") || detail.invoice.id.slice(0, 12)}</span>
                   </div>
 
                   <div className="pt-2 text-[12px] font-bold underline">Primary Address</div>
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Customer No.</span>
-                    <span className="font-mono">{officialCustomerNo}</span>
+                    <span>{officialCustomerNo}</span>
                   </div>
                   <div>{officialCustomerName}</div>
                   {officialPrimaryLines.map((ln, idx) => (
@@ -761,32 +774,32 @@ export default function SalesInvoicePrintPage() {
                   ))}
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Tel</span>
-                    <span className="font-mono">{officialCustomerPhone}</span>
+                    <span>{officialCustomerPhone}</span>
                   </div>
                 </div>
 
                 <div className="space-y-1">
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Document Date</span>
-                    <span className="font-mono">{fmtUsDate(detail.invoice.invoice_date)}</span>
+                    <span>{fmtUsDate(detail.invoice.invoice_date)}</span>
                   </div>
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Due Date</span>
-                    <span className="font-mono">{fmtUsDate(detail.invoice.due_date)}</span>
+                    <span>{fmtUsDate(detail.invoice.due_date)}</span>
                   </div>
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Payment Terms</span>
-                    <span className="font-mono">{paymentTerms(detail.invoice.invoice_date, detail.invoice.due_date)}</span>
+                    <span>{paymentTerms(detail.invoice.invoice_date, detail.invoice.due_date)}</span>
                   </div>
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Currency</span>
-                    <span className="font-mono">{detail.invoice.settlement_currency || detail.invoice.pricing_currency || "USD"}</span>
+                    <span>{detail.invoice.settlement_currency || detail.invoice.pricing_currency || "USD"}</span>
                   </div>
 
                   <div className="pt-2 text-[12px] font-bold underline">Delivery Address</div>
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Customer No.</span>
-                    <span className="font-mono">{officialCustomerNo}</span>
+                    <span>{officialCustomerNo}</span>
                   </div>
                   <div>{officialCustomerName}</div>
                   {officialDeliveryLines.map((ln, idx) => (
@@ -794,7 +807,7 @@ export default function SalesInvoicePrintPage() {
                   ))}
                   <div className="grid grid-cols-[102px_1fr] gap-x-2">
                     <span className="font-semibold">Tel</span>
-                    <span className="font-mono">{officialCustomerPhone}</span>
+                    <span>{officialCustomerPhone}</span>
                   </div>
                 </div>
               </section>
@@ -808,32 +821,43 @@ export default function SalesInvoicePrintPage() {
                       <th className="border-r border-black/30 px-1 py-1 text-right">Quantity</th>
                       <th className="border-r border-black/30 px-1 py-1 text-center">UOM</th>
                       <th className="border-r border-black/30 px-1 py-1 text-right">Unit price</th>
-                      <th className="border-r border-black/30 px-1 py-1 text-center">Discount %</th>
-                      <th className="border-r border-black/30 px-1 py-1 text-right">Discount Amount</th>
+                      {officialHasLineDiscount ? <th className="border-r border-black/30 px-1 py-1 text-center">Discount %</th> : null}
+                      {officialHasLineDiscount ? <th className="border-r border-black/30 px-1 py-1 text-right">Discount Amount</th> : null}
                       <th className="px-1 py-1 text-right">Amount</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(detail.lines || []).map((l) => {
-                      const rawPct = Number(l.discount_pct || 0);
+                      const rawPct = toNum(l.discount_pct);
                       const pct = rawPct <= 1 ? rawPct * 100 : rawPct;
                       const pctText = pct === 0 ? "0%" : `${pct.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%`;
+                      const uomText = displayUom(l.uom);
                       return (
                         <tr key={l.id} className="border-t border-black/20 align-top">
-                          <td className="border-r border-black/20 px-1 py-1 font-mono text-[9px]">{l.item_sku || String(l.item_id).slice(0, 12)}</td>
+                          <td className="border-r border-black/20 px-1 py-1 text-[9px]">{l.item_sku || String(l.item_id).slice(0, 12)}</td>
                           <td className="border-r border-black/20 px-1 py-1">{l.item_name || "-"}</td>
-                          <td className="border-r border-black/20 px-1 py-1 text-right font-mono">{fmtPlainQty(l.qty_entered ?? l.qty)}</td>
-                          <td className="border-r border-black/20 px-1 py-1 text-center">{String(l.uom || "").trim() || "-"}</td>
-                          <td className="border-r border-black/20 px-1 py-1 text-right font-mono">{fmtPlainMoney(l.unit_price_entered_usd ?? l.unit_price_usd)}</td>
-                          <td className="border-r border-black/20 px-1 py-1 text-center font-mono">{pctText}</td>
-                          <td className="border-r border-black/20 px-1 py-1 text-right font-mono">{fmtPlainMoney(l.discount_amount_usd || 0)}</td>
-                          <td className="px-1 py-1 text-right font-mono">{fmtPlainMoney(l.line_total_usd)}</td>
+                          <td className="border-r border-black/20 px-1 py-1 text-right">{fmtPlainQty(l.qty_entered ?? l.qty)}</td>
+                          <td className="border-r border-black/20 px-1 py-1 text-center">
+                            <span className="inline-flex min-w-[34px] items-center justify-center rounded border border-black/35 px-1 py-[1px] text-[9px] font-semibold tracking-[0.04em]">
+                              {uomText}
+                            </span>
+                          </td>
+                          <td className="border-r border-black/20 px-1 py-1 text-right">
+                            {fmtPlainMoney(l.unit_price_entered_usd ?? l.unit_price_usd)}
+                          </td>
+                          {officialHasLineDiscount ? (
+                            <td className="border-r border-black/20 px-1 py-1 text-center">{pctText}</td>
+                          ) : null}
+                          {officialHasLineDiscount ? (
+                            <td className="border-r border-black/20 px-1 py-1 text-right">{fmtPlainMoney(l.discount_amount_usd || 0)}</td>
+                          ) : null}
+                          <td className="px-1 py-1 text-right">{fmtPlainMoney(l.line_total_usd)}</td>
                         </tr>
                       );
                     })}
                     {(detail.lines || []).length === 0 ? (
                       <tr>
-                        <td className="py-4 text-center text-black/60" colSpan={8}>
+                        <td className="py-4 text-center text-black/60" colSpan={officialHasLineDiscount ? 8 : 6}>
                           No lines.
                         </td>
                       </tr>
@@ -846,23 +870,20 @@ export default function SalesInvoicePrintPage() {
                 <div className="space-y-2">
                   <div className="font-semibold">Total Qty HL   {fmtPlainQty(officialTotalQty)}</div>
                   <div className="italic">{amountInWordsUsd(officialTotalUsd)}</div>
-                  <div className="pt-3 text-[10px]">
-                    Prices include VAT in line amounts. VAT is printed as 0% temporarily until registration is activated.
-                  </div>
                 </div>
 
                 <div className="border border-black/45">
                   <div className="flex items-center justify-between border-b border-black/25 px-2 py-1.5">
-                    <span className="font-semibold">Amount (VAT Included in Prices)</span>
-                    <span className="font-mono font-semibold">{fmtPlainMoney(officialPrintedBeforeVatUsd)}</span>
+                    <span className="font-semibold">Amount</span>
+                    <span className="font-semibold">{fmtPlainMoney(officialPrintedBeforeVatUsd)}</span>
                   </div>
                   <div className="flex items-center justify-between border-b border-black/25 px-2 py-1.5">
                     <span className="font-semibold">{officialPrintedVatLabel}</span>
-                    <span className="font-mono font-semibold">{fmtPlainMoney(officialPrintedVatUsd)}</span>
+                    <span className="font-semibold">{fmtPlainMoney(officialPrintedVatUsd)}</span>
                   </div>
                   <div className="flex items-center justify-between bg-black/[0.06] px-2 py-1.5">
                     <span className="text-[12px] font-bold">Final Total Amount</span>
-                    <span className="font-mono text-[12px] font-bold">{fmtPlainMoney(officialTotalUsd)}</span>
+                    <span className="text-[12px] font-bold">{fmtPlainMoney(officialTotalUsd)}</span>
                   </div>
                 </div>
               </section>
@@ -872,7 +893,7 @@ export default function SalesInvoicePrintPage() {
                 <div className="border-t border-black/30 pt-3">Stamp Duty Paid</div>
               </section>
 
-              <footer className="text-right font-mono text-[10px] text-black/50">
+              <footer className="text-right text-[10px] text-black/50">
                 Document ID: {detail.invoice.id} · Generated: {formatDateTime(new Date())}
               </footer>
             </div>

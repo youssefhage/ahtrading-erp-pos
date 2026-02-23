@@ -7695,6 +7695,10 @@
       onVatDisplayModeChange={onVatDisplayModeChange}
       showPriceDisplayControls={showPriceDisplayControls}
       onShowPriceDisplayControlsChange={onShowPriceDisplayControlsChange}
+      setupLogin={setupLogin}
+      setupBranches={setupBranches}
+      setupDevices={setupDevices}
+      setupRegisterDevice={setupRegisterDevice}
       versionText={runtimeVersionText}
     />
   {/if}

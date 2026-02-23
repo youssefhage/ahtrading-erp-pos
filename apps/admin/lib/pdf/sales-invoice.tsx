@@ -269,6 +269,18 @@ function lineDiscountPct(line: InvoiceLine) {
   })}%`;
 }
 
+function hasLineDiscount(line: InvoiceLine) {
+  const rawPct = toNum(line.discount_pct);
+  const pct = rawPct <= 1 ? rawPct * 100 : rawPct;
+  if (Math.abs(pct) > 0.0001) return true;
+  return Math.abs(lineDiscountAmount(line)) > 0.0001;
+}
+
+function displayUom(raw: unknown) {
+  const out = String(raw || "").trim().toUpperCase();
+  return out || "-";
+}
+
 function customerLabel(inv: InvoiceRow, customer?: Customer | null) {
   if (!inv.customer_id) return "Walk-in";
   return String(customer?.legal_name || customer?.name || inv.customer_name || inv.customer_id);
@@ -379,7 +391,6 @@ const official = StyleSheet.create({
   },
   companyInfoMono: {
     marginBottom: 3,
-    fontFamily: "Courier",
   },
   titleWrap: {
     width: "38%",
@@ -393,7 +404,6 @@ const official = StyleSheet.create({
   invoiceNo: {
     marginTop: 7,
     fontSize: 19,
-    fontFamily: "Courier",
     fontWeight: 700,
   },
 
@@ -417,7 +427,6 @@ const official = StyleSheet.create({
   },
   kvValue: {
     flexGrow: 1,
-    fontFamily: "Courier",
   },
   blockTitle: {
     fontSize: 10,
@@ -431,7 +440,6 @@ const official = StyleSheet.create({
   },
   bodyMono: {
     marginBottom: 3,
-    fontFamily: "Courier",
   },
 
   tableWrap: {
@@ -467,9 +475,21 @@ const official = StyleSheet.create({
   center: {
     textAlign: "center",
   },
+  uomBadge: {
+    alignSelf: "center",
+    minWidth: 26,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderWidth: 1,
+    borderColor: "#8c8c8c",
+    borderRadius: 3,
+    textAlign: "center",
+    fontSize: 8,
+    fontWeight: 700,
+    letterSpacing: 0.35,
+  },
   right: {
     textAlign: "right",
-    fontFamily: "Courier",
   },
 
   afterTable: {
@@ -511,7 +531,6 @@ const official = StyleSheet.create({
     fontWeight: 700,
   },
   totalValue: {
-    fontFamily: "Courier",
     fontWeight: 700,
   },
   grandRow: {
@@ -523,7 +542,6 @@ const official = StyleSheet.create({
   },
   grandValue: {
     fontSize: 10,
-    fontFamily: "Courier",
     fontWeight: 700,
   },
   signRow: {
@@ -556,7 +574,6 @@ const official = StyleSheet.create({
     fontSize: 7,
     color: "#777",
     textAlign: "right",
-    fontFamily: "Courier",
   },
   footerWrap: {
     marginTop: "auto",
@@ -598,6 +615,7 @@ function OfficialInvoiceTemplate(props: {
 
   const vatPct = beforeVat > 0 ? (taxUsd / beforeVat) * 100 : 0;
   const vatPctLabel = vatPct > 0 ? `${vatPct.toFixed(vatPct % 1 === 0 ? 0 : 2)}%` : "";
+  const showDiscountColumns = lines.some(hasLineDiscount);
 
   return (
     <Document title={`Sales Invoice ${docNo}`}>
@@ -706,12 +724,16 @@ function OfficialInvoiceTemplate(props: {
               <View style={[official.cell, { flex: 1.3 }]}>
                 <Text style={[official.cellHead, official.right]}>Unit price</Text>
               </View>
-              <View style={[official.cell, { flex: 1.2 }]}>
-                <Text style={[official.cellHead, official.center]}>Discount %</Text>
-              </View>
-              <View style={[official.cell, { flex: 1.35 }]}>
-                <Text style={[official.cellHead, official.right]}>Discount Amount</Text>
-              </View>
+              {showDiscountColumns ? (
+                <View style={[official.cell, { flex: 1.2 }]}>
+                  <Text style={[official.cellHead, official.center]}>Discount %</Text>
+                </View>
+              ) : null}
+              {showDiscountColumns ? (
+                <View style={[official.cell, { flex: 1.35 }]}>
+                  <Text style={[official.cellHead, official.right]}>Discount Amount</Text>
+                </View>
+              ) : null}
               <View style={[official.cell, { flex: 1.3, borderRightWidth: 0 }]}>
                 <Text style={[official.cellHead, official.right]}>Amount</Text>
               </View>
@@ -720,7 +742,7 @@ function OfficialInvoiceTemplate(props: {
             {lines.map((l) => (
               <View key={l.id} style={official.row} wrap={false}>
                 <View style={[official.cell, { flex: 1.25 }]}>
-                  <Text style={[official.left, { fontFamily: "Courier", fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
+                  <Text style={[official.left, { fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
                 </View>
                 <View style={[official.cell, { flex: 3.2 }]}>
                   <Text style={[official.left, { fontSize: 8.5 }]}>{l.item_name || "-"}</Text>
@@ -729,17 +751,21 @@ function OfficialInvoiceTemplate(props: {
                   <Text style={official.right}>{fmtQty(lineQty(l))}</Text>
                 </View>
                 <View style={[official.cell, { flex: 0.85 }]}>
-                  <Text style={[official.center, { fontSize: 8.3 }]}>{String(l.uom || "").trim() || "-"}</Text>
+                  <Text style={official.uomBadge}>{displayUom(l.uom)}</Text>
                 </View>
                 <View style={[official.cell, { flex: 1.3 }]}>
                   <Text style={official.right}>{fmtPlainMoney(lineUnitPrice(l))}</Text>
                 </View>
-                <View style={[official.cell, { flex: 1.2 }]}>
-                  <Text style={[official.center, { fontFamily: "Courier" }]}>{lineDiscountPct(l)}</Text>
-                </View>
-                <View style={[official.cell, { flex: 1.35 }]}>
-                  <Text style={official.right}>{fmtPlainMoney(lineDiscountAmount(l))}</Text>
-                </View>
+                {showDiscountColumns ? (
+                  <View style={[official.cell, { flex: 1.2 }]}>
+                    <Text style={official.center}>{lineDiscountPct(l)}</Text>
+                  </View>
+                ) : null}
+                {showDiscountColumns ? (
+                  <View style={[official.cell, { flex: 1.35 }]}>
+                    <Text style={official.right}>{fmtPlainMoney(lineDiscountAmount(l))}</Text>
+                  </View>
+                ) : null}
                 <View style={[official.cell, { flex: 1.3, borderRightWidth: 0 }]}>
                   <Text style={official.right}>{fmtPlainMoney(l.line_total_usd)}</Text>
                 </View>
@@ -977,7 +1003,7 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
               return (
                 <View key={l.id} style={official.row} wrap={false}>
                   <View style={[official.cell, { flex: 1.35 }]}>
-                    <Text style={[official.left, { fontFamily: "Courier", fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
+                    <Text style={[official.left, { fontSize: 8.3 }]}>{l.item_sku || String(l.item_id).slice(0, 12)}</Text>
                   </View>
                   <View style={[official.cell, { flex: 3.45 }]}>
                     <Text style={[official.left, { fontSize: 8.5 }]}>{l.item_name || "-"}</Text>
@@ -986,7 +1012,7 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
                     <Text style={official.right}>{fmtQty(r.qty)}</Text>
                   </View>
                   <View style={[official.cell, { flex: 0.9 }]}>
-                    <Text style={[official.center, { fontSize: 8.3 }]}>{String(l.uom || "").trim() || "-"}</Text>
+                    <Text style={official.uomBadge}>{displayUom(l.uom)}</Text>
                   </View>
                   <View style={[official.cell, { flex: 1.6 }]}>
                     <Text style={official.right}>{fmtPlainMoney(r.unitPriceInclVat)}</Text>
@@ -1011,12 +1037,11 @@ function OfficialInvoiceTemplateNonVatTemp(props: {
             <View style={official.leftFoot}>
               <Text style={official.qtyLine}>Total Qty HL   {fmtQty(totalQty)}</Text>
               <Text style={official.wordsLine}>{amountInWordsUsd(totalUsd)}</Text>
-              <Text style={official.noteLine}>Prices shown are VAT-inclusive while VAT is temporarily reported as 0% on invoices.</Text>
             </View>
 
             <View style={official.totalsBox}>
               <View style={official.totalRow}>
-                <Text style={official.totalLabel}>Total Amount Before VAT</Text>
+                <Text style={official.totalLabel}>Amount</Text>
                 <Text style={official.totalValue}>{fmtPlainMoney(totalUsd)}</Text>
               </View>
               <View style={official.totalRow}>
