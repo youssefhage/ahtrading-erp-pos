@@ -759,6 +759,30 @@ fn app_version() -> String {
   env!("CARGO_PKG_VERSION").to_string()
 }
 
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+  let target = url.trim();
+  if target.is_empty() {
+    return Err("url is empty".to_string());
+  }
+  let status = if cfg!(target_os = "windows") {
+    Command::new("cmd")
+      .args(["/C", "start", "", target])
+      .status()
+  } else if cfg!(target_os = "macos") {
+    Command::new("open").arg(target).status()
+  } else {
+    Command::new("xdg-open").arg(target).status()
+  }
+  .map_err(|e| e.to_string())?;
+
+  if status.success() {
+    Ok(())
+  } else {
+    Err(format!("failed to open url (status: {status})"))
+  }
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_updater::Builder::new().build())
@@ -775,7 +799,8 @@ fn main() {
       secure_delete,
       suggest_port_pair,
       load_launcher_prefill,
-      app_version
+      app_version,
+      open_external_url
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

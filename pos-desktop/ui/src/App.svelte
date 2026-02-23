@@ -670,6 +670,7 @@
   let cashierPinEl = null;
   let cashierOfficialManager = false;
   let cashierUnofficialManager = false;
+  let canOpenAdminPortal = false;
 
   // Shift
   let showShiftModal = false;
@@ -774,28 +775,77 @@
     : String(config?.cashier_id || "").trim();
   $: selectedCashierName = selectedCashierCompanyKey === otherCompanyKey ? cashierUnofficialName : cashierOfficialName;
   $: selectedCashierSignedIn = !!selectedCashierId;
-  const _mergeCashierChoices = (lists = []) => {
-    const byId = new Map();
-    for (const rows of (lists || [])) {
-      for (const row of (rows || [])) {
-        const id = String(row?.id || "").trim();
-        if (!id) continue;
-        if (!byId.has(id)) {
-          byId.set(id, { ...(row || {}), id, name: String(row?.name || "").trim() || id });
-          continue;
-        }
-        const prev = byId.get(id) || {};
-        byId.set(id, {
-          ...prev,
-          ...(row || {}),
-          id,
-          name: String(row?.name || prev?.name || id).trim() || id,
-        });
+  const _cashierNameKey = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const _cashierIdentityKey = (row = {}) => {
+    const userId = String(row?.user_id || "").trim();
+    if (userId) return `user:${userId}`;
+    const employeeId = String(row?.employee_id || row?.employee || "").trim();
+    if (employeeId) return `employee:${employeeId}`;
+    const userEmail = String(row?.user_email || "").trim().toLowerCase();
+    if (userEmail) return `email:${userEmail}`;
+    const nameKey = _cashierNameKey(row?.name || "");
+    return nameKey ? `name:${nameKey}` : "";
+  };
+  const _mergeCashierChoices = (sources = []) => {
+    const byIdentity = new Map();
+    const rows = [];
+    for (const src of (sources || [])) {
+      const companyKey = normalizeCompanyKey(src?.companyKey || "");
+      for (const row of (src?.rows || [])) {
+        rows.push({ companyKey, row: row || {} });
       }
     }
-    return Array.from(byId.values()).sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
+    for (const entry of rows) {
+      const companyKey = normalizeCompanyKey(entry.companyKey);
+      const row = entry.row || {};
+      const cashierId = String(row?.id || "").trim();
+      if (!cashierId) continue;
+      const name = String(row?.name || "").trim() || cashierId;
+      const identity = _cashierIdentityKey(row);
+      let key = identity || `id:${companyKey}:${cashierId}`;
+      // Avoid collapsing two different cashiers from the same company that share the same fallback key.
+      if (byIdentity.has(key)) {
+        const current = byIdentity.get(key) || {};
+        const existingId = String(current?.company_cashier_ids?.[companyKey] || "").trim();
+        if (existingId && existingId !== cashierId) key = `${key}|${companyKey}:${cashierId}`;
+      }
+      const prev = byIdentity.get(key) || {
+        id: key,
+        name,
+        company_cashier_ids: {},
+      };
+      prev.name = String(prev?.name || "").trim() || name;
+      prev.company_cashier_ids = {
+        ...(prev.company_cashier_ids || {}),
+        [companyKey]: cashierId,
+      };
+      byIdentity.set(key, prev);
+    }
+    const merged = Array.from(byIdentity.values()).map((choice) => {
+      const hasOfficial = !!String(choice?.company_cashier_ids?.official || "").trim();
+      const hasUnofficial = !!String(choice?.company_cashier_ids?.unofficial || "").trim();
+      let label = String(choice?.name || "").trim();
+      if (!hasOfficial && hasUnofficial) label = `${label} (Unofficial only)`;
+      else if (hasOfficial && !hasUnofficial) label = `${label} (Official only)`;
+      return { ...choice, label };
+    });
+    return merged.sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")));
   };
-  $: linkedCashierChoices = _mergeCashierChoices([cashiers, unofficialCashiers]);
+  const _cashiersForCompany = (companyKey) => (normalizeCompanyKey(companyKey) === otherCompanyKey ? unofficialCashiers : cashiers);
+  const _linkedSelectedCashierIdForCompany = (companyKey, selectedChoice, fallbackId = "") => {
+    const k = normalizeCompanyKey(companyKey);
+    const direct = String(selectedChoice?.company_cashier_ids?.[k] || "").trim();
+    if (direct) return direct;
+    const fallback = String(fallbackId || "").trim();
+    if (!fallback) return "";
+    const pool = _cashiersForCompany(k) || [];
+    if (pool.some((c) => String(c?.id || "").trim() === fallback)) return fallback;
+    return "";
+  };
+  $: linkedCashierChoices = _mergeCashierChoices([
+    { companyKey: originCompanyKey, rows: cashiers },
+    { companyKey: otherCompanyKey, rows: unofficialCashiers },
+  ]);
   $: cashierChoices = linkedOpsMode
     ? linkedCashierChoices
     : (selectedCashierCompanyKey === otherCompanyKey ? unofficialCashiers : cashiers);
@@ -934,6 +984,7 @@
   $: _syncCashierManagerMetaFor("unofficial");
   $: cashierOfficialManager = _managerBadgeForCompany("official", activeCashierOfficial);
   $: cashierUnofficialManager = _managerBadgeForCompany("unofficial", activeCashierUnofficial);
+  $: canOpenAdminPortal = cashierOfficialManager || cashierUnofficialManager;
   const _activeCashierIsManagerFor = (companyKey) => {
     const key = normalizeCompanyKey(companyKey);
     return key === "unofficial" ? !!cashierUnofficialManager : !!cashierOfficialManager;
@@ -1020,6 +1071,25 @@
     const copied = document.execCommand("copy");
     document.body.removeChild(ta);
     if (!copied) throw new Error("Clipboard is not available.");
+  };
+  const _tauriInvoke = async (command, args = {}) => {
+    const invoke = globalThis?.__TAURI__?.core?.invoke;
+    if (typeof invoke !== "function") throw new Error("tauri invoke unavailable");
+    return await invoke(command, args);
+  };
+  const _openExternalUrl = async (target) => {
+    const url = String(target || "").trim();
+    if (!url) return false;
+    try {
+      await _tauriInvoke("open_external_url", { url });
+      return true;
+    } catch (_) {}
+    try {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return true;
+    } catch (_) {
+      return false;
+    }
   };
   const _positionTopMoreActionsMenu = () => {
     if (!showTopMoreActions) return;
@@ -1237,6 +1307,10 @@
   $: shiftVarianceLbp = toNum(closingCashLbp, 0) - toNum(shiftExpectedCloseLbp, 0);
   $: checkoutTotal = currencyPrimary === "LBP" ? (totals.totalLbp || 0) : (totals.totalUsd || 0);
   const cfgForCompanyKey = (companyKey) => (companyKey === otherCompanyKey ? unofficialConfig : config);
+  const companyIdForCompany = (companyKey) => {
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    return String(cfg?.company_id || "").trim();
+  };
   const cashierIdForCompany = (companyKey, explicitCashierId = "") => {
     const direct = String(explicitCashierId || "").trim();
     if (direct) return direct;
@@ -3897,33 +3971,62 @@
       return _normalizeOriginUrl(raw);
     }
   };
-  const _adminOutboxLinks = () => {
+  const _preferredAdminCompanyId = () => {
+    let preferredKey = originCompanyKey;
+    try {
+      preferredKey = normalizeCompanyKey(effectiveInvoiceCompany?.() || originCompanyKey);
+    } catch (_) {
+      preferredKey = normalizeCompanyKey(originCompanyKey);
+    }
+    const preferredCompanyId = companyIdForCompany(preferredKey);
+    if (preferredCompanyId) return preferredCompanyId;
+    return companyIdForCompany("official") || companyIdForCompany("unofficial") || "";
+  };
+  const _adminLinksForPath = (path = "/dashboard", companyId = "") => {
     const set = new Set();
     const add = (base) => {
       const b = _normalizeOriginUrl(base);
       if (!b) return;
       try {
-        const u = new URL("/system/outbox", `${b}/`);
+        const u = new URL(path, `${b}/`);
+        if (companyId) u.searchParams.set("company_id", companyId);
         set.add(_normalizeOriginUrl(u.toString()));
       } catch (_) {}
     };
     add(String(cfgForCompanyKey("official")?.print_base_url || "").trim());
+    add(String(cfgForCompanyKey("unofficial")?.print_base_url || "").trim());
     add(_adminBaseFromApiBase(_webPosApiBaseFor("official")));
     add(_adminBaseFromApiBase(_webPosApiBaseFor("unofficial")));
     try { add(String(window?.location?.origin || "").trim()); } catch (_) {}
     return Array.from(set);
   };
+  const _adminOutboxLinks = () => _adminLinksForPath("/system/outbox", _preferredAdminCompanyId());
+  const _adminPortalLinks = () => _adminLinksForPath("/dashboard", _preferredAdminCompanyId());
   const reportNotice = (msg) => { notice = msg; setTimeout(() => notice = "", 3000); };
   const reportError = (msg) => { alert(msg); error = msg; }; // Simple alert for now, can be improved
-  const openAdminOutbox = () => {
+  const openAdminPortal = async () => {
+    if (!canOpenAdminPortal) {
+      reportError("Manager access required to open Admin Portal.");
+      return;
+    }
+    const links = _adminPortalLinks();
+    const target = links[0] || "/dashboard";
+    const opened = await _openExternalUrl(target);
+    if (opened) {
+      reportNotice("Opened Admin Portal.");
+      return;
+    }
+    reportError(`Open Admin Portal manually: ${target}`);
+  };
+  const openAdminOutbox = async () => {
     const links = _adminOutboxLinks();
     const target = links[0] || "/system/outbox";
-    try {
-      window.open(target, "_blank", "noopener,noreferrer");
+    const opened = await _openExternalUrl(target);
+    if (opened) {
       reportNotice("Opened Admin Outbox. If you get Access Denied, ask for POS manage permission.");
-    } catch (_) {
-      reportError(`Open Admin Outbox manually: ${target}`);
+      return;
     }
+    reportError(`Open Admin Outbox manually: ${target}`);
   };
   const copyAdminOutboxLink = async () => {
     const links = _adminOutboxLinks();
@@ -6943,10 +7046,24 @@
     }
     const companyKey = normalizeCompanyKey(cashierCompanyKey || originCompanyKey);
     const companies = linkedOpsMode ? [...POS_COMPANY_KEYS] : [companyKey];
+    const linkedSelectedChoice = linkedOpsMode
+      ? linkedCashierChoices.find((c) => String(c?.id || "").trim() === cashier_id)
+      : null;
+    const requestRows = companies.map((k) => {
+      const resolvedId = linkedOpsMode
+        ? _linkedSelectedCashierIdForCompany(k, linkedSelectedChoice, cashier_id)
+        : cashier_id;
+      return { companyKey: k, cashier_id: resolvedId };
+    });
+    const missingCompanies = requestRows.filter((r) => !String(r?.cashier_id || "").trim()).map((r) => r.companyKey);
+    if (missingCompanies.length > 0) {
+      reportError(`Selected cashier is not available on: ${_companyListText(missingCompanies)}.`);
+      return;
+    }
     try {
       loading = true;
       const results = await Promise.allSettled(
-        companies.map((k) => apiCallFor(k, "/cashiers/login", { method: "POST", body: { pin, cashier_id } })),
+        requestRows.map((r) => apiCallFor(r.companyKey, "/cashiers/login", { method: "POST", body: { pin, cashier_id: r.cashier_id } })),
       );
       const successCompanies = [];
       const failures = [];
@@ -7854,6 +7971,16 @@
           >
             Ops Mode: {linkedOpsMode ? "Linked" : "Individual"}
           </button>
+          {#if canOpenAdminPortal}
+            <button
+              class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+              on:click={() => { showTopMoreActions = false; openAdminPortal(); }}
+              title="Open Admin Portal in browser"
+              type="button"
+            >
+              Admin Portal
+            </button>
+          {/if}
           <button
             class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
             on:click={() => { showTopMoreActions = false; cashierLogout(); }}
@@ -8778,7 +8905,7 @@
             <option value="">No active cashiers available</option>
           {:else}
             {#each cashierChoices as c}
-              <option value={c.id}>{c.name}</option>
+              <option value={c.id}>{c.label || c.name}</option>
             {/each}
           {/if}
         </select>
