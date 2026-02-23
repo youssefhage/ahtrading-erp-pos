@@ -2258,7 +2258,12 @@
       const officialVatPctLabel = officialVatPct > 0
         ? `${officialVatPct.toFixed(Math.abs(officialVatPct % 1) < 1e-6 ? 0 : 2)}%`
         : "";
-      const vatLabel = officialVatPctLabel ? `VAT ${officialVatPctLabel}` : "VAT";
+      const TEMP_NON_VAT_PRINT = true;
+      const printedBeforeVatUsd = TEMP_NON_VAT_PRINT ? officialTotalUsd : officialBeforeVat;
+      const printedVatUsd = TEMP_NON_VAT_PRINT ? 0 : taxUsd;
+      const vatLabel = TEMP_NON_VAT_PRINT
+        ? "VAT 0% (Temporary)"
+        : (officialVatPctLabel ? `VAT ${officialVatPctLabel}` : "VAT");
       const totalWords = `Only USD ${fmtPlainMoney(officialTotalUsd)}`;
 
       const officialLineRows = lines.map((ln) => {
@@ -2385,12 +2390,12 @@
       <div class="summary-left">
         <div class="qty">Total Qty HL ${_escapeHtml(fmtPlainQty(officialTotalQty))}</div>
         <div class="words">${_escapeHtml(totalWords)}</div>
-        <div>Amount to be cashed in USD notes and VAT to be paid in LBP at Sayrafa rate.</div>
+        <div>Prices include VAT in line amounts. VAT is printed as 0% temporarily until registration is activated.</div>
       </div>
       <div class="summary-right">
-        <div class="row"><span>Total Amount Before VAT</span><span class="mono">${_escapeHtml(fmtPlainMoney(officialBeforeVat))}</span></div>
-        <div class="row"><span>${_escapeHtml(vatLabel)}</span><span class="mono">${_escapeHtml(fmtPlainMoney(taxUsd))}</span></div>
-        <div class="row"><span>Total Amount Incl. VAT</span><span class="mono">${_escapeHtml(fmtPlainMoney(officialTotalUsd))}</span></div>
+        <div class="row"><span>Amount (VAT Included in Prices)</span><span class="mono">${_escapeHtml(fmtPlainMoney(printedBeforeVatUsd))}</span></div>
+        <div class="row"><span>${_escapeHtml(vatLabel)}</span><span class="mono">${_escapeHtml(fmtPlainMoney(printedVatUsd))}</span></div>
+        <div class="row"><span>Final Total Amount</span><span class="mono">${_escapeHtml(fmtPlainMoney(officialTotalUsd))}</span></div>
       </div>
     </section>
 

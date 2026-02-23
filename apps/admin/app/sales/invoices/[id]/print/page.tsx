@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 
 const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
 const UNOFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000002";
+// Temporary business rule: print invoices as non-VAT (0%) while registration is pending.
+const TEMP_NON_VAT_PRINT = true;
 
 type InvoiceRow = {
   id: string;
@@ -544,6 +546,9 @@ export default function SalesInvoicePrintPage() {
   const officialBeforeVat = Math.abs(officialTotalUsd - officialTaxUsd) > 0.009 ? officialTotalUsd - officialTaxUsd : officialBeforeVatComputed;
   const officialVatPct = officialBeforeVat > 0 ? (officialTaxUsd / officialBeforeVat) * 100 : 0;
   const officialVatPctLabel = officialVatPct > 0 ? `${officialVatPct.toFixed(officialVatPct % 1 === 0 ? 0 : 2)}%` : "";
+  const officialPrintedBeforeVatUsd = TEMP_NON_VAT_PRINT ? officialTotalUsd : officialBeforeVat;
+  const officialPrintedVatUsd = TEMP_NON_VAT_PRINT ? 0 : officialTaxUsd;
+  const officialPrintedVatLabel = TEMP_NON_VAT_PRINT ? "VAT 0% (Temporary)" : (`VAT ${officialVatPctLabel}`.trim() || "VAT");
 
   return (
     <div className="print-paper min-h-screen">
@@ -841,20 +846,22 @@ export default function SalesInvoicePrintPage() {
                 <div className="space-y-2">
                   <div className="font-semibold">Total Qty HL   {fmtPlainQty(officialTotalQty)}</div>
                   <div className="italic">{amountInWordsUsd(officialTotalUsd)}</div>
-                  <div className="pt-3 text-[10px]">Amount to be Cashed in USD Notes and VAT to be paid in LBP at Sayrafa rate.</div>
+                  <div className="pt-3 text-[10px]">
+                    Prices include VAT in line amounts. VAT is printed as 0% temporarily until registration is activated.
+                  </div>
                 </div>
 
                 <div className="border border-black/45">
                   <div className="flex items-center justify-between border-b border-black/25 px-2 py-1.5">
-                    <span className="font-semibold">Total Amount Before VAT</span>
-                    <span className="font-mono font-semibold">{fmtPlainMoney(officialBeforeVat)}</span>
+                    <span className="font-semibold">Amount (VAT Included in Prices)</span>
+                    <span className="font-mono font-semibold">{fmtPlainMoney(officialPrintedBeforeVatUsd)}</span>
                   </div>
                   <div className="flex items-center justify-between border-b border-black/25 px-2 py-1.5">
-                    <span className="font-semibold">{`VAT ${officialVatPctLabel}`.trim()}</span>
-                    <span className="font-mono font-semibold">{fmtPlainMoney(officialTaxUsd)}</span>
+                    <span className="font-semibold">{officialPrintedVatLabel}</span>
+                    <span className="font-mono font-semibold">{fmtPlainMoney(officialPrintedVatUsd)}</span>
                   </div>
                   <div className="flex items-center justify-between bg-black/[0.06] px-2 py-1.5">
-                    <span className="text-[12px] font-bold">Total Amount Incl. VAT</span>
+                    <span className="text-[12px] font-bold">Final Total Amount</span>
                     <span className="font-mono text-[12px] font-bold">{fmtPlainMoney(officialTotalUsd)}</span>
                   </div>
                 </div>
