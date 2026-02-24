@@ -76,7 +76,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierTypeaheadSupplier | null>(null);
 
   const [warehouseId, setWarehouseId] = useState("");
-  const [exchangeRate, setExchangeRate] = useState("90000");
+  const [exchangeRate, setExchangeRate] = useState("89500");
   const [supplierRef, setSupplierRef] = useState("");
   const [purchaseOrderId, setPurchaseOrderId] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([]);
@@ -94,7 +94,7 @@ export function GoodsReceiptDraftEditor(props: { mode: "create" | "edit"; receip
       ]);
       const whs = wRes.warehouses || [];
       setWarehouses(whs);
-      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 90000;
+      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 89500;
       const preferredWarehouseId = (() => {
         const cid = getCompanyId();
         const pref = getDefaultWarehouseId(cid);

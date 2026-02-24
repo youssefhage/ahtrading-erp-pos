@@ -38,7 +38,7 @@ function Inner() {
   const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
   const [goodsReceiptId, setGoodsReceiptId] = useState("");
   const [memo, setMemo] = useState("");
-  const [exchangeRate, setExchangeRate] = useState("90000");
+  const [exchangeRate, setExchangeRate] = useState("89500");
   const [lines, setLines] = useState<Line[]>([{ description: "Freight", amount_usd: "", amount_lbp: "" }]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -175,7 +175,7 @@ function Inner() {
 
               <label className="space-y-1">
                 <div className="text-xs text-fg-muted">Exchange rate (USD to LBP)</div>
-                <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="90000" />
+                <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="89500" />
               </label>
             </div>
 

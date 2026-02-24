@@ -46,7 +46,7 @@ export async function getFxRateUsdToLbp(opts?: { rateDate?: string; rateType?: s
     return {
       rate_date: null,
       rate_type: String(opts?.rateType || "market"),
-      usd_to_lbp: cached && cached > 0 ? cached : 90000,
+      usd_to_lbp: cached && cached > 0 ? cached : 89500,
       source: "fallback",
     };
   }

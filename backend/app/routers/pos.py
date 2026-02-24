@@ -3059,7 +3059,9 @@ def _eligible_cashiers_for_device(cur, company_id: str, device_id: str):
         if not has_any_linked_cashier:
             has_employee_assignments = False
 
-    user_id_select = "c.user_id" if has_cashier_user_id_column else "NULL::uuid AS user_id"
+    user_id_select = "c.user_id AS user_id" if has_cashier_user_id_column else "NULL::uuid AS user_id"
+    user_email_select = "u.email AS user_email" if has_cashier_user_id_column else "NULL::text AS user_email"
+    user_join = "LEFT JOIN users u ON u.id = c.user_id" if has_cashier_user_id_column else ""
     joins = []
     params = []
     if has_cashier_assignments:
@@ -3086,8 +3088,9 @@ def _eligible_cashiers_for_device(cur, company_id: str, device_id: str):
 
     cur.execute(
         f"""
-        SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at, {user_id_select}
+        SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at, {user_id_select}, {user_email_select}
         FROM pos_cashiers c
+        {user_join}
         {' '.join(joins)}
         WHERE c.company_id = %s
           AND c.is_active = true
@@ -3102,34 +3105,66 @@ def _eligible_cashiers_for_device(cur, company_id: str, device_id: str):
     # Safety net: if assignment joins produced no rows, avoid a hard cashier lockout.
     # Fallback order: explicit cashier assignments, then all active cashiers.
     if has_cashier_assignments:
-        cur.execute(
-            """
-            SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at, c.user_id
-            FROM pos_cashiers c
-            JOIN pos_device_cashiers dc
-              ON dc.company_id = c.company_id
-             AND dc.cashier_id = c.id
-             AND dc.device_id = %s
-            WHERE c.company_id = %s
-              AND c.is_active = true
-            ORDER BY c.name
-            """,
-            (device_id, company_id),
-        )
+        if has_cashier_user_id_column:
+            cur.execute(
+                """
+                SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at, c.user_id AS user_id, u.email AS user_email
+                FROM pos_cashiers c
+                LEFT JOIN users u ON u.id = c.user_id
+                JOIN pos_device_cashiers dc
+                  ON dc.company_id = c.company_id
+                 AND dc.cashier_id = c.id
+                 AND dc.device_id = %s
+                WHERE c.company_id = %s
+                  AND c.is_active = true
+                ORDER BY c.name
+                """,
+                (device_id, company_id),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at,
+                       NULL::uuid AS user_id, NULL::text AS user_email
+                FROM pos_cashiers c
+                JOIN pos_device_cashiers dc
+                  ON dc.company_id = c.company_id
+                 AND dc.cashier_id = c.id
+                 AND dc.device_id = %s
+                WHERE c.company_id = %s
+                  AND c.is_active = true
+                ORDER BY c.name
+                """,
+                (device_id, company_id),
+            )
         rows = cur.fetchall()
         if rows:
             return rows
 
-    cur.execute(
-        """
-        SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at, c.user_id
-        FROM pos_cashiers c
-        WHERE c.company_id = %s
-          AND c.is_active = true
-        ORDER BY c.name
-        """,
-        (company_id,),
-    )
+    if has_cashier_user_id_column:
+        cur.execute(
+            """
+            SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at, c.user_id AS user_id, u.email AS user_email
+            FROM pos_cashiers c
+            LEFT JOIN users u ON u.id = c.user_id
+            WHERE c.company_id = %s
+              AND c.is_active = true
+            ORDER BY c.name
+            """,
+            (company_id,),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT c.id, c.name, c.pin_hash, c.is_active, c.updated_at,
+                   NULL::uuid AS user_id, NULL::text AS user_email
+            FROM pos_cashiers c
+            WHERE c.company_id = %s
+              AND c.is_active = true
+            ORDER BY c.name
+            """,
+            (company_id,),
+        )
     return cur.fetchall()
 
 
@@ -3473,6 +3508,7 @@ def verify_cashier(data: CashierVerifyIn, device=Depends(require_device)):
                         "id": row["id"],
                         "name": row["name"],
                         "user_id": row.get("user_id"),
+                        "user_email": row.get("user_email"),
                         "role": meta.get("role"),
                         "roles": meta.get("roles") or [],
                         "permissions": meta.get("permissions") or [],

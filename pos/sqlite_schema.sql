@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS local_customers_cache (
 CREATE TABLE IF NOT EXISTS local_cashiers_cache (
   id TEXT PRIMARY KEY,
   name TEXT,
+  user_id TEXT,
+  user_email TEXT,
   pin_hash TEXT,
   is_active INTEGER DEFAULT 1,
   updated_at TEXT

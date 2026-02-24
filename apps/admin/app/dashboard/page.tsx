@@ -258,7 +258,7 @@ export default function DashboardPage() {
   const metricsRef = useRef<Metrics | null>(null);
   const refreshingRef = useRef(false);
   const [fxLoading, setFxLoading] = useState(true);
-  const [usdToLbp, setUsdToLbp] = useState("90000");
+  const [usdToLbp, setUsdToLbp] = useState("89500");
   const [savingFx, setSavingFx] = useState(false);
   const [fxStatus, setFxStatus] = useState("");
   const [showOperationalSignals, setShowOperationalSignals] = useState(false);

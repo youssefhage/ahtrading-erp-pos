@@ -21,7 +21,7 @@ WHERE NOT EXISTS (
 
 -- Default exchange rate (fallback only; override from Admin -> Config in real use).
 INSERT INTO exchange_rates (id, company_id, rate_date, rate_type, usd_to_lbp)
-SELECT gen_random_uuid(), c.id, CURRENT_DATE, 'market', 90000
+SELECT gen_random_uuid(), c.id, CURRENT_DATE, 'market', 89500
 FROM companies c
 WHERE NOT EXISTS (
   SELECT 1 FROM exchange_rates r WHERE r.company_id = c.id

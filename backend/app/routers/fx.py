@@ -50,7 +50,7 @@ def _pick_rate(cur, *, company_id: str, rate_type: str, rate_date: Optional[date
         return {**row, "source": "latest"}
 
     # 3) Safe fallback (matches seed + Admin UI default).
-    return {"rate_date": None, "rate_type": rate_type, "usd_to_lbp": Decimal("90000"), "source": "fallback"}
+    return {"rate_date": None, "rate_type": rate_type, "usd_to_lbp": Decimal("89500"), "source": "fallback"}
 
 
 @router.get("/rate", dependencies=[Depends(get_current_user)])
@@ -63,7 +63,7 @@ def get_exchange_rate(
     Fetch the best exchange rate for the company.
     - If `rate_date` is given, returns the exact rate for that date+type if present.
     - Otherwise falls back to the latest rate for the type.
-    - If no rate exists, returns a safe fallback (90000).
+    - If no rate exists, returns a safe fallback (89500).
 
     This endpoint is intentionally readable for any authenticated company member,
     so operational screens can default exchange_rate without requiring `config:read`.

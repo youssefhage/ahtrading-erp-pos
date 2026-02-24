@@ -411,7 +411,7 @@ def main() -> int:
     ap.add_argument("--source-dir", default="", help="Folder to scan when --index-csv is not provided")
     ap.add_argument("--index-csv", default="", help="Optional ap_docs_index.csv path (preferred for header hints)")
     ap.add_argument("--doc-types", default="invoice,receipt,credit_note,unknown")
-    ap.add_argument("--exchange-rate", default=os.getenv("POS_IMPORT_EXCHANGE_RATE") or "90000")
+    ap.add_argument("--exchange-rate", default=os.getenv("POS_IMPORT_EXCHANGE_RATE") or "89500")
     ap.add_argument(
         "--skip-extract",
         action="store_true",

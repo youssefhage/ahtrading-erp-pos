@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import textwrap
 import uuid
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -577,6 +578,15 @@ def init_db():
         bc_cols = {r[1] for r in cur.fetchall()}
         if "uom_code" not in bc_cols:
             cur.execute("ALTER TABLE local_item_barcodes_cache ADD COLUMN uom_code TEXT")
+        cur.execute("PRAGMA table_info(local_cashiers_cache)")
+        cashier_cols = {r[1] for r in cur.fetchall()}
+        cashier_wanted = {
+            "user_id": "TEXT",
+            "user_email": "TEXT",
+        }
+        for col, ddl in cashier_wanted.items():
+            if col not in cashier_cols:
+                cur.execute(f"ALTER TABLE local_cashiers_cache ADD COLUMN {col} {ddl}")
 
         # Outbox idempotency (safe retries without duplicate documents).
         cur.execute("PRAGMA table_info(pos_outbox_events)")
@@ -1306,7 +1316,7 @@ def get_cashiers():
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT id, name, is_active, updated_at
+            SELECT id, name, user_id, user_email, is_active, updated_at
             FROM local_cashiers_cache
             WHERE is_active = 1
             ORDER BY name
@@ -1496,10 +1506,12 @@ def upsert_cashiers(cashiers):
         for c in cashiers:
             cur.execute(
                 """
-                INSERT INTO local_cashiers_cache (id, name, pin_hash, is_active, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO local_cashiers_cache (id, name, user_id, user_email, pin_hash, is_active, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                   name=excluded.name,
+                  user_id=excluded.user_id,
+                  user_email=excluded.user_email,
                   pin_hash=excluded.pin_hash,
                   is_active=excluded.is_active,
                   updated_at=excluded.updated_at
@@ -1507,6 +1519,8 @@ def upsert_cashiers(cashiers):
                 (
                     c.get("id"),
                     c.get("name"),
+                    c.get("user_id"),
+                    c.get("user_email"),
                     c.get("pin_hash"),
                     1 if c.get("is_active") else 0,
                     datetime.utcnow().isoformat(),
@@ -1735,10 +1749,11 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
 	      }}
       body {{
         margin: 0;
-        padding: 10px;
+        padding: 4px 3px;
         color: var(--fg);
         font-family: var(--sans);
-        max-width: var(--w);
+        width: var(--w);
+        box-sizing: border-box;
       }}
       .muted {{ color: var(--muted); }}
       .mono {{ font-family: var(--mono); }}
@@ -1764,6 +1779,7 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
         cursor: pointer;
       }}
       @media print {{
+        @page {{ size: var(--w) auto; margin: 1.5mm; }}
         .actions {{ display: none; }}
         body {{ padding: 0; }}
       }}
@@ -1812,7 +1828,7 @@ def _receipt_html(receipt_row, cfg: Optional[dict] = None):
 
 def _receipt_text(
     receipt_row,
-    width: int = 42,
+    width: Optional[int] = None,
     template_id: str = "classic",
     company_name: str = "AH Trading",
     footer_text: str = "",
@@ -1827,6 +1843,13 @@ def _receipt_text(
         return "No receipt yet.\n"
 
     template = _normalize_receipt_template_id(template_id)
+    default_width = 34 if template == "compact" else 46
+    try:
+        width_chars = int(width) if width is not None else default_width
+    except Exception:
+        width_chars = default_width
+    width_chars = max(30, min(64, width_chars))
+
     company_label = _clean_receipt_text(company_name, fallback="AH Trading", limit=64) or "AH Trading"
     footer_label = _clean_receipt_text(footer_text, fallback="", limit=160)
 
@@ -1838,11 +1861,38 @@ def _receipt_text(
     customer_label = customer_name or customer_id or "-"
     customer_balance = r.get("customer_balance") if isinstance(r.get("customer_balance"), dict) else None
 
-    def clip(s: str) -> str:
-        s = str(s or "")
-        if len(s) <= width:
+    def clip(s: str, limit: Optional[int] = None) -> str:
+        lim = width_chars if limit is None else max(4, int(limit or width_chars))
+        txt = " ".join(str(s or "").split())
+        if len(txt) <= lim:
+            return txt
+        return txt[: max(0, lim - 3)] + "..."
+
+    def fmt_qty(x):
+        try:
+            v = float(x or 0)
+        except Exception:
+            return "0"
+        if abs(v - round(v)) < 1e-9:
+            return str(int(round(v)))
+        return f"{v:.3f}".rstrip("0").rstrip(".")
+
+    def fmt_time(value):
+        raw = str(value or "").strip()
+        if not raw:
+            return "-"
+        probe = raw.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(probe)
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return raw.replace("T", " ")
+
+    def short_id(value: str, keep: int = 6) -> str:
+        s = str(value or "").strip()
+        if len(s) <= (keep * 2 + 1):
             return s
-        return s[: max(0, width - 3)] + "..."
+        return f"{s[:keep]}...{s[-keep:]}"
 
     def fmt_usd(x):
         try:
@@ -1856,64 +1906,112 @@ def _receipt_text(
         except Exception:
             return "0"
 
+    def push_rule(ch: str = "-"):
+        out.append((ch or "-")[0] * width_chars)
+
+    def push_center(value: str):
+        txt = clip(value)
+        if not txt:
+            return
+        pad = max(0, (width_chars - len(txt)) // 2)
+        out.append((" " * pad) + txt)
+
     def push_aligned(left: str, right: str):
         left_s = clip(left)
-        right_s = str(right or "").strip()
+        right_s = clip(right, width_chars)
         if not right_s:
             out.append(left_s)
             return
-        if len(right_s) >= width:
+        if len(right_s) >= width_chars:
             out.append(left_s)
-            out.append(clip(right_s))
+            out.append(right_s)
             return
-        out.append(left_s[: max(0, width - len(right_s) - 1)] + " " + right_s)
+        room = width_chars - len(right_s) - 1
+        if room < 8:
+            out.append(left_s)
+            out.append(right_s)
+            return
+        out.append(left_s[:room] + " " + right_s)
+
+    def push_wrapped(value: str, prefix: str = ""):
+        text = clip(value, 320)
+        if not text:
+            return
+        wrap_width = max(8, width_chars - len(prefix))
+        wrapped = textwrap.wrap(
+            text,
+            width=wrap_width,
+            break_long_words=False,
+            break_on_hyphens=False,
+        ) or [text]
+        pad = " " * len(prefix)
+        for idx, row in enumerate(wrapped):
+            out.append(f"{prefix if idx == 0 else pad}{row}")
 
     out = []
-    title = "SALE" if receipt_row.get("receipt_type") == "sale" else "RETURN"
+    title = "SALE RECEIPT" if receipt_row.get("receipt_type") == "sale" else "RETURN RECEIPT"
     if company_label and not hide_company_name:
-        out.append(company_label)
-    out.append(title)
-    out.append(f"Time: {r.get('created_at') or '-'}")
+        push_center(company_label)
+    push_center(title)
+    push_rule("=")
+    receipt_no = str(r.get("receipt_no") or r.get("invoice_no") or "").strip()
+    if receipt_no:
+        push_aligned("No", clip(receipt_no))
+    push_aligned("Time", fmt_time(r.get("created_at")))
     if template != "compact":
-        out.append(f"Event: {r.get('event_id') or '-'}")
+        out.append(f"Event: {short_id(r.get('event_id') or '-')}")
         if r.get("shift_id"):
-            out.append(f"Shift: {r.get('shift_id')}")
+            out.append(f"Shift: {short_id(r.get('shift_id'))}")
     if r.get("cashier", {}).get("name") or r.get("cashier", {}).get("id"):
-        out.append(f"Cashier: {r.get('cashier', {}).get('name') or r.get('cashier', {}).get('id')}")
+        push_aligned("Cashier", r.get('cashier', {}).get('name') or r.get('cashier', {}).get('id'))
     if customer_label and customer_label != "-":
-        out.append(f"Customer: {customer_label}")
+        push_aligned("Customer", customer_label)
     if r.get("payment_method"):
-        out.append(f"Payment: {r.get('payment_method')}")
-    out.append("-" * width)
+        push_aligned("Payment", str(r.get('payment_method')).upper())
+    push_rule("-")
 
-    # Lines: name + qty + amount (USD)
-    for ln in lines:
+    # Lines: item name plus qty x unit and line amount.
+    for idx, ln in enumerate(lines, start=1):
         name = (ln.get("name") or "").strip() or (ln.get("sku") or "").strip() or ln.get("item_id") or ""
         qty_entered = ln.get("qty_entered")
         qty = qty_entered if qty_entered is not None else (ln.get("qty") or 0)
         uom = (ln.get("uom") or "").strip()
-        qty_label = f"{qty} {uom}".strip()
+        qty_label = f"{fmt_qty(qty)} {uom}".strip()
         amt = fmt_usd(ln.get("line_total_usd"))
-        push_aligned(name, f"{qty_label}  {amt}".strip())
+        unit = fmt_usd(ln.get("unit_price_usd"))
+        push_wrapped(name, prefix=f"{idx:>2}. ")
+        push_aligned(f"    {qty_label} x {unit}", f"{amt} USD")
         if template == "detailed":
             sku = (ln.get("sku") or "").strip() or (ln.get("item_id") or "")
-            unit = fmt_usd(ln.get("unit_price_usd"))
-            out.append(clip(f"  {sku} @ {unit} USD"))
+            if sku:
+                push_wrapped(f"SKU: {sku}", prefix="    ")
+        out.append("")
 
-    out.append("-" * width)
-    out.append(f"Subtotal USD: {fmt_usd(totals.get('base_usd'))}")
+    if not lines:
+        out.append("No items")
+        out.append("")
+
+    push_rule("-")
+    push_aligned("Subtotal USD", fmt_usd(totals.get('base_usd')))
     if not hide_vat_reference:
-        out.append(f"VAT USD:      {fmt_usd(totals.get('tax_usd'))}")
-    out.append(f"Total USD:    {fmt_usd(totals.get('total_usd'))}")
-    out.append(f"Total LBP:    {fmt_lbp(totals.get('total_lbp'))}")
+        push_aligned("VAT USD", fmt_usd(totals.get('tax_usd')))
+    push_aligned("TOTAL USD", fmt_usd(totals.get('total_usd')))
+    push_aligned("TOTAL LBP", fmt_lbp(totals.get('total_lbp')))
     if hide_vat_reference and customer_balance:
-        out.append(f"Prev Bal USD: {fmt_usd(customer_balance.get('previous_usd'))}")
-        out.append(f"Prev Bal LBP: {fmt_lbp(customer_balance.get('previous_lbp'))}")
-        out.append(f"After USD:    {fmt_usd(customer_balance.get('after_usd'))}")
-        out.append(f"After LBP:    {fmt_lbp(customer_balance.get('after_lbp'))}")
+        push_aligned("Prev Bal USD", fmt_usd(customer_balance.get('previous_usd')))
+        push_aligned("Prev Bal LBP", fmt_lbp(customer_balance.get('previous_lbp')))
+        push_aligned("After Bal USD", fmt_usd(customer_balance.get('after_usd')))
+        push_aligned("After Bal LBP", fmt_lbp(customer_balance.get('after_lbp')))
+    push_rule("=")
     if footer_label:
-        out.append("-" * width)
-        out.append(clip(footer_label))
+        for row in textwrap.wrap(
+            footer_label,
+            width=width_chars,
+            break_long_words=False,
+            break_on_hyphens=False,
+        ):
+            push_center(row)
+        push_rule("=")
     out.append("")
     return "\n".join(out) + "\n"
 
@@ -1972,14 +2070,37 @@ def _print_text_to_printer(text: str, printer: Optional[str] = None, copies: int
         tmp.flush()
         tmp.close()
 
-        cmd = [lp]
+        base_cmd = [lp]
         if printer:
-            cmd += ["-d", str(printer)]
+            base_cmd += ["-d", str(printer)]
         if copies_i != 1:
-            cmd += ["-n", str(copies_i)]
-        cmd.append(tmp.name)
+            base_cmd += ["-n", str(copies_i)]
 
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=12)
+        # Try thermal-friendly CUPS options first, then fall back to plain lp.
+        thermal_opts = [
+            "page-left=0",
+            "page-right=0",
+            "page-top=0",
+            "page-bottom=0",
+            "fit-to-page",
+            "cpi=12",
+            "lpi=8",
+        ]
+        attempts = [thermal_opts, []]
+        last_error = None
+        for opts in attempts:
+            cmd = list(base_cmd)
+            for opt in opts:
+                cmd += ["-o", opt]
+            cmd.append(tmp.name)
+            try:
+                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=12)
+                last_error = None
+                break
+            except Exception as ex:
+                last_error = ex
+        if last_error is not None:
+            raise last_error
     finally:
         try:
             if tmp and tmp.name and os.path.exists(tmp.name):

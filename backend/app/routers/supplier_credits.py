@@ -46,7 +46,7 @@ def _default_exchange_rate(cur, company_id: str) -> Decimal:
                 return ex
         except Exception:
             pass
-    return Decimal("90000")
+    return Decimal("89500")
 
 
 def _normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:

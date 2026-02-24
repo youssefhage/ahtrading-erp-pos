@@ -327,7 +327,7 @@ export function SalesInvoiceDraftEditor(props: { mode: "create" | "edit"; invoic
       setWarehouses(wh.warehouses || []);
       setTaxCodes(tc.tax_codes || []);
       setDefaultVatTaxCodeId(resolveDefaultVatTaxCodeId(tc.tax_codes || [], settingsRes.settings || []));
-      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 90000;
+      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 89500;
 
       const firstWhId = (wh.warehouses || [])[0]?.id || "";
       const preferredWhId = (() => {

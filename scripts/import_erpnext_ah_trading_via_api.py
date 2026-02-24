@@ -251,6 +251,15 @@ def main() -> int:
     ap.add_argument("--data-dir", default="Data AH Trading")
     ap.add_argument("--skip-opening-stock", action="store_true", help="Skip opening stock import")
     ap.add_argument("--skip-suppliers", action="store_true")
+    ap.add_argument(
+        "--allow-missing-barcode-conversion",
+        action="store_true",
+        help=(
+            "Allow barcode rows whose barcode UOM is missing in item UOM conversions. "
+            "When enabled, such rows fallback to qty_factor=1 (legacy behavior). "
+            "Default is strict: skip these rows and abort with a report."
+        ),
+    )
     ap.add_argument("--chunk", type=int, default=1000)
     ap.add_argument(
         "--prices-effective-from",
@@ -533,6 +542,8 @@ def main() -> int:
         rerouted_barcodes = 0
         skipped_barcodes = 0
         skipped_skus: set[str] = set()
+        missing_barcode_conv_rows: list[dict[str, str]] = []
+        fallback_barcode_conv_rows = 0
         for sku, bcs in barcodes_raw_by_sku.items():
             preferred_cid = sku_company.get(sku, official_id)
             if sku in items_by_company.get(preferred_cid, {}):
@@ -552,7 +563,28 @@ def main() -> int:
             conv.setdefault(base_uom, Decimal("1"))
             for i, (bc, bc_uom) in enumerate(bcs):
                 uom_code = bc_uom or base_uom
-                qty_factor = Decimal("1") if uom_code == base_uom else conv.get(uom_code, Decimal("1"))
+                if uom_code == base_uom:
+                    qty_factor = Decimal("1")
+                else:
+                    mapped = conv.get(uom_code)
+                    if mapped is None or mapped <= 0:
+                        missing_barcode_conv_rows.append(
+                            {
+                                "company_id": cid,
+                                "sku": sku,
+                                "barcode": bc,
+                                "barcode_uom": uom_code,
+                                "base_uom": base_uom,
+                            }
+                        )
+                        if not args.allow_missing_barcode_conversion:
+                            # Strict mode: do not import this barcode row.
+                            continue
+                        # Legacy mode fallback (unsafe for pricing/UOM math).
+                        fallback_barcode_conv_rows += 1
+                        qty_factor = Decimal("1")
+                    else:
+                        qty_factor = mapped
                 barcodes_by_company[cid].append(
                     {
                         "sku": sku,
@@ -567,6 +599,28 @@ def main() -> int:
         if skipped_barcodes:
             sample = sorted(skipped_skus)[:10]
             print(f"  - [warn] skipped {skipped_barcodes} barcode rows with missing SKU in both companies: {sample}")
+        if missing_barcode_conv_rows:
+            sample = missing_barcode_conv_rows[:20]
+            print(
+                f"  - [warn] barcode rows with missing UOM conversion: {len(missing_barcode_conv_rows)} "
+                f"(strict_mode={'off' if args.allow_missing_barcode_conversion else 'on'})"
+            )
+            print(f"  - [warn] sample missing barcode conversions: {json.dumps(sample, ensure_ascii=False)}")
+            out_path = Path(".cache/import_erpnext_missing_barcode_uom_conversions.json")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(missing_barcode_conv_rows, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"  - [warn] wrote missing conversion report: {out_path}")
+            if args.allow_missing_barcode_conversion:
+                print(
+                    "  - [warn] legacy fallback enabled; imported these rows with qty_factor=1: "
+                    f"{fallback_barcode_conv_rows}"
+                )
+            else:
+                _die(
+                    "found barcode rows with missing UOM conversions in ERP data; "
+                    "import aborted to avoid wrong qty_factor=1 pricing. "
+                    "Fix ERP item UOM conversions (or rerun with --allow-missing-barcode-conversion)."
+                )
 
         # Normalize UOM conversion ownership to the company where the SKU exists.
         normalized_uoms: dict[str, dict[tuple[str, str], dict]] = {official_id: {}, unofficial_id: {}}

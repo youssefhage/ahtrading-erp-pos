@@ -155,7 +155,7 @@ export default function ConfigPage() {
   // Exchange rate form
   const [rateDate, setRateDate] = useState(todayISO());
   const [rateType, setRateType] = useState("market");
-  const [usdToLbp, setUsdToLbp] = useState("90000");
+  const [usdToLbp, setUsdToLbp] = useState("89500");
   const [rateOpen, setRateOpen] = useState(false);
   const [savingRate, setSavingRate] = useState(false);
 

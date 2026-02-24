@@ -789,12 +789,12 @@
   $: selectedCashierSignedIn = !!selectedCashierId;
   const _cashierNameKey = (value) => String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
   const _cashierIdentityKey = (row = {}) => {
+    const userEmail = String(row?.user_email || "").trim().toLowerCase();
+    if (userEmail) return `email:${userEmail}`;
     const userId = String(row?.user_id || "").trim();
     if (userId) return `user:${userId}`;
     const employeeId = String(row?.employee_id || row?.employee || "").trim();
     if (employeeId) return `employee:${employeeId}`;
-    const userEmail = String(row?.user_email || "").trim().toLowerCase();
-    if (userEmail) return `email:${userEmail}`;
     const nameKey = _cashierNameKey(row?.name || "");
     return nameKey ? `name:${nameKey}` : "";
   };
@@ -833,7 +833,49 @@
       };
       byIdentity.set(key, prev);
     }
-    const merged = Array.from(byIdentity.values()).map((choice) => {
+    const mergedByIdentity = Array.from(byIdentity.values());
+    const byName = new Map();
+    for (const choice of mergedByIdentity) {
+      const nameKey = _cashierNameKey(choice?.name || "");
+      if (!nameKey) continue;
+      if (!byName.has(nameKey)) byName.set(nameKey, []);
+      byName.get(nameKey).push(choice);
+    }
+    const consumed = new Set();
+    const mergedByNameFallback = [];
+    for (const [nameKey, choices] of byName.entries()) {
+      if (!Array.isArray(choices) || choices.length !== 2) continue;
+      const [a, b] = choices;
+      const aHasOfficial = !!String(a?.company_cashier_ids?.official || "").trim();
+      const aHasUnofficial = !!String(a?.company_cashier_ids?.unofficial || "").trim();
+      const bHasOfficial = !!String(b?.company_cashier_ids?.official || "").trim();
+      const bHasUnofficial = !!String(b?.company_cashier_ids?.unofficial || "").trim();
+      const aOfficialOnly = aHasOfficial && !aHasUnofficial;
+      const aUnofficialOnly = !aHasOfficial && aHasUnofficial;
+      const bOfficialOnly = bHasOfficial && !bHasUnofficial;
+      const bUnofficialOnly = !bHasOfficial && bHasUnofficial;
+      const canPair = (aOfficialOnly && bUnofficialOnly) || (aUnofficialOnly && bOfficialOnly);
+      if (!canPair) continue;
+      const officialChoice = aOfficialOnly ? a : b;
+      const unofficialChoice = aUnofficialOnly ? a : b;
+      // Safety fallback: when exactly one official-only and one unofficial-only row
+      // share the same name, treat them as one linked operator choice.
+      mergedByNameFallback.push({
+        ...officialChoice,
+        id: String(officialChoice?.id || `name-link:${nameKey}`),
+        name: String(officialChoice?.name || unofficialChoice?.name || "").trim() || String(officialChoice?.id || unofficialChoice?.id || "").trim(),
+        company_cashier_ids: {
+          ...(officialChoice?.company_cashier_ids || {}),
+          ...(unofficialChoice?.company_cashier_ids || {}),
+        },
+      });
+      consumed.add(String(a?.id || "").trim());
+      consumed.add(String(b?.id || "").trim());
+    }
+    const merged = [
+      ...mergedByNameFallback,
+      ...mergedByIdentity.filter((choice) => !consumed.has(String(choice?.id || "").trim())),
+    ].map((choice) => {
       const hasOfficial = !!String(choice?.company_cashier_ids?.official || "").trim();
       const hasUnofficial = !!String(choice?.company_cashier_ids?.unofficial || "").trim();
       let label = String(choice?.name || "").trim();

@@ -111,7 +111,7 @@ export default function GoLivePage() {
   const [notice, setNotice] = useState("");
 
   const [rateType, setRateType] = useState("market");
-  const [exchangeRate, setExchangeRate] = useState("90000");
+  const [exchangeRate, setExchangeRate] = useState("89500");
 
   const [preflight, setPreflight] = useState<PreflightRes | null>(null);
   const [preflightLoading, setPreflightLoading] = useState(false);
@@ -467,7 +467,7 @@ export default function GoLivePage() {
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-fg-muted">Exchange Rate (USD to LL)</label>
-            <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="90000" />
+            <Input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="89500" />
           </div>
           <div className="flex items-end gap-2">
             <Dialog open={arOpen} onOpenChange={setArOpen}>
