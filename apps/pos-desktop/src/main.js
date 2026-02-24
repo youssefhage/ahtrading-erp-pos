@@ -747,12 +747,16 @@ function agentBase(port) {
   return `http://127.0.0.1:${Number(port || 7070)}`;
 }
 
-function buildUnifiedUiUrl(port) {
+function buildUnifiedUiUrl(port, otherPort = null) {
   const q = new URLSearchParams();
   q.set("cb", String(Date.now()));
   q.set("desktop", "1");
   const desktopVersion = String(APP_VERSION || "").trim();
   if (desktopVersion) q.set("desktopVersion", desktopVersion);
+  const otherPortNum = Number(otherPort);
+  if (Number.isFinite(otherPortNum) && otherPortNum > 0) {
+    q.set("otherAgentUrl", agentBase(otherPortNum));
+  }
   return `${agentBase(port)}/?${q.toString()}`;
 }
 
@@ -1971,6 +1975,7 @@ async function start() {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const attemptedOfficial = Number(e?.portOfficial || activePortOfficial || portOfficial);
+    const attemptedUnofficial = Number(e?.portUnofficial || activePortUnofficial || portUnofficial);
     const primaryUiAvailable = await checkLatestUnifiedUi(attemptedOfficial);
     if (primaryUiAvailable) {
       setStatus("Primary POS is already running. Opening POS…");
@@ -1979,7 +1984,7 @@ async function start() {
         "warn",
       );
       appendDebugLine(`[${fmtNow()}] [warn] start_agents degraded; primary UI is reachable. Error: ${msg}`);
-      window.location.href = buildUnifiedUiUrl(attemptedOfficial);
+      window.location.href = buildUnifiedUiUrl(attemptedOfficial, attemptedUnofficial);
       return true;
     }
     setStatus(`Failed to start agents: ${msg}`);
@@ -2048,19 +2053,20 @@ async function start() {
     appendDebugLine(buildStartSnapshot());
     return false;
   }
-  window.location.href = buildUnifiedUiUrl(activePortOfficial);
+  window.location.href = buildUnifiedUiUrl(activePortOfficial, activePortUnofficial);
   return true;
 }
 
 async function openPos() {
   const portOfficial = Number(el("portOfficial").value || 7070);
+  const portUnofficial = Number(el("portUnofficial").value || 7072);
   const uiOk = await checkLatestUnifiedUi(portOfficial);
   if (!uiOk) {
     setStatus("No running POS session found on Primary port.");
     setSetupNote("Use Retry Launch to start POS services first.", "warn");
     return false;
   }
-  window.location.href = buildUnifiedUiUrl(portOfficial);
+  window.location.href = buildUnifiedUiUrl(portOfficial, portUnofficial);
   return true;
 }
 
@@ -2363,15 +2369,21 @@ async function autoLaunchPosOnce() {
   autoLaunchTried = true;
   setLauncherMode("booting");
   let portOfficial = 7070;
+  let portUnofficial = 7072;
   try {
     portOfficial = parsePort(el("portOfficial")?.value, "Primary agent port");
   } catch {
     // keep default launch port
   }
+  try {
+    portUnofficial = parsePort(el("portUnofficial")?.value, "Secondary agent port");
+  } catch {
+    // keep default secondary port
+  }
   const uiOk = await checkLatestUnifiedUi(portOfficial);
   if (uiOk) {
     setStatus("Opening existing POS session…");
-    window.location.href = buildUnifiedUiUrl(portOfficial);
+    window.location.href = buildUnifiedUiUrl(portOfficial, portUnofficial);
     return;
   }
   const started = await start();

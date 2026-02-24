@@ -7456,6 +7456,13 @@
       ? `pos-desktop v${desktopVersion} · ui v${POS_UI_VERSION}`
       : `pos-desktop · ui v${POS_UI_VERSION}`;
   };
+  const _desktopOtherAgentFromQuery = () => {
+    if (typeof window === "undefined") return "";
+    const q = new URLSearchParams(window.location.search || "");
+    const desktopFlag = String(q.get("desktop") || "").trim() === "1";
+    if (!desktopFlag) return "";
+    return _normalizeOriginUrl(q.get("otherAgentUrl") || q.get("other_agent_url") || "");
+  };
 
   // Lifecycle
   onMount(() => {
@@ -7504,13 +7511,14 @@
     if (stored) apiBase = stored;
     sessionToken = _readStorage(SESSION_STORAGE_KEY, "");
     unofficialSessionToken = _readStorage(UNOFFICIAL_SESSION_STORAGE_KEY, "");
+    const queryOtherAgentUrl = _desktopOtherAgentFromQuery();
     const storedOtherAgentUrlRaw = _readStorage(OTHER_AGENT_URL_STORAGE_KEY, "");
     const storedOtherAgentUrl = _normalizeOriginUrl(storedOtherAgentUrlRaw);
     const fallbackOtherAgentUrl = _defaultOtherAgentUrlForCurrentHost();
-    const nextOtherAgentUrl = _sanitizeOtherAgentUrl(storedOtherAgentUrl || fallbackOtherAgentUrl);
+    const nextOtherAgentUrl = _sanitizeOtherAgentUrl(queryOtherAgentUrl || storedOtherAgentUrl || fallbackOtherAgentUrl);
     otherAgentUrl = nextOtherAgentUrl;
     otherAgentDraftUrl = nextOtherAgentUrl;
-    if (nextOtherAgentUrl !== storedOtherAgentUrl) {
+    if (nextOtherAgentUrl !== storedOtherAgentUrl || (queryOtherAgentUrl && queryOtherAgentUrl !== storedOtherAgentUrl)) {
       _writeStorage(OTHER_AGENT_URL_STORAGE_KEY, nextOtherAgentUrl);
     }
     invoiceCompanyMode = _readStorage(INVOICE_MODE_STORAGE_KEY, "auto");
