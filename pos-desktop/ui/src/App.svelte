@@ -2168,6 +2168,15 @@
     });
     try {
       const remote = await _submitAndProcessPosEventWebRemote(companyKey, eventType, payload, idempotencyKey);
+      if (remote?.invoice_id) {
+        const remoteInvoiceId = String(remote.invoice_id || "").trim();
+        const localEventId = String(localEvent?.event_id || "").trim();
+        const remoteEventId = String(remote?.event_id || "").trim();
+        if (remoteInvoiceId) {
+          if (remoteEventId) webEventInvoiceMap.set(remoteEventId, remoteInvoiceId);
+          if (localEventId) webEventInvoiceMap.set(localEventId, remoteInvoiceId);
+        }
+      }
       _removeWebLocalOutboxEvent(companyKey, localEvent?.event_id || "");
       _appendWebAudit(companyKey, {
         action,
@@ -2175,7 +2184,13 @@
         shift_id: String(payload?.shift_id || "").trim() || null,
         event_id: String(remote?.event_id || "").trim() || null,
         status: "acked",
-        details: { ...auditDetailsBase, idempotent_replay: !!remote?.idempotent_replay },
+        details: {
+          ...auditDetailsBase,
+          idempotent_replay: !!remote?.idempotent_replay,
+          remote_event_id: String(remote?.event_id || "").trim() || null,
+          invoice_id: String(remote?.invoice_id || auditDetailsBase?.invoice_id || "").trim() || null,
+          invoice_no: String(remote?.invoice_no || "").trim() || null,
+        },
       });
       return remote;
     } catch (e) {
@@ -3071,6 +3086,14 @@
           row?.idempotency_key || "",
           rowEventId.replace(/^local-/, ""),
         );
+        if (remote?.invoice_id) {
+          const remoteInvoiceId = String(remote.invoice_id || "").trim();
+          const remoteEventId = String(remote?.event_id || "").trim();
+          if (remoteInvoiceId) {
+            if (rowEventId) webEventInvoiceMap.set(rowEventId, remoteInvoiceId);
+            if (remoteEventId) webEventInvoiceMap.set(remoteEventId, remoteInvoiceId);
+          }
+        }
         _removeWebLocalOutboxEvent(key, rowEventId);
         sent += 1;
         _appendWebAudit(key, {
@@ -3079,7 +3102,12 @@
           shift_id: String(row?.payload?.shift_id || "").trim() || null,
           event_id: String(remote?.event_id || rowEventId).trim(),
           status: "acked",
-          details: { source: "local-outbox", remote_event_id: remote?.event_id || null },
+          details: {
+            source: "local-outbox",
+            remote_event_id: String(remote?.event_id || "").trim() || null,
+            invoice_id: String(remote?.invoice_id || "").trim() || null,
+            invoice_no: String(remote?.invoice_no || "").trim() || null,
+          },
         });
       } catch (e) {
         const retryCount = toNum(row?.retry_count, 0) + 1;
@@ -3554,7 +3582,15 @@
         prev.refunded_total_lbp += toNum(details?.return_total_lbp, toNum(details?.total_lbp, 0));
         returnsBySourceEvent.set(sourceEventId, prev);
       }
-      const rows = _webAuditRowsFor(companyKey)
+      const statusRank = (statusRaw) => {
+        const st = String(statusRaw || "").trim().toLowerCase();
+        if (st === "acked" || st === "processed") return 4;
+        if (st === "pending" || st === "queued" || st === "queued_local") return 3;
+        if (st === "failed") return 2;
+        if (st === "dead" || st.includes("reject")) return 1;
+        return 0;
+      };
+      const auditRows = _webAuditRowsFor(companyKey)
         .filter((row) => {
           if (String(row?.action || "").trim() !== "sale.submit") return false;
           if (!shiftId) return true;
@@ -3563,13 +3599,77 @@
         .map((row) => {
           const details = row?.details && typeof row.details === "object" ? row.details : {};
           const eventId = String(row?.event_id || "").trim();
+          const idempotencyKey = String(details?.idempotency_key || "").trim();
+          const invoiceId = String(details?.invoice_id || "").trim();
+          const statusText = String(row?.status || "").trim() || "unknown";
+          const createdAtMs = Date.parse(String(row?.created_at || "")) || 0;
+          return { row, details, eventId, idempotencyKey, invoiceId, statusText, createdAtMs };
+        });
+      const ackedEventByIdempotency = new Map();
+      const invoiceByIdempotency = new Map();
+      for (const entry of auditRows) {
+        if (!entry?.idempotencyKey) continue;
+        if (entry?.invoiceId) invoiceByIdempotency.set(entry.idempotencyKey, entry.invoiceId);
+        if (statusRank(entry?.statusText) >= 4 && entry?.eventId) {
+          ackedEventByIdempotency.set(entry.idempotencyKey, entry.eventId);
+        }
+      }
+      const logicalRows = [];
+      for (const entry of auditRows) {
+        const row = entry?.row || {};
+        const details = entry?.details || {};
+        const eventId = String(entry?.eventId || "").trim();
+        const idempotencyKey = String(entry?.idempotencyKey || "").trim();
+        const resolvedEventId = String(ackedEventByIdempotency.get(idempotencyKey) || eventId || "").trim();
+        const linkedInvoiceId = String(entry?.invoiceId || invoiceByIdempotency.get(idempotencyKey) || "").trim();
+        const logicalKey = idempotencyKey ? `idem:${idempotencyKey}` : `event:${eventId}`;
+        if (!logicalKey || logicalKey.endsWith(":")) continue;
+        logicalRows.push({
+          logicalKey,
+          row,
+          details,
+          eventId,
+          resolvedEventId,
+          idempotencyKey,
+          linkedInvoiceId,
+          statusText: String(entry?.statusText || "").trim() || "unknown",
+          createdAtMs: toNum(entry?.createdAtMs, 0),
+        });
+      }
+      const bestByLogical = new Map();
+      for (const entry of logicalRows) {
+        const current = bestByLogical.get(entry.logicalKey);
+        if (!current) {
+          bestByLogical.set(entry.logicalKey, entry);
+          continue;
+        }
+        const nextRank = statusRank(entry?.statusText);
+        const currentRank = statusRank(current?.statusText);
+        const nextHasInvoice = !!String(entry?.linkedInvoiceId || "").trim();
+        const currentHasInvoice = !!String(current?.linkedInvoiceId || "").trim();
+        const nextHasResolvedEvent = !!String(entry?.resolvedEventId || "").trim();
+        const currentHasResolvedEvent = !!String(current?.resolvedEventId || "").trim();
+        const preferNext =
+          nextRank > currentRank
+          || (nextRank === currentRank && nextHasInvoice && !currentHasInvoice)
+          || (nextRank === currentRank && nextHasResolvedEvent && !currentHasResolvedEvent)
+          || (nextRank === currentRank && nextHasInvoice === currentHasInvoice && nextHasResolvedEvent === currentHasResolvedEvent && toNum(entry?.createdAtMs, 0) > toNum(current?.createdAtMs, 0));
+        if (preferNext) bestByLogical.set(entry.logicalKey, entry);
+      }
+      const rows = Array.from(bestByLogical.values())
+        .sort((a, b) => toNum(b?.createdAtMs, 0) - toNum(a?.createdAtMs, 0))
+        .map((entry) => {
+          const row = entry?.row || {};
+          const details = entry?.details || {};
+          const eventId = String(entry?.eventId || "").trim();
+          const resolvedEventId = String(entry?.resolvedEventId || eventId || "").trim();
           const cashierId = String(row?.cashier_id || details?.cashier_id || "").trim();
           const customerId = String(details?.customer_id || row?.customer_id || "").trim();
           const cashierName = String(details?.cashier_name || cashierNameById.get(cashierId) || "").trim() || null;
           const customerName = String(details?.customer_name || customerNameById.get(customerId) || "").trim() || null;
           const totalUsd = toNum(details?.total_usd, 0);
           const totalLbp = Math.round(toNum(details?.total_lbp, 0));
-          const refundSummary = returnsBySourceEvent.get(eventId) || {
+          const refundSummary = returnsBySourceEvent.get(resolvedEventId || eventId) || {
             refund_count: 0,
             refunded_total_usd: 0,
             refunded_total_lbp: 0,
@@ -3594,8 +3694,11 @@
             customer_name: customerName,
             shift_id: row?.shift_id || null,
             event_id: eventId || null,
-            status: String(row?.status || "").trim() || "unknown",
-            audit_status: String(row?.status || "").trim() || null,
+            resolved_event_id: resolvedEventId || null,
+            idempotency_key: String(entry?.idempotencyKey || "").trim() || null,
+            invoice_id: String(entry?.linkedInvoiceId || "").trim() || null,
+            status: String(entry?.statusText || row?.status || "").trim() || "unknown",
+            audit_status: String(entry?.statusText || row?.status || "").trim() || null,
             outbox_status: null,
             payment_method: String(details?.payment_method || "").trim().toLowerCase() || null,
             line_count: Math.max(0, Math.round(toNum(details?.line_count, 0))),
@@ -3614,9 +3717,9 @@
       const seen = new Set();
       const unique = [];
       for (const row of rows) {
-        const eventId = String(row?.event_id || "").trim();
-        if (!eventId || seen.has(eventId)) continue;
-        seen.add(eventId);
+        const logicalKey = String(row?.idempotency_key || row?.resolved_event_id || row?.event_id || "").trim();
+        if (!logicalKey || seen.has(logicalKey)) continue;
+        seen.add(logicalKey);
         unique.push(row);
         if (unique.length >= limit) break;
       }
@@ -3839,6 +3942,12 @@
       if (!invoiceId) throw new Error("Invoice is still being generated. Please retry in a few seconds.");
       const detail = await _fetchInvoiceDetailWeb(companyKey, invoiceId);
       return { ok: true, event_id: resolved.event_id, invoice_id: invoiceId, detail };
+    }
+    if (method === "POST" && pathname === "/invoices/detail-by-id") {
+      const invoiceId = String(body?.invoice_id || "").trim();
+      if (!invoiceId) throw new Error("invoice_id is required");
+      const detail = await _fetchInvoiceDetailWeb(companyKey, invoiceId);
+      return { ok: true, invoice_id: invoiceId, detail };
     }
     if (method === "POST" && pathname === "/invoices/print-by-event") {
       const eventId = String(body?.event_id || "").trim();
@@ -4164,22 +4273,37 @@
     showShiftInvoicesDrawer = false;
   };
   const loadShiftInvoiceDetail = async (row, { force = false } = {}) => {
-    const eventId = String(row?.event_id || "").trim();
-    if (!eventId) return null;
+    const eventId = String(row?.resolved_event_id || row?.event_id || "").trim();
+    const invoiceIdHint = String(row?.invoice_id || "").trim();
+    if (!eventId && !invoiceIdHint) return null;
     const companyKey = normalizeCompanyKey(row?.companyKey || "official");
     const key = _shiftInvoiceKey(row);
     if (!force && shiftInvoiceDetailsByKey?.[key]) return shiftInvoiceDetailsByKey[key];
     shiftInvoiceLoadingByKey = { ...(shiftInvoiceLoadingByKey || {}), [key]: true };
     try {
-      const res = await apiCallFor(companyKey, "/invoices/detail-by-event", {
-        method: "POST",
-        body: { event_id: eventId },
-      });
+      let res = null;
+      if (eventId) {
+        try {
+          res = await apiCallFor(companyKey, "/invoices/detail-by-event", {
+            method: "POST",
+            body: { event_id: eventId },
+          });
+        } catch (_) {
+          res = null;
+        }
+      }
+      if (!res && invoiceIdHint) {
+        res = await apiCallFor(companyKey, "/invoices/detail-by-id", {
+          method: "POST",
+          body: { invoice_id: invoiceIdHint },
+        });
+      }
+      if (!res) throw new Error("Unable to resolve this invoice detail yet.");
       const detail = res?.detail || null;
       const invoice = detail?.invoice || {};
       const next = {
         event_id: eventId,
-        invoice_id: String(res?.invoice_id || invoice?.id || "").trim() || null,
+        invoice_id: String(res?.invoice_id || invoiceIdHint || invoice?.id || "").trim() || null,
         invoice_no: String(invoice?.invoice_no || res?.invoice_no || "").trim() || null,
         detail,
       };

@@ -4082,6 +4082,32 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/api/invoices/detail-by-id":
+            data = self.read_json()
+            cfg = load_config()
+            invoice_id = str(data.get("invoice_id") or "").strip()
+            if not invoice_id:
+                json_response(self, {"error": "invoice_id is required"}, status=400)
+                return
+            try:
+                base = _require_api_base(cfg)
+                detail = fetch_json(
+                    f"{base.rstrip('/')}/pos/sales-invoices/{quote(invoice_id)}",
+                    headers=device_headers(cfg),
+                )
+            except Exception as ex:
+                json_response(self, {"error": "detail_failed", "detail": str(ex)}, status=502)
+                return
+            json_response(
+                self,
+                {
+                    "ok": True,
+                    "invoice_id": invoice_id,
+                    "detail": detail,
+                },
+            )
+            return
+
         if parsed.path == "/api/invoices/print-by-event":
             data = self.read_json()
             cfg = load_config()
