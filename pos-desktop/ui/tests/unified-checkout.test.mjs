@@ -38,6 +38,24 @@ test("buildSalePaymentsForSettlement uses only LBP amount on LBP settlement", ()
   assert.deepEqual(payments, [{ method: "card", amount_usd: 0, amount_lbp: 4500000 }]);
 });
 
+test("buildSalePaymentsForSettlement keeps backend precision for USD and LBP totals", () => {
+  const usdPayments = buildSalePaymentsForSettlement({
+    paymentMethod: "cash",
+    totalUsd: 10.0044,
+    totalLbp: 0,
+    settlementCurrency: "USD",
+  });
+  assert.deepEqual(usdPayments, [{ method: "cash", amount_usd: 10.0044, amount_lbp: 0 }]);
+
+  const lbpPayments = buildSalePaymentsForSettlement({
+    paymentMethod: "card",
+    totalUsd: 0,
+    totalLbp: 1234.567,
+    settlementCurrency: "LBP",
+  });
+  assert.deepEqual(lbpPayments, [{ method: "card", amount_usd: 0, amount_lbp: 1234.57 }]);
+});
+
 test("normalizeSettlementCurrency only allows USD or LBP", () => {
   assert.equal(normalizeSettlementCurrency("lbp"), "LBP");
   assert.equal(normalizeSettlementCurrency("usd"), "USD");
