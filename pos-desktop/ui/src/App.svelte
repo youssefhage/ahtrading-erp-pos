@@ -8066,8 +8066,8 @@
     <div
       class={`pos-screen grid h-full min-h-0 gap-3 ${
         catalogCollapsed
-          ? "grid-cols-1 lg:grid-cols-[64px_1fr_400px]"
-          : "grid-cols-1 lg:grid-cols-[minmax(380px,1fr)_480px_400px]"
+          ? "grid-cols-1 lg:grid-cols-[64px_1.25fr_0.85fr]"
+          : "grid-cols-1 lg:grid-cols-[0.95fr_1.25fr_0.85fr]"
       }`}
     >
       <!-- Catalog Column (collapsible) -->

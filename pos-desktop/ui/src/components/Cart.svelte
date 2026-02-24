@@ -43,6 +43,31 @@
     return (m === "ex" || m === "inc" || m === "both") ? m : "both";
   })();
   const lineUom = (line) => (line.uom || line.uom_code || line.unit_of_measure || "pcs");
+  const lineName = (line) => {
+    const candidates = [
+      line?.name,
+      line?.item_name,
+      line?.product_name,
+      line?.item_description,
+      line?.description,
+      line?.display_name,
+      line?.title,
+      line?.item?.name,
+      line?.item?.item_name,
+      line?.sku,
+      line?.item_sku,
+      line?.item_id,
+      line?.id,
+    ];
+    for (const raw of candidates) {
+      const v = String(raw || "").trim();
+      if (v) return v;
+    }
+    return "Unknown Item";
+  };
+  const lineSku = (line) => (
+    String(line?.sku || line?.item_sku || line?.item_code || line?.code || "").trim() || "NO SKU"
+  );
   const lineManagerDiscountMode = (line) => {
     const mode = String(line?.manual_discount_mode || "").trim().toLowerCase();
     if (mode === "pct" || mode === "amount") return mode;
@@ -74,10 +99,9 @@
 
   const nameSizeClass = (name) => {
     const n = String(name || "").trim().length;
-    if (n <= 18) return "text-base font-semibold";
-    if (n <= 32) return "text-sm font-semibold";
-    if (n <= 48) return "text-sm font-medium";
-    return "text-xs font-medium";
+    if (n <= 24) return "text-sm font-semibold";
+    if (n <= 44) return "text-[13px] font-semibold";
+    return "text-[12px] font-medium";
   };
 
   const findUomOpt = (opts, line) => {
@@ -108,7 +132,8 @@
     const f = toNum(o?.qty_factor, 1) || 1;
     const lbl = String(o?.label || "").trim();
     if (lbl) return lbl;
-    return f !== 1 ? `${u} x${f}` : u;
+    const factorText = Number(f.toFixed(f >= 1 ? 3 : 5)).toString();
+    return f !== 1 ? `${u} x${factorText}` : u;
   };
 
   const uomMetaText = (opts) => {
@@ -158,17 +183,17 @@
 <section class="glass-panel rounded-3xl flex flex-col h-full w-full overflow-hidden relative group/panel">
   <div class="absolute inset-0 bg-surface/40 pointer-events-none"></div>
   
-  <header class="relative p-5 border-b border-white/5 flex items-center justify-between shrink-0 z-10">
+  <header class="relative p-3 border-b border-white/5 flex items-center justify-between shrink-0 z-10">
     <div class="flex items-center gap-3">
       <div class="h-8 w-1 rounded-full bg-accent shadow-[0_0_10px_rgba(45,212,191,0.5)]"></div>
       <h2 class="text-lg font-bold tracking-tight">Current Sale</h2>
     </div>
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-2">
       <span class="px-2.5 py-1 rounded-lg bg-surface-highlight border border-white/5 text-xs font-mono text-muted">{cart.length} items</span>
       {#if cart.length > 0}
         <button 
           on:click={confirmClearCart}
-          class="text-xs font-bold text-red-400 hover:text-red-300 transition-colors px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/10 hover:border-red-500/20 active:scale-95"
+          class="text-xs font-bold text-red-400 hover:text-red-300 transition-colors px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/10 hover:border-red-500/20 active:scale-95"
         >
           Clear
         </button>
@@ -189,7 +214,7 @@
     </div>
   </header>
 
-  <div class="relative flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3 z-10">
+  <div class="relative flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2 z-10">
     {#if cart.length === 0}
       <div class="h-full flex flex-col items-center justify-center text-muted/40 pb-10">
         <div class="p-6 rounded-full bg-surface-highlight/30 mb-4 border border-white/5">
@@ -201,7 +226,7 @@
         <p class="text-xs opacity-60 mt-1">Scan items to start sale</p>
       </div>
     {:else}
-      <div class="grid grid-cols-[minmax(0,1fr)_120px_140px_130px] gap-3 px-3 py-1 text-[10px] uppercase tracking-wider text-muted/80 font-bold">
+      <div class="cart-grid cart-head px-3 py-1 text-[10px] uppercase tracking-wider text-muted/80 font-bold">
         <div>Name</div>
         <div class="text-center">Quantity</div>
         <div class="text-center">UOM</div>
@@ -217,11 +242,14 @@
         {@const lineAmountPrimary = vatMode === "ex" ? lineAmountEx : lineAmountInc}
         {@const unitPricePrimary = vatMode === "ex" ? selectedUomUnitPrice(line, false) : selectedUomUnitPrice(line, true)}
         {@const preDiscBase = currencyPrimary === "USD" ? toNum(line.pre_discount_unit_price_usd, 0) : toNum(line.pre_discount_unit_price_lbp, 0)}
-        <div class="group relative grid grid-cols-[minmax(0,1fr)_120px_140px_130px] gap-3 p-3.5 rounded-2xl bg-surface/40 hover:bg-surface/60 border border-white/5 hover:border-white/10 transition-all duration-200 shadow-sm hover:shadow-md">
-          <div class="min-w-0 pr-2">
-            <h4 class={`leading-snug text-ink/95 clamp-2 group-hover:text-accent transition-colors duration-200 ${nameSizeClass(line.name)}`}>{line.name || "Unknown Item"}</h4>
+        <div class="group relative cart-grid cart-line p-2.5 rounded-xl bg-surface/40 hover:bg-surface/60 border border-white/5 hover:border-white/10 transition-all duration-200 shadow-sm hover:shadow-md">
+          <div class="cart-name min-w-0 pr-1">
+            <h4
+              class={`leading-snug text-ink/95 clamp-2 group-hover:text-accent transition-colors duration-200 ${nameSizeClass(lineName(line))}`}
+              title={lineName(line)}
+            >{lineName(line)}</h4>
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
-              <span class="font-mono text-[10px] text-muted tracking-wider">{line.sku || "NO SKU"}</span>
+              <span class="font-mono text-[10px] text-muted tracking-wider">{lineSku(line)}</span>
               {#if companyLabelForLine(line)}
                 <span class="w-1 h-1 rounded-full bg-white/10"></span>
                 <span
@@ -236,9 +264,11 @@
                   {companyLabelForLine(line)}
                 </span>
               {/if}
-              <span class={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${vatRate > 0 ? "text-blue-300 border-blue-400/20 bg-blue-500/10" : "text-muted border-white/10 bg-surface-highlight/40"}`}>
-                {vatRate > 0 ? `VAT ${fmtVatPct(vatRate)}` : "No VAT"}
-              </span>
+              {#if vatRate > 0}
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded border text-blue-300 border-blue-400/20 bg-blue-500/10">
+                  VAT {fmtVatPct(vatRate)}
+                </span>
+              {/if}
               {#if lineHasManagerDiscount(line)}
                 <span class="text-[10px] font-bold text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20">
                   {lineManagerDiscountText(line)}
@@ -250,10 +280,10 @@
                 </span>
               {/if}
             </div>
-            <div class="mt-2">
+            <div class="mt-1.5">
               <button
                 type="button"
-                class={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                class={`inline-flex items-center gap-1.5 rounded-lg border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                   canManagerDiscountLine(line)
                     ? "border-amber-500/25 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
                     : "border-white/10 bg-surface-highlight/40 text-muted hover:text-ink"
@@ -266,11 +296,11 @@
             </div>
           </div>
 
-          <div class="flex items-center">
+          <div class="cart-qty flex items-center">
             <div class="flex items-center bg-surface-highlight/40 rounded-xl border border-white/5 p-0.5 w-full shadow-inner shadow-black/20">
               <button
                 type="button"
-                class="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 transition-colors active:scale-90"
+                class="w-7 h-7 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 transition-colors active:scale-90"
                 on:click={() => updateQty(i, toNum(line.qty_entered, 0) - 1)}
                 aria-label="Decrease quantity"
                 title="Decrease quantity"
@@ -279,7 +309,7 @@
               </button>
               <input
                 type="number"
-                class="qty-input flex-1 w-0 bg-transparent text-center font-bold num-readable text-sm text-ink focus:outline-none focus:text-accent selection:bg-accent/20"
+                class="qty-input flex-1 w-0 bg-transparent text-center font-bold num-readable text-[13px] text-ink focus:outline-none focus:text-accent selection:bg-accent/20"
                 value={line.qty_entered}
                 on:change={(e) => updateQty(i, e.target.value)}
                 on:keydown={(e) => e.key === "Enter" && e.currentTarget?.blur?.()}
@@ -288,7 +318,7 @@
               />
               <button
                 type="button"
-                class="w-8 h-8 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 transition-colors active:scale-90"
+                class="w-7 h-7 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 transition-colors active:scale-90"
                 on:click={() => updateQty(i, toNum(line.qty_entered, 0) + 1)}
                 aria-label="Increase quantity"
                 title="Increase quantity"
@@ -298,11 +328,11 @@
             </div>
           </div>
 
-          <div class="flex items-center justify-center">
+          <div class="cart-uom flex items-center justify-center">
             {#if uomOpts.length > 1}
               <div class="relative group/uom w-full">
                 <select
-                  class="w-full appearance-none pl-3 pr-7 py-2 rounded-xl text-xs font-bold uppercase tracking-wider bg-surface-highlight/50 border border-white/5 hover:border-accent/30 text-ink/80 hover:text-accent cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-accent/50"
+                  class="w-full appearance-none pl-2.5 pr-7 py-1.5 rounded-xl text-[11px] font-bold uppercase tracking-wider truncate bg-surface-highlight/50 border border-white/5 hover:border-accent/30 text-ink/80 hover:text-accent cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-accent/50"
                   value={optValue(uomSel.opt || uomOpts[0])}
                   title={`Change UOM (${uomMetaText(uomOpts)})`}
                   on:change={(e) => {
@@ -320,14 +350,14 @@
                 </svg>
               </div>
             {:else}
-              <span class="w-full text-center text-xs font-bold uppercase tracking-wider text-muted/70 px-3 py-2 rounded-xl bg-surface-highlight/30 border border-white/5">
+              <span class="w-full text-center text-[11px] font-bold uppercase tracking-wider text-muted/70 px-2.5 py-1.5 rounded-xl bg-surface-highlight/30 border border-white/5">
                 {lineUom(line)}
               </span>
             {/if}
           </div>
 
-          <div class="flex flex-col items-end justify-center min-w-[90px]">
-            <div class="font-bold text-lg text-ink num-readable leading-none tracking-tight">
+          <div class="cart-price flex flex-col items-end justify-center min-w-[90px]">
+            <div class="cart-line-amount font-bold text-lg text-ink num-readable leading-none tracking-tight">
               {fmtMoney(lineAmountPrimary, currencyPrimary)}
             </div>
             <div class="flex flex-col items-end mt-1 text-[10px] text-muted space-y-0.5">
@@ -384,5 +414,45 @@
   .qty-input[type="number"] {
     appearance: textfield;
     -moz-appearance: textfield;
+  }
+
+  .cart-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(90px, 0.85fr) minmax(112px, 0.95fr) minmax(120px, 1fr);
+    gap: 0.5rem;
+  }
+
+  .cart-line-amount {
+    font-size: 1.18rem;
+  }
+
+  @media (max-width: 1360px) {
+    .cart-grid {
+      grid-template-columns: minmax(0, 1.75fr) minmax(84px, 0.8fr) minmax(98px, 0.9fr) minmax(108px, 0.95fr);
+    }
+    .cart-line-amount {
+      font-size: 1.06rem;
+    }
+  }
+
+  @media (max-width: 1200px) {
+    .cart-grid {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.5rem;
+    }
+    .cart-head {
+      display: none;
+    }
+    .cart-line .cart-name {
+      padding-right: 0;
+    }
+    .cart-line .cart-qty,
+    .cart-line .cart-uom,
+    .cart-line .cart-price {
+      width: 100%;
+    }
+    .cart-line .cart-price {
+      align-items: flex-start;
+    }
   }
 </style>
