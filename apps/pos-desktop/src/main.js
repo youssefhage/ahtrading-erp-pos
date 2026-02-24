@@ -288,14 +288,26 @@ function setDiag(msg) {
 }
 
 function setLauncherMode(mode) {
-  const next = String(mode || "").trim().toLowerCase() === "recovery" ? "recovery" : "booting";
+  const next = String(mode || "").trim().toLowerCase() === "assist" ? "assist" : "booting";
   launcherUi.mode = next;
   const bootCard = el("bootCard");
-  const recoveryCard = el("recoveryCard");
-  const notesCard = el("notesCard");
-  if (bootCard) bootCard.hidden = next !== "booting";
-  if (recoveryCard) recoveryCard.hidden = next !== "recovery";
-  if (notesCard) notesCard.hidden = next !== "recovery";
+  const assist = el("bootAssist");
+  const spinner = el("bootSpinner");
+  const title = el("bootTitle");
+  const subtitle = el("bootSubtitle");
+  const bootStatus = el("bootStatus");
+  const bootSetupNote = el("bootSetupNote");
+  if (bootCard) bootCard.hidden = false;
+  if (assist) assist.hidden = next !== "assist";
+  if (spinner) spinner.hidden = next === "assist";
+  if (bootStatus) bootStatus.hidden = next === "assist";
+  if (bootSetupNote) bootSetupNote.hidden = next === "assist";
+  if (title) title.textContent = next === "assist" ? "POS Needs Attention" : "Starting POS";
+  if (subtitle) {
+    subtitle.textContent = next === "assist"
+      ? "Desktop starts POS automatically. If launch is delayed, use the options below."
+      : "Please wait while desktop starts local services and opens POS.";
+  }
 }
 
 function setVersionLabel() {
@@ -440,7 +452,7 @@ function reportFatal(err, ctx = "Error") {
   const msg = p.message;
   setStatus(`${ctx}: ${msg}`);
   setSetupNote(`${ctx}: ${msg}`, "error");
-  if (launcherUi.mode === "booting") setLauncherMode("recovery");
+  if (launcherUi.mode === "booting") setLauncherMode("assist");
   appendDebugLine(`[${fmtNow()}] [error] ${ctx}: ${msg}`);
   if (p.stack) appendDebugLine(p.stack);
   persistDesktopLog("error", `${ctx}: ${msg}`, p.stack);
@@ -2293,12 +2305,12 @@ el("startBtn").addEventListener("click", async () => {
   closeMoreMenu();
   setLauncherMode("booting");
   const ok = await start();
-  if (!ok) setLauncherMode("recovery");
+  if (!ok) setLauncherMode("assist");
 });
 el("openBtn").addEventListener("click", async () => {
   closeMoreMenu();
   const ok = await openPos();
-  if (!ok) setLauncherMode("recovery");
+  if (!ok) setLauncherMode("assist");
 });
 if (el("updateBtn")) el("updateBtn").addEventListener("click", () => {
   closeMoreMenu();
@@ -2386,17 +2398,23 @@ async function autoLaunchPosOnce() {
     window.location.href = buildUnifiedUiUrl(portOfficial, portUnofficial);
     return;
   }
-  const started = await start();
-  if (!started) {
-    setLauncherMode("recovery");
-    setStatus("POS could not launch automatically.");
-    setSetupNote("Retry Launch to start POS. If it still fails, open diagnostics from More.", "error");
+  const attempts = 2;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (attempt > 1) {
+      setStatus(`Retrying POS startup (${attempt}/${attempts})…`);
+      await new Promise((r) => setTimeout(r, 650));
+    }
+    const started = await start();
+    if (started) return;
   }
+  setLauncherMode("assist");
+  setStatus("POS could not launch automatically.");
+  setSetupNote("Retry Launch to start POS. If it still fails, open diagnostics from More.", "error");
 }
 
 load().then(() => autoLaunchPosOnce()).catch((e) => {
   reportFatal(e, "Desktop boot failed");
-  setLauncherMode("recovery");
+  setLauncherMode("assist");
 });
 loadAppVersion().then(() => {
   setVersionLabel();
