@@ -783,6 +783,12 @@ fn open_external_url(url: String) -> Result<(), String> {
   }
 }
 
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
+  app.request_restart();
+  Ok(())
+}
+
 fn main() {
   tauri::Builder::default()
     .plugin(tauri_plugin_updater::Builder::new().build())
@@ -800,7 +806,8 @@ fn main() {
       suggest_port_pair,
       load_launcher_prefill,
       app_version,
-      open_external_url
+      open_external_url,
+      restart_app
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

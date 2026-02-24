@@ -10,7 +10,11 @@ const KEY_DEV_TOK_OFFICIAL = "ahtrading.posDesktop.deviceTokenOfficial";
 const KEY_DEV_ID_UNOFFICIAL = "ahtrading.posDesktop.deviceIdUnofficial";
 const KEY_DEV_TOK_UNOFFICIAL = "ahtrading.posDesktop.deviceTokenUnofficial";
 const KEY_PREFILL_SOURCE = "ahtrading.posDesktop.prefillSource";
+const KEY_UPDATER_LAST_CHECK_AT = "ahtrading.posDesktop.updater.lastCheckAt";
 const DEBUG_MAX_LINES = 320;
+const UPDATER_CHECK_TIMEOUT_MS = 20_000;
+const UPDATER_RECHECK_MIN_MS = 5 * 60 * 1000;
+const UPDATER_BACKGROUND_INTERVAL_MS = 30 * 60 * 1000;
 let APP_VERSION = "unknown";
 
 const debugState = {
@@ -18,6 +22,9 @@ const debugState = {
 };
 
 let availableUpdate = null;
+let updaterCheckInFlight = null;
+let updaterBackgroundTimer = null;
+let updaterLastCheckAt = Number(localStorage.getItem(KEY_UPDATER_LAST_CHECK_AT) || 0) || 0;
 const launcherUi = {
   mode: "booting",
 };
@@ -69,20 +76,52 @@ function createTauriChannel(handler) {
   };
 }
 
-async function updaterCheck() {
-  const updater = getGlobalUpdaterApi();
-  if (updater && typeof updater.check === "function") {
-    return await updater.check();
-  }
-  return await tauriInvoke("plugin:updater|check", {});
+function updaterHeaders() {
+  return {
+    "cache-control": "no-cache, no-store, must-revalidate",
+    pragma: "no-cache",
+    expires: "0",
+    "x-melqard-update-check": String(Date.now()),
+    "x-melqard-app-version": String(APP_VERSION || "unknown"),
+  };
 }
 
-async function updaterDownloadAndInstall(update, onEvent) {
+function invokeHeaders(headers) {
+  try {
+    return Array.from(new Headers(headers || {}).entries());
+  } catch {
+    return [];
+  }
+}
+
+async function updaterCheck(options = {}) {
+  const checkOptions = {
+    headers: updaterHeaders(),
+    timeout: UPDATER_CHECK_TIMEOUT_MS,
+    ...(options || {}),
+  };
+  const updater = getGlobalUpdaterApi();
+  if (updater && typeof updater.check === "function") {
+    return await updater.check(checkOptions);
+  }
+  const invokePayload = {
+    ...checkOptions,
+    headers: invokeHeaders(checkOptions.headers),
+  };
+  return await tauriInvoke("plugin:updater|check", invokePayload);
+}
+
+async function updaterDownloadAndInstall(update, onEvent, options = {}) {
   if (!update) {
     throw new Error("No update metadata provided.");
   }
+  const downloadOptions = {
+    headers: updaterHeaders(),
+    timeout: UPDATER_CHECK_TIMEOUT_MS,
+    ...(options || {}),
+  };
   if (typeof update.downloadAndInstall === "function") {
-    await update.downloadAndInstall(onEvent);
+    await update.downloadAndInstall(onEvent, downloadOptions);
     return;
   }
   const rid = Number(update?.rid);
@@ -91,7 +130,13 @@ async function updaterDownloadAndInstall(update, onEvent) {
   }
   const channel = createTauriChannel(onEvent);
   try {
-    await tauriInvoke("plugin:updater|download_and_install", { rid, onEvent: channel });
+    const invokePayload = {
+      rid,
+      onEvent: channel,
+      ...downloadOptions,
+      headers: invokeHeaders(downloadOptions.headers),
+    };
+    await tauriInvoke("plugin:updater|download_and_install", invokePayload);
   } finally {
     channel.close();
   }
@@ -2086,6 +2131,21 @@ function getUpdateVersion(update) {
   return String(update?.version || "").trim();
 }
 
+function markUpdaterCheckedNow() {
+  updaterLastCheckAt = Date.now();
+  try {
+    localStorage.setItem(KEY_UPDATER_LAST_CHECK_AT, String(updaterLastCheckAt));
+  } catch {
+    // ignore localStorage failures
+  }
+}
+
+function shouldSkipBackgroundUpdateCheck(force = false) {
+  if (force) return false;
+  if (!Number.isFinite(updaterLastCheckAt) || updaterLastCheckAt <= 0) return false;
+  return (Date.now() - updaterLastCheckAt) < UPDATER_RECHECK_MIN_MS;
+}
+
 function clearUpdateNotification() {
   availableUpdate = null;
   const btn = el("updateDownloadBtn");
@@ -2114,36 +2174,65 @@ function showUpdateNotification(update) {
   btn.disabled = false;
 }
 
-async function checkForUpdates({ silent = false } = {}) {
+async function checkForUpdates({ silent = false, force = false, reason = "manual" } = {}) {
+  if (updaterCheckInFlight) {
+    return await updaterCheckInFlight;
+  }
+  if (shouldSkipBackgroundUpdateCheck(force)) {
+    return availableUpdate;
+  }
   if (!silent) {
     setStatus("Checking for updates…");
   }
-  try {
-    const update = await updaterCheck();
-    const version = getUpdateVersion(update);
-    if (!version) {
-      clearUpdateNotification();
+  const runner = (async () => {
+    try {
+      const update = await updaterCheck();
+      markUpdaterCheckedNow();
+      const version = getUpdateVersion(update);
+      if (!version) {
+        clearUpdateNotification();
+        if (!silent) {
+          setStatus("You are up to date.");
+        }
+        return null;
+      }
+      showUpdateNotification(update);
       if (!silent) {
-        setStatus("You are up to date.");
+        setStatus(`Update available: ${version}. Click Download Update.`);
+      } else {
+        appendDebugLine(`[updater] update available (${version}) via ${reason}`);
+      }
+      return update;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/unknown command|plugin/i.test(String(msg || ""))) {
+        if (!silent) {
+          setStatus("Updater is not available in this build.");
+        }
+        return null;
+      }
+      if (!silent) {
+        setStatus(`Update check failed: ${msg}`);
+      } else {
+        appendDebugLine(`[updater] check failed (${reason}): ${msg}`);
       }
       return null;
+    } finally {
+      updaterCheckInFlight = null;
     }
-    showUpdateNotification(update);
-    if (!silent) {
-      setStatus(`Update available: ${version}. Click Download Update.`);
-    }
-    return update;
+  })();
+  updaterCheckInFlight = runner;
+  return await runner;
+}
+
+async function restartDesktopForUpdate() {
+  try {
+    await tauriInvoke("restart_app", {});
+    return true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (/unknown command|plugin/i.test(String(msg || ""))) {
-      if (!silent) {
-        setStatus("Updater is not available in this build.");
-      }
-      return;
-    }
-    if (!silent) {
-      setStatus(`Update check failed: ${msg}`);
-    }
+    appendDebugLine(`[updater] restart request failed: ${msg}`);
+    return false;
   }
 }
 
@@ -2154,7 +2243,7 @@ async function downloadUpdateNow() {
   }
   if (!availableUpdate || !getUpdateVersion(availableUpdate)) {
     setStatus("Checking for updates first…");
-    await checkForUpdates({ silent: false });
+    await checkForUpdates({ silent: false, force: true, reason: "download" });
     if (!availableUpdate || !getUpdateVersion(availableUpdate)) {
       setStatus("No update available.");
       return;
@@ -2164,9 +2253,36 @@ async function downloadUpdateNow() {
   const previousLabel = btn.innerHTML;
   btn.disabled = true;
   btn.textContent = version ? `Downloading ${version}…` : "Downloading…";
+  let downloadedBytes = 0;
+  let totalBytes = 0;
   try {
-    await updaterDownloadAndInstall(availableUpdate);
-    setStatus("Update downloaded. Please restart the app.");
+    await updaterDownloadAndInstall(availableUpdate, (evt) => {
+      const eventType = String(evt?.event || "");
+      if (eventType === "Started") {
+        totalBytes = Number(evt?.data?.contentLength || 0);
+        downloadedBytes = 0;
+        setStatus(totalBytes > 0 ? `Downloading update… 0%` : "Downloading update…");
+        return;
+      }
+      if (eventType === "Progress") {
+        downloadedBytes += Number(evt?.data?.chunkLength || 0);
+        if (totalBytes > 0) {
+          const pct = Math.max(0, Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)));
+          setStatus(`Downloading update… ${pct}%`);
+        } else {
+          setStatus("Downloading update…");
+        }
+        return;
+      }
+      if (eventType === "Finished") {
+        setStatus("Installing update…");
+      }
+    });
+    setStatus("Update installed. Restarting app…");
+    const restarted = await restartDesktopForUpdate();
+    if (!restarted) {
+      setStatus("Update installed. Please restart the app to finish.");
+    }
     clearUpdateNotification();
   } catch (e) {
     reportFatal(e, "Update download failed");
@@ -2183,6 +2299,31 @@ async function downloadUpdateNow() {
       showUpdateNotification(availableUpdate);
     }
   }
+}
+
+function scheduleBackgroundUpdateChecks() {
+  if (updaterBackgroundTimer) {
+    clearInterval(updaterBackgroundTimer);
+    updaterBackgroundTimer = null;
+  }
+  updaterBackgroundTimer = setInterval(() => {
+    checkForUpdates({ silent: true, force: false, reason: "interval" })
+      .then(() => null)
+      .catch(() => null);
+  }, UPDATER_BACKGROUND_INTERVAL_MS);
+
+  window.addEventListener("online", () => {
+    checkForUpdates({ silent: true, force: true, reason: "online" })
+      .then(() => null)
+      .catch(() => null);
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    checkForUpdates({ silent: true, force: false, reason: "focus" })
+      .then(() => null)
+      .catch(() => null);
+  });
 }
 
 async function runDiagnostics() {
@@ -2296,10 +2437,11 @@ function closeMoreMenu() {
 
 // Quiet update check on launch (best-effort). If unavailable/offline, ignore.
 setTimeout(() => {
-  checkForUpdates({ silent: true })
+  checkForUpdates({ silent: true, force: true, reason: "launch" })
     .then(() => null)
     .catch(() => null);
 }, 1200);
+scheduleBackgroundUpdateChecks();
 
 el("startBtn").addEventListener("click", async () => {
   closeMoreMenu();
@@ -2314,7 +2456,7 @@ el("openBtn").addEventListener("click", async () => {
 });
 if (el("updateBtn")) el("updateBtn").addEventListener("click", () => {
   closeMoreMenu();
-  checkForUpdates({ silent: false });
+  checkForUpdates({ silent: false, force: true, reason: "manual" });
 });
 if (el("updateDownloadBtn")) el("updateDownloadBtn").addEventListener("click", async () => {
   closeMoreMenu();
