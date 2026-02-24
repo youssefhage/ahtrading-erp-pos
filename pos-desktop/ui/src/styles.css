@@ -67,11 +67,20 @@
 }
 
 @layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+  }
+
   body {
     @apply antialiased;
     font-family: var(--font-sans);
     background-color: rgb(var(--color-bg));
     color: rgb(var(--color-ink));
+    min-height: 100dvh;
 
     /* Subtle unified background pattern */
     background-image:

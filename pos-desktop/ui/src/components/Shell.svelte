@@ -59,7 +59,7 @@
 
   <!-- Topbar -->
   <header class="sticky top-0 z-50 w-full glass shadow-lg shadow-black/5">
-    <div class="relative px-4 py-2.5">
+    <div class="relative px-3 py-2">
       <div class="flex items-center gap-2 min-w-0">
 
         <!-- Company Connectivity -->
@@ -126,7 +126,7 @@
 
       <!-- Navigation Tabs -->
       {#if showTabs}
-        <div class="mt-2 pt-2 border-t border-white/5">
+        <div class="mt-1.5 pt-1.5 border-t border-white/5">
           <nav class="flex items-center gap-1.5 overflow-x-auto no-scrollbar" aria-label="Screens">
             <slot name="tabs" />
           </nav>
@@ -136,7 +136,7 @@
   </header>
 
   <!-- Main Content -->
-  <main class="flex-1 w-full max-w-[1920px] mx-auto p-4 lg:p-6 overflow-hidden flex flex-col">
+  <main class="flex-1 min-h-0 w-full max-w-[1920px] mx-auto px-2 py-2 md:px-3 md:py-2.5 lg:px-4 lg:py-3 overflow-hidden flex flex-col">
     <slot />
   </main>
 </div>

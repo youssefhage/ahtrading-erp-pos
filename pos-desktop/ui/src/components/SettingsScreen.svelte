@@ -737,36 +737,37 @@
   };
 </script>
 
-<div class="xl:hidden sticky top-0 z-20 px-1 sm:px-2 pb-2">
-  <div class="glass-panel rounded-xl border border-white/10 p-1 grid grid-cols-2 gap-1">
-    <button
-      type="button"
-      class={`rounded-lg px-3 py-2 text-[11px] font-bold uppercase tracking-wide transition-colors ${
-        mobilePanel === "quick"
-          ? "bg-accent/20 text-accent border border-accent/30"
-          : "bg-transparent text-muted border border-transparent hover:text-ink hover:bg-white/5"
-      }`}
-      on:click={() => mobilePanel = "quick"}
-    >
-      Quick Setup
-    </button>
-    <button
-      type="button"
-      class={`rounded-lg px-3 py-2 text-[11px] font-bold uppercase tracking-wide transition-colors ${
-        mobilePanel === "manual"
-          ? "bg-accent/20 text-accent border border-accent/30"
-          : "bg-transparent text-muted border border-transparent hover:text-ink hover:bg-white/5"
-      }`}
-      on:click={() => mobilePanel = "manual"}
-    >
-      Manual Config
-    </button>
+<div class="h-full min-h-0 flex flex-col">
+  <div class="xl:hidden sticky top-0 z-20 px-1 sm:px-2 pb-2 shrink-0">
+    <div class="glass-panel rounded-xl border border-white/10 p-1 grid grid-cols-2 gap-1">
+      <button
+        type="button"
+        class={`rounded-lg px-3 py-2 text-[11px] font-bold uppercase tracking-wide transition-colors ${
+          mobilePanel === "quick"
+            ? "bg-accent/20 text-accent border border-accent/30"
+            : "bg-transparent text-muted border border-transparent hover:text-ink hover:bg-white/5"
+        }`}
+        on:click={() => mobilePanel = "quick"}
+      >
+        Quick Setup
+      </button>
+      <button
+        type="button"
+        class={`rounded-lg px-3 py-2 text-[11px] font-bold uppercase tracking-wide transition-colors ${
+          mobilePanel === "manual"
+            ? "bg-accent/20 text-accent border border-accent/30"
+            : "bg-transparent text-muted border border-transparent hover:text-ink hover:bg-white/5"
+        }`}
+        on:click={() => mobilePanel = "manual"}
+      >
+        Manual Config
+      </button>
+    </div>
   </div>
-</div>
 
-<div class="h-full w-full overflow-y-auto xl:overflow-hidden grid grid-cols-1 xl:grid-cols-[minmax(520px,720px)_1fr] gap-4 xl:gap-6 p-1 sm:p-2 pb-4">
+  <div class="flex-1 min-h-0 w-full overflow-hidden grid grid-cols-1 xl:grid-cols-[minmax(520px,720px)_1fr] gap-3 xl:gap-6 p-1 sm:p-2 pb-2">
   <!-- Left column: how it works + other agent -->
-  <section class={`glass-panel rounded-[1.5rem] xl:rounded-[2rem] p-4 sm:p-5 xl:p-6 overflow-visible xl:overflow-hidden xl:min-h-0 flex-col gap-4 xl:gap-6 relative group/settings ${
+  <section class={`glass-panel rounded-[1.5rem] xl:rounded-[2rem] p-4 sm:p-5 xl:p-6 overflow-hidden min-h-0 flex-col gap-4 xl:gap-6 relative group/settings ${
     mobilePanel === "manual" ? "hidden xl:flex" : "flex"
   }`}>
     <div class="absolute inset-0 bg-surface/30 pointer-events-none rounded-[2rem]"></div>
@@ -781,7 +782,7 @@
       {/if}
     </header>
 
-    <div class="relative z-10 xl:flex-1 overflow-visible xl:overflow-y-auto pr-0 xl:pr-2 custom-scrollbar space-y-4 xl:space-y-6">
+    <div class="relative z-10 flex-1 min-h-0 overflow-y-auto pr-0 xl:pr-2 custom-scrollbar space-y-4 xl:space-y-6">
       {#if err}
         <div class="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-300 text-sm font-medium animate-pulse">Error: {err}</div>
       {/if}
@@ -1080,7 +1081,7 @@
   </section>
 
   <!-- Right column: manual config -->
-  <section class={`glass-panel rounded-[1.5rem] xl:rounded-[2rem] p-4 sm:p-5 xl:p-6 overflow-visible xl:overflow-hidden xl:min-h-0 flex-col gap-4 xl:gap-6 relative group/manual ${
+  <section class={`glass-panel rounded-[1.5rem] xl:rounded-[2rem] p-4 sm:p-5 xl:p-6 overflow-hidden min-h-0 flex-col gap-4 xl:gap-6 relative group/manual ${
     mobilePanel === "quick" ? "hidden xl:flex" : "flex"
   }`}>
     <div class="absolute inset-0 bg-surface/30 pointer-events-none rounded-[2rem]"></div>
@@ -1099,7 +1100,7 @@
       </div>
     </header>
 
-    <div class="relative z-10 xl:flex-1 overflow-visible xl:overflow-y-auto pr-0 xl:pr-2 custom-scrollbar space-y-6 xl:space-y-8">
+    <div class="relative z-10 flex-1 min-h-0 overflow-y-auto pr-0 xl:pr-2 custom-scrollbar space-y-6 xl:space-y-8">
       <!-- Benchmark Results -->
       {#if benchErr}
         <div class="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-red-300 text-sm">{benchErr}</div>
@@ -1308,6 +1309,7 @@
       </div>
     </div>
   </section>
+  </div>
 </div>
 
 <style>

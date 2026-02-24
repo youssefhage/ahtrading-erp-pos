@@ -50,6 +50,10 @@
   const MANAGER_APPROVAL_TTL_MS = 2 * 60 * 1000;
   const POS_UI_VERSION = String(posUiPackage?.version || "").trim() || "dev";
   const POS_COMPANY_KEYS = ["official", "unofficial"];
+  const PRINT_COMPANY_NAME = "Antoine Hage Trading";
+  const PRINT_COMPANY_ADDRESS = "St. Youssef Church, Street Slav, Dikweneh, Lebanon";
+  const PRINT_COMPANY_CONTACT = "Phone: +96176768630 | Email: info@ahagetrading.com";
+  const PRINT_COMPANY_REGISTRATION = "4003116";
 
   // These are seeded in backend/db/seeds/seed_companies.sql and used in sample POS configs.
   const OFFICIAL_COMPANY_ID = "00000000-0000-0000-0000-000000000001";
@@ -122,6 +126,14 @@
   const normalizeCompanyKey = (companyKey) => (
     String(companyKey || "").trim().toLowerCase() === "unofficial" ? "unofficial" : "official"
   );
+
+  const normalizeReceiptCompanyName = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return PRINT_COMPANY_NAME;
+    const normalized = raw.replace(/\s+/g, " ").toLowerCase();
+    if (normalized === "ah trading") return PRINT_COMPANY_NAME;
+    return raw;
+  };
 
   const _readJsonStorage = (key, fallback) => {
     try {
@@ -526,7 +538,7 @@
     receipt_print_copies: 1,
     auto_print_receipt: false,
     receipt_template: "classic",
-    receipt_company_name: "AH Trading",
+    receipt_company_name: PRINT_COMPANY_NAME,
     receipt_footer_text: "",
     invoice_printer: "",
     invoice_print_copies: 1,
@@ -559,7 +571,7 @@
     receipt_print_copies: 1,
     auto_print_receipt: false,
     receipt_template: "classic",
-    receipt_company_name: "AH Trading",
+    receipt_company_name: PRINT_COMPANY_NAME,
     receipt_footer_text: "",
     invoice_printer: "",
     invoice_print_copies: 1,
@@ -660,7 +672,7 @@
   let printingError = "";
   // Official: A4 invoice PDF
   let printOfficial = { printer: "", copies: 1, auto: false, baseUrl: "", template: "official_classic" };
-  let printUnofficial = { printer: "", copies: 1, auto: false, template: "classic", companyName: "AH Trading", footerText: "" };
+  let printUnofficial = { printer: "", copies: 1, auto: false, template: "classic", companyName: PRINT_COMPANY_NAME, footerText: "" };
 
   // Cashier
   let showCashierModal = false;
@@ -1945,8 +1957,8 @@
     const taxCodeForBlock = defaultTaxCodeId || (taxBreakdown[0]?.tax_code_id || null);
     const hasTax = taxBreakdown.length > 0 || taxUsd !== 0 || taxLbp !== 0;
 
-    const totalUsd = Math.round((baseUsd + taxUsd + 1e-9) * 100) / 100;
-    const totalLbp = Math.round(baseLbp + taxLbp + 1e-9);
+    const totalUsd = baseUsd + taxUsd;
+    const totalLbp = baseLbp + taxLbp;
     const paymentMethod = String(payload.payment_method || "cash").trim().toLowerCase();
     const payments = buildSalePaymentsForSettlement({
       paymentMethod,
@@ -2329,6 +2341,42 @@
     return win;
   };
 
+  const _lineSkuForPrint = (line) => {
+    const candidates = [
+      line?.item_sku,
+      line?.sku,
+      line?.item_code,
+      line?.code,
+      line?.item_id,
+      line?.id,
+    ];
+    for (const raw of candidates) {
+      const v = String(raw || "").trim();
+      if (v) return v;
+    }
+    return "-";
+  };
+
+  const _lineNameForPrint = (line) => {
+    const candidates = [
+      line?.item_name,
+      line?.name,
+      line?.item_description,
+      line?.description,
+      line?.display_name,
+      line?.title,
+      line?.item_sku,
+      line?.sku,
+      line?.item_id,
+      line?.id,
+    ];
+    for (const raw of candidates) {
+      const v = String(raw || "").trim();
+      if (v) return v;
+    }
+    return "Item";
+  };
+
   const _renderInvoicePrintHtmlWeb = (companyKey, detail, cfg, { thermal = false } = {}) => {
     const inv = (detail && detail.invoice && typeof detail.invoice === "object") ? detail.invoice : {};
     const lines = Array.isArray(detail?.lines) ? detail.lines : [];
@@ -2424,11 +2472,10 @@
       );
 
       const docNo = String(inv?.invoice_no || inv?.receipt_no || "").trim() || "(draft)";
-      const companyName = String(cfg?.receipt_company_name || "Antoine Hage Trading").trim() || "Antoine Hage Trading";
-      const companyRegistration = pickMeta("registration_no", "company_registration_no") || "-";
-      const companyVatNo = pickMeta("vat_no", "company_vat_no") || "-";
-      const companyPhone = pickMeta("company_phone", "phone") || "-";
-      const companyAddress = pickMeta("company_address", "address") || "-";
+      const companyName = PRINT_COMPANY_NAME;
+      const companyRegistration = PRINT_COMPANY_REGISTRATION;
+      const companyContact = PRINT_COMPANY_CONTACT;
+      const companyAddress = PRINT_COMPANY_ADDRESS;
       const salesOrderNo = String(inv?.receipt_no || docNo).trim() || docNo;
       const salesPerson = pickMeta("sales_person", "salesperson") || "-";
       const routeName = pickMeta("route", "route_name") || "-";
@@ -2474,8 +2521,8 @@
           : `${pct.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}%`;
         return `
           <tr>
-            <td class="br mono">${_escapeHtml(String(ln?.item_sku || ln?.item_id || "").trim() || "-")}</td>
-            <td class="br">${_escapeHtml(String(ln?.item_name || ln?.item_sku || "Item"))}</td>
+            <td class="br mono">${_escapeHtml(_lineSkuForPrint(ln))}</td>
+            <td class="br">${_escapeHtml(_lineNameForPrint(ln))}</td>
             <td class="br r mono">${fmtPlainQty(ln?.qty_entered ?? ln?.qty)}</td>
             <td class="br c">${_escapeHtml(String(ln?.uom || "").trim() || "-")}</td>
             <td class="br r mono">${fmtPlainMoney(ln?.unit_price_entered_usd ?? ln?.unit_price_usd)}</td>
@@ -2529,11 +2576,9 @@
     <section class="top">
       <div class="company">
         <h1>${_escapeHtml(companyName)}</h1>
-        <div class="kv"><span>P.O. Box</span><span class="mono">-</span></div>
-        <div class="kv"><span>Tel</span><span class="mono">${_escapeHtml(companyPhone)}</span></div>
         <div class="kv"><span>Address</span><span>${_escapeHtml(companyAddress)}</span></div>
-        <div class="kv"><span>R.C</span><span class="mono">${_escapeHtml(companyRegistration)}</span></div>
-        <div class="kv"><span>VAT Registration No.</span><span class="mono">${_escapeHtml(companyVatNo)}</span></div>
+        <div class="kv"><span>Contact</span><span class="mono">${_escapeHtml(companyContact)}</span></div>
+        <div class="kv"><span>Registration</span><span class="mono">${_escapeHtml(companyRegistration)}</span></div>
       </div>
       <div class="invoice-box">
         <div class="label">Invoice</div>
@@ -2603,14 +2648,13 @@
       <div>Stamp Duty Paid</div>
     </section>
 
-    <div class="footer mono">Document ID: ${_escapeHtml(String(inv?.id || "-"))} · Generated: ${_escapeHtml(_fmtDateTime(new Date().toISOString()))}</div>
   </div>
 </body>
 </html>`;
     }
 
-    const fallbackName = companyKey === "official" ? "Official Invoice" : "Sales Receipt";
-    const companyName = String(cfg?.receipt_company_name || fallbackName).trim() || fallbackName;
+    const fallbackName = PRINT_COMPANY_NAME;
+    const companyName = normalizeReceiptCompanyName(cfg?.receipt_company_name || fallbackName);
     const footerText = String(cfg?.receipt_footer_text || "").trim();
     const docNo = String(inv?.receipt_no || inv?.invoice_no || "").trim();
     const docDate = _fmtDateTime(inv?.created_at || inv?.invoice_date || "");
@@ -2636,7 +2680,7 @@
     const lineRows = thermal
       ? lines.map((ln) => `
           <tr>
-            <td>${_escapeHtml(String(ln?.item_name || ln?.item_sku || "Item"))}</td>
+            <td>${_escapeHtml(_lineNameForPrint(ln))}</td>
             <td class="r">${_fmtMoney(ln?.qty, 2)}</td>
             ${useCompact ? "" : `<td class="r">${_fmtMoney(ln?.unit_price_lbp, 2)}</td>`}
             <td class="r">${_fmtMoney(ln?.line_total_lbp, 2)}</td>
@@ -2645,7 +2689,7 @@
       : lines.map((ln, i) => `
           <tr>
             ${useCompact ? "" : `<td>${i + 1}</td>`}
-            <td>${_escapeHtml(String(ln?.item_name || ln?.item_sku || "Item"))}</td>
+            <td>${_escapeHtml(_lineNameForPrint(ln))}</td>
             <td class="r">${_fmtMoney(ln?.qty, 2)}</td>
             ${useCompact ? "" : `<td class="r">${_fmtMoney(ln?.unit_price_usd, 2)}</td>`}
             <td class="r">${_fmtMoney(ln?.line_total_usd, 2)}</td>
@@ -2886,8 +2930,8 @@
     const taxUsd = Math.abs(taxLines.reduce((s, r) => s + toNum(r?.tax_usd, 0), 0));
     const taxLbp = Math.abs(taxLines.reduce((s, r) => s + toNum(r?.tax_lbp, 0), 0));
 
-    const fallbackName = companyKey === "official" ? "Official Return" : "Return Receipt";
-    const companyName = String(cfg?.receipt_company_name || fallbackName).trim() || fallbackName;
+    const fallbackName = PRINT_COMPANY_NAME;
+    const companyName = normalizeReceiptCompanyName(cfg?.receipt_company_name || fallbackName);
     const footerText = String(cfg?.receipt_footer_text || "").trim();
     const docNo = String(ret?.return_no || "").trim();
     const docDate = _fmtDateTime(ret?.created_at || "");
@@ -2898,7 +2942,7 @@
       : "<div>No refund rows</div>";
     const lineRows = lines.map((ln) => `
       <tr>
-        <td>${_escapeHtml(String(ln?.item_id || "Item"))}</td>
+        <td>${_escapeHtml(_lineNameForPrint(ln))}</td>
         <td class="r">${_fmtMoney(ln?.qty, 2)}</td>
         <td class="r">${_fmtMoney(ln?.line_total_usd, 2)}</td>
         <td class="r">${_fmtMoney(ln?.line_total_lbp, 2)}</td>
@@ -5126,7 +5170,7 @@
       copies: Math.max(1, Math.min(10, toNum(unCfg.receipt_print_copies, 1))),
       auto: !!unCfg.auto_print_receipt,
       template: String(unCfg.receipt_template || "classic").trim().toLowerCase() || "classic",
-      companyName: String(unCfg.receipt_company_name || "AH Trading").trim() || "AH Trading",
+      companyName: normalizeReceiptCompanyName(unCfg.receipt_company_name || PRINT_COMPANY_NAME),
       footerText: String(unCfg.receipt_footer_text || "").trim(),
     };
 
@@ -5172,7 +5216,7 @@
             receipt_print_copies: Math.max(1, Math.min(10, toNum(printUnofficial.copies, 1))),
             auto_print_receipt: !!printUnofficial.auto,
             receipt_template: (printUnofficial.template || "classic").trim().toLowerCase() || "classic",
-            receipt_company_name: (printUnofficial.companyName || "").trim() || "AH Trading",
+            receipt_company_name: normalizeReceiptCompanyName((printUnofficial.companyName || "").trim() || PRINT_COMPANY_NAME),
             receipt_footer_text: (printUnofficial.footerText || "").trim(),
           }
         }),
@@ -8020,10 +8064,10 @@
 
   {#if activeScreen === "pos"}
     <div
-      class={`pos-screen grid h-full gap-6 ${
+      class={`pos-screen grid h-full min-h-0 gap-3 ${
         catalogCollapsed
-          ? "grid-cols-1 lg:grid-cols-[72px_1fr_420px]"
-          : "grid-cols-1 lg:grid-cols-[minmax(420px,1fr)_520px_420px]"
+          ? "grid-cols-1 lg:grid-cols-[64px_1fr_400px]"
+          : "grid-cols-1 lg:grid-cols-[minmax(380px,1fr)_480px_400px]"
       }`}
     >
       <!-- Catalog Column (collapsible) -->
@@ -9352,7 +9396,7 @@
               <input
                 id="print-unofficial-company"
                 class="w-full mt-1 bg-bg/50 border border-ink/10 rounded-xl px-3 py-2 text-sm"
-                placeholder="AH Trading"
+                placeholder={PRINT_COMPANY_NAME}
                 bind:value={printUnofficial.companyName}
                 maxlength="64"
               />
