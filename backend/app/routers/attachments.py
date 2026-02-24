@@ -58,8 +58,16 @@ def list_attachments(
             cur.execute(
                 """
                 SELECT id, filename, content_type, size_bytes, sha256, uploaded_by_user_id, uploaded_at
-                FROM document_attachments
-                WHERE company_id = %s AND entity_type = %s AND entity_id = %s
+                FROM (
+                  SELECT id, filename, content_type, size_bytes, sha256, uploaded_by_user_id, uploaded_at,
+                         ROW_NUMBER() OVER (
+                           PARTITION BY COALESCE(sha256, id::text), size_bytes
+                           ORDER BY uploaded_at DESC, id DESC
+                         ) AS rn
+                  FROM document_attachments
+                  WHERE company_id = %s AND entity_type = %s AND entity_id = %s
+                ) d
+                WHERE d.rn = 1
                 ORDER BY uploaded_at DESC
                 """,
                 (company_id, entity_type, entity_id),
@@ -94,6 +102,29 @@ def upload_attachment(
     sha = hashlib.sha256(raw).hexdigest() if raw else None
     filename = _safe_filename_for_header(file.filename or "attachment")
     content_type = (file.content_type or "application/octet-stream").strip() or "application/octet-stream"
+
+    # Prevent duplicate rows for the exact same payload on the same document.
+    if sha:
+        with get_conn() as conn:
+            set_company_context(conn, company_id)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id
+                    FROM document_attachments
+                    WHERE company_id=%s
+                      AND entity_type=%s
+                      AND entity_id=%s
+                      AND sha256=%s
+                      AND size_bytes=%s
+                    ORDER BY uploaded_at DESC
+                    LIMIT 1
+                    """,
+                    (company_id, entity_type, entity_id, sha, len(raw)),
+                )
+                hit = cur.fetchone()
+                if hit:
+                    return {"id": hit["id"], "deduplicated": True}
 
     # Default: store in Postgres (v1). If S3/MinIO is configured, store bytes there.
     attachment_id = str(uuid.uuid4())

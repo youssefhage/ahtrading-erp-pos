@@ -13,3 +13,5 @@ pyotp==2.9.0
 cryptography==46.0.4
 # Object storage (S3 / MinIO) for attachments v2.
 boto3==1.34.131
+# Image optimization for AI invoice import payloads.
+Pillow==10.4.0

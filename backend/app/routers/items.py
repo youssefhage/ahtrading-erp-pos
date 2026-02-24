@@ -1757,6 +1757,26 @@ class ItemNameSuggestIn(BaseModel):
     count: int = 3
 
 
+def _normalize_name_suggestions(payload: Any, limit: int) -> list[str]:
+    out: list[str] = []
+    for v in (payload or []):
+        name = ""
+        if isinstance(v, str):
+            name = v
+        elif isinstance(v, dict):
+            name = str(v.get("name") or v.get("suggestion") or v.get("text") or "")
+        elif isinstance(v, (int, float)):
+            name = str(v)
+        name = name.strip()
+        if not name:
+            continue
+        if name not in out:
+            out.append(name[:200])
+        if len(out) >= max(1, int(limit or 1)):
+            break
+    return out
+
+
 @router.post("/name-suggestions", dependencies=[Depends(require_permission("items:write"))])
 def suggest_item_names(data: ItemNameSuggestIn, company_id: str = Depends(get_company_id)):
     raw = (data.raw_name or "").strip()
@@ -1772,19 +1792,20 @@ def suggest_item_names(data: ItemNameSuggestIn, company_id: str = Depends(get_co
                 if is_external_ai_allowed(cur, company_id):
                     cfg = get_ai_provider_config(cur, company_id)
                     if cfg.get("api_key"):
+                        sug = openai_item_name_suggestions(
+                            raw,
+                            count=n,
+                            model=cfg.get("item_naming_model"),
+                            base_url=cfg.get("base_url"),
+                            api_key=cfg.get("api_key"),
+                        )
                         return {
-                            "suggestions": openai_item_name_suggestions(
-                                raw,
-                                count=n,
-                                model=cfg.get("item_naming_model"),
-                                base_url=cfg.get("base_url"),
-                                api_key=cfg.get("api_key"),
-                            )
+                            "suggestions": _normalize_name_suggestions(sug, n)
                         }
     except Exception:
         # Never fail the UI due to naming suggestions.
         pass
-    return {"suggestions": heuristic_item_name_suggestions(raw)[:n]}
+    return {"suggestions": _normalize_name_suggestions(heuristic_item_name_suggestions(raw), n)}
 
 @router.get("/{item_id}/barcodes", dependencies=[Depends(require_permission("items:read"))])
 def list_item_barcodes(item_id: str, company_id: str = Depends(get_company_id)):

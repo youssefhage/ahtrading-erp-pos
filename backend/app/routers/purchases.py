@@ -13,12 +13,15 @@ from ..payment_guards import assert_not_overpaid
 from ..account_defaults import ensure_company_account_defaults
 import json
 import os
+import unicodedata
 from ..journal_utils import auto_balance_journal
 from ..validation import DocStatus, PaymentMethod, CurrencyCode
 from ..uom import load_item_uom_context, resolve_line_uom
 from ..importers.supplier_invoice_import import (
     apply_extracted_purchase_invoice_to_draft,
     extract_purchase_invoice_best_effort,
+    extract_purchase_invoice_best_effort_from_files,
+    rematch_supplier_invoice_import_line,
     store_attachment_for_invoice,
 )
 
@@ -74,14 +77,33 @@ def _norm_code(s: Optional[str]) -> Optional[str]:
         return None
     t = (s or "").strip().upper()
     t = re.sub(r"\s+", "", t)
-    t = re.sub(r"[^A-Z0-9._\\-/]", "", t)
+    t = re.sub(r"[^A-Z0-9._/\-]", "", t)
     return t or None
 
 
 def _norm_name(s: Optional[str]) -> Optional[str]:
     if not s:
         return None
-    t = (s or "").strip().lower()
+    t = unicodedata.normalize("NFKD", (s or "").strip())
+    t = t.translate(
+        str.maketrans(
+            {
+                "\u0430": "a",
+                "\u0435": "e",
+                "\u043e": "o",
+                "\u0440": "p",
+                "\u0441": "c",
+                "\u0443": "y",
+                "\u0445": "x",
+                "\u043a": "k",
+                "\u043c": "m",
+                "\u0442": "t",
+                "\u043d": "h",
+                "\u0456": "i",
+            }
+        )
+    )
+    t = "".join(ch for ch in t if not unicodedata.combining(ch)).lower()
     t = re.sub(r"[^a-z0-9]+", " ", t)
     t = re.sub(r"\s+", " ", t).strip()
     return t or None
@@ -107,7 +129,7 @@ def _default_exchange_rate(cur, company_id: str) -> Decimal:
         except Exception:
             pass
     # Safe fallback (matches Admin UI default).
-    return Decimal("90000")
+    return Decimal("89500")
 
 
 def _clean_item_name(raw: str) -> str:
@@ -135,6 +157,83 @@ def _fetch_item_uoms(cur, company_id: str, item_ids: List[str]) -> dict:
         (company_id, ids),
     )
     return {str(r["id"]): (r.get("unit_of_measure") or "") for r in cur.fetchall()}
+
+
+def _extract_pack_count_hint(*texts: str) -> Optional[Decimal]:
+    merged = " ".join([(t or "") for t in texts]).lower()
+    patterns = [
+        r"(?<!\d)(\d{1,3})\s*[xX\*]\s*\d",
+        r"\b[xX\*]\s*(\d{1,3})\b",
+        r"\bpack\s*of\s*(\d{1,3})\b",
+    ]
+    for pat in patterns:
+        m = re.search(pat, merged)
+        if not m:
+            continue
+        try:
+            n = Decimal(str(m.group(1)))
+            if Decimal("1") < n <= Decimal("240"):
+                return n
+        except Exception:
+            continue
+    return None
+
+
+def _infer_item_uom_for_import_line(
+    *,
+    cur,
+    company_id: str,
+    item_id: str,
+    supplier_item_name: Optional[str],
+    description: Optional[str],
+    preferred_uom: Optional[str] = None,
+) -> tuple[str, Decimal]:
+    cur.execute(
+        """
+        SELECT unit_of_measure, purchase_uom_code
+        FROM items
+        WHERE company_id=%s AND id=%s
+        """,
+        (company_id, item_id),
+    )
+    row = cur.fetchone() or {}
+    base_uom = str(row.get("unit_of_measure") or "").strip().upper() or "EA"
+    purchase_uom = str(row.get("purchase_uom_code") or "").strip().upper() or None
+    cur.execute(
+        """
+        SELECT uom_code, to_base_factor
+        FROM item_uom_conversions
+        WHERE company_id=%s AND item_id=%s AND is_active=true
+        """,
+        (company_id, item_id),
+    )
+    factors: dict[str, Decimal] = {}
+    for r in cur.fetchall() or []:
+        u = str(r.get("uom_code") or "").strip().upper()
+        if not u:
+            continue
+        try:
+            f = Decimal(str(r.get("to_base_factor") or 0))
+        except Exception:
+            f = Decimal("0")
+        if f > 0:
+            factors[u] = f
+    factors.setdefault(base_uom, Decimal("1"))
+
+    prefer = str(preferred_uom or "").strip().upper() or None
+    if prefer and prefer in factors:
+        return prefer, factors[prefer]
+    pack = _extract_pack_count_hint(supplier_item_name or "", description or "")
+    if pack:
+        for u, f in factors.items():
+            if abs(f - pack) <= Decimal("0.000001"):
+                return u, f
+    if purchase_uom and purchase_uom in factors:
+        return purchase_uom, factors[purchase_uom]
+    if base_uom in factors:
+        return base_uom, factors[base_uom]
+    first_u = next(iter(factors.keys()))
+    return first_u, factors[first_u]
 
 def _reverse_gl_journal(cur, company_id: str, source_type: str, source_id: str, cancel_source_type: str, cancel_date: date, user_id: str, memo: str):
     cur.execute(
@@ -737,6 +836,22 @@ class SupplierPaymentIn(BaseModel):
 class SupplierInvoiceImportLineUpdateIn(BaseModel):
     resolved_item_id: Optional[str] = None
     status: Optional[str] = None  # pending|resolved|skipped
+    line_type: Optional[str] = None  # item|free_item|discount|tax|freight|other
+    entered_uom_code: Optional[str] = None
+    entered_qty_factor: Optional[Decimal] = None
+    qty_entered: Optional[Decimal] = None
+    unit_cost_entered_usd: Optional[Decimal] = None
+    unit_cost_entered_lbp: Optional[Decimal] = None
+
+
+class SupplierInvoiceImportBulkActionIn(BaseModel):
+    action: str  # auto_accept_exact|set_non_item_resolved|set_non_item_skipped|skip_unmatched_items
+
+
+class SupplierInvoiceImportRematchIn(BaseModel):
+    pending_only: bool = True
+    include_resolved: bool = False
+    auto_accept_exact: bool = True
 
 
 class SupplierInvoiceImportReviewMarkIn(BaseModel):
@@ -997,6 +1112,308 @@ def import_supplier_invoice_draft_from_file(
         return {"id": invoice_id, "invoice_no": invoice_no, "attachment_id": attachment_id, "queued": False, "ai_extracted": True, "warnings": warnings}
 
 
+@router.post("/invoices/drafts/import-files", dependencies=[Depends(require_permission("purchases:write"))])
+def import_supplier_invoice_draft_from_files(
+    files: List[UploadFile] = File(...),
+    exchange_rate: Optional[Decimal] = Form(None),
+    tax_code_id: Optional[str] = Form(None),
+    auto_create_supplier: bool = Form(True),
+    auto_create_items: bool = Form(True),
+    auto_apply: bool = Form(False),
+    skip_extract: bool = Form(False),
+    mock_extract: bool = Form(False),
+    async_import: bool = Form(True),
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    """
+    Multi-file variant of import-file.
+
+    Use this endpoint for one logical supplier invoice split across multiple images/PDF pages.
+    The endpoint creates one draft invoice and stores all uploaded files as attachments on it.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="at least one file is required")
+    try:
+        max_files = int(os.environ.get("ATTACHMENT_MAX_FILES_PER_IMPORT", "24"))
+    except Exception:
+        max_files = 24
+    max_files = max(1, min(max_files, 200))
+    if len(files) > max_files:
+        raise HTTPException(status_code=413, detail=f"too many files (max {max_files})")
+
+    try:
+        max_mb = int(os.environ.get("ATTACHMENT_MAX_MB", "5"))
+    except Exception:
+        max_mb = 5
+    max_mb = max(1, min(max_mb, 100))
+    max_bytes = max_mb * 1024 * 1024
+    try:
+        total_max_mb = int(os.environ.get("ATTACHMENT_TOTAL_MAX_MB", "120"))
+    except Exception:
+        total_max_mb = 120
+    total_max_mb = max(max_mb, min(total_max_mb, 1024))
+    total_max_bytes = total_max_mb * 1024 * 1024
+
+    uploads: list[dict] = []
+    total_size = 0
+    for up in files:
+        raw = up.file.read() or b""
+        if len(raw) > max_bytes:
+            raise HTTPException(status_code=413, detail=f"file '{(up.filename or 'attachment')}' too large (max {max_mb}MB each)")
+        total_size += len(raw)
+        if total_size > total_max_bytes:
+            raise HTTPException(status_code=413, detail=f"total attachment payload too large (max {total_max_mb}MB)")
+        uploads.append(
+            {
+                "raw": raw,
+                "filename": (up.filename or "purchase-invoice").strip() or "purchase-invoice",
+                "content_type": (up.content_type or "application/octet-stream").strip() or "application/octet-stream",
+            }
+        )
+
+    tax_code_id = (tax_code_id or "").strip() or None
+    warnings: list[str] = []
+
+    # Respect permissions deterministically so background workers cannot escalate access.
+    if auto_create_supplier:
+        try:
+            require_permission("suppliers:write")(company_id=company_id, user=user)
+        except HTTPException:
+            warnings.append("Missing suppliers:write permission; will not auto-create supplier.")
+            auto_create_supplier = False
+    if auto_create_items:
+        try:
+            require_permission("items:write")(company_id=company_id, user=user)
+        except HTTPException:
+            warnings.append("Missing items:write permission; will not auto-create items.")
+            auto_create_items = False
+    if auto_apply and (not auto_create_items):
+        warnings.append("auto_apply is enabled; draft will be filled automatically when possible.")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        attachment_ids: list[str] = []
+
+        # Phase 1: create draft + all attachments.
+        with conn.transaction():
+            with conn.cursor() as cur:
+                ex = Decimal(str(exchange_rate or 0)) if exchange_rate is not None else _default_exchange_rate(cur, company_id)
+                if ex <= 0:
+                    ex = _default_exchange_rate(cur, company_id)
+
+                invoice_no = _next_doc_no(cur, company_id, "PI")
+                inv_date = date.today()
+                due_date = inv_date
+
+                cur.execute(
+                    """
+                    INSERT INTO supplier_invoices
+                      (id, company_id, invoice_no, supplier_ref, supplier_id, goods_receipt_id, status,
+                       total_usd, total_lbp, exchange_rate, source_event_id,
+                       invoice_date, due_date, tax_code_id,
+                       import_status, import_error, import_attachment_id, import_options_json)
+                    VALUES
+                      (gen_random_uuid(), %s, %s, NULL, NULL, NULL, 'draft',
+                       0, 0, %s, NULL,
+                       %s, %s, %s,
+                       'none', NULL, NULL, NULL)
+                    RETURNING id
+                    """,
+                    (company_id, invoice_no, ex, inv_date, due_date, tax_code_id),
+                )
+                invoice_id = cur.fetchone()["id"]
+
+                for up in uploads:
+                    aid = store_attachment_for_invoice(
+                        cur=cur,
+                        company_id=company_id,
+                        invoice_id=invoice_id,
+                        raw=up["raw"],
+                        filename=up["filename"],
+                        content_type=up["content_type"],
+                        user_id=user["user_id"],
+                    )
+                    attachment_ids.append(str(aid))
+
+                # Keep deterministic order, but avoid duplicate ids in packet metadata.
+                if attachment_ids:
+                    seen_att: set[str] = set()
+                    uniq_att: list[str] = []
+                    for aid in attachment_ids:
+                        if aid in seen_att:
+                            continue
+                        seen_att.add(aid)
+                        uniq_att.append(aid)
+                    attachment_ids = uniq_att
+
+                first_attachment_id = attachment_ids[0] if attachment_ids else None
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_files_uploaded', 'supplier_invoice', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        invoice_id,
+                        json.dumps(
+                            {
+                                "attachment_ids": attachment_ids,
+                                "files_count": len(uploads),
+                                "total_size_bytes": total_size,
+                            }
+                        ),
+                    ),
+                )
+
+                options_json = json.dumps(
+                    {
+                        "auto_create_supplier": bool(auto_create_supplier),
+                        "auto_create_items": bool(auto_create_items),
+                        "auto_apply": bool(auto_apply),
+                        "mock_extract": bool(mock_extract),
+                        "import_attachment_ids": attachment_ids,
+                        "files_count": len(uploads),
+                    }
+                )
+
+                if skip_extract:
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoices
+                        SET import_status='skipped',
+                            import_error='Extraction skipped by request.',
+                            import_finished_at=now(),
+                            import_attachment_id=%s,
+                            import_options_json=%s::jsonb
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (first_attachment_id, options_json, company_id, invoice_id),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                        VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_skipped', 'supplier_invoice', %s, %s::jsonb)
+                        """,
+                        (
+                            company_id,
+                            user["user_id"],
+                            invoice_id,
+                            json.dumps({"attachment_ids": attachment_ids, "files_count": len(uploads), "reason": "skip_extract"}),
+                        ),
+                    )
+
+                if async_import and not skip_extract:
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoices
+                        SET import_status='pending',
+                            import_attachment_id=%s,
+                            import_options_json=%s::jsonb,
+                            import_error=NULL,
+                            import_started_at=NULL,
+                            import_finished_at=NULL
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        (first_attachment_id, options_json, company_id, invoice_id),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                        VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_queued', 'supplier_invoice', %s, %s::jsonb)
+                        """,
+                        (company_id, user["user_id"], invoice_id, json.dumps({"attachment_ids": attachment_ids, "files_count": len(uploads)})),
+                    )
+
+        if skip_extract:
+            warnings.append("Extraction skipped by request: draft + attachments created for manual review.")
+            return {
+                "id": invoice_id,
+                "invoice_no": invoice_no,
+                "attachment_ids": attachment_ids,
+                "queued": False,
+                "ai_extracted": False,
+                "warnings": warnings,
+            }
+
+        if async_import:
+            warnings.append("Import queued: the worker will extract and prepare lines for review in the background.")
+            return {
+                "id": invoice_id,
+                "invoice_no": invoice_no,
+                "attachment_ids": attachment_ids,
+                "queued": True,
+                "warnings": warnings,
+            }
+
+        # Sync fallback: extract + fill now from all files.
+        extracted: dict | None = None
+        try:
+            with conn.cursor() as cur3:
+                extracted = extract_purchase_invoice_best_effort_from_files(
+                    files=uploads,
+                    company_id=company_id,
+                    cur=cur3,
+                    warnings=warnings,
+                    force_mock=bool(mock_extract),
+                )
+        except Exception as ex:
+            warnings.append(f"AI extraction failed: {ex}")
+            extracted = None
+
+        with conn.transaction():
+            with conn.cursor() as cur4:
+                if not extracted:
+                    cur4.execute(
+                        """
+                        UPDATE supplier_invoices
+                        SET import_status='skipped', import_finished_at=now(), import_error=%s
+                        WHERE company_id=%s AND id=%s
+                        """,
+                        ("\n".join(warnings[:10]) if warnings else None, company_id, invoice_id),
+                    )
+                    return {
+                        "id": invoice_id,
+                        "invoice_no": invoice_no,
+                        "attachment_ids": attachment_ids,
+                        "queued": False,
+                        "ai_extracted": False,
+                        "warnings": warnings,
+                    }
+
+                apply_extracted_purchase_invoice_to_draft(
+                    company_id=company_id,
+                    invoice_id=invoice_id,
+                    extracted=extracted,
+                    exchange_rate_hint=exchange_rate,
+                    tax_code_id_hint=tax_code_id,
+                    auto_create_supplier=bool(auto_create_supplier),
+                    auto_create_items=bool(auto_create_items),
+                    cur=cur4,
+                    warnings=warnings,
+                    user_id=user["user_id"],
+                )
+                cur4.execute(
+                    """
+                    UPDATE supplier_invoices
+                    SET import_status='filled', import_finished_at=now(), import_error=NULL
+                    WHERE company_id=%s AND id=%s
+                    """,
+                    (company_id, invoice_id),
+                )
+
+        return {
+            "id": invoice_id,
+            "invoice_no": invoice_no,
+            "attachment_ids": attachment_ids,
+            "queued": False,
+            "ai_extracted": True,
+            "warnings": warnings,
+        }
+
+
 @router.get("/invoices/{invoice_id}/import-lines", dependencies=[Depends(require_permission("purchases:read"))])
 def list_supplier_invoice_import_lines(invoice_id: str, company_id: str = Depends(get_company_id)):
     with get_conn() as conn:
@@ -1004,9 +1421,13 @@ def list_supplier_invoice_import_lines(invoice_id: str, company_id: str = Depend
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT l.id, l.line_no, l.qty, l.unit_cost_usd, l.unit_cost_lbp,
+                SELECT l.id, l.line_no, l.line_type,
+                       l.qty, l.qty_entered,
+                       l.entered_uom_code, l.entered_qty_factor,
+                       l.unit_cost_usd, l.unit_cost_lbp,
+                       l.unit_cost_entered_usd, l.unit_cost_entered_lbp,
                        l.supplier_item_code, l.supplier_item_name, l.description,
-                       l.suggested_item_id, l.suggested_confidence,
+                       l.suggested_item_id, l.suggested_confidence, l.suggested_match_reason,
                        si.sku AS suggested_sku, si.name AS suggested_name,
                        l.resolved_item_id, ri.sku AS resolved_sku, ri.name AS resolved_name,
                        l.status, l.created_at, l.updated_at
@@ -1032,9 +1453,218 @@ def update_supplier_invoice_import_line(
     patch = data.model_dump(exclude_unset=True)
     if not patch:
         return {"ok": True}
+
+    allowed_line_types = {"item", "free_item", "discount", "tax", "freight", "other"}
     status = (patch.get("status") or "").strip().lower() if "status" in patch else None
     if status and status not in {"pending", "resolved", "skipped"}:
         raise HTTPException(status_code=400, detail="status must be pending|resolved|skipped")
+    line_type = (patch.get("line_type") or "").strip().lower() if "line_type" in patch else None
+    if line_type and line_type not in allowed_line_types:
+        raise HTTPException(status_code=400, detail="invalid line_type")
+    entered_uom_code = patch.get("entered_uom_code") if "entered_uom_code" in patch else None
+    if entered_uom_code is not None:
+        entered_uom_code = str(entered_uom_code or "").strip().upper() or None
+        if entered_uom_code and len(entered_uom_code) > 32:
+            raise HTTPException(status_code=400, detail="entered_uom_code too long (max 32 chars)")
+    if "entered_qty_factor" in patch and patch.get("entered_qty_factor") is not None and Decimal(str(patch.get("entered_qty_factor") or 0)) <= 0:
+        raise HTTPException(status_code=400, detail="entered_qty_factor must be > 0")
+    if "qty_entered" in patch and patch.get("qty_entered") is not None and Decimal(str(patch.get("qty_entered") or 0)) < 0:
+        raise HTTPException(status_code=400, detail="qty_entered must be >= 0")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT i.id, i.status, i.import_status, i.exchange_rate
+                    FROM supplier_invoices i
+                    WHERE i.company_id=%s AND i.id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, invoice_id),
+                )
+                inv = cur.fetchone()
+                if not inv:
+                    raise HTTPException(status_code=404, detail="invoice not found")
+                if inv["status"] != "draft":
+                    raise HTTPException(status_code=400, detail="only draft invoices can be edited")
+                if str(inv.get("import_status") or "").lower() != "pending_review":
+                    raise HTTPException(status_code=409, detail="import is not in pending_review state")
+
+                cur.execute(
+                    """
+                    SELECT id, line_type, qty, qty_entered, entered_uom_code, entered_qty_factor,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           supplier_item_name, description,
+                           resolved_item_id, status
+                    FROM supplier_invoice_import_lines
+                    WHERE company_id=%s AND supplier_invoice_id=%s AND id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, invoice_id, line_id),
+                )
+                old = cur.fetchone()
+                if not old:
+                    raise HTTPException(status_code=404, detail="import line not found")
+
+                has_resolved_item_id = "resolved_item_id" in patch
+                resolved_item_id = patch.get("resolved_item_id") if has_resolved_item_id else None
+                if has_resolved_item_id:
+                    resolved_item_id = (resolved_item_id or "").strip() or None
+                    if resolved_item_id:
+                        cur.execute("SELECT 1 FROM items WHERE company_id=%s AND id=%s", (company_id, resolved_item_id))
+                        if not cur.fetchone():
+                            raise HTTPException(status_code=400, detail="invalid resolved_item_id")
+                        # If user picked an item, treat as resolved unless explicitly skipped.
+                        if status != "skipped":
+                            status = status or "resolved"
+                    else:
+                        # Clearing the item puts it back to pending unless explicitly skipped.
+                        if status != "skipped":
+                            status = status or "pending"
+
+                new_line_type = line_type or str(old.get("line_type") or "item").strip().lower() or "item"
+                if not has_resolved_item_id:
+                    resolved_item_id = old.get("resolved_item_id")
+
+                auto_uom: Optional[str] = None
+                auto_factor: Optional[Decimal] = None
+                if resolved_item_id and new_line_type in {"item", "free_item"}:
+                    try:
+                        auto_uom, auto_factor = _infer_item_uom_for_import_line(
+                            cur=cur,
+                            company_id=company_id,
+                            item_id=str(resolved_item_id),
+                            supplier_item_name=old.get("supplier_item_name"),
+                            description=old.get("description"),
+                            preferred_uom=(entered_uom_code if "entered_uom_code" in patch else old.get("entered_uom_code")),
+                        )
+                    except Exception:
+                        auto_uom = None
+                        auto_factor = None
+
+                if "entered_qty_factor" in patch:
+                    new_qty_factor = Decimal(str(patch.get("entered_qty_factor") or 0))
+                elif auto_factor is not None and auto_factor > 0:
+                    new_qty_factor = auto_factor
+                else:
+                    new_qty_factor = Decimal(str(old.get("entered_qty_factor") or 1))
+                if new_qty_factor <= 0:
+                    raise HTTPException(status_code=400, detail="entered_qty_factor must be > 0")
+                new_qty_entered = Decimal(str(patch.get("qty_entered") if "qty_entered" in patch else (old.get("qty_entered") or old.get("qty") or 0)))
+                if new_qty_entered < 0:
+                    raise HTTPException(status_code=400, detail="qty_entered must be >= 0")
+                if new_line_type in {"item", "free_item"} and new_qty_entered <= 0:
+                    raise HTTPException(status_code=400, detail="qty_entered must be > 0 for item/free_item lines")
+                if new_line_type in {"discount", "tax", "freight", "other"} and new_qty_entered == 0:
+                    new_qty_entered = Decimal("1")
+
+                old_entered_usd = Decimal(str(old.get("unit_cost_entered_usd") or 0))
+                old_entered_lbp = Decimal(str(old.get("unit_cost_entered_lbp") or 0))
+                if old_entered_usd == 0 and old_entered_lbp == 0:
+                    old_entered_usd = Decimal(str(old.get("unit_cost_usd") or 0)) * new_qty_factor
+                    old_entered_lbp = Decimal(str(old.get("unit_cost_lbp") or 0)) * new_qty_factor
+                new_unit_entered_usd = Decimal(
+                    str(patch.get("unit_cost_entered_usd") if "unit_cost_entered_usd" in patch else old_entered_usd)
+                )
+                new_unit_entered_lbp = Decimal(
+                    str(patch.get("unit_cost_entered_lbp") if "unit_cost_entered_lbp" in patch else old_entered_lbp)
+                )
+                ex = Decimal(str(inv.get("exchange_rate") or 0))
+                new_unit_entered_usd, new_unit_entered_lbp = _normalize_dual_amounts(new_unit_entered_usd, new_unit_entered_lbp, ex)
+                new_unit_base_usd = new_unit_entered_usd / new_qty_factor
+                new_unit_base_lbp = new_unit_entered_lbp / new_qty_factor
+                new_unit_base_usd, new_unit_base_lbp = _normalize_dual_amounts(new_unit_base_usd, new_unit_base_lbp, ex)
+                new_qty_base = new_qty_entered * new_qty_factor
+
+                if "entered_uom_code" in patch:
+                    new_entered_uom = entered_uom_code
+                elif auto_uom:
+                    new_entered_uom = auto_uom
+                else:
+                    new_entered_uom = old.get("entered_uom_code") or None
+
+                if new_line_type in {"discount", "tax", "freight", "other"}:
+                    resolved_item_id = None
+                    if status != "resolved":
+                        status = status or "skipped"
+
+                cur.execute(
+                    """
+                    UPDATE supplier_invoice_import_lines
+                    SET line_type=%s,
+                        qty=%s,
+                        qty_entered=%s,
+                        entered_uom_code=%s,
+                        entered_qty_factor=%s,
+                        unit_cost_usd=%s,
+                        unit_cost_lbp=%s,
+                        unit_cost_entered_usd=%s,
+                        unit_cost_entered_lbp=%s,
+                        resolved_item_id=%s,
+                        status = COALESCE(%s, status),
+                        updated_at = now()
+                    WHERE company_id=%s AND supplier_invoice_id=%s AND id=%s
+                    """,
+                    (
+                        new_line_type,
+                        new_qty_base,
+                        new_qty_entered,
+                        new_entered_uom,
+                        new_qty_factor,
+                        new_unit_base_usd,
+                        new_unit_base_lbp,
+                        new_unit_entered_usd,
+                        new_unit_entered_lbp,
+                        resolved_item_id,
+                        status,
+                        company_id,
+                        invoice_id,
+                        line_id,
+                    ),
+                )
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="import line not found")
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_line_update', 'supplier_invoice', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        invoice_id,
+                        json.dumps(
+                            {
+                                "line_id": line_id,
+                                "resolved_item_id": resolved_item_id,
+                                "status": status,
+                                "line_type": new_line_type,
+                                "qty_entered": str(new_qty_entered),
+                                "entered_uom_code": new_entered_uom,
+                                "entered_qty_factor": str(new_qty_factor),
+                            }
+                        ),
+                    ),
+                )
+                return {"ok": True}
+
+
+@router.post("/invoices/{invoice_id}/import-lines/bulk", dependencies=[Depends(require_permission("purchases:write"))])
+def bulk_update_supplier_invoice_import_lines(
+    invoice_id: str,
+    data: SupplierInvoiceImportBulkActionIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    action = (data.action or "").strip().lower()
+    allowed = {"auto_accept_exact", "set_non_item_resolved", "set_non_item_skipped", "skip_unmatched_items"}
+    if action not in allowed:
+        raise HTTPException(status_code=400, detail=f"action must be one of: {', '.join(sorted(allowed))}")
+
+    exact_reasons = ["alias_code_exact", "alias_name_exact", "sku_exact", "barcode_exact"]
 
     with get_conn() as conn:
         set_company_context(conn, company_id)
@@ -1057,43 +1687,269 @@ def update_supplier_invoice_import_line(
                 if str(inv.get("import_status") or "").lower() != "pending_review":
                     raise HTTPException(status_code=409, detail="import is not in pending_review state")
 
-                has_resolved_item_id = "resolved_item_id" in patch
-                resolved_item_id = patch.get("resolved_item_id") if has_resolved_item_id else None
-                if has_resolved_item_id:
-                    resolved_item_id = (resolved_item_id or "").strip() or None
-                    if resolved_item_id:
-                        cur.execute("SELECT 1 FROM items WHERE company_id=%s AND id=%s", (company_id, resolved_item_id))
-                        if not cur.fetchone():
-                            raise HTTPException(status_code=400, detail="invalid resolved_item_id")
-                        # If user picked an item, treat as resolved unless explicitly skipped.
-                        if status != "skipped":
-                            status = status or "resolved"
-                    else:
-                        # Clearing the item puts it back to pending unless explicitly skipped.
-                        if status != "skipped":
-                            status = status or "pending"
-
-                cur.execute(
-                    """
-                    UPDATE supplier_invoice_import_lines
-                    SET resolved_item_id = CASE WHEN %s THEN %s ELSE resolved_item_id END,
-                        status = COALESCE(%s, status),
-                        updated_at = now()
-                    WHERE company_id=%s AND supplier_invoice_id=%s AND id=%s
-                    """,
-                    (has_resolved_item_id, resolved_item_id, status, company_id, invoice_id, line_id),
-                )
-                if cur.rowcount == 0:
-                    raise HTTPException(status_code=404, detail="import line not found")
+                affected = 0
+                if action == "auto_accept_exact":
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoice_import_lines
+                        SET resolved_item_id=COALESCE(resolved_item_id, suggested_item_id),
+                            status='resolved',
+                            updated_at=now()
+                        WHERE company_id=%s
+                          AND supplier_invoice_id=%s
+                          AND status='pending'
+                          AND line_type IN ('item', 'free_item')
+                          AND (
+                            resolved_item_id IS NOT NULL
+                            OR (
+                              suggested_item_id IS NOT NULL
+                              AND split_part(COALESCE(suggested_match_reason, ''), ':', 1) = ANY(%s)
+                            )
+                          )
+                        """,
+                        (company_id, invoice_id, exact_reasons),
+                    )
+                    affected = int(cur.rowcount or 0)
+                elif action == "set_non_item_resolved":
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoice_import_lines
+                        SET status='resolved',
+                            resolved_item_id=NULL,
+                            entered_qty_factor=CASE
+                              WHEN COALESCE(entered_qty_factor, 0) <= 0 THEN 1
+                              ELSE entered_qty_factor
+                            END,
+                            qty_entered=CASE
+                              WHEN COALESCE(qty_entered, 0) = 0 THEN 1
+                              ELSE qty_entered
+                            END,
+                            qty=CASE
+                              WHEN COALESCE(qty, 0) = 0 THEN
+                                (
+                                  CASE WHEN COALESCE(qty_entered, 0) = 0 THEN 1 ELSE qty_entered END
+                                  *
+                                  CASE WHEN COALESCE(entered_qty_factor, 0) <= 0 THEN 1 ELSE entered_qty_factor END
+                                )
+                              ELSE qty
+                            END,
+                            updated_at=now()
+                        WHERE company_id=%s
+                          AND supplier_invoice_id=%s
+                          AND line_type IN ('discount', 'tax', 'freight', 'other')
+                          AND status <> 'resolved'
+                        """,
+                        (company_id, invoice_id),
+                    )
+                    affected = int(cur.rowcount or 0)
+                elif action == "set_non_item_skipped":
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoice_import_lines
+                        SET status='skipped',
+                            resolved_item_id=NULL,
+                            updated_at=now()
+                        WHERE company_id=%s
+                          AND supplier_invoice_id=%s
+                          AND line_type IN ('discount', 'tax', 'freight', 'other')
+                          AND status <> 'skipped'
+                        """,
+                        (company_id, invoice_id),
+                    )
+                    affected = int(cur.rowcount or 0)
+                elif action == "skip_unmatched_items":
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoice_import_lines
+                        SET status='skipped',
+                            resolved_item_id=NULL,
+                            updated_at=now()
+                        WHERE company_id=%s
+                          AND supplier_invoice_id=%s
+                          AND line_type IN ('item', 'free_item')
+                          AND status='pending'
+                          AND resolved_item_id IS NULL
+                          AND suggested_item_id IS NULL
+                        """,
+                        (company_id, invoice_id),
+                    )
+                    affected = int(cur.rowcount or 0)
 
                 cur.execute(
                     """
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
-                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_line_update', 'supplier_invoice', %s, %s::jsonb)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_lines_bulk_update', 'supplier_invoice', %s, %s::jsonb)
                     """,
-                    (company_id, user["user_id"], invoice_id, json.dumps({"line_id": line_id, "resolved_item_id": resolved_item_id, "status": status})),
+                    (
+                        company_id,
+                        user["user_id"],
+                        invoice_id,
+                        json.dumps({"bulk_action": action, "affected": affected}),
+                    ),
                 )
-                return {"ok": True}
+                return {"ok": True, "affected": affected, "action": action}
+
+
+@router.post("/invoices/{invoice_id}/import-lines/rematch", dependencies=[Depends(require_permission("purchases:write"))])
+def rematch_supplier_invoice_import_lines(
+    invoice_id: str,
+    data: SupplierInvoiceImportRematchIn,
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT i.id, i.status, i.import_status, i.supplier_id, i.exchange_rate
+                    FROM supplier_invoices i
+                    WHERE i.company_id=%s AND i.id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, invoice_id),
+                )
+                inv = cur.fetchone()
+                if not inv:
+                    raise HTTPException(status_code=404, detail="invoice not found")
+                if inv["status"] != "draft":
+                    raise HTTPException(status_code=400, detail="only draft invoices can be edited")
+                if str(inv.get("import_status") or "").lower() != "pending_review":
+                    raise HTTPException(status_code=409, detail="import is not in pending_review state")
+
+                cur.execute(
+                    """
+                    SELECT id, line_no, line_type, status,
+                           qty, qty_entered, entered_uom_code, entered_qty_factor,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                           supplier_item_code, supplier_item_name, description,
+                           suggested_item_id, suggested_confidence, suggested_match_reason,
+                           resolved_item_id
+                    FROM supplier_invoice_import_lines
+                    WHERE company_id=%s AND supplier_invoice_id=%s
+                    ORDER BY line_no ASC
+                    FOR UPDATE
+                    """,
+                    (company_id, invoice_id),
+                )
+                lines = cur.fetchall() or []
+                if not lines:
+                    return {"ok": True, "scanned": 0, "rematched": 0, "auto_resolved": 0}
+
+                exchange_rate = Decimal(str(inv.get("exchange_rate") or 0))
+                supplier_id = str(inv.get("supplier_id") or "").strip() or None
+                scanned = 0
+                rematched = 0
+                auto_resolved = 0
+
+                for l in lines:
+                    st = str(l.get("status") or "").lower()
+                    if bool(data.pending_only) and st != "pending":
+                        continue
+                    if not bool(data.include_resolved) and l.get("resolved_item_id"):
+                        continue
+
+                    scanned += 1
+                    rec = rematch_supplier_invoice_import_line(
+                        cur=cur,
+                        company_id=company_id,
+                        supplier_id=supplier_id,
+                        line_type=l.get("line_type"),
+                        supplier_item_code=l.get("supplier_item_code"),
+                        supplier_item_name=l.get("supplier_item_name"),
+                        description=l.get("description"),
+                        qty_entered=Decimal(str(l.get("qty_entered") or l.get("qty") or 0)),
+                        unit_cost_entered_usd=Decimal(str(l.get("unit_cost_entered_usd") or l.get("unit_cost_usd") or 0)),
+                        unit_cost_entered_lbp=Decimal(str(l.get("unit_cost_entered_lbp") or l.get("unit_cost_lbp") or 0)),
+                        exchange_rate=exchange_rate,
+                        resolved_item_id=(str(l.get("resolved_item_id") or "").strip() or None),
+                        entered_uom_code=(str(l.get("entered_uom_code") or "").strip() or None),
+                        entered_qty_factor=(Decimal(str(l.get("entered_qty_factor") or 0)) if l.get("entered_qty_factor") is not None else None),
+                    )
+
+                    new_resolved_item_id = l.get("resolved_item_id")
+                    new_status: Optional[str] = None
+                    if (
+                        bool(data.auto_accept_exact)
+                        and st == "pending"
+                        and not new_resolved_item_id
+                        and bool(rec.get("auto_resolve"))
+                        and rec.get("suggested_item_id")
+                    ):
+                        new_resolved_item_id = rec.get("suggested_item_id")
+                        new_status = "resolved"
+                        auto_resolved += 1
+
+                    cur.execute(
+                        """
+                        UPDATE supplier_invoice_import_lines
+                        SET line_type=%s,
+                            qty=%s,
+                            qty_entered=%s,
+                            entered_uom_code=%s,
+                            entered_qty_factor=%s,
+                            unit_cost_usd=%s,
+                            unit_cost_lbp=%s,
+                            unit_cost_entered_usd=%s,
+                            unit_cost_entered_lbp=%s,
+                            suggested_item_id=%s,
+                            suggested_confidence=%s,
+                            suggested_match_reason=%s,
+                            resolved_item_id=%s,
+                            status=COALESCE(%s, status),
+                            updated_at=now()
+                        WHERE company_id=%s AND supplier_invoice_id=%s AND id=%s
+                        """,
+                        (
+                            rec.get("line_type"),
+                            rec.get("qty"),
+                            rec.get("qty_entered"),
+                            rec.get("entered_uom_code"),
+                            rec.get("entered_qty_factor"),
+                            rec.get("unit_cost_usd"),
+                            rec.get("unit_cost_lbp"),
+                            rec.get("unit_cost_entered_usd"),
+                            rec.get("unit_cost_entered_lbp"),
+                            rec.get("suggested_item_id"),
+                            rec.get("suggested_confidence") or 0,
+                            rec.get("suggested_match_reason"),
+                            new_resolved_item_id,
+                            new_status,
+                            company_id,
+                            invoice_id,
+                            l["id"],
+                        ),
+                    )
+                    rematched += int(cur.rowcount or 0)
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_lines_rematched', 'supplier_invoice', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        invoice_id,
+                        json.dumps(
+                            {
+                                "scanned": scanned,
+                                "rematched": rematched,
+                                "auto_resolved": auto_resolved,
+                                "pending_only": bool(data.pending_only),
+                                "include_resolved": bool(data.include_resolved),
+                                "auto_accept_exact": bool(data.auto_accept_exact),
+                            }
+                        ),
+                    ),
+                )
+                return {
+                    "ok": True,
+                    "scanned": scanned,
+                    "rematched": rematched,
+                    "auto_resolved": auto_resolved,
+                }
 
 
 @router.post("/invoices/{invoice_id}/import-review/mark", dependencies=[Depends(require_permission("purchases:write"))])
@@ -1228,7 +2084,9 @@ def apply_supplier_invoice_import_lines(
 
                 cur.execute(
                     """
-                    SELECT id, line_no, qty, unit_cost_usd, unit_cost_lbp,
+                    SELECT id, line_no, line_type,
+                           qty, qty_entered, entered_uom_code, entered_qty_factor,
+                           unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
                            supplier_item_code, supplier_item_name, description,
                            suggested_item_id, resolved_item_id, status
                     FROM supplier_invoice_import_lines
@@ -1250,6 +2108,9 @@ def apply_supplier_invoice_import_lines(
                 ex = Decimal(str(inv.get("exchange_rate") or 0))
                 base_usd = Decimal("0")
                 base_lbp = Decimal("0")
+                non_item_tax_usd = Decimal("0")
+                non_item_tax_lbp = Decimal("0")
+                non_item_adjustments: dict[str, dict[str, Decimal | int]] = {}
 
                 supplier_id = inv.get("supplier_id")
                 uom_by_item = _fetch_item_uoms(
@@ -1262,21 +2123,58 @@ def apply_supplier_invoice_import_lines(
                     ],
                 )
                 for l in lines:
-                    if str(l.get("status") or "").lower() == "skipped":
+                    line_status = str(l.get("status") or "").lower()
+                    if line_status == "skipped":
                         continue
+                    line_type = str(l.get("line_type") or "item").strip().lower() or "item"
+
+                    qty_factor = Decimal(str(l.get("entered_qty_factor") or 1))
+                    if qty_factor <= 0:
+                        qty_factor = Decimal("1")
+                    qty_entered = Decimal(str(l.get("qty_entered") or l.get("qty") or 0))
+                    qty = Decimal(str(l.get("qty") or (qty_entered * qty_factor)))
+                    unit_usd = Decimal(str(l.get("unit_cost_usd") or 0))
+                    unit_lbp = Decimal(str(l.get("unit_cost_lbp") or 0))
+                    unit_entered_usd = Decimal(str(l.get("unit_cost_entered_usd") or (unit_usd * qty_factor)))
+                    unit_entered_lbp = Decimal(str(l.get("unit_cost_entered_lbp") or (unit_lbp * qty_factor)))
+                    unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
+                    unit_entered_usd, unit_entered_lbp = _normalize_dual_amounts(unit_entered_usd, unit_entered_lbp, ex)
+
+                    if line_type in {"discount", "tax", "freight", "other"}:
+                        # Non-item lines affect invoice economics only when explicitly marked resolved.
+                        if line_status != "resolved":
+                            continue
+                        line_total_usd = qty * unit_usd
+                        line_total_lbp = qty * unit_lbp
+                        if line_type == "discount":
+                            line_total_usd = -abs(line_total_usd)
+                            line_total_lbp = -abs(line_total_lbp)
+                            base_usd += line_total_usd
+                            base_lbp += line_total_lbp
+                        elif line_type == "tax":
+                            non_item_tax_usd += line_total_usd
+                            non_item_tax_lbp += line_total_lbp
+                        else:
+                            base_usd += line_total_usd
+                            base_lbp += line_total_lbp
+                        bucket = non_item_adjustments.setdefault(
+                            line_type,
+                            {"count": 0, "total_usd": Decimal("0"), "total_lbp": Decimal("0")},
+                        )
+                        bucket["count"] = int(bucket["count"]) + 1
+                        bucket["total_usd"] = Decimal(str(bucket["total_usd"])) + line_total_usd
+                        bucket["total_lbp"] = Decimal(str(bucket["total_lbp"])) + line_total_lbp
+                        continue
+
                     item_id = l.get("resolved_item_id") or l.get("suggested_item_id")
                     if not item_id:
                         raise HTTPException(status_code=409, detail=f"import line {l.get('line_no')} has no resolved_item_id")
                     base_uom = (uom_by_item.get(str(item_id)) or "").strip() or None
-
-                    qty = Decimal(str(l.get("qty") or 0))
-                    unit_usd = Decimal(str(l.get("unit_cost_usd") or 0))
-                    unit_lbp = Decimal(str(l.get("unit_cost_lbp") or 0))
-                    unit_usd, unit_lbp = _normalize_dual_amounts(unit_usd, unit_lbp, ex)
                     line_total_usd = qty * unit_usd
                     line_total_lbp = qty * unit_lbp
                     base_usd += line_total_usd
                     base_lbp += line_total_lbp
+                    entered_uom = str(l.get("entered_uom_code") or "").strip().upper() or base_uom
 
                     cur.execute(
                         """
@@ -1288,7 +2186,7 @@ def apply_supplier_invoice_import_lines(
                            supplier_item_code, supplier_item_name)
                         VALUES
                           (gen_random_uuid(), %s, %s, %s, %s,
-                           %s, 1, %s,
+                           %s, %s, %s,
                            %s, %s, %s, %s,
                            %s, %s,
                            %s, %s)
@@ -1298,12 +2196,13 @@ def apply_supplier_invoice_import_lines(
                             invoice_id,
                             item_id,
                             qty,
-                            base_uom,
-                            qty,
+                            entered_uom,
+                            qty_factor,
+                            qty_entered,
                             unit_usd,
                             unit_lbp,
-                            unit_usd,
-                            unit_lbp,
+                            unit_entered_usd,
+                            unit_entered_lbp,
                             line_total_usd,
                             line_total_lbp,
                             l.get("supplier_item_code"),
@@ -1326,19 +2225,47 @@ def apply_supplier_invoice_import_lines(
                         )
                         ncode = _norm_code((l.get("supplier_item_code") or "").strip() or None)
                         nname = _norm_name((l.get("supplier_item_name") or "").strip() or None)
-                        cur.execute(
-                            """
-                            INSERT INTO supplier_item_aliases
-                              (id, company_id, supplier_id, item_id, raw_code, raw_name, normalized_code, normalized_name, last_seen_at)
-                            VALUES
-                              (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, now())
-                            ON CONFLICT (company_id, supplier_id, item_id, normalized_code, normalized_name)
-                            DO UPDATE SET raw_code = EXCLUDED.raw_code,
-                                          raw_name = EXCLUDED.raw_name,
-                                          last_seen_at = now()
-                            """,
-                            (company_id, supplier_id, item_id, l.get("supplier_item_code"), l.get("supplier_item_name"), ncode, nname),
-                        )
+                        if ncode:
+                            cur.execute(
+                                """
+                                INSERT INTO supplier_item_aliases
+                                  (id, company_id, supplier_id, item_id, supplier_item_code, supplier_item_name, normalized_code, normalized_name, last_seen_at)
+                                VALUES
+                                  (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, now())
+                                ON CONFLICT (company_id, supplier_id, normalized_code)
+                                  WHERE normalized_code IS NOT NULL AND normalized_code <> ''
+                                DO UPDATE SET item_id = EXCLUDED.item_id,
+                                              supplier_item_code = EXCLUDED.supplier_item_code,
+                                              supplier_item_name = EXCLUDED.supplier_item_name,
+                                              normalized_name = COALESCE(EXCLUDED.normalized_name, supplier_item_aliases.normalized_name),
+                                              last_seen_at = now()
+                                """,
+                                (company_id, supplier_id, item_id, l.get("supplier_item_code"), l.get("supplier_item_name"), ncode, nname),
+                            )
+                        elif nname:
+                            cur.execute(
+                                """
+                                UPDATE supplier_item_aliases
+                                SET item_id=%s,
+                                    supplier_item_name=%s,
+                                    last_seen_at=now()
+                                WHERE company_id=%s
+                                  AND supplier_id=%s
+                                  AND item_id=%s
+                                  AND normalized_name=%s
+                                """,
+                                (item_id, l.get("supplier_item_name"), company_id, supplier_id, item_id, nname),
+                            )
+                            if cur.rowcount == 0:
+                                cur.execute(
+                                    """
+                                    INSERT INTO supplier_item_aliases
+                                      (id, company_id, supplier_id, item_id, supplier_item_code, supplier_item_name, normalized_code, normalized_name, last_seen_at)
+                                    VALUES
+                                      (gen_random_uuid(), %s, %s, %s, %s, %s, NULL, %s, now())
+                                    """,
+                                    (company_id, supplier_id, item_id, l.get("supplier_item_code"), l.get("supplier_item_name"), nname),
+                                )
 
                 tax_rate = Decimal("0")
                 if inv.get("tax_code_id"):
@@ -1348,6 +2275,8 @@ def apply_supplier_invoice_import_lines(
                         tax_rate = Decimal(str(r["rate"] or 0))
                 tax_lbp = base_lbp * tax_rate
                 tax_usd = (tax_lbp / ex) if ex else Decimal("0")
+                tax_usd += non_item_tax_usd
+                tax_lbp += non_item_tax_lbp
                 total_usd = base_usd + tax_usd
                 total_lbp = base_lbp + tax_lbp
 
@@ -1368,7 +2297,24 @@ def apply_supplier_invoice_import_lines(
                     INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
                     VALUES (gen_random_uuid(), %s, %s, 'supplier_invoice_import_lines_applied', 'supplier_invoice', %s, %s::jsonb)
                     """,
-                    (company_id, user["user_id"], invoice_id, json.dumps({"import_lines": len(lines)})),
+                    (
+                        company_id,
+                        user["user_id"],
+                        invoice_id,
+                        json.dumps(
+                            {
+                                "import_lines": len(lines),
+                                "non_item_adjustments": {
+                                    k: {
+                                        "count": int(v.get("count") or 0),
+                                        "total_usd": str(v.get("total_usd") or 0),
+                                        "total_lbp": str(v.get("total_lbp") or 0),
+                                    }
+                                    for k, v in (non_item_adjustments or {}).items()
+                                },
+                            }
+                        ),
+                    ),
                 )
                 return {"ok": True}
 
@@ -1568,6 +2514,7 @@ def list_supplier_invoices(
                 "status": "i.status",
                 "total_usd": "i.total_usd",
                 "total_lbp": "i.total_lbp",
+                "import_confidence_score": "imp.import_confidence_score",
             }
             sort_sql = sort_allow.get((sort or "").strip() or "created_at", "i.created_at")
             dir_sql = "ASC" if (dir or "").lower() == "asc" else "DESC"
@@ -1585,6 +2532,15 @@ def list_supplier_invoices(
                     AND a.entity_type = 'supplier_invoice'
                     AND a.entity_id = i.id
                 ) att ON true
+                LEFT JOIN LATERAL (
+                  SELECT
+                    (
+                      AVG(l.suggested_confidence) FILTER (WHERE l.line_type IN ('item', 'free_item'))
+                    )::numeric(6,4) AS import_confidence_score
+                  FROM supplier_invoice_import_lines l
+                  WHERE l.company_id = i.company_id
+                    AND l.supplier_invoice_id = i.id
+                ) imp ON true
                 WHERE i.company_id = %s
             """
             params: list = [company_id]
@@ -1653,6 +2609,7 @@ def list_supplier_invoices(
                        i.import_status,
                        i.is_on_hold, i.hold_reason,
                        i.status, i.total_usd, i.total_lbp, i.tax_code_id, i.invoice_date, i.due_date, i.created_at,
+                       imp.import_confidence_score,
                        COALESCE(att.attachment_count, 0) AS attachment_count
                 {base_sql}
                 ORDER BY {sort_sql} {dir_sql}
@@ -1805,7 +2762,47 @@ def get_supplier_invoice(invoice_id: str, company_id: str = Depends(get_company_
                 (company_id, invoice_id),
             )
             tax_lines = cur.fetchall()
-            return {"invoice": inv, "lines": lines, "payments": payments, "tax_lines": tax_lines}
+            cur.execute(
+                """
+                SELECT id, line_no, line_type, status,
+                       qty, qty_entered, entered_uom_code, entered_qty_factor,
+                       unit_cost_usd, unit_cost_lbp, unit_cost_entered_usd, unit_cost_entered_lbp,
+                       supplier_item_code, supplier_item_name, description
+                FROM supplier_invoice_import_lines
+                WHERE company_id=%s
+                  AND supplier_invoice_id=%s
+                  AND status='resolved'
+                  AND line_type IN ('discount', 'tax', 'freight', 'other')
+                ORDER BY line_no ASC
+                """,
+                (company_id, invoice_id),
+            )
+            raw_adjustments = cur.fetchall() or []
+            adjustments = []
+            for adj in raw_adjustments:
+                line_type = str(adj.get("line_type") or "other").strip().lower() or "other"
+                qty = Decimal(str(adj.get("qty") or 0))
+                unit_usd = Decimal(str(adj.get("unit_cost_usd") or 0))
+                unit_lbp = Decimal(str(adj.get("unit_cost_lbp") or 0))
+                line_total_usd = qty * unit_usd
+                line_total_lbp = qty * unit_lbp
+                if line_type == "discount":
+                    line_total_usd = -abs(line_total_usd)
+                    line_total_lbp = -abs(line_total_lbp)
+                adjustments.append(
+                    {
+                        **adj,
+                        "line_total_usd": line_total_usd,
+                        "line_total_lbp": line_total_lbp,
+                    }
+                )
+            return {
+                "invoice": inv,
+                "lines": lines,
+                "payments": payments,
+                "tax_lines": tax_lines,
+                "adjustments": adjustments,
+            }
 
 
 @router.get("/orders", dependencies=[Depends(require_permission("purchases:read"))])

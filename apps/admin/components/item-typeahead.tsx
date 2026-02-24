@@ -114,6 +114,10 @@ export function ItemTypeahead(props: {
   disabled?: boolean;
   placeholder?: string;
   className?: string;
+  menuMaxHeightPx?: number;
+  menuMinWidthPx?: number;
+  menuMaxWidthPx?: number;
+  preferUpMinSpacePx?: number;
   endpoint?: string;
   // When enabled, barcode scans (fast keyboard input + Enter) will be captured at the document level
   // so the cashier doesn't need to focus this field first. We intentionally do NOT capture while
@@ -230,11 +234,16 @@ export function ItemTypeahead(props: {
       if (!el) return;
       const gap = 8;
       const rect = el.getBoundingClientRect();
-      const width = Math.min(rect.width, Math.max(120, window.innerWidth - gap * 2));
+      const viewportMax = Math.max(120, window.innerWidth - gap * 2);
+      const minWidth = Math.max(120, Number(props.menuMinWidthPx || rect.width));
+      const requestedMax = Number(props.menuMaxWidthPx || viewportMax);
+      const maxWidth = Math.max(minWidth, Math.min(requestedMax, viewportMax));
+      const width = Math.min(maxWidth, Math.max(minWidth, rect.width));
       const left = Math.min(Math.max(gap, rect.left), Math.max(gap, window.innerWidth - gap - width));
       const spaceBelow = window.innerHeight - rect.bottom - gap;
       const spaceAbove = rect.top - gap;
-      const preferUp = spaceBelow < 280 && spaceAbove > spaceBelow;
+      const flipThreshold = Math.max(120, Number(props.preferUpMinSpacePx || 280));
+      const preferUp = spaceBelow < flipThreshold && spaceAbove > spaceBelow;
       if (preferUp) {
         setMenuPos({
           left,
@@ -256,7 +265,7 @@ export function ItemTypeahead(props: {
       window.removeEventListener("resize", updateMenuRect);
       window.removeEventListener("scroll", updateMenuRect, true);
     };
-  }, [open]);
+  }, [open, props.preferUpMinSpacePx]);
 
   // Debounced remote search.
   useEffect(() => {
@@ -431,7 +440,10 @@ export function ItemTypeahead(props: {
                 </div>
               ) : null}
 
-              <div className="max-h-72 overflow-auto">
+              <div
+                className="overflow-auto"
+                style={{ maxHeight: `${Math.max(140, Number(props.menuMaxHeightPx || 288))}px` }}
+              >
                 {loading ? (
                   <div className="px-3 py-3 text-sm text-fg-subtle">Searching...</div>
                 ) : results.length ? (
@@ -456,11 +468,13 @@ export function ItemTypeahead(props: {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="truncate">
-                              <span className="font-mono text-xs text-fg-muted">{it.sku}</span>{" "}
-                              <span className="text-foreground">· {it.name}</span>
+                            <div className="break-words leading-snug">
+                              <span className="font-mono text-xs text-fg-muted">{it.sku}</span>
+                              <span className="text-foreground"> · {it.name}</span>
                             </div>
-                            {it.barcode ? <div className="mt-0.5 truncate font-mono text-xs text-fg-subtle">{String(it.barcode)}</div> : null}
+                            {it.barcode ? (
+                              <div className="mt-0.5 break-all font-mono text-xs text-fg-subtle">{String(it.barcode)}</div>
+                            ) : null}
                           </div>
                           {it.unit_of_measure ? <div className="shrink-0 font-mono text-xs text-fg-muted">{String(it.unit_of_measure)}</div> : null}
                         </div>

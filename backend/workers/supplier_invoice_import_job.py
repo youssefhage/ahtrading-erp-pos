@@ -18,7 +18,7 @@ from backend.app.importers.supplier_invoice_import import (
     apply_extracted_purchase_invoice_header_to_draft,
     apply_extracted_purchase_invoice_to_draft,
     build_supplier_invoice_import_review_lines,
-    extract_purchase_invoice_best_effort,
+    extract_purchase_invoice_best_effort_from_files,
 )
 
 
@@ -102,30 +102,93 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
             auto_create_items = bool(options.get("auto_create_items", True))
             auto_apply = bool(options.get("auto_apply", False))
             mock_extract = bool(options.get("mock_extract", False))
+            packet_ids = options.get("import_attachment_ids") or []
+            if not isinstance(packet_ids, list):
+                packet_ids = []
+            attachment_ids: list[str] = [str(x).strip() for x in packet_ids if str(x).strip()]
+            if not attachment_ids and attachment_id:
+                attachment_ids = [attachment_id]
+            # Preserve order while deduplicating repeated attachment ids.
+            seen_ids: set[str] = set()
+            deduped_ids: list[str] = []
+            for aid in attachment_ids:
+                if aid in seen_ids:
+                    continue
+                seen_ids.add(aid)
+                deduped_ids.append(aid)
+            attachment_ids = deduped_ids
 
             warnings: list[str] = []
             try:
                 with conn.cursor() as cur:
                     _set_company_context_session(cur, company_id)
-                    cur.execute(
-                        """
-                        SELECT filename, content_type, bytes
-                        FROM document_attachments
-                        WHERE company_id=%s AND id=%s
-                        """,
-                        (company_id, attachment_id),
-                    )
-                    att = cur.fetchone()
-                    if not att:
-                        raise RuntimeError("import attachment not found")
-                    filename = (att.get("filename") or "purchase-invoice").strip() or "purchase-invoice"
-                    content_type = (att.get("content_type") or "application/octet-stream").strip() or "application/octet-stream"
-                    raw = att.get("bytes") or b""
+                    file_entries: list[dict[str, Any]] = []
+                    loaded_attachment_ids: set[str] = set()
+                    for att_id in attachment_ids:
+                        cur.execute(
+                            """
+                            SELECT filename, content_type, bytes
+                            FROM document_attachments
+                            WHERE company_id=%s AND id=%s
+                            """,
+                            (company_id, att_id),
+                        )
+                        att = cur.fetchone()
+                        if not att:
+                            warnings.append(f"import attachment not found: {att_id}")
+                            continue
+                        raw = att.get("bytes") or b""
+                        if not raw:
+                            warnings.append(f"import attachment is empty: {att_id}")
+                            continue
+                        file_entries.append(
+                            {
+                                "raw": raw,
+                                "content_type": (att.get("content_type") or "application/octet-stream").strip()
+                                or "application/octet-stream",
+                                "filename": (att.get("filename") or "purchase-invoice").strip() or "purchase-invoice",
+                            }
+                        )
+                        loaded_attachment_ids.add(att_id)
 
-                    extracted = extract_purchase_invoice_best_effort(
-                        raw=raw,
-                        content_type=content_type,
-                        filename=filename,
+                    # Safety fallback: options may reference stale/missing ids.
+                    # Pull any current invoice attachments so packet extraction still works.
+                    if len(loaded_attachment_ids) < max(1, len(attachment_ids)):
+                        cur.execute(
+                            """
+                            SELECT id, filename, content_type, bytes
+                            FROM document_attachments
+                            WHERE company_id=%s
+                              AND entity_type='supplier_invoice'
+                              AND entity_id=%s
+                            ORDER BY id
+                            """,
+                            (company_id, invoice_id),
+                        )
+                        fallback_rows = cur.fetchall() or []
+                        for att in fallback_rows:
+                            att_id = str(att.get("id") or "").strip()
+                            if not att_id or att_id in loaded_attachment_ids:
+                                continue
+                            raw = att.get("bytes") or b""
+                            if not raw:
+                                continue
+                            file_entries.append(
+                                {
+                                    "raw": raw,
+                                    "content_type": (att.get("content_type") or "application/octet-stream").strip()
+                                    or "application/octet-stream",
+                                    "filename": (att.get("filename") or "purchase-invoice").strip() or "purchase-invoice",
+                                }
+                            )
+                            loaded_attachment_ids.add(att_id)
+                        if fallback_rows:
+                            warnings.append("Used invoice attachment fallback due missing/stale packet ids.")
+                    if not file_entries:
+                        raise RuntimeError("import attachment not found or empty")
+
+                    extracted = extract_purchase_invoice_best_effort_from_files(
+                        files=file_entries,
                         company_id=company_id,
                         cur=cur,
                         warnings=warnings,
@@ -208,16 +271,33 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
                             (company_id, invoice_id),
                         )
                         for ln in review_lines:
+                            line_type = str(ln.get("line_type") or "item").strip().lower()
+                            auto_resolve = bool(ln.get("auto_resolve")) and bool(ln.get("suggested_item_id"))
+                            explicit_status = str(ln.get("status") or "").strip().lower()
+                            if explicit_status in {"pending", "resolved", "skipped"}:
+                                default_status = explicit_status
+                            elif auto_resolve:
+                                default_status = "resolved"
+                            elif line_type in {"discount", "tax", "freight", "other"}:
+                                default_status = "pending"
+                            else:
+                                default_status = "pending"
                             cur2.execute(
                                 """
                                 INSERT INTO supplier_invoice_import_lines
                                   (company_id, supplier_invoice_id, line_no, qty, unit_cost_usd, unit_cost_lbp,
+                                   line_type, entered_uom_code, entered_qty_factor, qty_entered,
+                                   unit_cost_entered_usd, unit_cost_entered_lbp,
                                    supplier_item_code, supplier_item_name, description,
-                                   suggested_item_id, suggested_confidence, resolved_item_id, status, raw_json)
+                                   suggested_item_id, suggested_confidence, suggested_match_reason,
+                                   resolved_item_id, status, raw_json)
                                 VALUES
                                   (%s, %s, %s, %s, %s, %s,
+                                   %s, %s, %s, %s,
+                                   %s, %s,
                                    %s, %s, %s,
-                                   %s, %s, %s, %s, %s::jsonb)
+                                   %s, %s, %s,
+                                   %s, %s, %s::jsonb)
                                 """,
                                 (
                                     company_id,
@@ -226,13 +306,20 @@ def run_supplier_invoice_import_job(db_url: str, company_id: str, limit: int = 2
                                     ln["qty"],
                                     ln["unit_cost_usd"],
                                     ln["unit_cost_lbp"],
+                                    line_type,
+                                    ln.get("entered_uom_code"),
+                                    ln.get("entered_qty_factor") or 1,
+                                    ln.get("qty_entered") or ln["qty"],
+                                    ln.get("unit_cost_entered_usd") or ln["unit_cost_usd"],
+                                    ln.get("unit_cost_entered_lbp") or ln["unit_cost_lbp"],
                                     ln.get("supplier_item_code"),
                                     ln.get("supplier_item_name"),
                                     ln.get("description"),
                                     ln.get("suggested_item_id"),
                                     ln.get("suggested_confidence") or 0,
-                                    None,
-                                    "pending",
+                                    ln.get("suggested_match_reason"),
+                                    ln.get("suggested_item_id") if auto_resolve else None,
+                                    default_status,
                                     json.dumps(ln.get("raw_json") or {}),
                                 ),
                             )

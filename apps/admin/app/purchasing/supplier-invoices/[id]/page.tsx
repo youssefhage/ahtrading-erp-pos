@@ -50,6 +50,8 @@ type InvoiceRow = {
   invoice_date: string;
   due_date: string;
   created_at: string;
+  import_status?: string | null;
+  import_error?: string | null;
 };
 
 type InvoiceLine = {
@@ -73,6 +75,26 @@ type InvoiceLine = {
   batch_no: string | null;
   expiry_date: string | null;
   batch_status?: string | null;
+};
+
+type InvoiceAdjustment = {
+  id: string;
+  line_no?: string | number | null;
+  line_type: string;
+  status?: string | null;
+  qty: string | number;
+  qty_entered?: string | number | null;
+  entered_uom_code?: string | null;
+  entered_qty_factor?: string | number | null;
+  unit_cost_usd: string | number;
+  unit_cost_lbp: string | number;
+  unit_cost_entered_usd?: string | number | null;
+  unit_cost_entered_lbp?: string | number | null;
+  line_total_usd: string | number;
+  line_total_lbp: string | number;
+  supplier_item_code?: string | null;
+  supplier_item_name?: string | null;
+  description?: string | null;
 };
 
 type AttachmentRow = {
@@ -123,6 +145,7 @@ type TaxLine = {
 type InvoiceDetail = {
   invoice: InvoiceRow;
   lines: InvoiceLine[];
+  adjustments?: InvoiceAdjustment[];
   payments: SupplierPayment[];
   tax_lines: TaxLine[];
 };
@@ -196,6 +219,8 @@ function SupplierInvoiceShowInner() {
   const [cancelDrafting, setCancelDrafting] = useState(false);
 
   const [holdBusy, setHoldBusy] = useState(false);
+  const [showResidualSources, setShowResidualSources] = useState(false);
+  const [taxRawOpen, setTaxRawOpen] = useState(false);
 
   const methodChoices = useMemo(() => {
     const fromConfig = paymentMethods.map((m) => String(m.method || "").trim().toLowerCase()).filter(Boolean);
@@ -295,6 +320,62 @@ function SupplierInvoiceShowInner() {
         mono: true,
         accessor: (l) => Number(l.line_total_lbp || 0),
         cell: (l) => <span className="font-mono text-xs">{fmtLbp(l.line_total_lbp)}</span>,
+      },
+    ];
+  }, []);
+
+  const invoiceAdjustmentColumns = useMemo((): Array<DataTableColumn<InvoiceAdjustment>> => {
+    return [
+      {
+        id: "line_type",
+        header: "Type",
+        sortable: true,
+        accessor: (r) => String(r.line_type || ""),
+        cell: (r) => <span className="font-mono text-xs uppercase">{String(r.line_type || "other")}</span>,
+      },
+      {
+        id: "description",
+        header: "Description",
+        sortable: true,
+        accessor: (r) => `${r.description || ""} ${r.supplier_item_name || ""} ${r.supplier_item_code || ""}`,
+        cell: (r) => (
+          <div>
+            <div className="text-xs text-foreground">{r.description || r.supplier_item_name || "-"}</div>
+            {r.supplier_item_code ? <div className="font-mono text-xs text-fg-subtle">{r.supplier_item_code}</div> : null}
+          </div>
+        ),
+      },
+      {
+        id: "qty",
+        header: "Qty",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.qty_entered ?? r.qty ?? 0),
+        cell: (r) => (
+          <span className="font-mono text-xs">
+            {Number(r.qty_entered ?? r.qty ?? 0).toLocaleString("en-US", { maximumFractionDigits: 3 })}{" "}
+            {String(r.entered_uom_code || "").trim().toUpperCase() || "-"}
+          </span>
+        ),
+      },
+      {
+        id: "line_total_usd",
+        header: "Total USD",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.line_total_usd || 0),
+        cell: (r) => <span className="font-mono text-xs">{fmtUsd(r.line_total_usd)}</span>,
+      },
+      {
+        id: "line_total_lbp",
+        header: "Total LL",
+        sortable: true,
+        align: "right",
+        mono: true,
+        accessor: (r) => Number(r.line_total_lbp || 0),
+        cell: (r) => <span className="font-mono text-xs">{fmtLbp(r.line_total_lbp)}</span>,
       },
     ];
   }, []);
@@ -559,6 +640,104 @@ function SupplierInvoiceShowInner() {
       primaryTone
     };
   }, [detail]);
+
+  const importStatusLower = String((detail?.invoice?.import_status || "") || "").toLowerCase();
+  const isPendingReviewImport = importStatusLower === "pending_review";
+  const itemTotals = useMemo(
+    () =>
+      (detail?.lines || []).reduce(
+        (acc, l) => {
+          acc.usd += Number(l.line_total_usd || 0) || 0;
+          acc.lbp += Number(l.line_total_lbp || 0) || 0;
+          return acc;
+        },
+        { usd: 0, lbp: 0 }
+      ),
+    [detail?.lines]
+  );
+  const adjustmentTotals = useMemo(
+    () =>
+      (detail?.adjustments || []).reduce(
+        (acc, a) => {
+          const usd = Number(a.line_total_usd || 0) || 0;
+          const lbp = Number(a.line_total_lbp || 0) || 0;
+          const lt = String(a.line_type || "").toLowerCase();
+          if (lt === "tax") {
+            acc.taxUsd += usd;
+            acc.taxLbp += lbp;
+          } else {
+            acc.nonTaxUsd += usd;
+            acc.nonTaxLbp += lbp;
+          }
+          acc.totalUsd += usd;
+          acc.totalLbp += lbp;
+          return acc;
+        },
+        { nonTaxUsd: 0, nonTaxLbp: 0, taxUsd: 0, taxLbp: 0, totalUsd: 0, totalLbp: 0 }
+      ),
+    [detail?.adjustments]
+  );
+  const itemReconciliation = useMemo(() => {
+    const visibleUsd = itemTotals.usd + adjustmentTotals.totalUsd;
+    const visibleLbp = itemTotals.lbp + adjustmentTotals.totalLbp;
+    const invoiceUsd = Number(detail?.invoice?.total_usd || 0) || 0;
+    const invoiceLbp = Number(detail?.invoice?.total_lbp || 0) || 0;
+    return {
+      visibleUsd,
+      visibleLbp,
+      residualUsd: invoiceUsd - visibleUsd,
+      residualLbp: invoiceLbp - visibleLbp,
+      invoiceUsd,
+      invoiceLbp,
+    };
+  }, [adjustmentTotals.totalLbp, adjustmentTotals.totalUsd, detail?.invoice?.total_lbp, detail?.invoice?.total_usd, itemTotals.lbp, itemTotals.usd]);
+  const hasResidualGap =
+    Math.abs(Number(itemReconciliation.residualUsd || 0)) > 0.01 || Math.abs(Number(itemReconciliation.residualLbp || 0)) > 100;
+  const residualSources = useMemo(() => {
+    const rows: Array<{ kind: "tax_line" | "other"; id: string; label: string; usd: number; lbp: number }> = [];
+    if (!hasResidualGap) return rows;
+    for (const t of detail?.tax_lines || []) {
+      rows.push({
+        kind: "tax_line",
+        id: String(t.id || ""),
+        label: `${String(t.tax_code_id || "tax")}${t.tax_date ? ` · ${String(t.tax_date).slice(0, 10)}` : ""}`,
+        usd: Number(t.tax_usd || 0) || 0,
+        lbp: Number(t.tax_lbp || 0) || 0,
+      });
+    }
+    const taxLinesUsd = rows.reduce((a, r) => a + r.usd, 0);
+    const taxLinesLbp = rows.reduce((a, r) => a + r.lbp, 0);
+    const otherUsd = (Number(itemReconciliation.residualUsd || 0) || 0) - taxLinesUsd;
+    const otherLbp = (Number(itemReconciliation.residualLbp || 0) || 0) - taxLinesLbp;
+    if (Math.abs(otherUsd) > 0.01 || Math.abs(otherLbp) > 100) {
+      rows.push({
+        kind: "other",
+        id: "other",
+        label: "Other difference (rounding/manual header edits)",
+        usd: otherUsd,
+        lbp: otherLbp,
+      });
+    }
+    return rows;
+  }, [detail?.tax_lines, hasResidualGap, itemReconciliation.residualLbp, itemReconciliation.residualUsd]);
+
+  const jumpToTaxLine = useCallback(
+    (taxLineId?: string) => {
+      setTaxRawOpen(true);
+      router.replace("?tab=tax");
+      window.setTimeout(() => {
+        const id = taxLineId ? `tax-line-${taxLineId}` : "tax-breakdown-root";
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 180);
+    },
+    [router]
+  );
+
+  useEffect(() => {
+    if (!hasResidualGap) setShowResidualSources(false);
+  }, [hasResidualGap]);
 
   const supplierAccountOverview = useMemo(() => {
     if (!supplierOverview) return null;
@@ -1306,7 +1485,20 @@ function SupplierInvoiceShowInner() {
                   <CardHeader>
                     <CardTitle className="text-base">Items</CardTitle>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="space-y-3">
+                    {isPendingReviewImport && (detail?.lines || []).length === 0 ? (
+                      <div className="rounded-md border border-border-subtle bg-bg-sunken/30 p-3 text-sm text-fg-muted">
+                        <div className="font-medium text-foreground">Imported lines are waiting for review.</div>
+                        <div className="mt-1">
+                          This page shows applied item lines and non-item adjustments. Open draft review to map and apply imported rows.
+                        </div>
+                        <div className="mt-2">
+                          <Button asChild variant="outline" size="sm">
+                            <Link href={`/purchasing/supplier-invoices/${encodeURIComponent(detail.invoice.id)}/edit`}>Review Imported Items</Link>
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                     <DataTable<InvoiceLine>
                       tableId="purchasing.supplier_invoice.lines"
                       rows={detail.lines}
@@ -1316,6 +1508,91 @@ function SupplierInvoiceShowInner() {
                       enableGlobalFilter={false}
                       initialSort={{ columnId: "item", dir: "asc" }}
                     />
+
+                    {(detail.adjustments || []).length ? (
+                      <>
+                        <div className="pt-1 text-xs font-medium uppercase tracking-wider text-fg-subtle">Non-Item Adjustments</div>
+                        <DataTable<InvoiceAdjustment>
+                          tableId="purchasing.supplier_invoice.adjustments"
+                          rows={detail.adjustments || []}
+                          columns={invoiceAdjustmentColumns}
+                          getRowId={(r) => r.id}
+                          emptyText="No adjustments."
+                          enableGlobalFilter={false}
+                          initialSort={{ columnId: "line_type", dir: "asc" }}
+                        />
+                      </>
+                    ) : null}
+
+                    <div className="rounded-md border border-border-subtle bg-bg-elevated/30 p-3 text-xs text-fg-muted">
+                      <div className="mb-2 text-xs font-medium uppercase tracking-wider text-fg-subtle">Reconciliation</div>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Items total</span>
+                          <span className="data-mono">{fmtUsdLbp(itemTotals.usd, itemTotals.lbp)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Non-item adjustments (discount/freight/other)</span>
+                          <span className="data-mono">{fmtUsdLbp(adjustmentTotals.nonTaxUsd, adjustmentTotals.nonTaxLbp)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Non-item tax adjustments</span>
+                          <span className="data-mono">{fmtUsdLbp(adjustmentTotals.taxUsd, adjustmentTotals.taxLbp)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Visible total (items + adjustments)</span>
+                          <span className="data-mono">{fmtUsdLbp(itemReconciliation.visibleUsd, itemReconciliation.visibleLbp)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Header invoice total</span>
+                          <span className="data-mono text-foreground">{fmtUsdLbp(itemReconciliation.invoiceUsd, itemReconciliation.invoiceLbp)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 border-t border-border-subtle pt-1">
+                          <button
+                            type="button"
+                            className="text-left underline decoration-dotted underline-offset-2"
+                            onClick={() => setShowResidualSources((v) => !v)}
+                            title="Show exact source rows"
+                          >
+                            Difference (click to show source rows)
+                          </button>
+                          <button
+                            type="button"
+                            className="data-mono text-foreground underline decoration-dotted underline-offset-2"
+                            onClick={() => setShowResidualSources((v) => !v)}
+                            title="Show exact source rows"
+                          >
+                            {fmtUsdLbp(itemReconciliation.residualUsd, itemReconciliation.residualLbp)}
+                          </button>
+                        </div>
+                        {showResidualSources ? (
+                          <div className="mt-1 rounded-md border border-border-subtle bg-bg-sunken/25 p-2">
+                            <div className="mb-1 text-xs font-medium text-fg-subtle">Source rows causing the gap</div>
+                            <div className="space-y-1">
+                              {residualSources.map((s) => (
+                                <div key={`${s.kind}-${s.id}`} className="flex items-center justify-between gap-2">
+                                  {s.kind === "tax_line" ? (
+                                    <button
+                                      type="button"
+                                      className="text-left text-xs underline decoration-dotted underline-offset-2"
+                                      onClick={() => jumpToTaxLine(s.id)}
+                                    >
+                                      Tax line: {s.label}
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs">{s.label}</span>
+                                  )}
+                                  <span className="data-mono">{fmtUsdLbp(s.usd, s.lbp)}</span>
+                                </div>
+                              ))}
+                              {residualSources.length === 0 ? (
+                                <div className="text-xs text-fg-subtle">No explicit source rows found.</div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               ) : null}
@@ -1326,9 +1603,9 @@ function SupplierInvoiceShowInner() {
                     <CardTitle className="text-base">Tax Lines</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-1 text-xs text-fg-muted">
+                    <div id="tax-breakdown-root" className="space-y-1 text-xs text-fg-muted">
                       {taxBreakdown.map((r) => (
-                        <div key={r.tax_code_id} className="rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
+                        <div id={`tax-breakdown-${r.tax_code_id}`} key={r.tax_code_id} className="rounded-md border border-border-subtle bg-bg-elevated/40 p-2">
                           <div className="flex items-center justify-between gap-2">
                             <span className="data-mono">{r.tax_code_id}</span>
                             <span className="data-mono text-foreground">
@@ -1357,11 +1634,11 @@ function SupplierInvoiceShowInner() {
                               {fmtUsdLbp(taxBreakdownTotals.base_usd, taxBreakdownTotals.base_lbp)}
                             </span>
                           </div>
-                          <details className="mt-2">
+                          <details className="mt-2" open={taxRawOpen} onToggle={(e) => setTaxRawOpen((e.currentTarget as HTMLDetailsElement).open)}>
                             <summary className="cursor-pointer text-xs font-medium text-fg-subtle">Raw tax lines</summary>
                             <div className="mt-2 space-y-1">
                               {(detail.tax_lines || []).map((t) => (
-                                <div key={t.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/30 p-2">
+                                <div id={`tax-line-${t.id}`} key={t.id} className="flex items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-elevated/30 p-2">
                                   <span className="data-mono">
                                     {t.tax_code_id}
                                     {t.tax_date ? <span className="text-fg-subtle"> · {String(t.tax_date).slice(0, 10)}</span> : null}

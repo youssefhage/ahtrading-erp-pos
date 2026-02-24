@@ -33,6 +33,7 @@ type InvoiceRow = {
   invoice_date: string;
   due_date: string;
   created_at: string;
+  import_confidence_score?: string | number | null;
   attachment_count?: number;
 };
 
@@ -47,6 +48,14 @@ type AiRecRow = {
 
 function fmtIso(iso?: string | null) {
   return formatDateLike(iso);
+}
+
+function fmtConfidence(score?: string | number | null) {
+  if (score == null) return "-";
+  const n = Number(score);
+  if (!Number.isFinite(n)) return "-";
+  const clamped = Math.min(1, Math.max(0, n));
+  return `${Math.round(clamped * 100)}%`;
 }
 
 function SupplierInvoicesListInner() {
@@ -225,6 +234,19 @@ function SupplierInvoicesListInner() {
               </div>
             ) : null}
           </div>
+        ),
+      },
+      {
+        id: "import_confidence_score",
+        header: "AI Conf",
+        accessor: (inv) => inv.import_confidence_score ?? "",
+        sortable: true,
+        align: "center",
+        mono: true,
+        cell: (inv) => (
+          <ShortcutLink href={`/purchasing/supplier-invoices/${encodeURIComponent(inv.id)}/edit`} title="Open invoice edit">
+            {fmtConfidence(inv.import_confidence_score)}
+          </ShortcutLink>
         ),
       },
       {

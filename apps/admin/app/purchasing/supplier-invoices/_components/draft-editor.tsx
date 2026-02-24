@@ -19,9 +19,15 @@ type AttachmentRow = { id: string; filename: string; content_type: string; size_
 type ImportLineRow = {
   id: string;
   line_no: number;
+  line_type: string;
   qty: string | number;
+  qty_entered: string | number;
+  entered_uom_code: string | null;
+  entered_qty_factor: string | number;
   unit_cost_usd: string | number;
   unit_cost_lbp: string | number;
+  unit_cost_entered_usd: string | number;
+  unit_cost_entered_lbp: string | number;
   supplier_item_code: string | null;
   supplier_item_name: string | null;
   description: string | null;
@@ -29,10 +35,20 @@ type ImportLineRow = {
   suggested_sku: string | null;
   suggested_name: string | null;
   suggested_confidence: string | number;
+  suggested_match_reason: string | null;
   resolved_item_id: string | null;
   resolved_sku: string | null;
   resolved_name: string | null;
   status: string;
+};
+
+type ImportLineDraft = {
+  line_type: string;
+  qty_entered: string;
+  entered_uom_code: string;
+  entered_qty_factor: string;
+  unit_cost_entered_usd: string;
+  unit_cost_entered_lbp: string;
 };
 
 type TaxCode = {
@@ -80,6 +96,8 @@ type InvoiceDetail = {
     import_started_at?: string | null;
     import_finished_at?: string | null;
     import_attachment_id?: string | null;
+    total_usd?: string | number;
+    total_lbp?: string | number;
   };
   lines: Array<{
     item_id: string;
@@ -99,6 +117,13 @@ type InvoiceDetail = {
     goods_receipt_line_id?: string | null;
     supplier_item_code?: string | null;
     supplier_item_name?: string | null;
+  }>;
+  adjustments?: Array<{
+    id: string;
+    line_type: string;
+    description?: string | null;
+    line_total_usd: string | number;
+    line_total_lbp: string | number;
   }>;
 };
 
@@ -160,6 +185,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [importMockExtract, setImportMockExtract] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentRow[]>([]);
   const [previewAttachmentId, setPreviewAttachmentId] = useState("");
+  const [previewZoomPct, setPreviewZoomPct] = useState(100);
   const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [attachmentPickKey, setAttachmentPickKey] = useState(0);
   const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
@@ -177,17 +203,22 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
   const [supplierRef, setSupplierRef] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(() => todayIso());
   const [dueDate, setDueDate] = useState("");
-  const [exchangeRate, setExchangeRate] = useState("90000");
+  const [exchangeRate, setExchangeRate] = useState("89500");
   const [taxCodeId, setTaxCodeId] = useState("");
   const [goodsReceiptId, setGoodsReceiptId] = useState("");
 
   const [lines, setLines] = useState<InvoiceLineDraft[]>([]);
+  const [savedAdjustments, setSavedAdjustments] = useState<Array<{ id: string; line_type: string; description?: string | null; line_total_usd: string | number; line_total_lbp: string | number }>>([]);
+  const [savedHeaderTotals, setSavedHeaderTotals] = useState<{ usd: number; lbp: number } | null>(null);
   const [uomConvByItem, setUomConvByItem] = useState<Record<string, UomConv[]>>({});
   const [importStatus, setImportStatus] = useState("");
   const [importError, setImportError] = useState("");
   const [importLines, setImportLines] = useState<ImportLineRow[]>([]);
+  const [importLineDrafts, setImportLineDrafts] = useState<Record<string, ImportLineDraft>>({});
   const [importLinesLoading, setImportLinesLoading] = useState(false);
   const [importApplying, setImportApplying] = useState(false);
+  const [importSearch, setImportSearch] = useState("");
+  const [importOnlyPending, setImportOnlyPending] = useState(true);
 
   const [addItem, setAddItem] = useState<ItemTypeaheadItem | null>(null);
   const [addQty, setAddQty] = useState("1");
@@ -233,7 +264,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         getFxRateUsdToLbp(),
       ]);
       setTaxCodes(tc.tax_codes || []);
-      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 90000;
+      const defaultEx = Number(fx?.usd_to_lbp || 0) > 0 ? Number(fx.usd_to_lbp) : 89500;
 
       if (props.mode === "edit") {
         const id = props.invoiceId || "";
@@ -254,6 +285,17 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setExchangeRate(String(ex > 0 ? ex : defaultEx));
         setTaxCodeId(String(det.invoice.tax_code_id || ""));
         setGoodsReceiptId(String(det.invoice.goods_receipt_id || ""));
+        setSavedAdjustments((det.adjustments || []).map((a) => ({
+          id: String(a.id || ""),
+          line_type: String(a.line_type || "other"),
+          description: a.description || null,
+          line_total_usd: a.line_total_usd ?? 0,
+          line_total_lbp: a.line_total_lbp ?? 0,
+        })));
+        setSavedHeaderTotals({
+          usd: Number(det.invoice.total_usd || 0) || 0,
+          lbp: Number(det.invoice.total_lbp || 0) || 0,
+        });
         const mapped = (det.lines || []).map((l) => {
           const qtyFactor = Number((l as any).qty_factor || 1) || 1;
           const qtyEntered = Number((l as any).qty_entered ?? l.qty ?? 0);
@@ -290,14 +332,29 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
           setImportLinesLoading(true);
           try {
             const il = await apiGet<{ import_lines: ImportLineRow[] }>(`/purchases/invoices/${id}/import-lines`);
-            setImportLines(il.import_lines || []);
+            const rows = il.import_lines || [];
+            setImportLines(rows);
+            const drafts: Record<string, ImportLineDraft> = {};
+            for (const r of rows) {
+              drafts[String(r.id)] = {
+                line_type: String(r.line_type || "item"),
+                qty_entered: String(r.qty_entered ?? r.qty ?? "0"),
+                entered_uom_code: String(r.entered_uom_code || ""),
+                entered_qty_factor: String(r.entered_qty_factor ?? "1"),
+                unit_cost_entered_usd: String(r.unit_cost_entered_usd ?? r.unit_cost_usd ?? "0"),
+                unit_cost_entered_lbp: String(r.unit_cost_entered_lbp ?? r.unit_cost_lbp ?? "0"),
+              };
+            }
+            setImportLineDrafts(drafts);
           } catch {
             setImportLines([]);
+            setImportLineDrafts({});
           } finally {
             setImportLinesLoading(false);
           }
         } else {
           setImportLines([]);
+          setImportLineDrafts({});
           setImportLinesLoading(false);
         }
         autoFocusPendingRef.current = true;
@@ -317,7 +374,10 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         setImportStatus("");
         setImportError("");
         setImportLines([]);
+        setImportLineDrafts({});
         setImportLinesLoading(false);
+        setSavedAdjustments([]);
+        setSavedHeaderTotals(null);
         autoFocusPendingRef.current = false;
       }
 
@@ -486,6 +546,57 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     return () => window.clearTimeout(t);
   }, [props.mode, importStatus, load]);
 
+  function getImportLineDraft(l: ImportLineRow): ImportLineDraft {
+    const key = String(l.id || "");
+    const d = importLineDrafts[key];
+    if (d) return d;
+    return {
+      line_type: String(l.line_type || "item"),
+      qty_entered: String(l.qty_entered ?? l.qty ?? "0"),
+      entered_uom_code: String(l.entered_uom_code || ""),
+      entered_qty_factor: String(l.entered_qty_factor ?? "1"),
+      unit_cost_entered_usd: String(l.unit_cost_entered_usd ?? l.unit_cost_usd ?? "0"),
+      unit_cost_entered_lbp: String(l.unit_cost_entered_lbp ?? l.unit_cost_lbp ?? "0"),
+    };
+  }
+
+  function patchImportLineDraft(lineId: string, patch: Partial<ImportLineDraft>) {
+    setImportLineDrafts((prev) => {
+      const key = String(lineId || "");
+      const cur = prev[key] || {
+        line_type: "item",
+        qty_entered: "0",
+        entered_uom_code: "",
+        entered_qty_factor: "1",
+        unit_cost_entered_usd: "0",
+        unit_cost_entered_lbp: "0",
+      };
+      return { ...prev, [key]: { ...cur, ...patch } };
+    });
+  }
+
+  async function saveImportLineDetails(l: ImportLineRow) {
+    const invId = props.invoiceId || "";
+    if (!invId) return;
+    const d = getImportLineDraft(l);
+    setStatus("Saving import line...");
+    try {
+      await apiPatch(`/purchases/invoices/${encodeURIComponent(invId)}/import-lines/${encodeURIComponent(l.id)}`, {
+        line_type: d.line_type,
+        qty_entered: d.qty_entered,
+        entered_uom_code: d.entered_uom_code || null,
+        entered_qty_factor: d.entered_qty_factor,
+        unit_cost_entered_usd: d.unit_cost_entered_usd,
+        unit_cost_entered_lbp: d.unit_cost_entered_lbp,
+      });
+      await load();
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    }
+  }
+
   async function setImportLineResolvedId(lineId: string, resolvedItemId: string | null) {
     const invId = props.invoiceId || "";
     if (!invId) return;
@@ -502,13 +613,15 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     }
   }
 
-  async function setImportLineSkipped(lineId: string, skipped: boolean) {
+  async function setImportLineSkipped(lineId: string, skipped: boolean, lineType?: string) {
     const invId = props.invoiceId || "";
     if (!invId) return;
     setStatus("Saving import mapping...");
     try {
+      const lt = String(lineType || "").toLowerCase();
+      const isNonItem = lt === "discount" || lt === "tax" || lt === "freight" || lt === "other";
       await apiPatch(`/purchases/invoices/${encodeURIComponent(invId)}/import-lines/${encodeURIComponent(lineId)}`, {
-        status: skipped ? "skipped" : "pending",
+        status: skipped ? "skipped" : isNonItem ? "resolved" : "pending",
         resolved_item_id: null,
       });
       await load();
@@ -528,6 +641,54 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
       await apiPost(`/purchases/invoices/${encodeURIComponent(invId)}/import-lines/apply`, {});
       await load();
       setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setImportApplying(false);
+    }
+  }
+
+  async function applyImportBulkAction(
+    action: "auto_accept_exact" | "set_non_item_resolved" | "set_non_item_skipped" | "skip_unmatched_items",
+    busyLabel: string
+  ) {
+    const invId = props.invoiceId || "";
+    if (!invId) return;
+    setImportApplying(true);
+    setStatus(busyLabel);
+    try {
+      const res = await apiPost<{ ok: boolean; affected: number; action: string }>(
+        `/purchases/invoices/${encodeURIComponent(invId)}/import-lines/bulk`,
+        { action }
+      );
+      await load();
+      void res;
+      setStatus("");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatus(message);
+    } finally {
+      setImportApplying(false);
+    }
+  }
+
+  async function rematchPendingImportLines() {
+    const invId = props.invoiceId || "";
+    if (!invId) return;
+    setImportApplying(true);
+    setStatus("Re-matching pending lines...");
+    try {
+      const res = await apiPost<{ ok: boolean; scanned: number; rematched: number; auto_resolved: number }>(
+        `/purchases/invoices/${encodeURIComponent(invId)}/import-lines/rematch`,
+        {
+          pending_only: true,
+          include_resolved: false,
+          auto_accept_exact: true,
+        }
+      );
+      await load();
+      setStatus(`Re-match complete. Checked ${res.scanned}, updated ${res.rematched}, auto-resolved ${res.auto_resolved}.`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setStatus(message);
@@ -562,6 +723,93 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     const convs = uomConvByItem[addItem.id] || [];
     return buildUomOptions((addItem as any).unit_of_measure ?? null, convs);
   }, [addItem, uomConvByItem]);
+
+  const importLineStats = useMemo(() => {
+    let pending = 0;
+    let resolved = 0;
+    let skipped = 0;
+    let nonItem = 0;
+    for (const l of importLines || []) {
+      const st = String(l.status || "").toLowerCase();
+      if (st === "pending") pending += 1;
+      else if (st === "resolved") resolved += 1;
+      else if (st === "skipped") skipped += 1;
+      const lt = String(l.line_type || "").toLowerCase();
+      if (lt === "discount" || lt === "tax" || lt === "freight" || lt === "other") nonItem += 1;
+    }
+    return { total: importLines.length, pending, resolved, skipped, nonItem };
+  }, [importLines]);
+
+  const filteredImportLines = useMemo(() => {
+    const q = String(importSearch || "").trim().toLowerCase();
+    return (importLines || []).filter((l) => {
+      const st = String(l.status || "").toLowerCase();
+      if (importOnlyPending && st !== "pending") return false;
+      if (!q) return true;
+      const hay = [
+        l.supplier_item_code || "",
+        l.supplier_item_name || "",
+        l.description || "",
+        l.suggested_sku || "",
+        l.suggested_name || "",
+        l.resolved_sku || "",
+        l.resolved_name || "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [importLines, importOnlyPending, importSearch]);
+
+  const itemTotals = useMemo(() => {
+    return (lines || []).reduce(
+      (acc, l) => {
+        const qty = toNum(String(l.qty || "0"));
+        const usd = toNum(String(l.unit_cost_usd || "0"));
+        const lbp = toNum(String(l.unit_cost_lbp || "0"));
+        acc.usd += qty * usd;
+        acc.lbp += qty * lbp;
+        return acc;
+      },
+      { usd: 0, lbp: 0 }
+    );
+  }, [lines]);
+
+  const adjustmentTotals = useMemo(() => {
+    return (savedAdjustments || []).reduce(
+      (acc, a) => {
+        const usd = Number(a.line_total_usd || 0) || 0;
+        const lbp = Number(a.line_total_lbp || 0) || 0;
+        const lt = String(a.line_type || "").toLowerCase();
+        if (lt === "tax") {
+          acc.taxUsd += usd;
+          acc.taxLbp += lbp;
+        } else {
+          acc.nonTaxUsd += usd;
+          acc.nonTaxLbp += lbp;
+        }
+        acc.totalUsd += usd;
+        acc.totalLbp += lbp;
+        return acc;
+      },
+      { nonTaxUsd: 0, nonTaxLbp: 0, taxUsd: 0, taxLbp: 0, totalUsd: 0, totalLbp: 0 }
+    );
+  }, [savedAdjustments]);
+
+  const itemReconciliation = useMemo(() => {
+    const visibleUsd = itemTotals.usd + adjustmentTotals.totalUsd;
+    const visibleLbp = itemTotals.lbp + adjustmentTotals.totalLbp;
+    const headerUsd = Number(savedHeaderTotals?.usd || 0) || 0;
+    const headerLbp = Number(savedHeaderTotals?.lbp || 0) || 0;
+    return {
+      visibleUsd,
+      visibleLbp,
+      headerUsd,
+      headerLbp,
+      residualUsd: headerUsd - visibleUsd,
+      residualLbp: headerLbp - visibleLbp,
+    };
+  }, [adjustmentTotals.totalLbp, adjustmentTotals.totalUsd, itemTotals.lbp, itemTotals.usd, savedHeaderTotals?.lbp, savedHeaderTotals?.usd]);
 
   async function onPickItem(it: ItemTypeaheadItem) {
     setAddItem(it);
@@ -811,7 +1059,14 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     return selected || attachments[0] || null;
   }, [attachments, previewAttachmentId]);
   const previewUrl = previewAttachment ? apiUrl(`/attachments/${encodeURIComponent(previewAttachment.id)}/view`) : "";
-  const hasInlinePreview = previewAttachment ? supportsInlinePreview(String(previewAttachment.content_type || "")) : false;
+  const previewContentType = String(previewAttachment?.content_type || "").toLowerCase();
+  const isImagePreview = previewContentType.startsWith("image/");
+  const isPdfPreview = previewContentType === "application/pdf";
+  const hasInlinePreview = previewAttachment ? supportsInlinePreview(previewContentType) : false;
+
+  useEffect(() => {
+    setPreviewZoomPct(100);
+  }, [previewAttachment?.id]);
 
   async function markReviewedAndNext() {
     if (props.mode !== "edit") return;
@@ -924,6 +1179,32 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     }
   }
 
+  function normalizeNameSuggestions(input: unknown): string[] {
+    if (!Array.isArray(input)) return [];
+    const out: string[] = [];
+    for (const v of input) {
+      let name = "";
+      if (typeof v === "string") {
+        name = v;
+      } else if (typeof v === "number") {
+        name = String(v);
+      } else if (v && typeof v === "object") {
+        const obj = v as Record<string, unknown>;
+        const raw =
+          (typeof obj.name === "string" && obj.name) ||
+          (typeof obj.suggestion === "string" && obj.suggestion) ||
+          (typeof obj.text === "string" && obj.text) ||
+          "";
+        name = raw;
+      }
+      const trimmed = String(name || "").trim();
+      if (!trimmed) continue;
+      if (!out.includes(trimmed)) out.push(trimmed);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+
   async function openNameSuggestions(line: InvoiceLineDraft) {
     const raw = String(line.supplier_item_name || line.item_name || "").trim();
     if (!raw) return setStatus("No item name to suggest from.");
@@ -934,8 +1215,8 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
     setNameSuggestLoading(true);
     setStatus("Generating name suggestions...");
     try {
-      const res = await apiPost<{ suggestions: string[] }>("/items/name-suggestions", { raw_name: raw, count: 5 });
-      setNameSuggestSuggestions((res.suggestions || []).filter((s) => String(s || "").trim()));
+      const res = await apiPost<{ suggestions?: unknown }>("/items/name-suggestions", { raw_name: raw, count: 5 });
+      setNameSuggestSuggestions(normalizeNameSuggestions(res?.suggestions));
       setStatus("");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1053,65 +1334,238 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
         <Card>
           <CardHeader>
             <CardTitle>Imported Items (Review)</CardTitle>
-            <CardDescription>Confirm item matches before we create invoice lines.</CardDescription>
+            <CardDescription>Confirm item matches and non-item adjustments before we create invoice lines.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="rounded-md border border-border-subtle bg-bg-sunken/30 p-3 text-sm text-fg-muted">
+              <div className="font-medium text-foreground">What is the difference?</div>
+              <div className="mt-1">
+                Imported Items are AI-extracted candidates. They become real invoice lines in Header {">"} Items only after you click
+                <span className="font-medium text-foreground"> Apply Reviewed Lines</span>.
+              </div>
+            </div>
             {importLinesLoading ? <div className="text-sm text-fg-muted">Loading import lines...</div> : null}
             {!importLinesLoading && importLines.length === 0 ? (
               <div className="text-sm text-fg-muted">No import lines found.</div>
             ) : null}
+            {importLines.length ? (
+              <div className="rounded-md border border-border-subtle bg-bg-sunken/30 px-3 py-2 text-xs text-fg-muted">
+                <span className="mr-3">Total: {importLineStats.total}</span>
+                <span className="mr-3">Pending: {importLineStats.pending}</span>
+                <span className="mr-3">Resolved: {importLineStats.resolved}</span>
+                <span className="mr-3">Skipped: {importLineStats.skipped}</span>
+                <span className="mr-3">Non-item: {importLineStats.nonItem}</span>
+                <span>Showing: {filteredImportLines.length}</span>
+              </div>
+            ) : null}
+            {importLines.length ? (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                <Input
+                  value={importSearch}
+                  onChange={(e) => setImportSearch(e.target.value)}
+                  placeholder="Filter by supplier code/name, description, suggested/resolved item..."
+                  disabled={loading || saving || importApplying || importLinesLoading}
+                />
+                <label className="inline-flex items-center gap-2 text-xs text-fg-muted md:justify-end">
+                  <input
+                    type="checkbox"
+                    checked={importOnlyPending}
+                    onChange={(e) => setImportOnlyPending(e.target.checked)}
+                    disabled={loading || saving || importApplying || importLinesLoading}
+                  />
+                  Show pending only
+                </label>
+              </div>
+            ) : null}
+            {importLines.length ? (
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={loading || saving || importApplying || importLinesLoading}
+                  onClick={() => void rematchPendingImportLines()}
+                >
+                  Re-Match Pending
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={loading || saving || importApplying || importLinesLoading}
+                  onClick={() => void applyImportBulkAction("auto_accept_exact", "Accepting exact matches...")}
+                >
+                  Auto-Accept Exact
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={loading || saving || importApplying || importLinesLoading}
+                  onClick={() => void applyImportBulkAction("set_non_item_resolved", "Including non-item lines...")}
+                >
+                  Include All Non-Item
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={loading || saving || importApplying || importLinesLoading}
+                  onClick={() => void applyImportBulkAction("set_non_item_skipped", "Skipping non-item lines...")}
+                >
+                  Skip All Non-Item
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={loading || saving || importApplying || importLinesLoading}
+                  onClick={() => void applyImportBulkAction("skip_unmatched_items", "Skipping unmatched item lines...")}
+                >
+                  Skip Unmatched Items
+                </Button>
+              </div>
+            ) : null}
 
             {importLines.length ? (
-              <div className="ui-table-scroll">
-                <table className="ui-table">
+              <div className="ui-table-scroll overflow-x-auto overflow-y-visible">
+                <table className="ui-table min-w-[1500px]">
                   <thead className="ui-thead">
                     <tr>
                       <th className="px-3 py-2">Line</th>
+                      <th className="px-3 py-2">Type</th>
                       <th className="px-3 py-2">Supplier Item</th>
-                      <th className="px-3 py-2 text-right">Qty</th>
-                      <th className="px-3 py-2 text-right">Unit USD</th>
-                      <th className="px-3 py-2 text-right">Unit LBP</th>
+                      <th className="px-3 py-2">Qty/UOM</th>
+                      <th className="px-3 py-2">Entered Cost</th>
                       <th className="px-3 py-2">Suggested</th>
                       <th className="px-3 py-2">Resolved Item</th>
                       <th className="px-3 py-2 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {importLines.map((l) => {
+                    {filteredImportLines.map((l) => {
                       const st = String(l.status || "").toLowerCase();
                       const skipped = st === "skipped";
                       const resolved = st === "resolved" && !!l.resolved_item_id;
+                      const d = getImportLineDraft(l);
+                      const isNonItemDraft = ["discount", "tax", "freight", "other"].includes(String(d.line_type || "").toLowerCase());
                       const suggestedLabel = l.suggested_sku ? `${l.suggested_sku} — ${l.suggested_name || ""}` : l.suggested_name || "-";
                       const resolvedLabel = l.resolved_sku ? `${l.resolved_sku} — ${l.resolved_name || ""}` : l.resolved_name || "-";
+                      const resolvedNonItem = st === "resolved" && isNonItemDraft;
                       return (
                         <tr key={l.id} className="border-t border-border-subtle">
-                          <td className="px-3 py-2 font-mono text-xs">{l.line_no}</td>
-                          <td className="px-3 py-2 text-xs">
-                            <div className="font-mono text-xs text-fg-muted">{l.supplier_item_code || "-"}</div>
-                            <div className="font-medium">{l.supplier_item_name || l.description || "-"}</div>
+                          <td className="px-3 py-2 font-mono text-sm">{l.line_no}</td>
+                          <td className="px-3 py-2 text-sm">
+                            <select
+                              className="h-9 w-32 rounded border border-border bg-transparent px-2 text-sm"
+                              value={d.line_type}
+                              onChange={(e) => patchImportLineDraft(l.id, { line_type: e.target.value })}
+                              disabled={loading || saving || importApplying}
+                            >
+                              <option value="item">item</option>
+                              <option value="free_item">free_item</option>
+                              <option value="discount">discount</option>
+                              <option value="tax">tax</option>
+                              <option value="freight">freight</option>
+                              <option value="other">other</option>
+                            </select>
+                            <div className="mt-1 font-mono text-xs text-fg-subtle">{st || "-"}</div>
                           </td>
-                          <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
-                          <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.unit_cost_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 4 })}</td>
-                          <td className="px-3 py-2 text-right font-mono text-xs">{Number(l.unit_cost_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}</td>
-                          <td className="px-3 py-2 text-xs">
-                            <div className="text-fg-muted">{suggestedLabel}</div>
+                          <td className="px-3 py-2 text-sm">
+                            <div className="font-mono text-sm text-fg-muted">{l.supplier_item_code || "-"}</div>
+                            <div className="font-medium leading-snug">{l.supplier_item_name || l.description || "-"}</div>
+                          </td>
+                          <td className="px-3 py-2 text-sm">
+                            <div className="flex items-center gap-1">
+                              <Input
+                                value={d.qty_entered}
+                                onChange={(e) => patchImportLineDraft(l.id, { qty_entered: e.target.value })}
+                                className="h-9 w-24 text-sm"
+                                inputMode="decimal"
+                                disabled={loading || saving || importApplying}
+                              />
+                              <Input
+                                value={d.entered_uom_code}
+                                onChange={(e) => patchImportLineDraft(l.id, { entered_uom_code: e.target.value.toUpperCase() })}
+                                className="h-9 w-20 text-sm"
+                                placeholder="UOM"
+                                disabled={loading || saving || importApplying}
+                              />
+                              <Input
+                                value={d.entered_qty_factor}
+                                onChange={(e) => patchImportLineDraft(l.id, { entered_qty_factor: e.target.value })}
+                                className="h-9 w-20 text-sm"
+                                inputMode="decimal"
+                                title="qty factor to base"
+                                disabled={loading || saving || importApplying}
+                              />
+                            </div>
+                            <div className="mt-1 font-mono text-xs text-fg-subtle">
+                              base qty {Number(l.qty || 0).toLocaleString("en-US", { maximumFractionDigits: 4 })}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-sm">
+                            <div className="flex items-center gap-1">
+                              <Input
+                                value={d.unit_cost_entered_usd}
+                                onChange={(e) => patchImportLineDraft(l.id, { unit_cost_entered_usd: e.target.value })}
+                                className="h-9 w-24 text-sm"
+                                inputMode="decimal"
+                                placeholder="USD"
+                                disabled={loading || saving || importApplying}
+                              />
+                              <Input
+                                value={d.unit_cost_entered_lbp}
+                                onChange={(e) => patchImportLineDraft(l.id, { unit_cost_entered_lbp: e.target.value })}
+                                className="h-9 w-28 text-sm"
+                                inputMode="decimal"
+                                placeholder="LBP"
+                                disabled={loading || saving || importApplying}
+                              />
+                            </div>
+                            <div className="mt-1 font-mono text-xs text-fg-subtle">
+                              base {Number(l.unit_cost_usd || 0).toLocaleString("en-US", { maximumFractionDigits: 4 })} USD · {Number(l.unit_cost_lbp || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })} LBP
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-sm max-w-[26rem]">
+                            <div className="text-fg-muted leading-snug">{suggestedLabel}</div>
                             {Number(l.suggested_confidence || 0) ? (
                               <div className="font-mono text-xs text-fg-subtle">conf {Number(l.suggested_confidence || 0).toFixed(2)}</div>
                             ) : null}
+                            {l.suggested_match_reason ? (
+                              <div className="font-mono text-xs text-fg-subtle">{String(l.suggested_match_reason)}</div>
+                            ) : null}
                           </td>
-                          <td className="px-3 py-2 text-xs">
-                            <div className="mb-1 text-fg-muted">{resolved ? resolvedLabel : skipped ? "(skipped)" : "-"}</div>
-                            {!skipped ? (
+                          <td className="px-3 py-2 text-sm min-w-[22rem]">
+                            <div className="mb-1 text-fg-muted">
+                              {resolved ? resolvedLabel : resolvedNonItem ? "(included)" : skipped ? "(skipped)" : "-"}
+                            </div>
+                            {!skipped && !isNonItemDraft ? (
                               <ItemTypeahead
+                                className="w-full min-w-[20rem]"
+                                placeholder="Search item..."
+                                menuMaxHeightPx={220}
+                                menuMinWidthPx={620}
+                                menuMaxWidthPx={860}
+                                preferUpMinSpacePx={120}
                                 disabled={loading || saving || importApplying}
                                 onSelect={(it) => void setImportLineResolvedId(l.id, it.id)}
                                 onClear={() => void setImportLineResolvedId(l.id, null)}
                               />
                             ) : null}
                           </td>
-                          <td className="px-3 py-2 text-right text-xs">
+                          <td className="px-3 py-2 text-right text-sm">
                             <div className="flex justify-end gap-2">
-                              {l.suggested_item_id && !l.resolved_item_id && !skipped ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={loading || saving || importApplying}
+                                onClick={() => void saveImportLineDetails(l)}
+                              >
+                                Save Row
+                              </Button>
+                              {l.suggested_item_id && !l.resolved_item_id && !skipped && !isNonItemDraft ? (
                                 <Button
                                   type="button"
                                   size="sm"
@@ -1127,15 +1581,22 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                                 size="sm"
                                 variant="outline"
                                 disabled={loading || saving || importApplying}
-                                onClick={() => setImportLineSkipped(l.id, !skipped)}
+                                onClick={() => setImportLineSkipped(l.id, !skipped, d.line_type)}
                               >
-                                {skipped ? "Unskip" : "Skip"}
+                                {skipped ? (isNonItemDraft ? "Include" : "Unskip") : "Skip"}
                               </Button>
                             </div>
                           </td>
                         </tr>
                       );
                     })}
+                    {!filteredImportLines.length ? (
+                      <tr className="border-t border-border-subtle">
+                        <td className="px-3 py-6 text-center text-fg-subtle" colSpan={8}>
+                          No rows match the current filter.
+                        </td>
+                      </tr>
+                    ) : null}
                   </tbody>
                 </table>
               </div>
@@ -1146,7 +1607,7 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                 Refresh
               </Button>
               <Button type="button" onClick={applyImportLines} disabled={loading || importApplying || importLinesLoading}>
-                {importApplying ? "Applying..." : "Apply Items"}
+                {importApplying ? "Applying..." : "Apply Reviewed Lines"}
               </Button>
             </div>
           </CardContent>
@@ -1585,6 +2046,58 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                     </tbody>
                   </table>
                 </div>
+
+                <div className="rounded-md border border-border-subtle bg-bg-elevated/30 p-3 text-xs text-fg-muted">
+                  <div className="mb-2 text-xs font-medium uppercase tracking-wider text-fg-subtle">Reconciliation</div>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Items total (current draft)</span>
+                      <span className="font-mono text-foreground">
+                        {itemTotals.usd.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })} ·{" "}
+                        {Math.round(itemTotals.lbp).toLocaleString("en-US")} LL
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Non-item adjustments (saved)</span>
+                      <span className="font-mono">
+                        {adjustmentTotals.nonTaxUsd.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })} ·{" "}
+                        {Math.round(adjustmentTotals.nonTaxLbp).toLocaleString("en-US")} LL
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Non-item tax adjustments (saved)</span>
+                      <span className="font-mono">
+                        {adjustmentTotals.taxUsd.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })} ·{" "}
+                        {Math.round(adjustmentTotals.taxLbp).toLocaleString("en-US")} LL
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Visible total (items + adjustments)</span>
+                      <span className="font-mono text-foreground">
+                        {itemReconciliation.visibleUsd.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })} ·{" "}
+                        {Math.round(itemReconciliation.visibleLbp).toLocaleString("en-US")} LL
+                      </span>
+                    </div>
+                    {savedHeaderTotals ? (
+                      <>
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Header total (saved)</span>
+                          <span className="font-mono text-foreground">
+                            {itemReconciliation.headerUsd.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })} ·{" "}
+                            {Math.round(itemReconciliation.headerLbp).toLocaleString("en-US")} LL
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 border-t border-border-subtle pt-1">
+                          <span>Difference (tax code / rounding / unsaved changes)</span>
+                          <span className="font-mono text-foreground">
+                            {itemReconciliation.residualUsd.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })} ·{" "}
+                            {Math.round(itemReconciliation.residualLbp).toLocaleString("en-US")} LL
+                          </span>
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -1642,7 +2155,39 @@ export function SupplierInvoiceDraftEditor(props: { mode: "create" | "edit"; inv
                       })}
                     </div>
                   ) : null}
-                  {hasInlinePreview ? (
+                  {isImagePreview ? (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border-subtle bg-bg-sunken/30 px-2 py-1.5">
+                        <div className="text-xs text-fg-muted">Image preview controls</div>
+                        <div className="flex items-center gap-1.5">
+                          <Button type="button" variant="outline" size="sm" onClick={() => setPreviewZoomPct(100)}>
+                            Fit
+                          </Button>
+                          <Button type="button" variant="outline" size="sm" onClick={() => setPreviewZoomPct((z) => Math.max(25, z - 10))}>
+                            -
+                          </Button>
+                          <span className="min-w-[56px] text-center font-mono text-xs text-fg-muted">{previewZoomPct}%</span>
+                          <Button type="button" variant="outline" size="sm" onClick={() => setPreviewZoomPct((z) => Math.min(400, z + 10))}>
+                            +
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="h-[78vh] overflow-auto rounded-md border border-border-subtle bg-bg-sunken/20">
+                        <img
+                          src={previewUrl}
+                          alt={previewAttachment.filename || "Attachment preview"}
+                          className="mx-auto block h-auto max-w-none"
+                          style={{ width: `${previewZoomPct}%` }}
+                        />
+                      </div>
+                    </>
+                  ) : isPdfPreview ? (
+                    <iframe
+                      title={previewAttachment.filename || "Attachment preview"}
+                      src={`${previewUrl}#zoom=page-fit`}
+                      className="h-[78vh] w-full rounded-md border border-border-subtle"
+                    />
+                  ) : hasInlinePreview ? (
                     <iframe
                       title={previewAttachment.filename || "Attachment preview"}
                       src={previewUrl}
