@@ -2455,13 +2455,16 @@
       const officialVatPctLabel = officialVatPct > 0
         ? `${officialVatPct.toFixed(Math.abs(officialVatPct % 1) < 1e-6 ? 0 : 2)}%`
         : "";
-      const TEMP_NON_VAT_PRINT = true;
-      const printedBeforeVatUsd = TEMP_NON_VAT_PRINT ? officialTotalUsd : officialBeforeVat;
-      const printedVatUsd = TEMP_NON_VAT_PRINT ? 0 : taxUsd;
-      const vatLabel = TEMP_NON_VAT_PRINT
-        ? "VAT 0% (Temporary)"
-        : (officialVatPctLabel ? `VAT ${officialVatPctLabel}` : "VAT");
+      const printedBeforeVatUsd = officialTotalUsd;
+      const printedVatUsd = 0;
+      const vatLabel = officialVatPctLabel ? "VAT 0%" : "VAT 0%";
       const totalWords = `Only USD ${fmtPlainMoney(officialTotalUsd)}`;
+      const officialHasDiscount = lines.some((ln) => {
+        const discountUsd = Math.abs(toNum(ln?.discount_amount_usd, 0));
+        const rawPct = Math.abs(toNum(ln?.discount_pct, 0));
+        const pct = rawPct <= 1 ? rawPct * 100 : rawPct;
+        return discountUsd > 0.0001 || pct > 0.0001;
+      });
 
       const officialLineRows = lines.map((ln) => {
         const rawPct = toNum(ln?.discount_pct, 0);
@@ -2476,8 +2479,8 @@
             <td class="br r mono">${fmtPlainQty(ln?.qty_entered ?? ln?.qty)}</td>
             <td class="br c">${_escapeHtml(String(ln?.uom || "").trim() || "-")}</td>
             <td class="br r mono">${fmtPlainMoney(ln?.unit_price_entered_usd ?? ln?.unit_price_usd)}</td>
-            <td class="br c mono">${_escapeHtml(pctText)}</td>
-            <td class="br r mono">${fmtPlainMoney(ln?.discount_amount_usd || 0)}</td>
+            ${officialHasDiscount ? `<td class="br c mono">${_escapeHtml(pctText)}</td>` : ""}
+            ${officialHasDiscount ? `<td class="br r mono">${fmtPlainMoney(ln?.discount_amount_usd || 0)}</td>` : ""}
             <td class="r mono">${fmtPlainMoney(ln?.line_total_usd)}</td>
           </tr>
         `;
@@ -2490,12 +2493,12 @@
   <title>${_escapeHtml(docNo)}</title>
   <style>
     @page { size: A4; margin: 8mm; }
-    body { margin: 0; color: #111; font-family: "Helvetica Neue", Arial, sans-serif; font-size: 11px; line-height: 1.25; }
+    body { margin: 0; color: #111; font-family: "Roboto", "Helvetica Neue", Arial, sans-serif; font-size: 11px; line-height: 1.25; }
     .page { padding: 2mm; }
     .top { display: grid; grid-template-columns: 1fr 260px; gap: 18px; margin-bottom: 12px; }
     .company h1 { margin: 0 0 6px; font-size: 28px; font-weight: 700; letter-spacing: -0.3px; }
     .kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px; margin-bottom: 2px; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .mono { font-family: "Roboto", "Helvetica Neue", Arial, sans-serif; font-variant-numeric: tabular-nums; }
     .invoice-box { text-align: center; padding-top: 4px; }
     .invoice-box .label { font-size: 24px; font-weight: 700; }
     .invoice-box .no { margin-top: 8px; font-size: 20px; font-weight: 700; }
@@ -2572,13 +2575,13 @@
             <th class="br r">Quantity</th>
             <th class="br c">UOM</th>
             <th class="br r">Unit price</th>
-            <th class="br c">Discount %</th>
-            <th class="br r">Discount Amount</th>
+            ${officialHasDiscount ? `<th class="br c">Discount %</th>` : ""}
+            ${officialHasDiscount ? `<th class="br r">Discount Amount</th>` : ""}
             <th class="r">Amount</th>
           </tr>
         </thead>
         <tbody>
-          ${officialLineRows || `<tr><td colspan="8" style="text-align:center;padding:12px;color:#666;">No lines.</td></tr>`}
+          ${officialLineRows || `<tr><td colspan="${officialHasDiscount ? 8 : 6}" style="text-align:center;padding:12px;color:#666;">No lines.</td></tr>`}
         </tbody>
       </table>
     </section>
@@ -2587,10 +2590,9 @@
       <div class="summary-left">
         <div class="qty">Total Qty HL ${_escapeHtml(fmtPlainQty(officialTotalQty))}</div>
         <div class="words">${_escapeHtml(totalWords)}</div>
-        <div>Prices include VAT in line amounts. VAT is printed as 0% temporarily until registration is activated.</div>
       </div>
       <div class="summary-right">
-        <div class="row"><span>Amount (VAT Included in Prices)</span><span class="mono">${_escapeHtml(fmtPlainMoney(printedBeforeVatUsd))}</span></div>
+        <div class="row"><span>Amount</span><span class="mono">${_escapeHtml(fmtPlainMoney(printedBeforeVatUsd))}</span></div>
         <div class="row"><span>${_escapeHtml(vatLabel)}</span><span class="mono">${_escapeHtml(fmtPlainMoney(printedVatUsd))}</span></div>
         <div class="row"><span>Final Total Amount</span><span class="mono">${_escapeHtml(fmtPlainMoney(officialTotalUsd))}</span></div>
       </div>
