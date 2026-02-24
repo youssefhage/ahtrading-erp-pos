@@ -13,7 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-13, macos-14]
+        # macos-13 is not available on this account/runner pool.
+        os: [windows-latest, macos-14]
 
     steps:
       - uses: actions/checkout@v4
@@ -59,12 +60,12 @@ jobs:
 
           # POS
           find apps/pos-desktop/src-tauri/target/release/bundle -maxdepth 5 -type f \
-            \\( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.tar.gz' -o -name '*.sig' \\) \
+            \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.tar.gz' -o -name '*.sig' \) \
             -print0 | xargs -0 -I{} cp "{}" "dist/${{ matrix.os }}/pos/" || true
 
           # Portal
           find apps/admin-desktop/src-tauri/target/release/bundle -maxdepth 5 -type f \
-            \\( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.tar.gz' -o -name '*.sig' \\) \
+            \( -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.tar.gz' -o -name '*.sig' \) \
             -print0 | xargs -0 -I{} cp "{}" "dist/${{ matrix.os }}/portal/" || true
 
           # Help the publish step detect which runner produced which folder.
