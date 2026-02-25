@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import Any, Dict
 from psycopg import errors as pg_errors
 
-from ..db import get_conn, set_company_context
+from ..db import get_admin_conn, set_company_context
 from ..deps import get_company_id, get_current_user, require_permission
 
 
@@ -260,7 +260,7 @@ def purge_sales_pos(
             detail=f"confirm_text mismatch (expected: {PURGE_CONFIRM_PHRASE})",
         )
 
-    with get_conn() as conn:
+    with get_admin_conn() as conn:
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
