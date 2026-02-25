@@ -145,13 +145,12 @@
   onDestroy(() => clearTimer());
 </script>
 
-<div bind:this={rootEl} class="glass-panel p-3.5 rounded-2xl space-y-3 relative z-30 group/customer transition-all duration-300 hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] border border-white/5 bg-surface/30 backdrop-blur-md">
-  <div class="absolute inset-0 bg-gradient-to-br from-white/5 via-transparent to-transparent opacity-50 rounded-[2rem] pointer-events-none"></div>
+<div bind:this={rootEl} class="glass-panel p-2 rounded-xl space-y-1.5 relative z-30 group/customer border border-white/5 bg-surface/30">
 
   <div class="relative z-10 flex items-center justify-between">
-    <div class="flex items-center gap-3">
-       <div class="h-5 w-1 rounded-full bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.45)]"></div>
-       <h3 class="text-[11px] font-bold text-muted uppercase tracking-[0.2em]">Customer</h3>
+    <div class="flex items-center gap-2">
+       <div class="h-4 w-0.5 rounded-full bg-indigo-500"></div>
+       <h3 class="text-[10px] font-bold text-muted uppercase tracking-wider">Customer</h3>
     </div>
     {#if activeCustomer}
       <button 
@@ -171,22 +170,16 @@
   </div>
 
   {#if activeCustomer}
-    <div class="relative z-10 flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20 shadow-inner group-hover/customer:border-indigo-500/30 transition-colors">
-      <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-indigo-500/25">
+    <div class="relative z-10 flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/20">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
         {activeCustomer.name.charAt(0).toUpperCase()}
       </div>
       <div class="flex-1 min-w-0">
-        <p class="font-bold text-lg text-ink truncate tracking-tight">{activeCustomer.name}</p>
-        <div class="flex items-center gap-2 text-xs text-muted/80">
-          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-          <span class="truncate">{activeCustomer.phone || activeCustomer.email || "No contact info"}</span>
-        </div>
+        <p class="font-bold text-sm text-ink truncate">{activeCustomer.name}</p>
+        <p class="text-[10px] text-muted/80 truncate">{activeCustomer.phone || activeCustomer.email || "-"}</p>
       </div>
       {#if activeCustomer.loyalty_points}
-         <div class="flex flex-col items-end">
-            <span class="text-[10px] uppercase font-bold text-muted tracking-wider">Points</span>
-            <span class="text-indigo-400 font-bold font-mono">{activeCustomer.loyalty_points}</span>
-         </div>
+        <span class="text-[10px] text-indigo-400 font-bold font-mono shrink-0">{activeCustomer.loyalty_points} pts</span>
       {/if}
     </div>
   {:else if addCustomerMode}
@@ -312,16 +305,16 @@
     </div>
   {:else}
     <div class="relative z-10">
-      <div class="flex gap-2 relative z-50">
+      <div class="flex gap-1.5 relative z-50">
         <div class="relative flex-1 group/search">
-           <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <svg class="h-4 w-4 text-muted group-focus-within/search:text-indigo-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+           <div class="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+            <svg class="h-3.5 w-3.5 text-muted group-focus-within/search:text-indigo-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
            </div>
-          <input 
-            class="w-full bg-bg/50 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-sm shadow-inner focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all placeholder-muted/50"
-            placeholder="Search customer by name or phone..." 
+          <input
+            class="w-full bg-bg/50 border border-white/10 rounded-lg pl-7 pr-2 py-1.5 text-xs focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 focus:outline-none transition-all placeholder-muted/50"
+            placeholder="Customer name or phone..."
             bind:value={customerSearch}
             on:keydown={onInputKeyDown}
             on:input={() => scheduleSearch(false)}
@@ -330,29 +323,17 @@
             aria-activedescendant={activeIndex >= 0 ? `custopt-${activeIndex}` : undefined}
           />
         </div>
-        <button 
-          class="p-2.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/20 transition-all hover:shadow-[0_0_15px_rgba(99,102,241,0.15)] active:scale-[0.95]"
+        <button
+          class="p-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg border border-indigo-500/20 transition-all active:scale-[0.95]"
           on:click={() => { searchUiOpen = true; scheduleSearch(true); }}
           title="Search"
           aria-label="Search"
         >
-          {#if customerSearching}
-            <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4V2m0 20v-2m10-8h-2M4 12H2m17.657-5.657-1.414 1.414M7.757 16.243l-1.414 1.414m0-11.314L7.757 7.757m9.9 9.9 1.414 1.414M12 8a4 4 0 100 8 4 4 0 000-8z" />
-            </svg>
-          {:else}
-            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          {/if}
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
         </button>
       </div>
-
-      {#if (customerSearch || "").trim().length > 0 && (customerSearch || "").trim().length < MIN_CHARS}
-        <div class="mt-2 text-xs text-muted/60 pl-1 italic">
-          Type at least {MIN_CHARS} characters…
-        </div>
-      {/if}
       
       {#if searchUiOpen && customerResults.length > 0}
         <div

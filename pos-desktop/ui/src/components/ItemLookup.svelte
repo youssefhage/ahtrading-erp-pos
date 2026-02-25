@@ -53,7 +53,7 @@
   };
 
   const fmtMoney = (v, currency = "USD") => {
-    const n = Math.max(0, Number(v) || 0);
+    const n = Number(v) || 0;
     if (currency === "LBP") return `${Math.round(n).toLocaleString()} LBP`;
     return `${n.toFixed(2)} USD`;
   };

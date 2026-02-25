@@ -34,7 +34,7 @@ def get_session(
     token_hash = hash_session_token(token)
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # New sessions are stored hashed (sha256:...). Legacy sessions were plaintext.
+            # Sessions are stored as sha256 hashes.
             cur.execute(
                 """
                 SELECT s.id AS session_id, s.user_id, u.email, s.expires_at, s.is_active, s.active_company_id
@@ -45,18 +45,6 @@ def get_session(
                 (token_hash,),
             )
             row = cur.fetchone()
-            if not row:
-                # Legacy fallback: only match plaintext rows, never hashed rows.
-                cur.execute(
-                    """
-                    SELECT s.id AS session_id, s.user_id, u.email, s.expires_at, s.is_active, s.active_company_id
-                    FROM auth_sessions s
-                    JOIN users u ON u.id = s.user_id
-                    WHERE s.token = %s AND s.token NOT LIKE 'sha256:%%'
-                    """,
-                    (token,),
-                )
-                row = cur.fetchone()
             now = datetime.now(timezone.utc)
             if not row or not row["is_active"] or row["expires_at"] < now:
                 raise HTTPException(status_code=401, detail="invalid token")
@@ -65,7 +53,6 @@ def get_session(
                 "user_id": row["user_id"],
                 "email": row["email"],
                 "active_company_id": row["active_company_id"],
-                "token": token,
             }
 
 

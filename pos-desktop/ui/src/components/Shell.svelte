@@ -57,86 +57,73 @@
     <div class="absolute bottom-[-20%] right-[-10%] w-[40%] h-[40%] bg-purple-500/5 rounded-full blur-[100px] pointer-events-none"></div>
   {/if}
 
-  <!-- Topbar -->
-  <header class="sticky top-0 z-50 w-full glass shadow-lg shadow-black/5">
-    <div class="relative px-3 py-2">
-      <div class="flex items-center gap-2 min-w-0">
+  <!-- Topbar — single compact row: tabs | status pills | actions -->
+  <header class="shrink-0 z-50 w-full glass shadow-lg shadow-black/5">
+    <div class="relative px-2 py-1.5">
+      <div class="flex items-center gap-1.5 min-w-0">
 
-        <!-- Company Connectivity -->
-        <div class="flex items-center gap-2 shrink-0">
-          <div class={`group flex items-center gap-2 rounded-full border px-2.5 py-1 ${tone(officialConnected ? "ok" : "bad")} backdrop-blur-md transition-all`}>
-            <span class={`h-1.5 w-1.5 rounded-full ${officialConnected ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`}></span>
-            <div class="text-[10px] font-bold uppercase tracking-widest opacity-80">Official</div>
-            <div class="w-px h-3 bg-current opacity-20"></div>
-            <div class="text-[11px] font-semibold whitespace-nowrap">{officialConnected ? "Connected" : "Disconnected"}</div>
-          </div>
-          <div class={`group flex items-center gap-2 rounded-full border px-2.5 py-1 ${tone(unofficialConnected ? "ok" : "bad")} backdrop-blur-md transition-all`}>
-            <span class={`h-1.5 w-1.5 rounded-full ${unofficialConnected ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`}></span>
-            <div class="text-[10px] font-bold uppercase tracking-widest opacity-80">Unofficial</div>
-            <div class="w-px h-3 bg-current opacity-20"></div>
-            <div class="text-[11px] font-semibold whitespace-nowrap">{unofficialConnected ? "Connected" : "Disconnected"}</div>
-          </div>
-        </div>
-
-        <!-- Status + actions in one non-wrapping horizontal rail -->
-        <div class="flex items-center gap-2 min-w-0 flex-1 overflow-x-auto no-scrollbar pl-1">
-          <div class={`group flex items-center gap-2 rounded-full border px-2.5 py-1 ${tone(outboxKind)} backdrop-blur-md transition-all shrink-0`}>
-            <span class={`h-1.5 w-1.5 rounded-full ${outboxKind === "ok" ? "bg-emerald-400 animate-pulse" : outboxKind === "warn" ? "bg-amber-400" : "bg-red-400"}`}></span>
-            <div class="text-[11px] font-bold uppercase tracking-wider whitespace-nowrap">{outboxCompactText}</div>
-          </div>
-          <div class={`group flex items-center gap-2 rounded-full border px-2.5 py-1 ${tone(cashierKind)} backdrop-blur-md transition-all shrink-0`}>
-            <div class="text-[10px] font-bold uppercase tracking-wider opacity-70">Cashier</div>
-            <div class="w-px h-3 bg-current opacity-20"></div>
-            {#if hasStructuredCashier}
-              <div class="flex items-center gap-2 text-[11px] font-semibold whitespace-nowrap">
-                <div class="inline-flex items-center gap-1">
-                  <span class="text-[10px] opacity-70 font-bold uppercase">O</span>
-                  <span class="clamp-1 max-w-[84px]">{officialCashierText}</span>
-                  {#if cashierOfficialManager}
-                    <span class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border border-accent/35 bg-accent/12 text-accent">
-                      Manager
-                    </span>
-                  {/if}
-                </div>
-                <span class="opacity-35">|</span>
-                <div class="inline-flex items-center gap-1">
-                  <span class="text-[10px] opacity-70 font-bold uppercase">U</span>
-                  <span class="clamp-1 max-w-[84px]">{unofficialCashierText}</span>
-                  {#if cashierUnofficialManager}
-                    <span class="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border border-accent/35 bg-accent/12 text-accent">
-                      Manager
-                    </span>
-                  {/if}
-                </div>
-              </div>
-            {:else}
-              <div class="text-[11px] font-semibold whitespace-nowrap clamp-1 max-w-[130px]">{legacyCashierText}</div>
-            {/if}
-          </div>
-          <div class={`group flex items-center gap-2 rounded-full border px-2.5 py-1 ${tone(shiftKind)} backdrop-blur-md transition-all shrink-0`}>
-            <div class="text-[10px] font-bold uppercase tracking-wider opacity-70">Shift</div>
-            <div class="w-px h-3 bg-current opacity-20"></div>
-            <div class="text-[11px] font-semibold whitespace-nowrap">{shiftText || "—"}</div>
-          </div>
-          <div class="flex items-center gap-2 shrink-0">
-            <slot name="top-actions" />
-          </div>
-        </div>
-      </div>
-
-      <!-- Navigation Tabs -->
-      {#if showTabs}
-        <div class="mt-1.5 pt-1.5 border-t border-white/5">
-          <nav class="flex items-center gap-1.5 overflow-x-auto no-scrollbar" aria-label="Screens">
+        <!-- Navigation Tabs (left-aligned, compact) -->
+        {#if showTabs}
+          <nav class="flex items-center gap-1 shrink-0" aria-label="Screens">
             <slot name="tabs" />
           </nav>
+          <div class="w-px h-5 bg-white/10 shrink-0"></div>
+        {/if}
+
+        <!-- Status pills — compact inline -->
+        <div class="flex items-center gap-1.5 shrink-0">
+          <div class={`flex items-center gap-1 rounded-full border px-2 py-0.5 ${tone(officialConnected ? "ok" : "bad")} transition-all`}>
+            <span class={`h-1.5 w-1.5 rounded-full ${officialConnected ? "bg-emerald-400" : "bg-red-400"}`}></span>
+            <div class="text-[9px] font-bold uppercase tracking-wider opacity-80">O</div>
+          </div>
+          <div class={`flex items-center gap-1 rounded-full border px-2 py-0.5 ${tone(unofficialConnected ? "ok" : "bad")} transition-all`}>
+            <span class={`h-1.5 w-1.5 rounded-full ${unofficialConnected ? "bg-emerald-400" : "bg-red-400"}`}></span>
+            <div class="text-[9px] font-bold uppercase tracking-wider opacity-80">U</div>
+          </div>
+          <div class={`flex items-center gap-1 rounded-full border px-2 py-0.5 ${tone(outboxKind)} transition-all`}>
+            <span class={`h-1.5 w-1.5 rounded-full ${outboxKind === "ok" ? "bg-emerald-400" : outboxKind === "warn" ? "bg-amber-400" : "bg-red-400"}`}></span>
+            <div class="text-[9px] font-bold uppercase tracking-wider whitespace-nowrap">{outboxCompactText}</div>
+          </div>
         </div>
-      {/if}
+
+        <!-- Cashier + Shift (truncatable) -->
+        <div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
+          <div class={`flex items-center gap-1 rounded-full border px-2 py-0.5 ${tone(cashierKind)} transition-all min-w-0`} title={hasStructuredCashier ? `O: ${officialCashierText} | U: ${unofficialCashierText}` : legacyCashierText}>
+            <div class="text-[9px] font-bold uppercase tracking-wider opacity-70 shrink-0">Cashier</div>
+            <div class="w-px h-3 bg-current opacity-20 shrink-0"></div>
+            {#if hasStructuredCashier}
+              <div class="flex items-center gap-1 text-[10px] font-semibold whitespace-nowrap min-w-0 overflow-hidden">
+                <span class="inline-flex items-center gap-0.5 min-w-0">
+                  <span class="text-[9px] opacity-70 font-bold shrink-0">O</span>
+                  <span class="truncate max-w-[56px]">{officialCashierText}</span>
+                </span>
+                <span class="opacity-30 shrink-0">|</span>
+                <span class="inline-flex items-center gap-0.5 min-w-0">
+                  <span class="text-[9px] opacity-70 font-bold shrink-0">U</span>
+                  <span class="truncate max-w-[56px]">{unofficialCashierText}</span>
+                </span>
+              </div>
+            {:else}
+              <div class="text-[10px] font-semibold whitespace-nowrap truncate max-w-[80px]">{legacyCashierText}</div>
+            {/if}
+          </div>
+          <div class={`flex items-center gap-1 rounded-full border px-2 py-0.5 ${tone(shiftKind)} transition-all shrink-0`}>
+            <div class="text-[9px] font-bold uppercase tracking-wider opacity-70">Shift</div>
+            <div class="w-px h-3 bg-current opacity-20"></div>
+            <div class="text-[10px] font-semibold whitespace-nowrap">{shiftText || "—"}</div>
+          </div>
+        </div>
+
+        <!-- Actions rail (fills remaining space, scrollable) -->
+        <div class="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto no-scrollbar justify-end">
+          <slot name="top-actions" />
+        </div>
+      </div>
     </div>
   </header>
 
   <!-- Main Content -->
-  <main class="flex-1 min-h-0 w-full max-w-[1920px] mx-auto px-2 py-2 md:px-3 md:py-2.5 lg:px-4 lg:py-3 overflow-hidden flex flex-col">
+  <main class="flex-1 min-h-0 w-full max-w-[1920px] mx-auto px-1.5 py-1.5 md:px-2 md:py-1.5 lg:px-3 lg:py-2 overflow-hidden flex flex-col">
     <slot />
   </main>
 </div>

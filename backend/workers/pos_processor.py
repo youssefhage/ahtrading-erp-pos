@@ -2,12 +2,16 @@
 import argparse
 import hashlib
 import json
-from datetime import datetime, date, timedelta
+import logging
+import time
+from datetime import datetime, date, timedelta, timezone
 from typing import Optional
 from decimal import Decimal, ROUND_HALF_UP
 import uuid
 import psycopg
 from psycopg.rows import dict_row
+
+logger = logging.getLogger(__name__)
 
 DB_URL_DEFAULT = 'postgresql://localhost/ahtrading'
 MAX_ATTEMPTS_DEFAULT = 5
@@ -61,7 +65,7 @@ def next_retry_at_for_attempt(attempt_count: int, event_id: Optional[str] = None
         digest = hashlib.sha1(f"{event_id}:{attempt_count}".encode("utf-8")).hexdigest()
         jitter_window = max(1, min(30, delay_seconds // 5 or 1))
         delay_seconds = min(300, delay_seconds + (int(digest[:8], 16) % (jitter_window + 1)))
-    return datetime.utcnow() + timedelta(seconds=delay_seconds)
+    return datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
 
 
 def fetch_account_defaults(cur, company_id: str):
@@ -94,7 +98,7 @@ def fetch_payment_method_accounts(cur, company_id: str):
 
 def q_points(v: Decimal) -> Decimal:
     # customer_loyalty_ledger.points is numeric(18,4)
-    return v.quantize(Decimal("0.0001"))
+    return v.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
 UOM_Q6 = Decimal("0.000001")
 UOM_Q4 = Decimal("0.0001")
@@ -461,6 +465,15 @@ def get_avg_cost(cur, company_id: str, item_id: str, warehouse_id: str):
         return Decimal("0"), Decimal("0")
     return Decimal(str(row["avg_cost_usd"] or 0)), Decimal(str(row["avg_cost_lbp"] or 0))
 
+USD_Q = Decimal("0.0001")
+LBP_Q = Decimal("0.01")
+
+def q_usd(v: Decimal) -> Decimal:
+    return (v or Decimal("0")).quantize(USD_Q, rounding=ROUND_HALF_UP)
+
+def q_lbp(v: Decimal) -> Decimal:
+    return (v or Decimal("0")).quantize(LBP_Q, rounding=ROUND_HALF_UP)
+
 def normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -> tuple[Decimal, Decimal]:
     """
     Best-effort backward compatibility for clients that only send one currency.
@@ -468,19 +481,10 @@ def normalize_dual_amounts(usd: Decimal, lbp: Decimal, exchange_rate: Decimal) -
     """
     if exchange_rate and exchange_rate != 0:
         if usd == 0 and lbp != 0:
-            usd = lbp / exchange_rate
+            usd = q_usd(lbp / exchange_rate)
         elif lbp == 0 and usd != 0:
-            lbp = usd * exchange_rate
+            lbp = q_lbp(usd * exchange_rate)
     return usd, lbp
-
-USD_Q = Decimal("0.0001")
-LBP_Q = Decimal("0.01")
-
-def q_usd(v: Decimal) -> Decimal:
-    return (v or Decimal("0")).quantize(USD_Q)
-
-def q_lbp(v: Decimal) -> Decimal:
-    return (v or Decimal("0")).quantize(LBP_Q)
 
 def compute_applied_from_tender(*, tender_usd: Decimal, tender_lbp: Decimal, exchange_rate: Decimal, settle: str) -> tuple[Decimal, Decimal]:
     settle = (settle or "USD").upper()
@@ -581,6 +585,8 @@ def compute_vat_breakdown(
         tlbp = b["lbp"] * rate if rate else Decimal("0")
         tusd = (tlbp / exchange_rate) if exchange_rate else Decimal("0")
         tusd, tlbp = normalize_dual_amounts(tusd, tlbp, exchange_rate)
+        tusd = q_usd(tusd)
+        tlbp = q_lbp(tlbp)
         tax_usd += tusd
         tax_lbp += tlbp
         rows.append(
@@ -699,7 +705,7 @@ def touch_batch_received_metadata(
         WHERE company_id = %s AND id = %s
         """,
         (
-            received_at or datetime.utcnow(),
+            received_at or datetime.now(timezone.utc),
             received_source_type,
             received_source_id,
             received_supplier_id,
@@ -897,6 +903,7 @@ def resolve_pos_shift_id(cur, company_id: str, device_id: str, requested_shift_i
 
 
 def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: str):
+    logger.debug("Processing sale event %s", event_id)
     # Idempotency: skip if invoice already created for this event
     cur.execute(
         """
@@ -913,6 +920,8 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         invoice_no = next_doc_no(cur, company_id, "SI")
 
     exchange_rate = Decimal(str(payload.get("exchange_rate", 0)))
+    if exchange_rate < 0:
+        raise ValueError("exchange_rate must not be negative")
     pricing_currency = payload.get("pricing_currency", "USD")
     settlement_currency = payload.get("settlement_currency", "USD")
     invoice_date = resolve_business_date(payload, "invoice_date")
@@ -952,8 +961,15 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
                 disc_usd = max(Decimal("0"), (pre_unit_usd - unit_usd) * qty)
                 disc_lbp = max(Decimal("0"), (pre_unit_lbp - unit_lbp) * qty)
             elif disc_pct:
-                disc_usd = max(Decimal("0"), (unit_usd * qty) * disc_pct)
-                disc_lbp = max(Decimal("0"), (unit_lbp * qty) * disc_pct)
+                # unit_usd/unit_lbp are post-discount; recover pre-discount total.
+                if disc_pct < Decimal("1"):
+                    pre_disc_usd = (unit_usd * qty) / (Decimal("1") - disc_pct)
+                    pre_disc_lbp = (unit_lbp * qty) / (Decimal("1") - disc_pct)
+                else:
+                    pre_disc_usd = unit_usd * qty
+                    pre_disc_lbp = unit_lbp * qty
+                disc_usd = max(Decimal("0"), pre_disc_usd * disc_pct)
+                disc_lbp = max(Decimal("0"), pre_disc_lbp * disc_pct)
 
         discount_total_usd += disc_usd
         discount_total_lbp += disc_lbp
@@ -1008,6 +1024,9 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             if not tax_rows:
                 tax_usd = Decimal(str(tax.get("tax_usd", 0) or 0))
                 tax_lbp = Decimal(str(tax.get("tax_lbp", 0) or 0))
+                # Validate: tax should not be negative or exceed the line total
+                tax_usd = max(Decimal("0"), tax_usd)
+                tax_lbp = max(Decimal("0"), tax_lbp)
                 tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
 
     total_usd = base_usd + tax_usd
@@ -1074,6 +1093,7 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             SELECT credit_limit_usd, credit_limit_lbp, credit_balance_usd, credit_balance_lbp, payment_terms_days
             FROM customers
             WHERE company_id = %s AND id = %s
+            FOR UPDATE
             """,
             (company_id, customer_id),
         )
@@ -1567,6 +1587,17 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
             (journal_id, inventory, total_cost_usd, total_cost_lbp, warehouse_id),
         )
 
+    # GL balance assertion
+    cur.execute("""
+        SELECT
+            COALESCE(SUM(debit_usd), 0) - COALESCE(SUM(credit_usd), 0) AS diff_usd,
+            COALESCE(SUM(debit_lbp), 0) - COALESCE(SUM(credit_lbp), 0) AS diff_lbp
+        FROM gl_entries WHERE journal_id = %s
+    """, (journal_id,))
+    bal = cur.fetchone()
+    if abs(bal["diff_usd"]) > Decimal("0.01") or abs(bal["diff_lbp"]) > Decimal("1"):
+        raise ValueError(f"GL journal {journal_id} imbalanced: diff_usd={bal['diff_usd']}, diff_lbp={bal['diff_lbp']}")
+
     emit_event(
         cur,
         company_id,
@@ -1576,10 +1607,12 @@ def process_sale(cur, company_id: str, event_id: str, payload: dict, device_id: 
         {"invoice_id": str(invoice_id), "total_usd": str(total_usd), "total_lbp": str(total_lbp)},
     )
 
+    logger.debug("Processed event %s -> invoice %s", event_id, invoice_id)
     return "processed"
 
 
 def process_sale_return(cur, company_id: str, event_id: str, payload: dict, device_id: str):
+    logger.debug("Processing sale return event %s", event_id)
     cur.execute(
         """
         SELECT id FROM sales_returns
@@ -1642,6 +1675,9 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             if not tax_rows:
                 tax_usd = Decimal(str(tax.get("tax_usd", 0) or 0))
                 tax_lbp = Decimal(str(tax.get("tax_lbp", 0) or 0))
+                # Validate: tax should not be negative or exceed the line total
+                tax_usd = max(Decimal("0"), tax_usd)
+                tax_lbp = max(Decimal("0"), tax_lbp)
                 tax_usd, tax_lbp = normalize_dual_amounts(tax_usd, tax_lbp, exchange_rate)
 
     total_usd = base_usd + tax_usd
@@ -2105,6 +2141,17 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
             (journal_id, cogs, total_cost_usd, total_cost_lbp),
         )
 
+    # GL balance assertion
+    cur.execute("""
+        SELECT
+            COALESCE(SUM(debit_usd), 0) - COALESCE(SUM(credit_usd), 0) AS diff_usd,
+            COALESCE(SUM(debit_lbp), 0) - COALESCE(SUM(credit_lbp), 0) AS diff_lbp
+        FROM gl_entries WHERE journal_id = %s
+    """, (journal_id,))
+    bal = cur.fetchone()
+    if abs(bal["diff_usd"]) > Decimal("0.01") or abs(bal["diff_lbp"]) > Decimal("1"):
+        raise ValueError(f"GL journal {journal_id} imbalanced: diff_usd={bal['diff_usd']}, diff_lbp={bal['diff_lbp']}")
+
     # Reduce customer receivable balance when this return reduces AR.
     if invoice_customer_id and receivable_account == ar:
         cur.execute(
@@ -2215,10 +2262,12 @@ def process_sale_return(cur, company_id: str, event_id: str, payload: dict, devi
         {"return_id": str(return_id), "return_no": str(return_no), "total_usd": str(total_usd), "total_lbp": str(total_lbp)},
     )
 
+    logger.debug("Processed event %s -> return %s", event_id, return_id)
     return "processed"
 
 
 def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, device_id: str):
+    logger.debug("Processing goods receipt event %s", event_id)
     cur.execute(
         """
         SELECT id FROM goods_receipts
@@ -2290,7 +2339,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
             "goods_receipt",
             str(gr_id),
             str(payload.get("supplier_id") or "") or None,
-            received_at=datetime.utcnow(),
+            received_at=datetime.now(timezone.utc),
         )
         gr_line_id = str(uuid.uuid4())
         qty = Decimal(str(l.get("qty", 0) or 0))
@@ -2435,6 +2484,17 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
         (journal_id, grni, total_usd, total_lbp, warehouse_id),
     )
 
+    # GL balance assertion
+    cur.execute("""
+        SELECT
+            COALESCE(SUM(debit_usd), 0) - COALESCE(SUM(credit_usd), 0) AS diff_usd,
+            COALESCE(SUM(debit_lbp), 0) - COALESCE(SUM(credit_lbp), 0) AS diff_lbp
+        FROM gl_entries WHERE journal_id = %s
+    """, (journal_id,))
+    bal = cur.fetchone()
+    if abs(bal["diff_usd"]) > Decimal("0.01") or abs(bal["diff_lbp"]) > Decimal("1"):
+        raise ValueError(f"GL journal {journal_id} imbalanced: diff_usd={bal['diff_usd']}, diff_lbp={bal['diff_lbp']}")
+
     emit_event(
         cur,
         company_id,
@@ -2444,6 +2504,7 @@ def process_goods_receipt(cur, company_id: str, event_id: str, payload: dict, de
         {"goods_receipt_id": str(gr_id), "receipt_no": str(receipt_no), "total_usd": str(total_usd), "total_lbp": str(total_lbp)},
     )
 
+    logger.debug("Processed event %s -> goods_receipt %s", event_id, gr_id)
     return "processed"
 
 
@@ -2551,7 +2612,7 @@ def process_purchase_invoice(cur, company_id: str, event_id: str, payload: dict,
             "supplier_invoice",
             str(inv_id),
             str(supplier_id or "") or None,
-            received_at=datetime.utcnow(),
+            received_at=datetime.now(timezone.utc),
         )
         qty = Decimal(str(l.get("qty", 0) or 0))
         unit_cost_usd = Decimal(str(l.get("unit_cost_usd", 0) or 0))
@@ -2787,6 +2848,10 @@ def _process_one(conn, company_id: str, max_attempts: int) -> bool:
             if not e:
                 return False
 
+            event_type = e["event_type"]
+            event_id = e["id"]
+            logger.info("Processing event %s type=%s", event_id, event_type)
+
             process_error = None
             try:
                 # Use a savepoint so DB failures in posting don't abort the outer
@@ -2795,9 +2860,6 @@ def _process_one(conn, company_id: str, max_attempts: int) -> bool:
                     payload = e["payload_json"]
                     if isinstance(payload, str):
                         payload = json.loads(payload)
-
-                    event_type = e["event_type"]
-                    event_id = e["id"]
 
                     if event_type == "sale.completed":
                         process_sale(cur, company_id, event_id, payload, e["device_id"])
@@ -2823,12 +2885,17 @@ def _process_one(conn, company_id: str, max_attempts: int) -> bool:
                         """,
                         (e["id"],),
                     )
+                    logger.info("Processed event %s type=%s", event_id, event_type)
             except Exception as ex:
                 process_error = ex
 
             if process_error is not None:
                 next_attempt = int(e.get("attempt_count") or 0) + 1
                 next_status = "dead" if next_attempt >= max_attempts else "failed"
+                if next_status == "dead":
+                    logger.error("Event %s moved to dead letter after %d attempts", event_id, next_attempt)
+                else:
+                    logger.warning("Event %s failed (attempt %d): %s", event_id, next_attempt, process_error)
                 cur.execute(
                     """
                     UPDATE pos_events_outbox
@@ -2850,6 +2917,7 @@ def _process_one(conn, company_id: str, max_attempts: int) -> bool:
 
 
 def process_events(db_url: str, company_id: str, limit: int, max_attempts: int = MAX_ATTEMPTS_DEFAULT) -> int:
+    logger.info("Processing up to %d events for company %s", limit, company_id)
     processed = 0
     with get_conn(db_url) as conn:
         while processed < limit:
@@ -2872,7 +2940,6 @@ def main():
     if args.loop:
         while True:
             process_events(args.db, args.company_id, args.limit, max_attempts=args.max_attempts)
-            import time
             time.sleep(args.sleep)
     else:
         process_events(args.db, args.company_id, args.limit, max_attempts=args.max_attempts)

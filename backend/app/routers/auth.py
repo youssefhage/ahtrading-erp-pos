@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import time as _time
 import uuid
 import secrets
 from ..config import settings
@@ -11,7 +12,36 @@ from ..deps import get_session, SESSION_COOKIE_NAME
 from ..security import hash_password, verify_password, needs_rehash, hash_session_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-SESSION_DAYS = 7
+SESSION_DAYS = 3
+
+_login_attempts: dict = {}  # key -> {"count": int, "locked_until": float}
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_LOCKOUT_SECONDS = 300  # 5 minutes
+
+
+def _check_login_rate_limit(key: str) -> bool:
+    """Returns True if request should be blocked."""
+    now = _time.time()
+    entry = _login_attempts.get(key)
+    if entry and entry.get("locked_until", 0) > now:
+        return True
+    return False
+
+
+def _record_login_failure(key: str):
+    now = _time.time()
+    entry = _login_attempts.get(key, {"count": 0, "locked_until": 0})
+    entry["count"] = entry.get("count", 0) + 1
+    if entry["count"] >= _LOGIN_MAX_ATTEMPTS:
+        entry["locked_until"] = now + _LOGIN_LOCKOUT_SECONDS
+        entry["count"] = 0
+    _login_attempts[key] = entry
+
+
+def _reset_login_attempts(key: str):
+    _login_attempts.pop(key, None)
+
+
 MFA_CHALLENGE_MINUTES = 10
 
 
@@ -57,6 +87,9 @@ class LoginIn(BaseModel):
 
 @router.post("/login")
 def login(data: LoginIn):
+    rate_key = data.email.lower().strip()
+    if _check_login_rate_limit(rate_key):
+        raise HTTPException(status_code=429, detail="too many login attempts, try again later")
     # Use the admin connection for auth because we need to query memberships across companies.
     with get_admin_conn() as conn:
         with conn.cursor() as cur:
@@ -70,8 +103,10 @@ def login(data: LoginIn):
             )
             user = cur.fetchone()
             if not user or not user["is_active"]:
+                _record_login_failure(rate_key)
                 raise HTTPException(status_code=401, detail="invalid credentials")
             if not verify_password(data.password, user["hashed_password"]):
+                _record_login_failure(rate_key)
                 raise HTTPException(status_code=401, detail="invalid credentials")
 
             if needs_rehash(user["hashed_password"]):
@@ -109,6 +144,7 @@ def login(data: LoginIn):
                     """,
                     (user["id"], hash_session_token(mfa_token), mfa_expires),
                 )
+                _reset_login_attempts(rate_key)
                 return {
                     "mfa_required": True,
                     "mfa_token": mfa_token,
@@ -117,6 +153,7 @@ def login(data: LoginIn):
                     "active_company_id": str(active_company_id) if active_company_id else None,
                 }
 
+            _reset_login_attempts(rate_key)
             # Use a strong random token and store only a one-way hash in the DB.
             token = secrets.token_urlsafe(32)
             expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
@@ -130,8 +167,6 @@ def login(data: LoginIn):
 
             resp = JSONResponse(
                 {
-                    # Keep returning the token for backwards compatibility (legacy admin/POS tools).
-                    "token": token,
                     "user_id": str(user["id"]),
                     "companies": [str(c) for c in companies],
                     "active_company_id": str(active_company_id) if active_company_id else None,
@@ -241,7 +276,6 @@ def mfa_verify(data: MfaVerifyIn):
 
                 resp = JSONResponse(
                     {
-                        "token": session_token,
                         "user_id": str(user["id"]),
                         "companies": [str(c) for c in companies],
                         "active_company_id": str(active_company_id) if active_company_id else None,
@@ -517,16 +551,15 @@ def update_profile(data: ProfileUpdateIn, session=Depends(get_session)):
 
 @router.post("/logout")
 def logout(session=Depends(get_session)):
-    token = session["token"]
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE auth_sessions
                 SET is_active = false
-                WHERE token = %s OR (token = %s AND token NOT LIKE 'sha256:%')
+                WHERE id = %s
                 """,
-                (hash_session_token(token), token),
+                (session["session_id"],),
             )
             resp = JSONResponse({"ok": True})
             resp.delete_cookie(key=SESSION_COOKIE_NAME, path="/")

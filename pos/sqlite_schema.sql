@@ -2,9 +2,9 @@
 
 CREATE TABLE IF NOT EXISTS local_items_cache (
   id TEXT PRIMARY KEY,
-  sku TEXT,
+  sku TEXT NOT NULL,
   barcode TEXT,
-  name TEXT,
+  name TEXT NOT NULL,
   unit_of_measure TEXT,
   tax_code_id TEXT,
   is_active INTEGER DEFAULT 1,
@@ -30,8 +30,8 @@ CREATE TABLE IF NOT EXISTS local_item_categories_cache (
 
 CREATE TABLE IF NOT EXISTS local_item_barcodes_cache (
   id TEXT PRIMARY KEY,
-  item_id TEXT,
-  barcode TEXT,
+  item_id TEXT NOT NULL,
+  barcode TEXT NOT NULL,
   uom_code TEXT,
   qty_factor REAL DEFAULT 1,
   label TEXT,
@@ -44,12 +44,14 @@ CREATE INDEX IF NOT EXISTS idx_local_item_barcodes_barcode ON local_item_barcode
 
 CREATE TABLE IF NOT EXISTS local_prices_cache (
   id TEXT PRIMARY KEY,
-  item_id TEXT,
-  price_usd REAL,
-  price_lbp REAL,
+  item_id TEXT NOT NULL,
+  price_usd TEXT DEFAULT '0',
+  price_lbp TEXT DEFAULT '0',
   effective_from TEXT,
   effective_to TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_local_prices_item ON local_prices_cache(item_id);
 
 CREATE TABLE IF NOT EXISTS local_promotions_cache (
   id TEXT PRIMARY KEY,
@@ -74,11 +76,11 @@ CREATE TABLE IF NOT EXISTS local_customers_cache (
   is_member INTEGER DEFAULT 0,
   membership_expires_at TEXT,
   payment_terms_days INTEGER DEFAULT 0,
-  credit_limit_usd REAL DEFAULT 0,
-  credit_limit_lbp REAL DEFAULT 0,
-  credit_balance_usd REAL DEFAULT 0,
-  credit_balance_lbp REAL DEFAULT 0,
-  loyalty_points REAL DEFAULT 0,
+  credit_limit_usd TEXT DEFAULT '0',
+  credit_limit_lbp TEXT DEFAULT '0',
+  credit_balance_usd TEXT DEFAULT '0',
+  credit_balance_lbp TEXT DEFAULT '0',
+  loyalty_points TEXT DEFAULT '0',
   price_list_id TEXT,
   is_active INTEGER DEFAULT 1,
   updated_at TEXT
@@ -86,7 +88,7 @@ CREATE TABLE IF NOT EXISTS local_customers_cache (
 
 CREATE TABLE IF NOT EXISTS local_cashiers_cache (
   id TEXT PRIMARY KEY,
-  name TEXT,
+  name TEXT NOT NULL,
   user_id TEXT,
   user_email TEXT,
   pin_hash TEXT,
@@ -96,9 +98,9 @@ CREATE TABLE IF NOT EXISTS local_cashiers_cache (
 
 CREATE TABLE IF NOT EXISTS pos_outbox_events (
   event_id TEXT PRIMARY KEY,
-  event_type TEXT,
-  payload_json TEXT,
-  created_at TEXT,
+  event_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
   status TEXT DEFAULT 'pending',
   idempotency_key TEXT
 );

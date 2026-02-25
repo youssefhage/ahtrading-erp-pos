@@ -41,7 +41,7 @@
   };
 
   const fmtMoney = (value, currency = "USD") => {
-    const v = Math.max(0, Number(value) || 0);
+    const v = Number(value) || 0;
     if (currency === "LBP") {
       return `${Math.round(v).toLocaleString()} LBP`;
     }
@@ -182,30 +182,26 @@
   $: if (!scanTerm.trim()) activeIndex = 0;
 </script>
 
-<section class="glass-panel rounded-3xl flex flex-col h-full overflow-hidden relative group/catalog">
-  <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
+<section class="glass-panel rounded-2xl flex flex-col h-full overflow-hidden relative group/catalog">
+  <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-2xl"></div>
 
-  <header class="relative z-10 p-5 shrink-0 border-b border-white/5">
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-3">
-         <div class="h-8 w-1 rounded-full bg-accent shadow-[0_0_10px_rgba(45,212,191,0.5)]"></div>
-         <h2 class="text-lg font-bold tracking-tight">Catalog</h2>
-      </div>
+  <header class="relative z-10 px-3 py-2 shrink-0 border-b border-white/5">
+    <div class="flex items-center justify-between mb-2">
       <div class="flex items-center gap-2">
-        <span class="text-xs font-mono font-medium text-muted bg-surface-highlight/50 px-2.5 py-1 rounded-lg border border-white/5">
-          {items.length} items
-        </span>
-        <button
-          class="h-8 w-8 rounded-lg border border-white/5 bg-surface-highlight/50 hover:bg-surface-highlight hover:border-white/10 transition-colors flex items-center justify-center text-muted hover:text-ink"
-          on:click={collapseCatalog}
-          title="Hide Catalog"
-          aria-label="Hide Catalog"
-        >
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
+         <div class="h-5 w-0.5 rounded-full bg-accent"></div>
+         <h2 class="text-sm font-bold tracking-tight">Catalog</h2>
+         <span class="text-[10px] font-mono text-muted">{items.length}</span>
       </div>
+      <button
+        class="h-6 w-6 rounded-md border border-white/5 bg-surface-highlight/50 hover:bg-surface-highlight transition-colors flex items-center justify-center text-muted hover:text-ink"
+        on:click={collapseCatalog}
+        title="Hide Catalog"
+        aria-label="Hide Catalog"
+      >
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+        </svg>
+      </button>
     </div>
     
     <!-- Search -->

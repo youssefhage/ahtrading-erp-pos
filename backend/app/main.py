@@ -169,6 +169,10 @@ async def _request_logging(request: Request, call_next):
     response.headers["X-Request-Id"] = rid
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    if settings.env not in ("local", "dev"):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     if settings.http_access_log_enabled and path != "/health":
         dur_ms = int((time.time() - started) * 1000)
         _json_log(
@@ -232,8 +236,9 @@ app.include_router(stock_transfers_router, dependencies=[Depends(require_company
 app.include_router(inventory_locations_router, dependencies=[Depends(require_company_access)])
 app.include_router(inventory_warehouses_locations_router, dependencies=[Depends(require_company_access)])
 app.include_router(maintenance_router, dependencies=[Depends(require_company_access)])
-# Dev-only helpers (route handlers self-disable outside local/dev).
-app.include_router(devtools_router, dependencies=[Depends(require_company_access)])
+# Dev-only helpers: only register routes in local/dev environments.
+if settings.env in ("local", "dev"):
+    app.include_router(devtools_router, dependencies=[Depends(require_company_access)])
 
 @app.on_event("startup")
 def _startup():

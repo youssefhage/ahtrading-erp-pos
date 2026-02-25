@@ -629,6 +629,8 @@
   let saleMode = "sale"; // "sale" | "return"
   let returnSourceContext = null; // { companyKey, eventId, invoiceId, mode, suggestedMethod }
   let checkoutInFlight = false;
+  let lastSaleSummary = null;
+  let showSaleComplete = false;
 
   // Admin unlock (POS agent can require a local admin PIN when LAN-exposed)
   let showAdminPinModal = false;
@@ -642,7 +644,18 @@
   let showAuditDrawer = false;
   let showShiftInvoicesDrawer = false;
   let showCartDraftsDrawer = false;
+  let showCashMovementDrawer = false;
+  let cashMovementType = "cash_in"; // cash_in | cash_out | safe_drop | paid_out
+  let cashMovementAmountUsd = "";
+  let cashMovementAmountLbp = "";
+  let cashMovementNotes = "";
+  let cashMovementBusy = false;
   let showShortcutsGuide = false;
+  let showDiscountModal = false;
+  let discountModalIndex = -1;
+  let discountModalValue = "";
+  let discountModalError = "";
+  let discountModalCurrency = "USD";
   let showTopMoreActions = false;
   let topMoreActionsButtonEl = null;
   let topMoreMenuEl = null;
@@ -3039,7 +3052,7 @@
     }
   };
 
-  const _withDeviceAuthForPrintUrl = (rawUrl, cfg = null) => {
+  async function _withDeviceAuthForPrintUrl(rawUrl, cfg = null) {
     const baseUrl = String(rawUrl || "").trim();
     if (!baseUrl) return "";
     const localCfg = cfg || {};
@@ -3048,21 +3061,21 @@
     if (!deviceId || !deviceToken) return baseUrl;
 
     try {
-      const url = new URL(baseUrl, window.location.origin);
-      const currentOrigin = String(window.location.origin || "").trim().toLowerCase();
-      const targetOrigin = String(url.origin || "").trim().toLowerCase();
-      const isCrossOrigin = !!currentOrigin && !!targetOrigin && currentOrigin !== targetOrigin;
-      // Avoid leaking device credentials in same-origin URLs where cookies/session can be used.
-      if (!isCrossOrigin) return url.toString();
-      url.searchParams.set("x_device_id", deviceId);
-      url.searchParams.set("x_device_token", deviceToken);
-      return url.toString();
+      const resp = await fetch(baseUrl, {
+        headers: {
+          "X-Device-Id": deviceId,
+          "X-Device-Token": deviceToken,
+        },
+      });
+      if (!resp.ok) return baseUrl;
+      const blob = await resp.blob();
+      return URL.createObjectURL(blob);
     } catch (_) {
       return baseUrl;
     }
-  };
+  }
 
-  const _invoicePdfUrlFromCfg = (companyKey, cfg, invoiceId, templateOverride = "") => {
+  const _invoicePdfUrlFromCfg = async (companyKey, cfg, invoiceId, templateOverride = "") => {
     const invId = String(invoiceId || "").trim();
     const pb = _resolvePrintBaseUrl(companyKey, cfg);
     if (!invId || !pb) return "";
@@ -3073,15 +3086,15 @@
     // Temporary policy for official client invoices.
     if (companyKey === "official" && tpl === "standard") tpl = "official_classic";
     const raw = `${pb}/exports/sales-invoices/${encodeURIComponent(invId)}/pdf?inline=1&template=${encodeURIComponent(tpl)}`;
-    return _withDeviceAuthForPrintUrl(raw, cfg);
+    return await _withDeviceAuthForPrintUrl(raw, cfg);
   };
 
-  const _receiptPdfUrlFromCfg = (companyKey, cfg, invoiceId) => {
+  const _receiptPdfUrlFromCfg = async (companyKey, cfg, invoiceId) => {
     const invId = String(invoiceId || "").trim();
     const pb = _resolvePrintBaseUrl(companyKey, cfg);
     if (!invId || !pb) return "";
     const raw = `${pb}/exports/sales-receipts/${encodeURIComponent(invId)}/pdf?inline=1`;
-    return _withDeviceAuthForPrintUrl(raw, cfg);
+    return await _withDeviceAuthForPrintUrl(raw, cfg);
   };
 
   const _openPrintWindowWithUrl = (url, receiptWin = null) => {
@@ -4001,6 +4014,33 @@
       });
       return { shift: res?.shift || null };
     }
+    if (method === "POST" && pathname === "/cash-movement") {
+      const shiftId = String(body?.shift_id || cfg.shift_id || "").trim();
+      if (!shiftId) throw new Error("No open shift. Open a shift before recording cash movements.");
+      const cashierId = cashierIdForCompany(companyKey, body?.cashier_id);
+      const movementType = String(body?.movement_type || "").trim();
+      if (!movementType) throw new Error("movement_type is required.");
+      const res = await _webPosCall(companyKey, "/pos/cash-movements", {
+        method: "POST",
+        body: {
+          shift_id: shiftId,
+          cashier_id: cashierId || null,
+          movement_type: movementType,
+          amount_usd: toNum(body?.amount_usd, 0),
+          amount_lbp: toNum(body?.amount_lbp, 0),
+          notes: String(body?.notes || "").trim() || null,
+        },
+      });
+      _appendWebAudit(companyKey, {
+        action: "cash_movement",
+        cashier_id: cashierId || null,
+        shift_id: shiftId,
+        event_id: String(res?.id || "").trim() || null,
+        status: "acked",
+        details: { movement_type: movementType, amount_usd: toNum(body?.amount_usd, 0), amount_lbp: toNum(body?.amount_lbp, 0) },
+      });
+      return res || {};
+    }
 
     if (method === "POST" && pathname === "/sync/pull") {
       if (!String(cfg?.device_id || "").trim() || !String(cfg?.device_token || "").trim()) {
@@ -4266,7 +4306,7 @@
           const invId = String(resolved?.invoice_id || "").trim();
           const detailRes = await apiCallFor(companyKey, "/invoices/detail-by-event", { method: "POST", body: { event_id: eid } }).catch(() => null);
           const policyTpl = String(detailRes?.detail?.print_policy?.sales_invoice_pdf_template || "").trim().toLowerCase();
-          const u = _invoicePdfUrlFromCfg(companyKey, cfg, invId, policyTpl);
+          const u = await _invoicePdfUrlFromCfg(companyKey, cfg, invId, policyTpl);
           if (u) {
             if (receiptWin) receiptWin.location = u;
             else window.open(u, "_blank", "noopener,noreferrer");
@@ -4496,6 +4536,60 @@
   const closeShiftInvoicesDrawer = () => {
     showShiftInvoicesDrawer = false;
   };
+
+  const handleRecordCashMovement = async () => {
+    const amtUsd = Number(cashMovementAmountUsd) || 0;
+    const amtLbp = Number(cashMovementAmountLbp) || 0;
+    if (amtUsd <= 0 && amtLbp <= 0) return;
+    const targets = linkedOpsMode
+      ? POS_COMPANY_KEYS.filter((k) => !!shiftIdForCompany(k))
+      : [normalizeCompanyKey(originCompanyKey)].filter((k) => !!shiftIdForCompany(k));
+    if (!targets.length) {
+      reportError("No open shift. Open a shift before recording cash movements.");
+      return;
+    }
+    cashMovementBusy = true;
+    try {
+      const results = await Promise.allSettled(
+        targets.map((companyKey) =>
+          apiCallFor(companyKey, "/cash-movement", {
+            method: "POST",
+            body: {
+              shift_id: shiftIdForCompany(companyKey),
+              cashier_id: cashierIdForCompany(companyKey),
+              movement_type: cashMovementType,
+              amount_usd: amtUsd,
+              amount_lbp: amtLbp,
+              notes: cashMovementNotes || "",
+            },
+          }),
+        ),
+      );
+      const successes = [];
+      const failures = [];
+      for (let i = 0; i < targets.length; i += 1) {
+        const r = results[i];
+        if (r.status === "fulfilled") successes.push(targets[i]);
+        else failures.push(`${targets[i]}: ${r.reason?.message || "failed"}`);
+      }
+      if (successes.length) {
+        const label = cashMovementType.replace(/_/g, " ");
+        reportNotice(`Cash movement recorded: ${label}`);
+        cashMovementAmountUsd = "";
+        cashMovementAmountLbp = "";
+        cashMovementNotes = "";
+        showCashMovementDrawer = false;
+      }
+      if (failures.length) {
+        reportError(`Cash movement error: ${failures.join(" | ")}`);
+      }
+    } catch (e) {
+      reportError(e?.message || "Failed to record cash movement.");
+    } finally {
+      cashMovementBusy = false;
+    }
+  };
+
   const loadShiftInvoiceDetail = async (row, { force = false } = {}) => {
     const eventId = String(row?.resolved_event_id || row?.event_id || "").trim();
     const invoiceIdHint = String(row?.invoice_id || "").trim();
@@ -5932,11 +6026,7 @@
   const updateLineQty = (index, qty) => {
     const parsed = Number(qty);
     if (!Number.isFinite(parsed)) return;
-    const q = Math.max(0, parsed);
-    if (q === 0) {
-      removeLine(index);
-      return;
-    }
+    const q = Math.max(1, parsed);
     const copy = [...cart];
     copy[index].qty_entered = q;
     copy[index].qty = q * toNum(copy[index].qty_factor, 1);
@@ -5971,34 +6061,28 @@
     return pct > 0 ? `${Math.round(pct * 100)}%` : "0";
   };
 
-  const _managerDiscountPromptSpec = (line) => {
+  const _parseManagerDiscountInput = (line, raw) => {
     const ln = line || {};
     const companyKey = normalizeCompanyKey(ln?.companyKey || "official");
     const cfg = cfgForCompanyKey(companyKey) || {};
     const currency = String(cfg?.pricing_currency || "USD").trim().toUpperCase() === "LBP" ? "LBP" : "USD";
-    const seed = _seedManagerDiscountInput(ln);
-    const raw = window.prompt(
-      `Manager item discount\nUse % for percentage (example: 10%)\nUse amount in ${currency} per unit (example: ${currency === "LBP" ? "50000" : "1.50"})\nEnter 0 to clear.`,
-      seed,
-    );
-    if (raw == null) return null;
+    if (raw == null) return { spec: null, error: null };
     const trimmed = String(raw || "").trim();
-    if (!trimmed) return null;
+    if (!trimmed) return { spec: null, error: null };
 
     const compact = trimmed.replace(/\s+/g, "");
     if (compact === "0" || compact === "0%" || compact === "0.0" || compact === "0.00") {
-      return _clearManagerDiscountSpec();
+      return { spec: _clearManagerDiscountSpec(), error: null };
     }
 
     if (compact.endsWith("%")) {
       const pctRaw = Number(compact.slice(0, -1));
       if (!Number.isFinite(pctRaw)) {
-        reportError("Enter a valid percentage like 10%.");
-        return null;
+        return { spec: null, error: "Enter a valid percentage like 10%." };
       }
       const pct = _normDiscPct(pctRaw);
-      if (pct <= 0) return _clearManagerDiscountSpec();
-      return { mode: "pct", pct, amount_usd: 0, amount_lbp: 0 };
+      if (pct <= 0) return { spec: _clearManagerDiscountSpec(), error: null };
+      return { spec: { mode: "pct", pct, amount_usd: 0, amount_lbp: 0 }, error: null };
     }
 
     let amountCurrency = currency;
@@ -6010,11 +6094,10 @@
     }
     const amountRaw = Number(String(amountRawText || "").replace(/,/g, ""));
     if (!Number.isFinite(amountRaw)) {
-      reportError(`Enter amount in ${currency} (or add % for percentage).`);
-      return null;
+      return { spec: null, error: `Enter amount in ${currency} (or add % for percentage).` };
     }
     const amount = Math.max(0, amountRaw);
-    if (amount <= 0) return _clearManagerDiscountSpec();
+    if (amount <= 0) return { spec: _clearManagerDiscountSpec(), error: null };
 
     const ex = toNum(cfg?.exchange_rate, 0);
     let amountUsd = 0;
@@ -6038,15 +6121,17 @@
       ? Math.max(0, toNum(basePreview?.price_lbp, 0))
       : Math.max(0, toNum(basePreview?.price_usd, 0));
     if (maxPrimary > 0 && amount > maxPrimary + 1e-9) {
-      reportError(`Amount discount cannot exceed unit price (${amountCurrency} ${amountCurrency === "LBP" ? Math.round(maxPrimary).toLocaleString() : maxPrimary.toFixed(2)}).`);
-      return null;
+      return { spec: null, error: `Amount discount cannot exceed unit price (${amountCurrency} ${amountCurrency === "LBP" ? Math.round(maxPrimary).toLocaleString() : maxPrimary.toFixed(2)}).` };
     }
 
     return {
-      mode: "amount",
-      pct: 0,
-      amount_usd: Math.max(0, amountUsd),
-      amount_lbp: Math.max(0, amountLbp),
+      spec: {
+        mode: "amount",
+        pct: 0,
+        amount_usd: Math.max(0, amountUsd),
+        amount_lbp: Math.max(0, amountLbp),
+      },
+      error: null,
     };
   };
 
@@ -6100,12 +6185,38 @@
       return;
     }
     const ln = cart[safeIdx] || {};
-    const spec = _managerDiscountPromptSpec(ln);
-    if (spec == null) return;
+    const companyKey = normalizeCompanyKey(ln?.companyKey || "official");
+    const cfg = cfgForCompanyKey(companyKey) || {};
+    discountModalCurrency = String(cfg?.pricing_currency || "USD").trim().toUpperCase() === "LBP" ? "LBP" : "USD";
+    discountModalIndex = safeIdx;
+    discountModalValue = _seedManagerDiscountInput(ln);
+    discountModalError = "";
+    showDiscountModal = true;
+  };
+
+  const handleDiscountModalConfirm = () => {
+    const safeIdx = discountModalIndex;
+    if (safeIdx < 0 || safeIdx >= (cart || []).length) {
+      showDiscountModal = false;
+      reportError("Line not found.");
+      return;
+    }
+    const ln = cart[safeIdx] || {};
+    const { spec, error } = _parseManagerDiscountInput(ln, discountModalValue);
+    if (error) {
+      discountModalError = error;
+      return;
+    }
+    if (spec == null) {
+      showDiscountModal = false;
+      return;
+    }
     if (!applyManagerDiscountAtLine(safeIdx, spec)) {
+      showDiscountModal = false;
       reportError("Unable to apply discount.");
       return;
     }
+    showDiscountModal = false;
     const name = String(ln?.name || ln?.sku || "item").trim() || "item";
     const companyKey = normalizeCompanyKey(ln?.companyKey || "official");
     const appliedMode = String(spec?.mode || "").trim().toLowerCase();
@@ -6755,12 +6866,21 @@
     showPaymentModal = true;
   };
 
-  const handleProcessSale = async (method) => {
+  const handleProcessSale = async (method, cashTendered = 0) => {
     if (checkoutInFlight) return;
     checkoutInFlight = true;
     showPaymentModal = false;
     loading = true;
     let payment_method = String(method || "cash").trim().toLowerCase();
+    lastSaleSummary = {
+      method: payment_method,
+      total: checkoutTotal,
+      cashTendered: cashTendered || 0,
+      changeDue: Math.max(0, (cashTendered || 0) - checkoutTotal),
+      currency: currencyPrimary,
+      lineCount: cart.length,
+      customerName: String(activeCustomer?.name || "").trim(),
+    };
     pendingCheckoutMethod = "";
     pendingManagerAction = null;
     managerApprovalPendingCompanies = [];
@@ -7176,6 +7296,8 @@
         checkoutIntentId = "";
         fetchData();
         reportNotice(`Sale queued (official): ${res.event_id || "ok"}`);
+        showSaleComplete = true;
+        setTimeout(() => { showSaleComplete = false; }, 4000);
         await printAfterSale(invoiceCompany, res?.event_id || "", receiptWin);
         markPrintWindowConsumed(invoiceCompany);
         return;
@@ -7279,6 +7401,8 @@
         activeCustomer = null;
         checkoutIntentId = "";
         reportNotice(`Split sale queued: ${done.map((d) => `${d.companyKey} ${d.event_id}`).join(" · ")}`);
+        showSaleComplete = true;
+        setTimeout(() => { showSaleComplete = false; }, 4000);
         return;
       }
 
@@ -7337,6 +7461,8 @@
       queueSyncPush(invoiceCompany);
 
       reportNotice(`Sale queued: ${res.event_id || "ok"}`);
+      showSaleComplete = true;
+      setTimeout(() => { showSaleComplete = false; }, 4000);
       cart = [];
       activeCustomer = null;
       checkoutIntentId = "";
@@ -8068,6 +8194,11 @@
         showShiftInvoicesDrawer = false;
         return;
       }
+      if (e.key === "Escape" && showCashMovementDrawer) {
+        e.preventDefault();
+        showCashMovementDrawer = false;
+        return;
+      }
       if (e.key === "Escape" && showShortcutsGuide) {
         e.preventDefault();
         showShortcutsGuide = false;
@@ -8161,114 +8292,55 @@
   plainBackground={activeScreen === "pos"}
 >
   <svelte:fragment slot="tabs">
-    {@const tabBase = "h-10 px-3.5 rounded-xl text-xs font-bold border transition-all whitespace-nowrap shadow-sm"}
-    {@const tabOn = "bg-accent text-[rgb(var(--color-accent-content))] border-accent/40 hover:bg-accent-hover shadow-lg shadow-accent/20"}
+    {@const tabBase = "h-7 px-2.5 rounded-lg text-[11px] font-bold border transition-all whitespace-nowrap"}
+    {@const tabOn = "bg-accent text-[rgb(var(--color-accent-content))] border-accent/40"}
     {@const tabOff = "bg-surface/55 text-ink/85 border-ink/10 hover:bg-surface/75 hover:text-ink"}
     {@const draftCount = (cartDrafts || []).length}
-    {@const draftsTabOn = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
+    {@const draftsTabOn = "bg-accent/20 text-accent border-accent/30"}
 
-    <div class="flex items-center gap-1.5 min-w-max">
-      <button
-        class={`${tabBase} ${activeScreen === "pos" ? tabOn : tabOff}`}
-        on:click={() => setActiveScreen("pos")}
-        type="button"
-        title="Cashier POS screen"
-      >
-        POS
-      </button>
-      <button
-        class={`${tabBase} w-10 px-0 inline-flex items-center justify-center relative ${showCartDraftsDrawer || draftCount > 0 ? draftsTabOn : tabOff}`}
-        on:click={openCartDrafts}
-        title="Save and resume draft carts"
-        aria-label={`Draft carts${draftCount > 0 ? ` (${draftCount})` : ""}`}
-        type="button"
-      >
-        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-          <path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M3 7V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        {#if draftCount > 0}
-          <span class="absolute top-0.5 right-0.5 inline-flex min-w-[16px] h-4 px-1 items-center justify-center rounded-full bg-accent text-[10px] leading-none text-[rgb(var(--color-accent-content))] font-bold text-center">
-            {draftCount > 99 ? "99+" : draftCount}
-          </span>
-        {/if}
-      </button>
-      <button
-        class={`${tabBase} ${activeScreen === "items" ? tabOn : tabOff}`}
-        on:click={() => setActiveScreen("items")}
-        type="button"
-        title="Item lookup & details"
-      >
-        Items
-      </button>
-    </div>
     <button
-      class={`${tabBase} ml-auto ${activeScreen === "settings" ? tabOn : tabOff}`}
+      class={`${tabBase} ${activeScreen === "pos" ? tabOn : tabOff}`}
+      on:click={() => setActiveScreen("pos")}
+      type="button"
+      title="Cashier POS screen"
+    >POS</button>
+    <button
+      class={`${tabBase} w-7 px-0 inline-flex items-center justify-center relative ${showCartDraftsDrawer || draftCount > 0 ? draftsTabOn : tabOff}`}
+      on:click={openCartDrafts}
+      title="Draft carts"
+      type="button"
+    >
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+        <path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      {#if draftCount > 0}
+        <span class="absolute -top-0.5 -right-0.5 inline-flex min-w-[14px] h-3.5 px-0.5 items-center justify-center rounded-full bg-accent text-[8px] leading-none text-[rgb(var(--color-accent-content))] font-bold">
+          {draftCount > 99 ? "99+" : draftCount}
+        </span>
+      {/if}
+    </button>
+    <button
+      class={`${tabBase} ${activeScreen === "items" ? tabOn : tabOff}`}
+      on:click={() => setActiveScreen("items")}
+      type="button"
+    >Items</button>
+    <button
+      class={`${tabBase} ${activeScreen === "settings" ? tabOn : tabOff}`}
       on:click={() => setActiveScreen("settings")}
       type="button"
-      title="Connectivity & settings"
-    >
-      Settings
-    </button>
+    >Settings</button>
   </svelte:fragment>
 
   <svelte:fragment slot="top-actions">
-    {@const topBtnBase = "h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap shadow-sm disabled:opacity-60"}
+    {@const topBtnBase = "h-7 px-2.5 rounded-lg text-[11px] font-semibold border border-ink/10 bg-surface/50 hover:bg-surface/75 transition-all whitespace-nowrap disabled:opacity-60"}
     {@const topBtnActive = "bg-accent/20 text-accent border-accent/30 hover:bg-accent/30"}
     {@const topBtnWarn = "border-amber-500/40 bg-amber-500/15 text-ink hover:bg-amber-500/25"}
-    <button
-      class={topBtnBase}
-      on:click={syncPull}
-      disabled={loading}
-      title={syncPullHint}
-      type="button"
-    >
-      Refresh
-    </button>
-    <button
-      class={`${topBtnBase} ${queuedEventsTotal > 0 ? topBtnWarn : ""}`}
-      on:click={() => showQueueDrawer = true}
-      disabled={loading}
-      title="Inspect pending queue events"
-      type="button"
-    >
-      Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
-    </button>
-    <button
-      class={topBtnBase}
-      on:click={() => openCashierModal(cashierCompanyKey || originCompanyKey)}
-      disabled={loading}
-      title="Cashier login"
-      type="button"
-    >
-      Cashier
-    </button>
-    <button
-      class={topBtnBase}
-      on:click={() => {
-        if (!linkedOpsMode) shiftCompanyKey = checkoutMissingShifts[0] || originCompanyKey;
-        showShiftModal = true;
-        if (linkedOpsMode) shiftRefreshLinked({ quiet: true });
-        else shiftRefresh(shiftCompanyKey, { quiet: true });
-      }}
-      disabled={loading}
-      title="Shift open/close"
-      type="button"
-    >
-      Shift
-    </button>
-    <button
-      class={topBtnBase}
-      on:click={openShiftInvoicesDrawer}
-      disabled={loading}
-      title="Review invoices from the active shift"
-      type="button"
-    >
-      Invoices
-    </button>
+    {@const moreBtnBase = "w-full text-left h-8 px-3 rounded-lg text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"}
+
+    <!-- Only essential inline actions -->
     {#if activeScreen === "pos"}
       <button
-        class={`${topBtnBase} ${saleMode === "return" ? topBtnActive : "text-muted"}`}
+        class={`${topBtnBase} ${saleMode === "return" ? "border-red-500/40 bg-red-500/15 text-red-400 hover:bg-red-500/25" : "text-muted"}`}
         on:click={() => {
           saleMode = (saleMode === "sale" ? "return" : "sale");
           if (saleMode === "sale") returnSourceContext = null;
@@ -8283,17 +8355,69 @@
     <div class="relative">
       <button
         bind:this={topMoreActionsButtonEl}
-        class={`${topBtnBase} ${showTopMoreActions ? topBtnActive : ""}`}
+        class={`${topBtnBase} relative ${showTopMoreActions ? topBtnActive : ""}`}
         on:click={toggleTopMoreActions}
         title="More actions"
         type="button"
       >
         More
+        {#if queuedEventsTotal > 0}
+          <span class="absolute -top-1 -right-1 inline-flex min-w-[14px] h-3.5 px-0.5 items-center justify-center rounded-full bg-amber-500 text-[8px] font-bold text-white">
+            {queuedEventsTotal > 99 ? "99+" : queuedEventsTotal}
+          </span>
+        {/if}
       </button>
       {#if showTopMoreActions}
-        <div bind:this={topMoreMenuEl} class="fixed z-[81] rounded-2xl border border-ink/10 bg-surface shadow-2xl p-2 space-y-1" style={topMoreMenuStyle}>
+        <div bind:this={topMoreMenuEl} class="fixed z-[81] rounded-xl border border-ink/10 bg-surface shadow-2xl p-1.5 space-y-0.5 min-w-[200px]" style={topMoreMenuStyle}>
+          <!-- Primary actions group -->
           <button
-            class={`w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors ${queuedEventsTotal > 0 ? "border-amber-500/40 bg-amber-500/10" : ""}`}
+            class={moreBtnBase}
+            on:click={() => { showTopMoreActions = false; syncPull(); }}
+            disabled={loading}
+            title={syncPullHint}
+            type="button"
+          >
+            Refresh
+          </button>
+          <button
+            class={moreBtnBase}
+            on:click={() => { showTopMoreActions = false; openCashierModal(cashierCompanyKey || originCompanyKey); }}
+            disabled={loading}
+            title="Cashier login"
+            type="button"
+          >
+            Cashier
+          </button>
+          <button
+            class={moreBtnBase}
+            on:click={() => {
+              showTopMoreActions = false;
+              if (!linkedOpsMode) shiftCompanyKey = checkoutMissingShifts[0] || originCompanyKey;
+              showShiftModal = true;
+              if (linkedOpsMode) shiftRefreshLinked({ quiet: true });
+              else shiftRefresh(shiftCompanyKey, { quiet: true });
+            }}
+            disabled={loading}
+            title="Shift open/close"
+            type="button"
+          >
+            Shift
+          </button>
+
+          <div class="h-px bg-white/5 my-1"></div>
+
+          <!-- Queue & Sync -->
+          <button
+            class={`${moreBtnBase} ${queuedEventsTotal > 0 ? "border-amber-500/40 bg-amber-500/10" : ""}`}
+            on:click={() => { showTopMoreActions = false; showQueueDrawer = true; }}
+            disabled={loading}
+            title="Inspect pending queue events"
+            type="button"
+          >
+            Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
+          </button>
+          <button
+            class={`${moreBtnBase} ${queuedEventsTotal > 0 ? "border-amber-500/40 bg-amber-500/10" : ""}`}
             on:click={() => { showTopMoreActions = false; syncPush(); }}
             disabled={loading}
             title={syncPushHint}
@@ -8301,8 +8425,30 @@
           >
             Send Queue{queuedEventsTotal > 0 ? ` (${queuedEventsTotal})` : ""}
           </button>
+
+          <div class="h-px bg-white/5 my-1"></div>
+
+          <!-- Invoices, Cash, Audit -->
           <button
-            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            class={moreBtnBase}
+            on:click={() => { showTopMoreActions = false; openShiftInvoicesDrawer(); }}
+            disabled={loading}
+            title="Review invoices from this shift"
+            type="button"
+          >
+            Invoices
+          </button>
+          <button
+            class={moreBtnBase}
+            on:click={() => { showTopMoreActions = false; showCashMovementDrawer = true; }}
+            disabled={loading}
+            title="Cash in/out, safe drop, paid out"
+            type="button"
+          >
+            Cash Movement
+          </button>
+          <button
+            class={moreBtnBase}
             on:click={() => { showTopMoreActions = false; openAuditDrawer(); }}
             disabled={loading}
             title="Recent sale/return/retry audit entries"
@@ -8311,24 +8457,19 @@
             Audit
           </button>
           <button
-            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
-            on:click={() => { showTopMoreActions = false; openShiftInvoicesDrawer(); }}
-            disabled={loading}
-            title="Review invoices from this shift"
-            type="button"
-          >
-            Shift Invoices
-          </button>
-          <button
-            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            class={moreBtnBase}
             on:click={() => { showTopMoreActions = false; openReceiptPreview(); }}
             title="Open printable last receipt"
             type="button"
           >
             Receipt
           </button>
+
+          <div class="h-px bg-white/5 my-1"></div>
+
+          <!-- Utility -->
           <button
-            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            class={moreBtnBase}
             on:click={openShortcutsGuide}
             title="Show keyboard shortcuts"
             type="button"
@@ -8337,7 +8478,7 @@
           </button>
           {#if activeScreen === "pos"}
             <button
-              class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+              class={moreBtnBase}
               on:click={() => { showTopMoreActions = false; openCartDrafts(); }}
               title="Open cart drafts"
               type="button"
@@ -8345,20 +8486,17 @@
               Drafts{cartDrafts.length > 0 ? ` (${cartDrafts.length})` : ""}
             </button>
             <button
-              class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors disabled:opacity-60"
-              on:click={() => {
-                showTopMoreActions = false;
-                saveCurrentCartToDraft();
-              }}
+              class={`${moreBtnBase} disabled:opacity-60`}
+              on:click={() => { showTopMoreActions = false; saveCurrentCartToDraft(); }}
               disabled={(cart || []).length === 0}
               title={(cart || []).length === 0 ? "Add items before saving draft" : "Save current cart to drafts"}
               type="button"
             >
-              Save Current As Draft
+              Save As Draft
             </button>
           {/if}
           <button
-            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            class={moreBtnBase}
             on:click={() => { showTopMoreActions = false; toggleTheme(); }}
             title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
             type="button"
@@ -8366,16 +8504,16 @@
             Theme: {theme === "light" ? "Light" : "Dark"}
           </button>
           <button
-            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            class={moreBtnBase}
             on:click={() => { showTopMoreActions = false; setLinkedOpsMode(!linkedOpsMode); }}
             title="Toggle linked operations for cashier and shift actions"
             type="button"
           >
-            Ops Mode: {linkedOpsMode ? "Linked" : "Individual"}
+            Ops: {linkedOpsMode ? "Linked" : "Individual"}
           </button>
           {#if canOpenAdminPortal}
             <button
-              class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+              class={moreBtnBase}
               on:click={() => { showTopMoreActions = false; openAdminPortal(); }}
               title="Open Admin Portal in browser"
               type="button"
@@ -8384,7 +8522,7 @@
             </button>
           {/if}
           <button
-            class="w-full text-left h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors"
+            class={moreBtnBase}
             on:click={() => { showTopMoreActions = false; cashierLogout(); }}
             disabled={loading}
             title="Cashier logout"
@@ -8394,7 +8532,7 @@
           </button>
           {#if webHostUnsupported}
             <a
-              class="w-full h-8 px-3 rounded-xl text-[11px] font-semibold border border-ink/10 bg-surface/55 hover:bg-surface/75 transition-colors inline-flex items-center"
+              class="{moreBtnBase} inline-flex items-center"
               href="https://download.melqard.com"
               target="_blank"
               rel="noopener noreferrer"
@@ -8403,43 +8541,49 @@
               Download POS Desktop
             </a>
           {/if}
-          <div class="px-1 pt-1 text-[10px] text-muted">{syncActionHelp}</div>
-          <div class="px-1 pb-1 text-[10px] text-muted/80">Version: {runtimeVersionText}</div>
+          <div class="px-2 pt-1 text-[9px] text-muted/70">{syncActionHelp}</div>
+          <div class="px-2 pb-0.5 text-[9px] text-muted/50">v{runtimeVersionText}</div>
         </div>
       {/if}
     </div>
   </svelte:fragment>
 
   {#if activeScreen === "pos"}
+    {#if saleMode === "return"}
+      <div class="shrink-0 w-full px-1 mb-1">
+        <div class="flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg bg-red-500/15 border border-red-500/30 text-red-400 font-bold text-xs tracking-wide">
+          <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          <span>RETURN MODE</span>
+        </div>
+      </div>
+    {/if}
     <div
-      class={`pos-screen grid h-full min-h-0 gap-3 ${
+      class={`pos-screen grid h-full min-h-0 gap-2 overflow-hidden ${
         catalogCollapsed
-          ? "grid-cols-1 lg:grid-cols-[64px_1.25fr_0.85fr]"
-          : "grid-cols-1 lg:grid-cols-[0.95fr_1.25fr_0.85fr]"
+          ? "grid-cols-[48px_1.25fr_0.75fr]"
+          : "grid-cols-[0.85fr_1.25fr_0.75fr]"
       }`}
     >
       <!-- Catalog Column (collapsible) -->
       {#if catalogCollapsed}
-        <section class="glass-panel rounded-2xl h-full overflow-hidden flex flex-col items-center justify-between p-3">
+        <section class="glass-panel rounded-xl h-full overflow-hidden flex flex-col items-center justify-between py-2 px-1">
           <button
-            class="w-full py-3 rounded-xl bg-ink/5 hover:bg-ink/10 border border-ink/10 text-xs font-bold text-muted transition-colors"
+            class="w-full py-2 rounded-lg bg-ink/5 hover:bg-ink/10 border border-ink/10 text-[10px] font-bold text-muted transition-colors"
             on:click={toggleCatalog}
             title="Show Catalog"
           >
-            Catalog
+            <svg class="w-4 h-4 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
-          <div class="text-[10px] text-muted rotate-90 whitespace-nowrap select-none opacity-70">
-            Scan anywhere
-          </div>
+          <div class="text-[9px] text-muted rotate-90 whitespace-nowrap select-none opacity-50">Scan</div>
           <button
-            class="w-full py-3 rounded-xl bg-accent/20 hover:bg-accent/30 border border-accent/30 text-xs font-bold text-accent transition-colors"
+            class="w-full py-2 rounded-lg bg-accent/20 hover:bg-accent/30 border border-accent/30 text-[10px] font-bold text-accent transition-colors"
             on:click={() => {
               const scanEl = document.querySelector('[data-scan-input="1"]');
               if (scanEl && scanEl.focus) scanEl.focus();
             }}
             title="Focus scan"
           >
-            Scan
+            <svg class="w-4 h-4 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>
           </button>
         </section>
       {:else}
@@ -8479,7 +8623,7 @@
       </div>
 
       <!-- Right Column: Customer + Current Sale -->
-      <div class="h-full min-h-0 flex flex-col gap-2 overflow-visible relative z-0">
+      <div class="h-full min-h-0 flex flex-col gap-1.5 overflow-visible relative z-0">
         <CustomerSelect
           bind:customerSearch={customerSearch}
           bind:activeCustomer={activeCustomer}
@@ -8601,9 +8745,71 @@
   currency={currencyPrimary}
   mode={saleMode}
   busy={loading || checkoutInFlight}
-  onConfirm={handleProcessSale}
+  lineCount={cart.length}
+  customerName={activeCustomer?.name || ""}
+  onConfirm={(method, cashTendered) => handleProcessSale(method, cashTendered)}
   onCancel={() => showPaymentModal = false}
 />
+
+{#if showDiscountModal}
+  <div class="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <button class="absolute inset-0 bg-black/50 backdrop-blur-sm" on:click={() => showDiscountModal = false} aria-label="Close"></button>
+    <div class="relative w-full max-w-sm bg-surface/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/10 p-6 z-10">
+      <h3 class="text-lg font-bold text-ink mb-1">Manager Discount</h3>
+      <p class="text-sm text-muted mb-4">Enter percentage (e.g. 10%) or flat amount in {discountModalCurrency}</p>
+      <input
+        type="text"
+        bind:value={discountModalValue}
+        placeholder={discountModalCurrency === "LBP" ? "10% or 50000" : "10% or 5.00"}
+        class="w-full px-4 py-3 rounded-xl bg-surface-highlight/40 border border-white/10 focus:border-accent/50 focus:ring-2 focus:ring-accent/30 text-lg font-bold text-ink focus:outline-none mb-3"
+        on:keydown={(e) => e.key === "Enter" && handleDiscountModalConfirm()}
+        autofocus
+      />
+      {#if discountModalError}
+        <p class="text-sm text-red-400 mb-3">{discountModalError}</p>
+      {/if}
+      <div class="grid grid-cols-4 gap-2 mb-4">
+        {#each [0.5, 1, 2, 3] as pct}
+          <button
+            type="button"
+            class="py-2 rounded-lg text-sm font-bold border border-white/10 bg-surface-highlight/50 text-ink/80 hover:bg-accent/20 hover:border-accent/30 hover:text-accent active:scale-95 transition-all"
+            on:click={() => discountModalValue = `${pct}%`}
+          >
+            {pct}%
+          </button>
+        {/each}
+      </div>
+      <div class="flex gap-3">
+        <button class="flex-1 py-3 rounded-xl border border-white/10 bg-surface-highlight/50 text-ink/70 font-bold hover:bg-surface-highlight/60 transition-colors" on:click={() => showDiscountModal = false}>Cancel</button>
+        <button class="flex-1 py-3 rounded-xl bg-accent text-[rgb(var(--color-accent-content))] font-bold hover:scale-[1.02] active:scale-[0.98] transition-all" on:click={handleDiscountModalConfirm}>Apply</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+{#if showSaleComplete && lastSaleSummary}
+  <div
+    class="fixed inset-0 z-[90] flex items-center justify-center pointer-events-none animation-fade-in"
+    on:click={() => showSaleComplete = false}
+    on:keydown={(e) => { if (e.key) showSaleComplete = false; }}
+  >
+    <div class="pointer-events-auto bg-surface/95 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-emerald-500/20 max-w-sm text-center">
+      <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-500/20 flex items-center justify-center">
+        <svg class="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" /></svg>
+      </div>
+      <h3 class="text-2xl font-bold text-ink mb-2">{lastSaleSummary.method === 'credit' ? 'Credit Sale Recorded' : 'Sale Complete'}</h3>
+      <div class="text-4xl num-readable font-extrabold text-accent mb-3">{lastSaleSummary.total?.toFixed?.(2) || '0.00'} {lastSaleSummary.currency || 'USD'}</div>
+      {#if lastSaleSummary.method === 'cash' && lastSaleSummary.changeDue > 0}
+        <div class="text-lg font-bold text-emerald-400 mb-2">Change: {lastSaleSummary.changeDue?.toFixed?.(2) || '0.00'} {lastSaleSummary.currency || 'USD'}</div>
+      {/if}
+      <div class="text-sm text-muted capitalize">{lastSaleSummary.method} payment</div>
+      {#if lastSaleSummary.customerName}
+        <div class="text-sm text-muted mt-1">{lastSaleSummary.customerName}</div>
+      {/if}
+      <div class="mt-4 text-xs text-muted/60">Tap anywhere to dismiss</div>
+    </div>
+  </div>
+{/if}
 
 {#if showShortcutsGuide}
   <div class="fixed inset-0 z-[75] flex items-center justify-center p-4">
@@ -9205,6 +9411,108 @@
             </article>
           {/each}
         {/if}
+      </div>
+    </aside>
+  </div>
+{/if}
+
+{#if showCashMovementDrawer}
+  <div class="fixed inset-0 z-[74]">
+    <button
+      class="absolute inset-0 bg-black/70 backdrop-blur-sm"
+      type="button"
+      aria-label="Close cash movement drawer"
+      on:click={() => showCashMovementDrawer = false}
+    ></button>
+    <aside class="absolute right-0 top-0 h-full w-full max-w-md bg-surface border-l border-ink/10 shadow-2xl overflow-y-auto flex flex-col">
+      <header class="p-5 border-b border-ink/10 flex items-center justify-between gap-3">
+        <h2 class="text-xl font-bold text-ink">Cash Movement</h2>
+        <button
+          class="px-3 py-2 rounded-xl text-xs font-semibold border border-ink/10 bg-ink/5 hover:bg-ink/10 transition-colors"
+          on:click={() => showCashMovementDrawer = false}
+          type="button"
+        >
+          Close
+        </button>
+      </header>
+
+      <div class="flex-1 overflow-y-auto p-5 space-y-5">
+        <!-- Movement Type Selection -->
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-2">Type</label>
+          <div class="grid grid-cols-2 gap-2">
+            {#each [
+              {id: "cash_in", label: "Cash In", tone: "border-emerald-500/40 bg-emerald-500/15 text-emerald-300", desc: "Add float"},
+              {id: "cash_out", label: "Cash Out", tone: "border-red-500/40 bg-red-500/15 text-red-300", desc: "Remove cash"},
+              {id: "safe_drop", label: "Safe Drop", tone: "border-blue-500/40 bg-blue-500/15 text-blue-300", desc: "To safe"},
+              {id: "paid_out", label: "Paid Out", tone: "border-amber-500/40 bg-amber-500/15 text-amber-300", desc: "Expense"}
+            ] as mt}
+              <button
+                type="button"
+                class="p-3 rounded-xl border text-left transition-all {cashMovementType === mt.id
+                  ? mt.tone
+                  : 'bg-ink/5 border-ink/10 text-muted hover:text-ink hover:border-ink/20'}"
+                on:click={() => cashMovementType = mt.id}
+              >
+                <div class="font-bold text-sm">{mt.label}</div>
+                <div class="text-xs opacity-60 mt-0.5">{mt.desc}</div>
+              </button>
+            {/each}
+          </div>
+        </div>
+
+        <!-- Amount Fields -->
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">Amount USD</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              bind:value={cashMovementAmountUsd}
+              placeholder="0.00"
+              class="w-full px-4 py-3 rounded-xl bg-ink/5 border border-ink/10 focus:border-accent/50 focus:ring-2 focus:ring-accent/20 text-lg font-bold text-ink focus:outline-none transition-colors"
+              disabled={cashMovementBusy}
+            />
+          </div>
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">Amount LBP</label>
+            <input
+              type="number"
+              step="1000"
+              min="0"
+              bind:value={cashMovementAmountLbp}
+              placeholder="0"
+              class="w-full px-4 py-3 rounded-xl bg-ink/5 border border-ink/10 focus:border-accent/50 focus:ring-2 focus:ring-accent/20 text-lg font-bold text-ink focus:outline-none transition-colors"
+              disabled={cashMovementBusy}
+            />
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-muted mb-1.5">Notes (optional)</label>
+          <input
+            type="text"
+            bind:value={cashMovementNotes}
+            placeholder="Reason for movement..."
+            class="w-full px-4 py-3 rounded-xl bg-ink/5 border border-ink/10 focus:border-accent/50 focus:ring-2 focus:ring-accent/20 text-sm text-ink focus:outline-none transition-colors"
+            disabled={cashMovementBusy}
+          />
+        </div>
+
+        <!-- Submit -->
+        <button
+          type="button"
+          class="w-full py-3.5 rounded-xl font-bold text-base transition-all
+            {(Number(cashMovementAmountUsd) > 0 || Number(cashMovementAmountLbp) > 0) && !cashMovementBusy
+              ? 'bg-accent text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 hover:shadow-accent/40 active:scale-[0.98]'
+              : 'bg-ink/10 text-ink/40 cursor-not-allowed'}"
+          disabled={!(Number(cashMovementAmountUsd) > 0 || Number(cashMovementAmountLbp) > 0) || cashMovementBusy}
+          on:click={handleRecordCashMovement}
+        >
+          {cashMovementBusy ? 'Recording...' : 'Record Movement'}
+        </button>
       </div>
     </aside>
   </div>

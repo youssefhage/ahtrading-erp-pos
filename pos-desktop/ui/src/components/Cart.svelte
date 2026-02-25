@@ -20,7 +20,7 @@
   };
 
   const fmtMoney = (value, currency = "USD") => {
-    const v = Math.max(0, Number(value) || 0);
+    const v = Number(value) || 0;
     if (currency === "LBP") {
       return `${Math.round(v).toLocaleString()} LBP`;
     }
@@ -172,49 +172,58 @@
     return unitTotalPrice(line, includeVat) * factor;
   };
 
+  let confirmingClear = false;
+  let confirmClearTimer = null;
+
   const confirmClearCart = () => {
     if (!Array.isArray(cart) || cart.length === 0) return;
-    const ok = window.confirm("Clear all items from the current sale?");
-    if (!ok) return;
-    clearCart();
+    if (confirmingClear) {
+      clearCart();
+      confirmingClear = false;
+      if (confirmClearTimer) clearTimeout(confirmClearTimer);
+      return;
+    }
+    confirmingClear = true;
+    confirmClearTimer = setTimeout(() => { confirmingClear = false; }, 3000);
   };
 </script>
 
-<section class="glass-panel rounded-3xl flex flex-col h-full w-full overflow-hidden relative group/panel">
+<section class="glass-panel rounded-2xl flex flex-col h-full w-full overflow-hidden relative group/panel">
   <div class="absolute inset-0 bg-surface/40 pointer-events-none"></div>
-  
-  <header class="relative p-3 border-b border-white/5 flex items-center justify-between shrink-0 z-10">
-    <div class="flex items-center gap-3">
-      <div class="h-8 w-1 rounded-full bg-accent shadow-[0_0_10px_rgba(45,212,191,0.5)]"></div>
-      <h2 class="text-lg font-bold tracking-tight">Current Sale</h2>
-    </div>
+
+  <header class="relative px-2.5 py-1.5 border-b border-white/5 flex items-center justify-between shrink-0 z-10">
     <div class="flex items-center gap-2">
-      <span class="px-2.5 py-1 rounded-lg bg-surface-highlight border border-white/5 text-xs font-mono text-muted">{cart.length} items</span>
+      <div class="h-5 w-0.5 rounded-full bg-accent"></div>
+      <h2 class="text-sm font-bold tracking-tight">Sale</h2>
+      <span class="px-1.5 py-0.5 rounded-md bg-surface-highlight border border-white/5 text-[10px] font-mono text-muted">{cart.length}</span>
+    </div>
+    <div class="flex items-center gap-1.5">
       {#if cart.length > 0}
-        <button 
+        <button
           on:click={confirmClearCart}
-          class="text-xs font-bold text-red-400 hover:text-red-300 transition-colors px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/10 hover:border-red-500/20 active:scale-95"
+          class="text-[10px] font-bold transition-colors px-2 py-1 rounded-md active:scale-95
+            {confirmingClear
+              ? 'text-white bg-red-500 border border-red-400 animate-pulse'
+              : 'text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 border border-red-500/10'}"
         >
-          Clear
+          {confirmingClear ? 'Confirm?' : 'Clear'}
         </button>
         <button
           type="button"
           on:click={saveDraft}
-          class="h-8 w-8 inline-flex items-center justify-center rounded-lg bg-accent/15 hover:bg-accent/25 border border-accent/25 hover:border-accent/40 text-accent transition-colors active:scale-95"
-          title="Save cart as draft"
+          class="h-6 w-6 inline-flex items-center justify-center rounded-md bg-accent/15 hover:bg-accent/25 border border-accent/25 text-accent transition-colors active:scale-95"
+          title="Save draft"
           aria-label="Save cart as draft"
         >
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
             <path d="M5 4h11l3 3v13H5z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M8 4v5h8V4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M8 19v-6h8v6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
       {/if}
     </div>
   </header>
 
-  <div class="relative flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2 z-10">
+  <div class="relative flex-1 overflow-y-auto custom-scrollbar p-1.5 space-y-1.5 z-10">
     {#if cart.length === 0}
       <div class="h-full flex flex-col items-center justify-center text-muted/40 pb-10">
         <div class="p-6 rounded-full bg-surface-highlight/30 mb-4 border border-white/5">
@@ -249,7 +258,7 @@
               title={lineName(line)}
             >{lineName(line)}</h4>
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
-              <span class="font-mono text-[10px] text-muted tracking-wider">{lineSku(line)}</span>
+              <span class="font-mono text-xs text-muted tracking-wider">{lineSku(line)}</span>
               {#if companyLabelForLine(line)}
                 <span class="w-1 h-1 rounded-full bg-white/10"></span>
                 <span
@@ -300,16 +309,18 @@
             <div class="flex items-center bg-surface-highlight/40 rounded-xl border border-white/5 p-0.5 w-full shadow-inner shadow-black/20">
               <button
                 type="button"
-                class="w-7 h-7 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 transition-colors active:scale-90"
-                on:click={() => updateQty(i, toNum(line.qty_entered, 0) - 1)}
+                class="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 transition-colors active:scale-90"
+                on:click={() => updateQty(i, Math.max(1, toNum(line.qty_entered, 0) - 1))}
                 aria-label="Decrease quantity"
                 title="Decrease quantity"
               >
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M20 12H4" /></svg>
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M20 12H4" /></svg>
               </button>
               <input
                 type="number"
-                class="qty-input flex-1 w-0 bg-transparent text-center font-bold num-readable text-[13px] text-ink focus:outline-none focus:text-accent selection:bg-accent/20"
+                min="1"
+                step="any"
+                class="qty-input flex-1 w-0 bg-transparent text-center font-bold num-readable text-sm text-ink focus:outline-none focus:text-accent selection:bg-accent/20"
                 value={line.qty_entered}
                 on:change={(e) => updateQty(i, e.target.value)}
                 on:keydown={(e) => e.key === "Enter" && e.currentTarget?.blur?.()}
@@ -318,12 +329,12 @@
               />
               <button
                 type="button"
-                class="w-7 h-7 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 transition-colors active:scale-90"
+                class="w-9 h-9 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-white/5 transition-colors active:scale-90"
                 on:click={() => updateQty(i, toNum(line.qty_entered, 0) + 1)}
                 aria-label="Increase quantity"
                 title="Increase quantity"
               >
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" /></svg>
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" /></svg>
               </button>
             </div>
           </div>
@@ -332,7 +343,7 @@
             {#if uomOpts.length > 1}
               <div class="relative group/uom w-full">
                 <select
-                  class="w-full appearance-none pl-2.5 pr-7 py-1.5 rounded-xl text-[11px] font-bold uppercase tracking-wider truncate bg-surface-highlight/50 border border-white/5 hover:border-accent/30 text-ink/80 hover:text-accent cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-accent/50"
+                  class="w-full appearance-none pl-2.5 pr-7 py-2 rounded-xl text-xs font-bold uppercase tracking-wider truncate bg-surface-highlight/50 border border-white/5 hover:border-accent/30 text-ink/80 hover:text-accent cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-accent/50"
                   value={optValue(uomSel.opt || uomOpts[0])}
                   title={`Change UOM (${uomMetaText(uomOpts)})`}
                   on:change={(e) => {
@@ -378,9 +389,10 @@
           </div>
 
           <button
-            class="absolute top-2 right-2 p-1.5 rounded-lg text-muted/40 hover:text-red-400 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+            class="absolute top-2 right-2 p-2 rounded-lg text-muted/50 hover:text-red-400 hover:bg-red-500/10 transition-all touch-visible opacity-0 group-hover:opacity-100"
             on:click={() => removeLine(i)}
             title="Remove Item"
+            aria-label="Remove {lineName(line)}"
           >
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -391,6 +403,13 @@
 </section>
 
 <style>
+  /* Make remove button always visible on touch devices */
+  @media (hover: none), (pointer: coarse) {
+    .touch-visible {
+      opacity: 1 !important;
+    }
+  }
+
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
   }

@@ -15,8 +15,10 @@
   export let checkoutBlockedReason = "";
   export let onCheckout = () => {};
 
+  let settingsOpen = false;
+
   const fmtMoney = (value, currency = "USD") => {
-    const v = Math.max(0, Number(value) || 0);
+    const v = Number(value) || 0;
     if (currency === "LBP") return `${Math.round(v).toLocaleString()} LBP`;
     return `${v.toFixed(2)} USD`;
   };
@@ -26,7 +28,7 @@
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
-  const companyLabel = (k) => (k === "unofficial" ? "Unofficial" : "Official");
+  const companyLabel = (k) => (k === "unofficial" ? "UN" : "OF");
   const cartCompaniesSet = (lines) => new Set((lines || []).map((ln) => ln?.companyKey).filter(Boolean));
 
   $: companies = cartCompaniesSet(cart);
@@ -37,23 +39,21 @@
     if (m === "official" || m === "unofficial") return m;
     return cartPrimaryCompany || originCompanyKey || "official";
   })();
-  $: routePreview = (() => {
-    if (flagOfficial) return "Flagged -> Official (single invoice)";
-    if (mixedCart && invoiceCompanyMode === "auto") return "Auto Split -> Official + Unofficial";
-    if (invoiceCompanyMode === "auto") return `Auto Split -> ${companyLabel(resolvedInvoiceCompany)} (single company)`;
-    if (mixedCart) return `Forced -> ${companyLabel(resolvedInvoiceCompany)} (cross-company)`;
-    return `${companyLabel(resolvedInvoiceCompany)} invoice`;
+  $: routeLabel = (() => {
+    if (flagOfficial) return "Flag Official";
+    if (invoiceCompanyMode === "auto") return mixedCart ? "Auto Split" : companyLabel(resolvedInvoiceCompany);
+    return `Force ${companyLabel(resolvedInvoiceCompany)}`;
   })();
   $: routeHint = (() => {
-    if (flagOfficial && mixedCart) return "Mixed lines will be invoiced on Official only if all items exist in Official catalog.";
-    if (!flagOfficial && mixedCart && invoiceCompanyMode !== "auto") return "Cross-company stock moves are skipped and require later review.";
+    if (flagOfficial && mixedCart) return "Mixed lines -> Official only if all items exist in catalog.";
+    if (!flagOfficial && mixedCart && invoiceCompanyMode !== "auto") return "Cross-company stock moves skipped.";
     return "";
   })();
   $: mode = (() => {
     const m = String(vatDisplayMode || "").trim().toLowerCase();
     return (m === "ex" || m === "inc" || m === "both") ? m : "both";
   })();
-  $: modeLabel = mode === "ex" ? "Ex VAT" : (mode === "inc" ? "Incl VAT" : "Both");
+  $: modeLabel = mode === "ex" ? "Ex" : (mode === "inc" ? "Inc" : "Both");
   $: lineTotals = (() => {
     let subtotalUsd = 0;
     let taxUsd = 0;
@@ -78,171 +78,139 @@
   $: emptyCart = lineCount === 0;
   $: splitAlignAdjustmentCents = Math.max(0, Math.trunc(toNum(totalsByCompany?._align_adjustment_cents, 0)));
   $: showSplitAlignBadge = !emptyCart && mixedCart && invoiceCompanyMode === "auto" && splitAlignAdjustmentCents > 0;
-  // Keep checkout enabled when we have either cart lines or a computed total,
-  // and strict guardrails are satisfied (cashier + shift).
   $: hasSaleToCheckout = lineCount > 0 || totalIncUsd > 0;
   $: canCheckout = hasSaleToCheckout && !checkoutBlocked;
 </script>
 
-<section class="glass-panel rounded-3xl p-4 h-full min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-3 relative group/summary">
-  <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-3xl"></div>
-  
-  <div class="relative z-10 flex flex-col gap-3">
-    <!-- Header Controls -->
-    <div class="flex items-start justify-between gap-2">
-      <div>
-        <h3 class="text-[11px] font-bold text-muted uppercase tracking-widest mb-0.5">Invoice Settings</h3>
-        <p class="text-[10px] text-ink/50 leading-tight">Route & display.</p>
-      </div>
-      
-      <div class="flex flex-col items-end gap-1.5">
-         <select
-          class="bg-surface-highlight/50 border border-white/5 hover:border-accent/30 rounded-lg px-2.5 py-1 text-[11px] font-bold text-ink shadow-sm focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none text-right"
-          value={invoiceCompanyMode}
-          on:change={(e) => onInvoiceCompanyModeChange(e.target.value)}
-          title="Invoice mode"
-        >
-          <option value="auto">Auto Split</option>
-          <option value="official">Force Official</option>
-          <option value="unofficial">Force Unofficial</option>
-        </select>
-        
-        <label class="flex items-center gap-2 text-[11px] cursor-pointer group/check">
-          <span class="text-muted group-hover/check:text-ink transition-colors text-[10px] uppercase font-bold tracking-wider">Flag Manual Review</span>
-          <input
-            type="checkbox"
-            class="accent-accent w-3 h-3 rounded border-white/10 bg-surface/50"
-            checked={flagOfficial}
-            on:change={(e) => onFlagOfficialChange(!!e.target.checked)}
-          />
-        </label>
-      </div>
-    </div>
+<section class="glass-panel rounded-2xl p-2.5 h-full min-h-0 flex flex-col relative">
+  <div class="absolute inset-0 bg-surface/40 pointer-events-none rounded-2xl"></div>
 
-    <!-- Route Info -->
-    <div class={`rounded-xl border px-3 py-2 text-xs transition-colors ${routeHint ? "border-amber-500/20 bg-amber-500/5" : "border-white/5 bg-surface-highlight/30"}`}>
-      <div class="flex items-center gap-2">
-        <div class={`w-1.5 h-1.5 rounded-full ${routeHint ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`}></div>
-        <div class="text-[10px] font-bold uppercase tracking-wider text-muted/80">Routing Strategy</div>
+  <!-- Collapsible settings row -->
+  <div class="relative z-10 shrink-0">
+    <button
+      type="button"
+      class="w-full flex items-center justify-between gap-2 py-1 px-1 rounded-lg hover:bg-white/5 transition-colors"
+      on:click={() => settingsOpen = !settingsOpen}
+    >
+      <div class="flex items-center gap-2 min-w-0">
+        <div class={`w-1.5 h-1.5 rounded-full shrink-0 ${routeHint ? "bg-amber-400 animate-pulse" : "bg-emerald-400"}`}></div>
+        <span class="text-[10px] font-bold text-ink uppercase tracking-wider truncate">{routeLabel}</span>
+        <span class="text-[9px] text-muted font-medium">VAT: {modeLabel}</span>
       </div>
-      <div class="mt-1 font-bold text-ink text-[13px]">{routePreview}</div>
-      {#if routeHint}
-        <div class="mt-1.5 text-[10px] text-amber-300/90 leading-snug font-medium bg-amber-500/10 p-1.5 rounded-lg border border-amber-500/10">
-          {routeHint}
-        </div>
-      {/if}
-    </div>
+      <svg class={`w-3 h-3 text-muted shrink-0 transition-transform ${settingsOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </button>
 
-    {#if showPriceDisplayControls}
-      <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-2.5">
-        <div class="text-[10px] font-bold uppercase tracking-wider text-muted mb-1.5">Price Display</div>
-        <div class="grid grid-cols-3 gap-1">
-          <button
-            type="button"
-            class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
-              mode === "ex"
-                ? "bg-accent/20 border-accent/40 text-accent"
-                : "bg-surface/40 border-white/5 text-muted hover:text-ink"
-            }`}
-            on:click={() => onVatDisplayModeChange("ex")}
+    {#if settingsOpen}
+      <div class="mt-1.5 space-y-1.5 pb-1.5 border-b border-white/5">
+        <!-- Invoice mode -->
+        <div class="flex items-center gap-2 px-1">
+          <span class="text-[9px] font-bold text-muted uppercase tracking-wider shrink-0 w-12">Route</span>
+          <select
+            class="flex-1 bg-surface-highlight/50 border border-white/5 hover:border-accent/30 rounded-lg px-2 py-1 text-[10px] font-bold text-ink focus:ring-1 focus:ring-accent/50 focus:outline-none transition-colors cursor-pointer appearance-none"
+            value={invoiceCompanyMode}
+            on:change={(e) => onInvoiceCompanyModeChange(e.target.value)}
           >
-            Ex VAT
-          </button>
-          <button
-            type="button"
-            class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
-              mode === "inc"
-                ? "bg-accent/20 border-accent/40 text-accent"
-                : "bg-surface/40 border-white/5 text-muted hover:text-ink"
-            }`}
-            on:click={() => onVatDisplayModeChange("inc")}
-          >
-            Incl VAT
-          </button>
-          <button
-            type="button"
-            class={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors ${
-              mode === "both"
-                ? "bg-accent/20 border-accent/40 text-accent"
-                : "bg-surface/40 border-white/5 text-muted hover:text-ink"
-            }`}
-            on:click={() => onVatDisplayModeChange("both")}
-          >
-            Both
-          </button>
+            <option value="auto">Auto Split</option>
+            <option value="official">Force Official</option>
+            <option value="unofficial">Force Unofficial</option>
+          </select>
+          <label class="flex items-center gap-1 shrink-0 cursor-pointer" title="Flag for manual review">
+            <input
+              type="checkbox"
+              class="accent-accent w-3 h-3 rounded border-white/10"
+              checked={flagOfficial}
+              on:change={(e) => onFlagOfficialChange(!!e.target.checked)}
+            />
+            <span class="text-[9px] text-muted font-bold uppercase">Flag</span>
+          </label>
         </div>
-        <div class="mt-1 text-[10px] text-muted">Mode: <span class="font-bold text-ink">{modeLabel}</span></div>
-      </div>
-    {:else}
-      <div class="rounded-xl border border-white/5 bg-surface-highlight/25 px-3 py-2 flex items-center justify-between">
-        <span class="text-[10px] uppercase tracking-wider font-bold text-muted">Price Display</span>
-        <span class="text-[11px] font-bold text-ink">{modeLabel}</span>
+
+        {#if routeHint}
+          <div class="mx-1 text-[9px] text-amber-300/90 leading-snug font-medium bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/10">
+            {routeHint}
+          </div>
+        {/if}
+
+        <!-- VAT display mode -->
+        {#if showPriceDisplayControls}
+          <div class="flex items-center gap-2 px-1">
+            <span class="text-[9px] font-bold text-muted uppercase tracking-wider shrink-0 w-12">VAT</span>
+            <div class="flex gap-1 flex-1">
+              {#each [["ex","Ex"],["inc","Inc"],["both","Both"]] as [val, label]}
+                <button
+                  type="button"
+                  class={`flex-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase border transition-colors ${
+                    mode === val
+                      ? "bg-accent/20 border-accent/40 text-accent"
+                      : "bg-surface/40 border-white/5 text-muted hover:text-ink"
+                  }`}
+                  on:click={() => onVatDisplayModeChange(val)}
+                >{label}</button>
+              {/each}
+            </div>
+          </div>
+        {/if}
       </div>
     {/if}
+  </div>
 
-    <!-- Company Split Totals -->
-    {#if totalsByCompany && !emptyCart}
-      <div class="grid grid-cols-2 gap-2">
-        <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-2.5 flex flex-col gap-1">
-          <div class="text-[10px] font-bold uppercase tracking-wider text-muted">Official</div>
-          <div class="num-readable font-bold text-ink text-lg leading-tight">{fmtMoney(mode === "ex" ? officialSubtotalUsd : officialTotalUsd, "USD")}</div>
-          {#if mode === "both"}
-            <div class="text-[10px] text-muted num-readable">ex {fmtMoney(officialSubtotalUsd, "USD")}</div>
-          {/if}
-        </div>
-        <div class="rounded-xl border border-white/5 bg-surface-highlight/30 p-2.5 flex flex-col gap-1">
-          <div class="text-[10px] font-bold uppercase tracking-wider text-muted">Unofficial</div>
-          <div class="num-readable font-bold text-ink text-lg leading-tight">{fmtMoney(mode === "ex" ? unofficialSubtotalUsd : unofficialTotalUsd, "USD")}</div>
-          {#if mode === "both"}
-            <div class="text-[10px] text-muted num-readable">ex {fmtMoney(unofficialSubtotalUsd, "USD")}</div>
-          {/if}
-        </div>
+  <!-- Company split (compact inline) -->
+  {#if totalsByCompany && !emptyCart && mixedCart}
+    <div class="relative z-10 shrink-0 flex gap-1.5 mt-1.5 px-0.5">
+      <div class="flex-1 rounded-lg border border-white/5 bg-surface-highlight/30 px-2 py-1.5">
+        <div class="text-[9px] font-bold uppercase tracking-wider text-muted">OF</div>
+        <div class="num-readable font-bold text-ink text-sm leading-tight">{fmtMoney(mode === "ex" ? officialSubtotalUsd : officialTotalUsd, "USD")}</div>
       </div>
-      {#if showSplitAlignBadge}
-        <div class="rounded-xl border border-accent/30 bg-accent/10 px-2.5 py-2 text-[10px] text-ink/70">
-          <span class="font-semibold text-accent">Audit:</span> split rounded by {fmtMoney(splitAlignAdjustmentCents / 100, "USD")} for cent alignment.
-        </div>
-      {/if}
+      <div class="flex-1 rounded-lg border border-white/5 bg-surface-highlight/30 px-2 py-1.5">
+        <div class="text-[9px] font-bold uppercase tracking-wider text-muted">UN</div>
+        <div class="num-readable font-bold text-ink text-sm leading-tight">{fmtMoney(mode === "ex" ? unofficialSubtotalUsd : unofficialTotalUsd, "USD")}</div>
+      </div>
+    </div>
+    {#if showSplitAlignBadge}
+      <div class="relative z-10 shrink-0 mx-0.5 mt-1 rounded-lg border border-accent/30 bg-accent/10 px-2 py-1 text-[9px] text-ink/70">
+        <span class="font-semibold text-accent">Audit:</span> rounded {fmtMoney(splitAlignAdjustmentCents / 100, "USD")}
+      </div>
     {/if}
+  {/if}
 
-    <!-- Final Totals -->
-    <div class="space-y-1.5 pt-1">
-      {#if !emptyCart}
-        <div class="flex justify-between text-muted text-xs px-1">
-          <span>Subtotal (ex VAT)</span>
+  <!-- Spacer pushes totals+checkout to bottom -->
+  <div class="flex-1 min-h-0"></div>
+
+  <!-- Totals + Checkout pinned at bottom -->
+  <div class="relative z-10 shrink-0 mt-1.5">
+    {#if !emptyCart}
+      <div class="space-y-0.5 px-1 mb-1">
+        <div class="flex justify-between text-muted text-[11px]">
+          <span>Subtotal</span>
           <span class="num-readable font-medium">{fmtMoney(subtotalUsd, "USD")}</span>
         </div>
         {#if taxUsd > 0}
-          <div class="flex justify-between text-muted text-xs px-1">
+          <div class="flex justify-between text-muted text-[11px]">
             <span>VAT</span>
             <span class="num-readable font-medium">{fmtMoney(taxUsd, "USD")}</span>
           </div>
         {/if}
-        <div class="flex justify-between text-muted text-xs px-1">
-          <span>Total (inc VAT)</span>
-          <span class="num-readable font-medium">{fmtMoney(totalIncUsd, "USD")}</span>
+      </div>
+    {/if}
+
+    <div class="border-t border-white/10 pt-1.5 pb-1 px-1">
+      <div class="flex justify-between items-baseline">
+        <span class="text-sm font-bold text-ink">{mode === "ex" ? "Total ex" : "Total"}</span>
+        <span class="num-readable text-xl font-extrabold text-accent tracking-tight">{fmtMoney(primaryTotalUsd, "USD")}</span>
+      </div>
+      {#if mode === "both" && !emptyCart}
+        <div class="text-right text-[9px] text-muted num-readable">
+          ex {fmtMoney(subtotalUsd, "USD")}
         </div>
       {/if}
-
-      <div class="relative py-3 mt-1">
-         <div class="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent"></div>
-         <div class="flex justify-between items-end">
-           <span class="text-lg font-bold text-ink">{mode === "ex" ? "Total (ex VAT)" : "Total (inc VAT)"}</span>
-           <span class="num-readable text-2xl font-extrabold text-accent tracking-tight">{fmtMoney(primaryTotalUsd, "USD")}</span>
-         </div>
-         {#if mode === "both" && !emptyCart}
-           <div class="mt-1 text-right text-[10px] text-muted num-readable">
-             ex {fmtMoney(subtotalUsd, "USD")}
-           </div>
-         {/if}
-      </div>
     </div>
 
-    <!-- Checkout Action -->
     <button
-      class={`w-full py-3 rounded-2xl font-bold text-base tracking-wide transition-all relative overflow-hidden border ${
+      class={`w-full mt-1.5 py-2.5 rounded-xl font-bold text-sm tracking-wide transition-all relative overflow-hidden border ${
         canCheckout
-          ? "border-accent/40 bg-accent bg-gradient-to-br from-accent to-accent-hover text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 hover:shadow-accent/40 hover:scale-[1.02] active:scale-[0.98] group/btn"
+          ? "border-accent/40 bg-accent text-[rgb(var(--color-accent-content))] shadow-lg shadow-accent/25 hover:shadow-accent/40 active:scale-[0.98] group/btn"
           : "border-border/60 bg-surface-highlight/90 text-ink/70 shadow-sm cursor-not-allowed"
       }`}
       disabled={!canCheckout}
@@ -250,15 +218,15 @@
       on:click={onCheckout}
     >
       {#if canCheckout}
-        <div class="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300 rounded-2xl"></div>
+        <div class="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300 rounded-xl"></div>
       {/if}
       <span class="relative z-10 flex items-center justify-center gap-2">
         Checkout
-        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
       </span>
     </button>
     {#if hasSaleToCheckout && checkoutBlockedReason}
-      <div class="text-[10px] text-amber-300 font-semibold px-1">{checkoutBlockedReason}</div>
+      <div class="text-[9px] text-amber-300 font-semibold px-1 mt-1">{checkoutBlockedReason}</div>
     {/if}
   </div>
 </section>

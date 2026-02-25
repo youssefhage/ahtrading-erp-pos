@@ -25,7 +25,7 @@ class Settings:
         return [p for p in parts if p] or default
 
     def __init__(self) -> None:
-        self.env = os.getenv('APP_ENV', 'local')
+        self.env = os.getenv('APP_ENV', 'production')
         self.db_url = os.getenv('DATABASE_URL', 'postgresql://localhost/ahtrading')
         # Comma-separated list of allowed CORS origins for browser/mobile clients.
         # Default keeps local dev working out of the box.
