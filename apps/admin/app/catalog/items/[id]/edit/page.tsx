@@ -426,6 +426,36 @@ export default function ItemEditPage() {
     }
   }
 
+  async function hardDeleteItem() {
+    if (!item) return;
+    const expectedSku = String(item.sku || "").trim();
+    if (!expectedSku) return setStatus("This item has no SKU; cannot confirm delete.");
+
+    const typed = window.prompt(`Type SKU to permanently delete this item:\n${expectedSku}`, "");
+    if (typed === null) return;
+    const confirmSku = String(typed || "").trim();
+    if (!confirmSku) return setStatus("Delete cancelled: confirmation SKU is required.");
+    if (confirmSku.toUpperCase() !== expectedSku.toUpperCase()) {
+      return setStatus(`Delete cancelled: SKU mismatch (expected ${expectedSku}).`);
+    }
+
+    const confirmed = window.confirm(
+      `Permanently delete ${expectedSku} (${item.name || "item"})?\nThis cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    setStatus("Deleting item permanently...");
+    try {
+      await apiDelete(`/items/${encodeURIComponent(item.id)}?confirm_sku=${encodeURIComponent(confirmSku)}`);
+      router.push("/catalog/items/list");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function applySuggestedPrice() {
     if (!item) return;
     if (!priceSuggest?.suggested?.price_usd && !priceSuggest?.suggested?.price_lbp) {
@@ -1008,10 +1038,18 @@ export default function ItemEditPage() {
                   Active
                 </label>
 
-                <div className="md:col-span-6 flex justify-end">
-                  <Button type="submit" disabled={saving}>
-                    {saving ? "..." : "Save"}
-                  </Button>
+                <div className="md:col-span-6 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs text-fg-subtle">
+                    Hard delete is allowed only when the item has no transactional usage.
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" variant="destructive" onClick={hardDeleteItem} disabled={saving}>
+                      Hard Delete
+                    </Button>
+                    <Button type="submit" disabled={saving}>
+                      {saving ? "..." : "Save"}
+                    </Button>
+                  </div>
                 </div>
               </form>
             </CardContent>

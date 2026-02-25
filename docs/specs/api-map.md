@@ -25,6 +25,7 @@
 ## Items & Inventory
 - GET /items
 - POST /items
+- DELETE /items/{item_id}?confirm_sku={sku}
 - GET /inventory/stock
 - POST /inventory/adjust
 

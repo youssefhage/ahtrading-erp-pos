@@ -44,6 +44,160 @@ def _ensure_uom_exists(cur, company_id: str, code: str) -> None:
     )
 
 
+def _norm_sku(value: Optional[str]) -> str:
+    return str(value or "").strip()
+
+
+def _is_unofficial_sku(sku: Optional[str]) -> bool:
+    return _norm_sku(sku).upper().startswith("UN")
+
+
+def _company_name(cur, company_id: str) -> str:
+    cur.execute("SELECT name FROM companies WHERE id = %s", (company_id,))
+    row = cur.fetchone() or {}
+    return str(row.get("name") or "").strip()
+
+
+def _is_official_company_name(name: str) -> bool:
+    n = str(name or "").strip().lower()
+    return ("official" in n) and ("unofficial" not in n)
+
+
+def _is_owner_admin_user(cur, company_id: str, user_id: str) -> bool:
+    """
+    Hard-delete is intentionally limited to owner/admin-level users.
+    Prefer role template_code when available, with a safe legacy fallback.
+    """
+    try:
+        cur.execute(
+            """
+            SELECT 1
+            FROM user_roles ur
+            JOIN roles r ON r.id = ur.role_id
+            WHERE ur.company_id = %s
+              AND ur.user_id = %s
+              AND (
+                COALESCE(r.template_code, '') = 'owner_admin'
+                OR lower(trim(COALESCE(r.name, ''))) IN ('owner (admin)', 'owner', 'admin')
+              )
+            LIMIT 1
+            """,
+            (company_id, user_id),
+        )
+        return bool(cur.fetchone())
+    except pg_errors.UndefinedColumn:
+        cur.execute(
+            """
+            SELECT 1
+            FROM user_roles ur
+            JOIN roles r ON r.id = ur.role_id
+            WHERE ur.company_id = %s
+              AND ur.user_id = %s
+              AND lower(trim(COALESCE(r.name, ''))) IN ('owner (admin)', 'owner', 'admin')
+            LIMIT 1
+            """,
+            (company_id, user_id),
+        )
+        return bool(cur.fetchone())
+
+
+def _require_owner_admin(cur, company_id: str, user_id: str) -> None:
+    if not _is_owner_admin_user(cur, company_id, user_id):
+        raise HTTPException(status_code=403, detail="hard delete requires Owner/Admin role")
+
+
+def _table_exists(cur, table_name: str) -> bool:
+    cur.execute("SELECT to_regclass(%s) IS NOT NULL AS ok", (f"public.{table_name}",))
+    row = cur.fetchone() or {}
+    return bool(row.get("ok"))
+
+
+def _count_rows_if_table_exists(cur, table_name: str, sql: str, params: tuple[Any, ...]) -> int:
+    if not _table_exists(cur, table_name):
+        return 0
+    cur.execute(sql, params)
+    row = cur.fetchone() or {}
+    return int(row.get("n") or 0)
+
+
+def _collect_item_usage_refs(cur, company_id: str, item_id: str) -> Dict[str, int]:
+    refs: Dict[str, int] = {}
+    checks: list[tuple[str, str, tuple[Any, ...]]] = [
+        ("stock_moves", "SELECT COUNT(*)::int AS n FROM stock_moves WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+        ("batches", "SELECT COUNT(*)::int AS n FROM batches WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+        ("sales_return_lines", "SELECT COUNT(*)::int AS n FROM sales_return_lines WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+        ("purchase_order_lines", "SELECT COUNT(*)::int AS n FROM purchase_order_lines WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+        ("goods_receipt_lines", "SELECT COUNT(*)::int AS n FROM goods_receipt_lines WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+        ("supplier_invoice_lines", "SELECT COUNT(*)::int AS n FROM supplier_invoice_lines WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+        ("stock_transfer_lines", "SELECT COUNT(*)::int AS n FROM stock_transfer_lines WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+        ("cycle_count_lines", "SELECT COUNT(*)::int AS n FROM cycle_count_lines WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+        ("inventory_cost_adjustments", "SELECT COUNT(*)::int AS n FROM inventory_cost_adjustments WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+        ("item_warehouse_costs", "SELECT COUNT(*)::int AS n FROM item_warehouse_costs WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+        ("replenishment_tasks", "SELECT COUNT(*)::int AS n FROM replenishment_tasks WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
+    ]
+    for table_name, sql, params in checks:
+        n = _count_rows_if_table_exists(cur, table_name, sql, params)
+        if n > 0:
+            refs[table_name] = n
+
+    if _table_exists(cur, "sales_invoice_lines") and _table_exists(cur, "sales_invoices"):
+        cur.execute(
+            """
+            SELECT COUNT(*)::int AS n
+            FROM sales_invoice_lines l
+            JOIN sales_invoices i ON i.id = l.invoice_id
+            WHERE i.company_id=%s AND l.item_id=%s
+            """,
+            (company_id, item_id),
+        )
+        n = int((cur.fetchone() or {}).get("n") or 0)
+        if n > 0:
+            refs["sales_invoice_lines"] = n
+
+    return refs
+
+
+def _cleanup_item_refs_for_hard_delete(cur, company_id: str, item_id: str) -> None:
+    # Clear optional review mappings first; they should not block item purge.
+    if _table_exists(cur, "supplier_invoice_import_lines"):
+        cur.execute(
+            """
+            UPDATE supplier_invoice_import_lines
+            SET suggested_item_id = NULL
+            WHERE company_id=%s AND suggested_item_id=%s
+            """,
+            (company_id, item_id),
+        )
+        cur.execute(
+            """
+            UPDATE supplier_invoice_import_lines
+            SET resolved_item_id = NULL
+            WHERE company_id=%s AND resolved_item_id=%s
+            """,
+            (company_id, item_id),
+        )
+
+    # Non-transactional references can be removed during a hard delete.
+    delete_sql: list[tuple[str, str]] = [
+        ("item_suppliers", "DELETE FROM item_suppliers WHERE company_id=%s AND item_id=%s"),
+        ("price_list_items", "DELETE FROM price_list_items WHERE company_id=%s AND item_id=%s"),
+        ("promotion_items", "DELETE FROM promotion_items WHERE company_id=%s AND item_id=%s"),
+        ("item_warehouse_policies", "DELETE FROM item_warehouse_policies WHERE company_id=%s AND item_id=%s"),
+        ("replenishment_rules", "DELETE FROM replenishment_rules WHERE company_id=%s AND item_id=%s"),
+        ("supplier_item_aliases", "DELETE FROM supplier_item_aliases WHERE company_id=%s AND item_id=%s"),
+        ("ai_item_sales_daily", "DELETE FROM ai_item_sales_daily WHERE company_id=%s AND item_id=%s"),
+        ("ai_demand_forecasts", "DELETE FROM ai_demand_forecasts WHERE company_id=%s AND item_id=%s"),
+        ("item_price_change_log", "DELETE FROM item_price_change_log WHERE company_id=%s AND item_id=%s"),
+        ("item_cost_change_log", "DELETE FROM item_cost_change_log WHERE company_id=%s AND item_id=%s"),
+        ("item_prices", "DELETE FROM item_prices WHERE item_id=%s"),
+    ]
+    for table_name, sql in delete_sql:
+        if not _table_exists(cur, table_name):
+            continue
+        params = (company_id, item_id) if "company_id=%s" in sql else (item_id,)
+        cur.execute(sql, params)
+
+
 class ItemIn(BaseModel):
     sku: str
     name: str
@@ -991,6 +1145,12 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                sku = _norm_sku(data.sku)
+                if not sku:
+                    raise HTTPException(status_code=400, detail="sku is required")
+                if _is_official_company_name(_company_name(cur, company_id)) and _is_unofficial_sku(sku):
+                    raise HTTPException(status_code=409, detail=f"UN* item cannot be created in Official company: {sku}")
+
                 barcode = data.barcode.strip() if data.barcode else None
                 tags = [t.strip() for t in (data.tags or []) if (t or "").strip()] or None
                 uom = _norm_uom(data.unit_of_measure)
@@ -1034,7 +1194,7 @@ def create_item(data: ItemIn, company_id: str = Depends(get_company_id), user=De
                     """,
                     (
                         company_id,
-                        data.sku,
+                        sku,
                         barcode,
                         data.name,
                         data.item_type,
@@ -1112,6 +1272,7 @@ def bulk_upsert_items(data: BulkItemsIn, company_id: str = Depends(get_company_i
                 # Preload tax codes by name for this company (optional mapping).
                 cur.execute("SELECT id, name FROM tax_codes WHERE company_id = %s", (company_id,))
                 tax_by_name = {(r["name"] or "").strip().lower(): r["id"] for r in cur.fetchall()}
+                is_official_company = _is_official_company_name(_company_name(cur, company_id))
 
                 upserted = 0
                 for it in items:
@@ -1120,6 +1281,8 @@ def bulk_upsert_items(data: BulkItemsIn, company_id: str = Depends(get_company_i
                     uom = _norm_uom((it.unit_of_measure or "").strip() or "EA")
                     if not sku or not name:
                         raise HTTPException(status_code=400, detail="each item requires sku and name")
+                    if is_official_company and _is_unofficial_sku(sku):
+                        raise HTTPException(status_code=409, detail=f"UN* item cannot be created/updated in Official company: {sku}")
 
                     _ensure_uom_exists(cur, company_id, uom)
 
@@ -1287,15 +1450,23 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
         set_company_context(conn, company_id)
         with conn.transaction():
             with conn.cursor() as cur:
+                is_official_company = _is_official_company_name(_company_name(cur, company_id))
                 # Lock the item row so base-UOM changes can be validated safely.
                 cur.execute(
-                    "SELECT unit_of_measure FROM items WHERE company_id=%s AND id=%s FOR UPDATE",
+                    "SELECT unit_of_measure, sku FROM items WHERE company_id=%s AND id=%s FOR UPDATE",
                     (company_id, item_id),
                 )
                 existing = cur.fetchone()
                 if not existing:
                     raise HTTPException(status_code=404, detail="item not found")
                 existing_base_uom = _norm_uom(existing.get("unit_of_measure"))
+                existing_sku = _norm_sku(existing.get("sku"))
+
+                if patch.get("is_active") is True and is_official_company and _is_unofficial_sku(existing_sku):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"UN* item cannot be activated in Official company: {existing_sku}",
+                    )
 
                 if uom_to_ensure:
                     # Base UOM is effectively the "stock UOM". Changing it after any document/stock history
@@ -1427,6 +1598,97 @@ def update_item(item_id: str, data: ItemUpdate, company_id: str = Depends(get_co
                     (company_id, user["user_id"], item_id, json.dumps(patch, default=str)),
                 )
                 return {"ok": True}
+
+
+@router.delete("/{item_id}", dependencies=[Depends(require_permission("items:write"))])
+def hard_delete_item(
+    item_id: str,
+    confirm_sku: str = "",
+    company_id: str = Depends(get_company_id),
+    user=Depends(get_current_user),
+):
+    """
+    Permanently delete an item only when it has zero transactional usage.
+
+    Safety guardrails:
+    - Owner/Admin role required.
+    - SKU confirmation required (query param: confirm_sku).
+    - Blocks when any transactional/history references exist.
+    """
+    confirmed = _norm_sku(confirm_sku)
+    if not confirmed:
+        raise HTTPException(status_code=400, detail="confirm_sku is required")
+
+    with get_conn() as conn:
+        set_company_context(conn, company_id)
+        with conn.transaction():
+            with conn.cursor() as cur:
+                _require_owner_admin(cur, company_id, user["user_id"])
+
+                cur.execute(
+                    """
+                    SELECT id, sku, name
+                    FROM items
+                    WHERE company_id=%s AND id=%s
+                    FOR UPDATE
+                    """,
+                    (company_id, item_id),
+                )
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(status_code=404, detail="item not found")
+
+                sku = _norm_sku(row.get("sku"))
+                if confirmed.upper() != sku.upper():
+                    raise HTTPException(status_code=400, detail=f"confirm_sku mismatch (expected: {sku})")
+
+                refs = _collect_item_usage_refs(cur, company_id, item_id)
+                if refs:
+                    summary = ", ".join(f"{k}={v}" for k, v in sorted(refs.items()))
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"cannot hard-delete item '{sku}': transactional usage exists ({summary})",
+                    )
+
+                _cleanup_item_refs_for_hard_delete(cur, company_id, item_id)
+
+                try:
+                    cur.execute(
+                        """
+                        DELETE FROM items
+                        WHERE company_id=%s AND id=%s
+                        RETURNING id
+                        """,
+                        (company_id, item_id),
+                    )
+                except pg_errors.ForeignKeyViolation as e:
+                    c_name = getattr(getattr(e, "diag", None), "constraint_name", "") or "unknown_fk"
+                    raise HTTPException(status_code=409, detail=f"cannot hard-delete item '{sku}': still referenced ({c_name})")
+
+                deleted = cur.fetchone()
+                if not deleted:
+                    raise HTTPException(status_code=404, detail="item not found")
+
+                cur.execute(
+                    """
+                    INSERT INTO audit_logs (id, company_id, user_id, action, entity_type, entity_id, details)
+                    VALUES (gen_random_uuid(), %s, %s, 'item_hard_delete', 'item', %s, %s::jsonb)
+                    """,
+                    (
+                        company_id,
+                        user["user_id"],
+                        item_id,
+                        json.dumps(
+                            {
+                                "sku": sku,
+                                "name": row.get("name"),
+                                "confirm_sku": confirmed,
+                                "refs_blocking": refs,
+                            }
+                        ),
+                    ),
+                )
+                return {"ok": True, "deleted": True, "item_id": item_id, "sku": sku}
 
 
 @router.post("/{item_id}/prices", dependencies=[Depends(require_permission("items:write"))])
