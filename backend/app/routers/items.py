@@ -132,7 +132,6 @@ def _collect_item_usage_refs(cur, company_id: str, item_id: str) -> Dict[str, in
         ("stock_transfer_lines", "SELECT COUNT(*)::int AS n FROM stock_transfer_lines WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
         ("cycle_count_lines", "SELECT COUNT(*)::int AS n FROM cycle_count_lines WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
         ("inventory_cost_adjustments", "SELECT COUNT(*)::int AS n FROM inventory_cost_adjustments WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
-        ("item_warehouse_costs", "SELECT COUNT(*)::int AS n FROM item_warehouse_costs WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
         ("replenishment_tasks", "SELECT COUNT(*)::int AS n FROM replenishment_tasks WHERE company_id=%s AND item_id=%s", (company_id, item_id)),
     ]
     for table_name, sql, params in checks:
@@ -183,6 +182,7 @@ def _cleanup_item_refs_for_hard_delete(cur, company_id: str, item_id: str) -> No
         ("price_list_items", "DELETE FROM price_list_items WHERE company_id=%s AND item_id=%s"),
         ("promotion_items", "DELETE FROM promotion_items WHERE company_id=%s AND item_id=%s"),
         ("item_warehouse_policies", "DELETE FROM item_warehouse_policies WHERE company_id=%s AND item_id=%s"),
+        ("item_warehouse_costs", "DELETE FROM item_warehouse_costs WHERE company_id=%s AND item_id=%s"),
         ("replenishment_rules", "DELETE FROM replenishment_rules WHERE company_id=%s AND item_id=%s"),
         ("supplier_item_aliases", "DELETE FROM supplier_item_aliases WHERE company_id=%s AND item_id=%s"),
         ("ai_item_sales_daily", "DELETE FROM ai_item_sales_daily WHERE company_id=%s AND item_id=%s"),
